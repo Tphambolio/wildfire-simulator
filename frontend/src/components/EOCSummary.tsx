@@ -16,6 +16,8 @@ interface EOCSummaryProps {
   ignitionPoint: { lat: number; lng: number } | null;
   /** Fuel type label shown in params recap */
   fuelTypeLabel?: string;
+  /** At-risk feature counts from infrastructure overlay (P ≥ 50% intersection) */
+  atRiskCounts?: { roads: number; communities: number; infrastructure: number };
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────────────
@@ -120,7 +122,8 @@ function buildICSText(
   burnArea: BurnAreaStats | null,
   params: RunParams | null,
   ignition: { lat: number; lng: number } | null,
-  fuelTypeLabel?: string
+  fuelTypeLabel?: string,
+  atRiskCounts?: { roads: number; communities: number; infrastructure: number }
 ): string {
   const now = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
   const lines: string[] = [
@@ -180,6 +183,16 @@ function buildICSText(
     lines.push("");
   }
 
+  const hasAtRisk = atRiskCounts &&
+    (atRiskCounts.roads + atRiskCounts.communities + atRiskCounts.infrastructure) > 0;
+  if (hasAtRisk && atRiskCounts) {
+    lines.push("AT-RISK INFRASTRUCTURE (P ≥ 50% burn zone)");
+    if (atRiskCounts.communities > 0) lines.push(`  Communities:    ${atRiskCounts.communities}`);
+    if (atRiskCounts.roads > 0) lines.push(`  Road segments:  ${atRiskCounts.roads}`);
+    if (atRiskCounts.infrastructure > 0) lines.push(`  Infra points:   ${atRiskCounts.infrastructure}`);
+    lines.push("");
+  }
+
   lines.push("— END REPORT —");
   return lines.join("\n");
 }
@@ -206,13 +219,14 @@ export default function EOCSummary({
   runParams,
   ignitionPoint,
   fuelTypeLabel,
+  atRiskCounts,
 }: EOCSummaryProps) {
   const spread = extractSpreadStats(frames);
   const burnArea = burnProbData ? extractBurnAreaStats(burnProbData) : null;
 
   if (!spread && !burnArea && !runParams) return null;
 
-  const icsText = buildICSText(spread, burnArea, runParams, ignitionPoint, fuelTypeLabel);
+  const icsText = buildICSText(spread, burnArea, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(icsText).catch(() => {
@@ -358,6 +372,41 @@ export default function EOCSummary({
           </div>
           <div className="eoc-sublabel" style={{ marginTop: 4 }}>
             Cell size: {burnArea.cellSizeM.toFixed(0)} m
+          </div>
+        </section>
+      )}
+
+      {/* At-risk infrastructure (from overlay layers) */}
+      {atRiskCounts &&
+        (atRiskCounts.roads + atRiskCounts.communities + atRiskCounts.infrastructure) > 0 && (
+        <section className="eoc-section eoc-at-risk-section">
+          <h4 style={{ color: "#ff6600" }}>⚠ At-Risk Infrastructure</h4>
+          <div className="eoc-sublabel" style={{ marginBottom: 6 }}>Features within P ≥ 50% burn zone</div>
+          <div className="eoc-grid">
+            {atRiskCounts.communities > 0 && (
+              <>
+                <span className="eoc-label">Communities</span>
+                <span className="eoc-value eoc-highlight" style={{ color: "#ff6600" }}>
+                  {atRiskCounts.communities}
+                </span>
+              </>
+            )}
+            {atRiskCounts.roads > 0 && (
+              <>
+                <span className="eoc-label">Road segments</span>
+                <span className="eoc-value eoc-highlight" style={{ color: "#ff6600" }}>
+                  {atRiskCounts.roads}
+                </span>
+              </>
+            )}
+            {atRiskCounts.infrastructure > 0 && (
+              <>
+                <span className="eoc-label">Infra points</span>
+                <span className="eoc-value eoc-highlight" style={{ color: "#ff6600" }}>
+                  {atRiskCounts.infrastructure}
+                </span>
+              </>
+            )}
           </div>
         </section>
       )}

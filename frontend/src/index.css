@@ -867,6 +867,185 @@ select {
   text-align: right;
 }
 
+/* ── Infrastructure Overlay Panel ─────────────────────────────────────────── */
+
+.ov-panel {
+  margin-top: 8px;
+}
+
+.ov-panel-hdr {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ov-panel-hdr h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ov-panel-hint {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.ov-layer {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ov-layer:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.ov-layer-hdr {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 5px;
+  min-height: 22px;
+}
+
+.ov-icon {
+  font-size: 13px;
+}
+
+.ov-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ov-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 2px;
+}
+
+.ov-at-risk {
+  color: #ff6600;
+  font-weight: 700;
+}
+
+.ov-empty-hint {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-left: 2px;
+}
+
+.ov-vis-btn {
+  margin-left: auto;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  border: 1px solid;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ov-vis-btn.on {
+  background: rgba(79, 195, 247, 0.18);
+  color: #4fc3f7;
+  border-color: #4fc3f7;
+}
+
+.ov-vis-btn.off {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.ov-clear-btn {
+  padding: 2px 6px;
+  font-size: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ov-clear-btn:hover {
+  color: #f44336;
+  border-color: #f44336;
+}
+
+.ov-drop {
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: 5px;
+}
+
+.ov-drop:hover,
+.ov-drop.dragging {
+  border-color: #4fc3f7;
+  color: #4fc3f7;
+  background: rgba(79, 195, 247, 0.06);
+}
+
+.ov-url-row {
+  display: flex;
+  gap: 4px;
+}
+
+.ov-url-input {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.ov-url-input:focus {
+  border-color: #4fc3f7;
+}
+
+.ov-fetch-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(79, 195, 247, 0.15);
+  color: #4fc3f7;
+  border: 1px solid #4fc3f7;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ov-fetch-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ov-error {
+  font-size: 10px;
+  color: #f44336;
+  margin-top: 4px;
+}
+
+.eoc-at-risk-section {
+  border-top: 1px solid rgba(255, 102, 0, 0.3);
+  background: rgba(255, 102, 0, 0.05);
+  border-radius: 4px;
+  padding: 6px;
+  margin-top: 4px;
+}
+
 /* Print styles: show only the EOC summary */
 @media print {
   body * {

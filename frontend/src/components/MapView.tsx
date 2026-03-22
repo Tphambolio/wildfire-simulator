@@ -161,6 +161,13 @@ interface MapViewProps {
   ignitionPoint: { lat: number; lng: number } | null;
   burnProbabilityData?: BurnProbabilityResponse | null;
   showBurnProbView?: boolean;
+  /** Annotated overlay GeoJSON (features include _at_risk: 0|1 property) */
+  overlayRoads?: GeoJSON.FeatureCollection | null;
+  overlayRoadsVisible?: boolean;
+  overlayCommunities?: GeoJSON.FeatureCollection | null;
+  overlayCommunitiesVisible?: boolean;
+  overlayInfrastructure?: GeoJSON.FeatureCollection | null;
+  overlayInfrastructureVisible?: boolean;
 }
 
 export default function MapView({
@@ -171,6 +178,12 @@ export default function MapView({
   ignitionPoint,
   burnProbabilityData,
   showBurnProbView = false,
+  overlayRoads = null,
+  overlayRoadsVisible = true,
+  overlayCommunities = null,
+  overlayCommunitiesVisible = true,
+  overlayInfrastructure = null,
+  overlayInfrastructureVisible = true,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -446,6 +459,110 @@ export default function MapView({
     };
     pulseAnimRef.current = requestAnimationFrame(animatePulse);
 
+    // ── Infrastructure overlay layers ──────────────────────────────────────
+    // Roads (LineString)
+    if (m.getSource("overlay-roads")) {
+      if (m.getLayer("overlay-roads-line")) m.removeLayer("overlay-roads-line");
+      m.removeSource("overlay-roads");
+    }
+    m.addSource("overlay-roads", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    m.addLayer({
+      id: "overlay-roads-line",
+      type: "line",
+      source: "overlay-roads",
+      paint: {
+        "line-color": ["case", ["==", ["get", "_at_risk"], 1], "#ff3d00", "#4fc3f7"],
+        "line-width": ["case", ["==", ["get", "_at_risk"], 1], 3, 1.5],
+        "line-opacity": ["case", ["==", ["get", "_at_risk"], 1], 0.95, 0.65],
+      },
+    });
+
+    // Communities (Polygon)
+    if (m.getSource("overlay-communities")) {
+      if (m.getLayer("overlay-communities-fill")) m.removeLayer("overlay-communities-fill");
+      if (m.getLayer("overlay-communities-outline")) m.removeLayer("overlay-communities-outline");
+      m.removeSource("overlay-communities");
+    }
+    m.addSource("overlay-communities", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    m.addLayer({
+      id: "overlay-communities-fill",
+      type: "fill",
+      source: "overlay-communities",
+      paint: {
+        "fill-color": ["case", ["==", ["get", "_at_risk"], 1], "#ff3d00", "#26c6da"],
+        "fill-opacity": ["case", ["==", ["get", "_at_risk"], 1], 0.25, 0.12],
+      },
+    });
+    m.addLayer({
+      id: "overlay-communities-outline",
+      type: "line",
+      source: "overlay-communities",
+      paint: {
+        "line-color": ["case", ["==", ["get", "_at_risk"], 1], "#ff3d00", "#26c6da"],
+        "line-width": ["case", ["==", ["get", "_at_risk"], 1], 2.5, 1.5],
+        "line-opacity": 0.9,
+        "line-dasharray": ["case", ["==", ["get", "_at_risk"], 1],
+          ["literal", [1, 0]], ["literal", [3, 2]]],
+      },
+    });
+
+    // Infrastructure points
+    if (m.getSource("overlay-infra")) {
+      if (m.getLayer("overlay-infra-circle")) m.removeLayer("overlay-infra-circle");
+      m.removeSource("overlay-infra");
+    }
+    m.addSource("overlay-infra", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    m.addLayer({
+      id: "overlay-infra-circle",
+      type: "circle",
+      source: "overlay-infra",
+      paint: {
+        "circle-radius": ["case", ["==", ["get", "_at_risk"], 1], 8, 6],
+        "circle-color": ["case", ["==", ["get", "_at_risk"], 1], "#ff3d00", "#29b6f6"],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": ["case", ["==", ["get", "_at_risk"], 1], "#ffcc00", "#ffffff"],
+        "circle-opacity": 0.92,
+      },
+    });
+
+    // Click handler for infrastructure points — show name/type popup
+    m.on("click", "overlay-infra-circle", (e) => {
+      if (!e.features || !e.features.length) return;
+      const props = e.features[0].properties as Record<string, unknown>;
+      const name = (props.name ?? props.label ?? props.NAME ?? "Infrastructure point") as string;
+      const type = (props.type ?? props.TYPE ?? "") as string;
+      const atRisk = props._at_risk === 1;
+      new maplibregl.Popup({ closeButton: true, maxWidth: "200px" })
+        .setLngLat(e.lngLat)
+        .setHTML(
+          `<div style="background:#1a2540;color:#e0e0e0;padding:8px 10px;border-radius:4px;font-size:12px">
+            <strong style="color:${atRisk ? "#ff6600" : "#29b6f6"}">${name}</strong><br/>
+            ${type ? `<span style="color:#aaa">${type}</span><br/>` : ""}
+            ${atRisk ? '<span style="color:#ff6600;font-weight:700">⚠ At-risk (P ≥ 50%)</span>' : ""}
+          </div>`
+        )
+        .addTo(m);
+    });
+    m.on("mouseenter", "overlay-infra-circle", () => { m.getCanvas().style.cursor = "pointer"; });
+    m.on("mouseleave", "overlay-infra-circle", () => { m.getCanvas().style.cursor = ""; });
+
+    // Click handler for community polygons
+    m.on("click", "overlay-communities-fill", (e) => {
+      if (!e.features || !e.features.length) return;
+      const props = e.features[0].properties as Record<string, unknown>;
+      const name = (props.name ?? props.NAME ?? props.label ?? "Community") as string;
+      const atRisk = props._at_risk === 1;
+      new maplibregl.Popup({ closeButton: true, maxWidth: "200px" })
+        .setLngLat(e.lngLat)
+        .setHTML(
+          `<div style="background:#1a2540;color:#e0e0e0;padding:8px 10px;border-radius:4px;font-size:12px">
+            <strong style="color:${atRisk ? "#ff6600" : "#26c6da"}">${name}</strong><br/>
+            ${atRisk ? '<span style="color:#ff6600;font-weight:700">⚠ At-risk (P ≥ 50%)</span>' : ""}
+          </div>`
+        )
+        .addTo(m);
+    });
+
     // Signal that fire layers are ready — triggers perimeter data re-apply
     setFireLayersVersion((v) => v + 1);
   }, []);
@@ -713,6 +830,32 @@ export default function MapView({
       if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", hasBurnData ? "none" : "visible");
     });
   }, [showBurnProbView, burnProbabilityData, mapReady, fireLayersVersion]);
+
+  // Sync overlay GeoJSON sources
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const m = map.current;
+    const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+    const roadsSrc = m.getSource("overlay-roads") as maplibregl.GeoJSONSource | undefined;
+    if (roadsSrc) roadsSrc.setData(overlayRoads ?? empty);
+    const commSrc = m.getSource("overlay-communities") as maplibregl.GeoJSONSource | undefined;
+    if (commSrc) commSrc.setData(overlayCommunities ?? empty);
+    const infraSrc = m.getSource("overlay-infra") as maplibregl.GeoJSONSource | undefined;
+    if (infraSrc) infraSrc.setData(overlayInfrastructure ?? empty);
+  }, [overlayRoads, overlayCommunities, overlayInfrastructure, mapReady, fireLayersVersion]);
+
+  // Overlay layer visibility
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const m = map.current;
+    const setVis = (id: string, v: boolean) => {
+      if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", v ? "visible" : "none");
+    };
+    setVis("overlay-roads-line", overlayRoadsVisible);
+    setVis("overlay-communities-fill", overlayCommunitiesVisible);
+    setVis("overlay-communities-outline", overlayCommunitiesVisible);
+    setVis("overlay-infra-circle", overlayInfrastructureVisible);
+  }, [overlayRoadsVisible, overlayCommunitiesVisible, overlayInfrastructureVisible, mapReady, fireLayersVersion]);
 
   const flyTo = useCallback((lat: number, lng: number, zoom = 12) => {
     map.current?.flyTo({ center: [lng, lat], zoom, duration: 1500 });
