@@ -4,9 +4,6 @@ Implements equations from:
     Forestry Canada Fire Danger Group (1992).
     Development and Structure of the Canadian Forest Fire Behavior
     Prediction System. Information Report ST-X-3.
-
-This is the pure-Python reference implementation. For performance-critical
-batch calculations, use calculator_jit.py (Numba JIT).
 """
 
 from __future__ import annotations
