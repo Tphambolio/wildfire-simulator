@@ -61,6 +61,14 @@ class SimulationCreate(BaseModel):
         default=None,
         description="Path to WUI zones GeoJSON with spread modifiers",
     )
+    use_ca_mode: bool = Field(
+        default=False,
+        description=(
+            "Force cellular automaton spread model. When True and no fuel_grid_path "
+            "is supplied, a synthetic mixed-fuel landscape is generated around the "
+            "ignition point for demo/testing purposes."
+        ),
+    )
 
 
 class SimulationStatus(str, Enum):

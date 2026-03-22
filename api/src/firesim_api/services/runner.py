@@ -234,6 +234,22 @@ class SimulationRunner:
                 getattr(params, "wui_zones_path", None),
             )
 
+            # Synthetic CA mode: generate a grid when no real data is available
+            if fuel_grid is None and getattr(params, "use_ca_mode", False):
+                from firesim.data.synthetic_grid import generate_synthetic_fuel_grid
+
+                fuel_grid = generate_synthetic_fuel_grid(
+                    ignition_lat=params.ignition_lat,
+                    ignition_lng=params.ignition_lng,
+                    radius_km=5.0,
+                    cell_size_m=50.0,
+                )
+                logger.info(
+                    "Synthetic CA grid generated: %dx%d around (%.4f, %.4f)",
+                    fuel_grid.rows, fuel_grid.cols,
+                    params.ignition_lat, params.ignition_lng,
+                )
+
             simulator = Simulator(
                 config,
                 fuel_grid=fuel_grid,

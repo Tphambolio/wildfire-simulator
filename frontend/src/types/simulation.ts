@@ -26,6 +26,7 @@ export interface SimulationCreate {
   water_path?: string | null;
   buildings_path?: string | null;
   wui_zones_path?: string | null;
+  use_ca_mode?: boolean;
 }
 
 export interface SimulationFrame {

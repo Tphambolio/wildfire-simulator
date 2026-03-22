@@ -451,16 +451,9 @@ export default function MapView({
       const heatSrc = map.current.getSource("fire-heatmap") as maplibregl.GeoJSONSource | undefined;
       if (!heatSrc) return;
 
-      // Accumulate all burned cells up to current frame
-      const allCells: Array<{ lat: number; lng: number; intensity: number }> = [];
-      for (let i = 0; i <= currentFrameIndex; i++) {
-        const f = frames[i];
-        if (f.burned_cells) {
-          for (const c of f.burned_cells) {
-            allCells.push(c);
-          }
-        }
-      }
+      // Each frame already contains ALL cumulative cells up to that point.
+      // Use the current frame directly — no cross-frame accumulation needed.
+      const allCells = currentFrame.burned_cells as Array<{ lat: number; lng: number; intensity: number }>;
 
       const features: GeoJSON.Feature[] = allCells.map((c) => ({
         type: "Feature" as const,

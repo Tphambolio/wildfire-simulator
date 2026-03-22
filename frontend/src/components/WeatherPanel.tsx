@@ -30,6 +30,7 @@ export default function WeatherPanel({
   });
   const [fuelType, setFuelType] = useState("C2");
   const [useEdmontonGrid, setUseEdmontonGrid] = useState(false);
+  const [useSyntheticCA, setUseSyntheticCA] = useState(false);
   const [includeWater, setIncludeWater] = useState(true);
   const [includeBuildings, setIncludeBuildings] = useState(true);
   const [includeWUI, setIncludeWUI] = useState(true);
@@ -64,6 +65,7 @@ export default function WeatherPanel({
       water_path: useEdmontonGrid && includeWater ? EDMONTON_WATER_PATH : null,
       buildings_path: useEdmontonGrid && includeBuildings ? EDMONTON_BUILDINGS_PATH : null,
       wui_zones_path: useEdmontonGrid && includeWUI ? EDMONTON_WUI_PATH : null,
+      use_ca_mode: useSyntheticCA && !useEdmontonGrid,
     });
   };
 
@@ -220,16 +222,31 @@ export default function WeatherPanel({
           Use Edmonton Fuel Grid (FBP 10m)
         </label>
         {!useEdmontonGrid && (
-          <select
-            value={fuelType}
-            onChange={(e) => setFuelType(e.target.value)}
-          >
-            {Object.entries(FUEL_TYPES).map(([code, name]) => (
-              <option key={code} value={code}>
-                {code} — {name}
-              </option>
-            ))}
-          </select>
+          <>
+            <select
+              value={fuelType}
+              onChange={(e) => setFuelType(e.target.value)}
+            >
+              {Object.entries(FUEL_TYPES).map(([code, name]) => (
+                <option key={code} value={code}>
+                  {code} — {name}
+                </option>
+              ))}
+            </select>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px" }}>
+              <input
+                type="checkbox"
+                checked={useSyntheticCA}
+                onChange={(e) => setUseSyntheticCA(e.target.checked)}
+              />
+              Cellular automaton (synthetic fuel mosaic)
+            </label>
+            {useSyntheticCA && (
+              <div className="hint" style={{ fontSize: "0.85em", opacity: 0.7 }}>
+                Generates a 5km mixed-fuel grid around the ignition point — shows heatmap spread
+              </div>
+            )}
+          </>
         )}
         {useEdmontonGrid && (
           <>
