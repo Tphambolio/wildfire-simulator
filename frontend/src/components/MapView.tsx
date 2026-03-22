@@ -8,7 +8,7 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { SimulationFrame } from "../types/simulation";
+import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 
 function LocationSearch({ onSelect }: { onSelect: (lat: number, lng: number, name: string) => void }) {
   const [query, setQuery] = useState("");
@@ -140,6 +140,7 @@ interface MapViewProps {
   currentFrameIndex: number;
   onMapClick: (lat: number, lng: number) => void;
   ignitionPoint: { lat: number; lng: number } | null;
+  burnProbabilityData?: BurnProbabilityResponse | null;
 }
 
 export default function MapView({
@@ -147,6 +148,7 @@ export default function MapView({
   currentFrameIndex,
   onMapClick,
   ignitionPoint,
+  burnProbabilityData,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -178,6 +180,11 @@ export default function MapView({
       if (m.getLayer("fire-heatmap-layer")) m.removeLayer("fire-heatmap-layer");
       if (m.getLayer("fire-cells-layer")) m.removeLayer("fire-cells-layer");
       m.removeSource("fire-heatmap");
+    }
+    // Remove burn probability layer if present
+    if (m.getSource("burn-probability")) {
+      if (m.getLayer("burn-probability-layer")) m.removeLayer("burn-probability-layer");
+      m.removeSource("burn-probability");
     }
 
     m.addSource("fire-perimeter", {
@@ -280,6 +287,32 @@ export default function MapView({
         "circle-opacity": 0.7,
         "circle-stroke-width": 0.5,
         "circle-stroke-color": "#333",
+      },
+    });
+
+    // Burn probability heatmap source + layer (Monte Carlo mode)
+    m.addSource("burn-probability", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    m.addLayer({
+      id: "burn-probability-layer",
+      type: "heatmap",
+      source: "burn-probability",
+      paint: {
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "probability"], 0, 0, 1, 1],
+        "heatmap-intensity": 2.0,
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 10, 12, 20, 14, 35],
+        "heatmap-color": [
+          "interpolate", ["linear"], ["heatmap-density"],
+          0,   "rgba(0,0,0,0)",
+          0.1, "rgba(0,100,220,0.4)",
+          0.3, "rgba(0,200,180,0.55)",
+          0.5, "rgba(255,220,0,0.7)",
+          0.7, "rgba(255,140,0,0.82)",
+          1.0, "rgba(200,30,10,0.92)",
+        ],
+        "heatmap-opacity": 0.88,
       },
     });
 
@@ -540,6 +573,47 @@ export default function MapView({
       spotSrc.setData({ type: "FeatureCollection", features: sfFeatures });
     }
   }, [frames, currentFrameIndex, mapReady, fireLayersVersion]);
+
+  // Render burn probability heatmap when Monte Carlo result arrives
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const src = map.current.getSource("burn-probability") as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+
+    if (!burnProbabilityData) {
+      src.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    const { burn_probability, rows, cols, lat_min, lat_max, lng_min, lng_max } = burnProbabilityData;
+    const cellLat = (lat_max - lat_min) / rows;
+    const cellLng = (lng_max - lng_min) / cols;
+
+    // Convert 2D probability array to GeoJSON points (skip P=0 cells for performance)
+    const features: GeoJSON.Feature[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const p = burn_probability[r]?.[c] ?? 0;
+        if (p <= 0) continue;
+        const lat = lat_max - (r + 0.5) * cellLat;
+        const lng = lng_min + (c + 0.5) * cellLng;
+        features.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [lng, lat] },
+          properties: { probability: p },
+        });
+      }
+    }
+    src.setData({ type: "FeatureCollection", features });
+
+    // Auto-zoom to show the burn probability extent
+    if (features.length > 0) {
+      map.current.fitBounds(
+        [[lng_min, lat_min], [lng_max, lat_max]],
+        { padding: 40, maxZoom: 12, duration: 800 },
+      );
+    }
+  }, [burnProbabilityData, mapReady, fireLayersVersion]);
 
   // Toggle spot fire layer visibility
   useEffect(() => {

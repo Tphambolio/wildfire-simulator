@@ -107,3 +107,36 @@ class SimulationResponse(BaseModel):
     config: SimulationCreate | None = None
     frames: list[SimulationFrame] = []
     error: str | None = None
+
+
+class BurnProbabilityRequest(BaseModel):
+    """Request body for Monte Carlo burn probability analysis."""
+
+    ignition_lat: float = Field(..., ge=-90, le=90, description="Ignition latitude")
+    ignition_lng: float = Field(..., ge=-180, le=180, description="Ignition longitude")
+    weather: WeatherParams
+    fwi_overrides: FWIOverrides | None = None
+    duration_hours: float = Field(default=4.0, gt=0, le=24, description="Duration per iteration (hours)")
+    n_iterations: int = Field(default=100, ge=1, le=500, description="Number of Monte Carlo iterations")
+    jitter_m: float = Field(default=100.0, ge=0, le=1000, description="Ignition point jitter radius (metres)")
+    wind_speed_pct: float = Field(default=10.0, ge=0, le=50, description="Wind speed variation (±%)")
+    rh_abs: float = Field(default=5.0, ge=0, le=30, description="Relative humidity variation (±absolute %)")
+    base_seed: int = Field(default=42, description="Base random seed for reproducibility")
+    fuel_grid_path: str | None = Field(default=None, description="Path to GeoTIFF fuel raster")
+    water_path: str | None = Field(default=None, description="Path to water bodies GeoJSON")
+    buildings_path: str | None = Field(default=None, description="Path to buildings GeoJSON")
+
+
+class BurnProbabilityResponse(BaseModel):
+    """Response from Monte Carlo burn probability analysis."""
+
+    burn_probability: list[list[float]]  # 2D array [rows][cols], values [0, 1]
+    rows: int
+    cols: int
+    lat_min: float
+    lat_max: float
+    lng_min: float
+    lng_max: float
+    n_iterations: int
+    iterations_completed: int
+    cell_size_m: float

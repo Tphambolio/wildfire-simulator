@@ -1,6 +1,6 @@
 /** API client for the FireSim backend. */
 
-import type { SimulationCreate, SimulationResponse, CurrentWeather, FWIResult } from "../types/simulation";
+import type { SimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse } from "../types/simulation";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -60,6 +60,21 @@ export async function calculateFWI(params: {
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     throw new Error(err.detail || "FWI calculation failed");
+  }
+  return resp.json();
+}
+
+export async function computeBurnProbability(
+  params: BurnProbabilityRequest
+): Promise<BurnProbabilityResponse> {
+  const resp = await fetch(`${API_BASE}/api/v1/simulations/burn-probability`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(err.detail || "Burn probability computation failed");
   }
   return resp.json();
 }

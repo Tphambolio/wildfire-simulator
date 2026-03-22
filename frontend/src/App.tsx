@@ -6,7 +6,8 @@ import WeatherPanel from "./components/WeatherPanel";
 import FireMetrics from "./components/FireMetrics";
 import TimeSlider from "./components/TimeSlider";
 import { useSimulation } from "./hooks/useSimulation";
-import type { SimulationCreate, SimulationFrame } from "./types/simulation";
+import { computeBurnProbability } from "./services/api";
+import type { SimulationCreate, SimulationFrame, BurnProbabilityResponse } from "./types/simulation";
 
 function exportPerimeterGeoJSON(
   frames: SimulationFrame[],
@@ -69,6 +70,9 @@ export default function App() {
     lng: number;
   } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [burnProbabilityData, setBurnProbabilityData] = useState<BurnProbabilityResponse | null>(null);
+  const [burnProbRunning, setBurnProbRunning] = useState(false);
+  const [burnProbError, setBurnProbError] = useState<string | null>(null);
 
   const {
     status,
@@ -94,6 +98,23 @@ export default function App() {
       startSimulation(params);
     },
     [startSimulation]
+  );
+
+  const handleComputeBurnProbability = useCallback(
+    async (params: import("./types/simulation").BurnProbabilityRequest) => {
+      setBurnProbRunning(true);
+      setBurnProbError(null);
+      setBurnProbabilityData(null);
+      try {
+        const result = await computeBurnProbability(params);
+        setBurnProbabilityData(result);
+      } catch (err) {
+        setBurnProbError(err instanceof Error ? err.message : "Burn probability failed");
+      } finally {
+        setBurnProbRunning(false);
+      }
+    },
+    []
   );
 
   return (
@@ -143,8 +164,10 @@ export default function App() {
         <aside className={`sidebar${sidebarOpen ? "" : " collapsed"}`}>
           <WeatherPanel
             onStartSimulation={handleStartSimulation}
+            onComputeBurnProbability={handleComputeBurnProbability}
             ignitionPoint={ignitionPoint}
             isRunning={isRunning}
+            burnProbRunning={burnProbRunning}
           />
           <FireMetrics
             frame={currentFrame}
@@ -159,6 +182,7 @@ export default function App() {
             currentFrameIndex={currentFrameIndex}
             onMapClick={handleMapClick}
             ignitionPoint={ignitionPoint}
+            burnProbabilityData={burnProbabilityData}
           />
           <TimeSlider
             frames={frames}
@@ -171,6 +195,11 @@ export default function App() {
       {error && (
         <div className="error-toast">
           {error}
+        </div>
+      )}
+      {burnProbError && (
+        <div className="error-toast">
+          Burn probability: {burnProbError}
         </div>
       )}
     </div>

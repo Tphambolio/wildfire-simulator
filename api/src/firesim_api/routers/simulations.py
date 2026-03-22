@@ -9,6 +9,8 @@ import logging
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from firesim_api.schemas.simulation import (
+    BurnProbabilityRequest,
+    BurnProbabilityResponse,
     SimulationCreate,
     SimulationFrame as FrameSchema,
     SimulationResponse,
@@ -169,3 +171,102 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
         pass
     finally:
         await ws_manager.disconnect(sim_id, websocket)
+
+
+# ---------------------------------------------------------------------------
+# Monte Carlo burn probability
+# ---------------------------------------------------------------------------
+
+
+@router.post("/burn-probability", response_model=BurnProbabilityResponse)
+async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbabilityResponse:
+    """Run Monte Carlo burn probability analysis.
+
+    Runs N iterations of the CA fire spread model with varied ignition points
+    and weather inputs to produce a probabilistic burn probability map.
+    Requires a fuel grid (from fuel_grid_path or FIRESIM_FUEL_GRID_PATH env var).
+
+    Returns a 2D burn probability array where each cell value is
+    P(burned) = iterations_burned / iterations_completed ∈ [0, 1].
+    """
+    import os
+
+    from firesim.data.fuel_loader import load_fuel_grid
+    from firesim.spread.huygens import SpreadConditions
+    from firesim.spread.montecarlo import BurnProbabilityResult, MonteCarloConfig, run_monte_carlo
+    from firesim_api.settings import settings
+
+    # Resolve fuel grid path (explicit > env var)
+    fuel_path = params.fuel_grid_path or settings.fuel_grid_path
+    if not fuel_path:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Burn probability analysis requires a fuel grid. "
+                "Supply fuel_grid_path in the request or set the "
+                "FIRESIM_FUEL_GRID_PATH environment variable."
+            ),
+        )
+    if not os.path.exists(fuel_path):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Fuel grid file not found: {fuel_path!r}",
+        )
+
+    # Load fuel grid (runs synchronously — large files may take a moment)
+    try:
+        water_path = params.water_path or settings.water_path
+        buildings_path = params.buildings_path or settings.buildings_path
+        fuel_grid = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: load_fuel_grid(
+                fuel_path,
+                water_path=water_path,
+                buildings_path=buildings_path,
+            ),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load fuel grid: {exc}") from exc
+
+    fwi = params.fwi_overrides
+    conditions = SpreadConditions(
+        wind_speed=params.weather.wind_speed,
+        wind_direction=params.weather.wind_direction,
+        ffmc=fwi.ffmc if fwi and fwi.ffmc is not None else 85.0,
+        dmc=fwi.dmc if fwi and fwi.dmc is not None else 40.0,
+        dc=fwi.dc if fwi and fwi.dc is not None else 200.0,
+    )
+
+    mc_config = MonteCarloConfig(
+        ignition_lat=params.ignition_lat,
+        ignition_lng=params.ignition_lng,
+        duration_hours=params.duration_hours,
+        n_iterations=params.n_iterations,
+        jitter_m=params.jitter_m,
+        wind_speed_pct=params.wind_speed_pct,
+        rh_abs=params.rh_abs,
+        base_seed=params.base_seed,
+    )
+
+    # Run Monte Carlo in a thread (CPU-bound)
+    result: BurnProbabilityResult = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: run_monte_carlo(mc_config, fuel_grid, conditions),
+    )
+
+    return BurnProbabilityResponse(
+        burn_probability=result.burn_probability,
+        rows=result.rows,
+        cols=result.cols,
+        lat_min=result.lat_min,
+        lat_max=result.lat_max,
+        lng_min=result.lng_min,
+        lng_max=result.lng_max,
+        n_iterations=result.n_iterations,
+        iterations_completed=result.iterations_completed,
+        cell_size_m=result.cell_size_m,
+    )

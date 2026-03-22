@@ -1,20 +1,24 @@
 /** Weather and simulation parameter controls. */
 
 import { useState } from "react";
-import type { SimulationCreate, WeatherParams, FWIOverrides } from "../types/simulation";
+import type { SimulationCreate, WeatherParams, FWIOverrides, BurnProbabilityRequest } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI } from "../services/api";
 
 interface WeatherPanelProps {
   onStartSimulation: (params: SimulationCreate) => void;
+  onComputeBurnProbability?: (params: BurnProbabilityRequest) => void;
   ignitionPoint: { lat: number; lng: number } | null;
   isRunning: boolean;
+  burnProbRunning?: boolean;
 }
 
 export default function WeatherPanel({
   onStartSimulation,
+  onComputeBurnProbability,
   ignitionPoint,
   isRunning,
+  burnProbRunning,
 }: WeatherPanelProps) {
   const [weather, setWeather] = useState<WeatherParams>({
     wind_speed: 20,
@@ -41,6 +45,7 @@ export default function WeatherPanel({
   const [weatherMessage, setWeatherMessage] = useState<string | null>(null);
   const [fwiLoading, setFwiLoading] = useState(false);
   const [computedFWI, setComputedFWI] = useState<{ isi: number; bui: number; fwi: number; danger_rating: string } | null>(null);
+  const [mcIterations, setMcIterations] = useState(50);
 
   const EDMONTON_FUEL_GRID_PATH =
     "/home/rpas/dev/wildfire/wildfire-self-learning/data/fuel_maps/Edmonton_FBP_FuelLayer_20251105_10m.tif";
@@ -50,6 +55,21 @@ export default function WeatherPanel({
     "/home/rpas/dev/wildfire/wildfire-self-learning/data/edmonton_buildings.geojson.gz";
   const EDMONTON_WUI_PATH =
     "/home/rpas/dev/wildfire/wildfire-self-learning/data/wui_zones.geojson.gz";
+
+  const handleMonteCarlo = () => {
+    if (!ignitionPoint || !onComputeBurnProbability) return;
+    onComputeBurnProbability({
+      ignition_lat: ignitionPoint.lat,
+      ignition_lng: ignitionPoint.lng,
+      weather,
+      fwi_overrides: fwi,
+      duration_hours: durationHours,
+      n_iterations: mcIterations,
+      fuel_grid_path: useEdmontonGrid ? EDMONTON_FUEL_GRID_PATH : null,
+      water_path: useEdmontonGrid && includeWater ? EDMONTON_WATER_PATH : null,
+      buildings_path: useEdmontonGrid && includeBuildings ? EDMONTON_BUILDINGS_PATH : null,
+    });
+  };
 
   const handleSubmit = () => {
     if (!ignitionPoint) return;
@@ -418,6 +438,42 @@ export default function WeatherPanel({
       >
         {isRunning ? "Simulating..." : "Run Simulation"}
       </button>
+
+      {onComputeBurnProbability && (
+        <div style={{ marginTop: 12, borderTop: "1px solid #2a3a5a", paddingTop: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <label style={{ fontSize: 12, color: "#aab", flex: "0 0 auto" }}>Monte Carlo iterations:</label>
+            <input
+              type="number"
+              min={5}
+              max={500}
+              step={5}
+              value={mcIterations}
+              onChange={e => setMcIterations(Math.max(5, Math.min(500, parseInt(e.target.value) || 50)))}
+              style={{ width: 64, padding: "3px 6px", background: "#1a2540", color: "#e0e0e0",
+                border: "1px solid #445", borderRadius: 4, fontSize: 12 }}
+            />
+          </div>
+          <button
+            className="btn-secondary"
+            style={{ width: "100%", background: "#1a3060", borderColor: "#3a60a0" }}
+            onClick={handleMonteCarlo}
+            disabled={!ignitionPoint || burnProbRunning || isRunning || (!useEdmontonGrid && !useSyntheticCA)}
+            title={
+              !useEdmontonGrid && !useSyntheticCA
+                ? "Enable Edmonton Grid or Synthetic CA to run Monte Carlo"
+                : "Run Monte Carlo burn probability analysis"
+            }
+          >
+            {burnProbRunning ? "Running Monte Carlo..." : "Burn Probability (Monte Carlo)"}
+          </button>
+          {!useEdmontonGrid && !useSyntheticCA && (
+            <div style={{ fontSize: 11, color: "#778", marginTop: 4 }}>
+              Enable Edmonton Grid or Synthetic CA to use Monte Carlo.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

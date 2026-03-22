@@ -71,6 +71,35 @@ export interface FWIResult {
   danger_rating: string;
 }
 
+export interface BurnProbabilityRequest {
+  ignition_lat: number;
+  ignition_lng: number;
+  weather: WeatherParams;
+  fwi_overrides?: FWIOverrides;
+  duration_hours: number;
+  n_iterations: number;
+  jitter_m?: number;
+  wind_speed_pct?: number;
+  rh_abs?: number;
+  base_seed?: number;
+  fuel_grid_path?: string | null;
+  water_path?: string | null;
+  buildings_path?: string | null;
+}
+
+export interface BurnProbabilityResponse {
+  burn_probability: number[][];  // 2D [rows][cols], values [0, 1]
+  rows: number;
+  cols: number;
+  lat_min: number;
+  lat_max: number;
+  lng_min: number;
+  lng_max: number;
+  n_iterations: number;
+  iterations_completed: number;
+  cell_size_m: number;
+}
+
 export interface CurrentWeather {
   lat: number;
   lng: number;
