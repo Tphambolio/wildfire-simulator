@@ -193,6 +193,20 @@ export default function WeatherPanel({
             }
           />
         </label>
+
+        <label>
+          24h Precipitation: <strong>{weather.precipitation_24h} mm</strong>
+          <input
+            type="range"
+            min={0}
+            max={50}
+            step={0.5}
+            value={weather.precipitation_24h}
+            onChange={(e) =>
+              setWeather({ ...weather, precipitation_24h: Number(e.target.value) })
+            }
+          />
+        </label>
       </div>
 
       <div className="section">
