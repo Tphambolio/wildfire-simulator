@@ -124,6 +124,51 @@ class TerrainGrid:
         return self.slope[row][col], self.aspect[row][col]
 
 
+@dataclass
+class SpreadModifierGrid:
+    """Per-cell spread rate and intensity multipliers (e.g. WUI zones).
+
+    ros_multiplier < 1.0 slows fire (defended space).
+    intensity_multiplier > 1.0 boosts intensity (anthropogenic fuels).
+    ember_multiplier > 1.0 increases ember spotting probability.
+    """
+
+    ros_multiplier: list[list[float]]        # [row][col], 1.0 = no change
+    intensity_multiplier: list[list[float]]   # [row][col], 1.0 = no change
+    ember_multiplier: list[list[float]]       # [row][col], 1.0 = no change
+    lat_min: float
+    lat_max: float
+    lng_min: float
+    lng_max: float
+    rows: int
+    cols: int
+
+    def get_modifiers_at(
+        self, lat: float, lng: float
+    ) -> tuple[float, float, float]:
+        """Look up modifiers at a coordinate.
+
+        Returns (ros_mult, intensity_mult, ember_mult).
+        Defaults to (1.0, 1.0, 1.0) if outside grid.
+        """
+        if lat < self.lat_min or lat > self.lat_max:
+            return 1.0, 1.0, 1.0
+        if lng < self.lng_min or lng > self.lng_max:
+            return 1.0, 1.0, 1.0
+
+        row = int((self.lat_max - lat) / (self.lat_max - self.lat_min) * self.rows)
+        col = int((lng - self.lng_min) / (self.lng_max - self.lng_min) * self.cols)
+
+        row = max(0, min(self.rows - 1, row))
+        col = max(0, min(self.cols - 1, col))
+
+        return (
+            self.ros_multiplier[row][col],
+            self.intensity_multiplier[row][col],
+            self.ember_multiplier[row][col],
+        )
+
+
 # Meters per degree of latitude (approximate)
 _M_PER_DEG_LAT = 111320.0
 
@@ -141,6 +186,7 @@ def expand_vertex(
     aspect_deg: float,
     dt_minutes: float,
     num_rays: int = 36,
+    ros_modifier: float = 1.0,
 ) -> list[FireVertex]:
     """Expand a single fire front vertex as a Huygens wavelet.
 
@@ -171,7 +217,7 @@ def expand_vertex(
         grass_cure=conditions.grass_cure,
     )
 
-    head_ros = fbp.ros_final  # m/min
+    head_ros = fbp.ros_final * ros_modifier  # m/min, modified by WUI zone
 
     if head_ros <= 0.001:
         return [vertex]  # No spread
@@ -258,6 +304,7 @@ def expand_fire_front(
     dt_minutes: float,
     default_fuel: FuelType = FuelType.C2,
     num_rays: int = 36,
+    spread_modifier_grid: SpreadModifierGrid | None = None,
 ) -> list[FireVertex]:
     """Expand the entire fire front by one Huygens wavelet timestep.
 
@@ -273,6 +320,7 @@ def expand_fire_front(
         dt_minutes: Timestep in minutes
         default_fuel: Fuel type to use when grid is None or lookup fails
         num_rays: Number of directional rays per wavelet
+        spread_modifier_grid: Optional per-cell ROS/intensity multipliers
 
     Returns:
         New fire front vertices (expanded)
@@ -287,12 +335,19 @@ def expand_fire_front(
             if local_fuel is not None:
                 fuel = local_fuel
             else:
-                continue  # Non-fuel: this vertex doesn't spread
+                # Non-fuel: vertex stays in place (barrier edge)
+                all_points.append(vertex)
+                continue
 
         # Look up local terrain
         slope_pct, aspect_deg = 0.0, 0.0
         if terrain_grid is not None:
             slope_pct, aspect_deg = terrain_grid.get_slope_aspect(vertex.lat, vertex.lng)
+
+        # Get WUI zone modifiers if available
+        ros_mod = 1.0
+        if spread_modifier_grid is not None:
+            ros_mod, _, _ = spread_modifier_grid.get_modifiers_at(vertex.lat, vertex.lng)
 
         # Expand this vertex
         wavelet = expand_vertex(
@@ -303,8 +358,30 @@ def expand_fire_front(
             aspect_deg=aspect_deg,
             dt_minutes=dt_minutes,
             num_rays=num_rays,
+            ros_modifier=ros_mod,
         )
-        all_points.extend(wavelet)
+
+        # Clip rays that land on non-fuel — shorten to barrier boundary
+        if fuel_grid is not None:
+            clipped = []
+            for wp in wavelet:
+                if fuel_grid.get_fuel_at(wp.lat, wp.lng) is not None:
+                    clipped.append(wp)  # Endpoint has fuel, keep it
+                else:
+                    # Binary search for the fuel/non-fuel boundary
+                    good_lat, good_lng = vertex.lat, vertex.lng
+                    bad_lat, bad_lng = wp.lat, wp.lng
+                    for _ in range(5):  # 5 iterations = ~3% of cell resolution
+                        mid_lat = (good_lat + bad_lat) / 2
+                        mid_lng = (good_lng + bad_lng) / 2
+                        if fuel_grid.get_fuel_at(mid_lat, mid_lng) is not None:
+                            good_lat, good_lng = mid_lat, mid_lng
+                        else:
+                            bad_lat, bad_lng = mid_lat, mid_lng
+                    clipped.append(FireVertex(lat=good_lat, lng=good_lng))
+            all_points.extend(clipped)
+        else:
+            all_points.extend(wavelet)
 
     if not all_points:
         return front  # No spread occurred

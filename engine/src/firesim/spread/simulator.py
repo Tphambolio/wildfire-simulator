@@ -24,11 +24,14 @@ from firesim.spread.huygens import (
     FireVertex,
     FuelGrid,
     SpreadConditions,
+    SpreadModifierGrid,
     TerrainGrid,
     expand_fire_front,
     simplify_front,
 )
 from firesim.spread.perimeter import calculate_polygon_area_ha, vertices_to_polygon
+from firesim.spread.cellular import CellularFrame, run_cellular_simulation
+from firesim.spread.spotting import SpotFire, check_ember_spotting
 from firesim.types import FBPResult, FireType, SimulationConfig, SimulationFrame
 
 logger = logging.getLogger(__name__)
@@ -55,6 +58,7 @@ class Simulator:
         default_fuel: FuelType = FuelType.C2,
         dt_minutes: float = 5.0,
         num_rays: int = 36,
+        spread_modifier_grid: SpreadModifierGrid | None = None,
     ):
         """Initialize simulator.
 
@@ -67,6 +71,7 @@ class Simulator:
                 accuracy. Smaller = more accurate but slower.
             num_rays: Number of directional rays per Huygens wavelet.
                 More rays = smoother perimeters but slower.
+            spread_modifier_grid: Per-cell WUI zone modifiers (None = no modification)
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -74,14 +79,25 @@ class Simulator:
         self.default_fuel = default_fuel
         self.dt_minutes = dt_minutes
         self.num_rays = num_rays
+        self.spread_modifier_grid = spread_modifier_grid
 
     def run(self) -> Generator[SimulationFrame, None, None]:
         """Run the simulation, yielding frames at snapshot intervals.
+
+        Auto-selects spread model:
+        - Fuel grid present → cellular automaton (wraps around buildings)
+        - No fuel grid → Huygens wavelet (open wildland)
 
         Yields:
             SimulationFrame at each snapshot_interval_minutes
         """
         config = self.config
+
+        # Auto-select: CA for large spatial grids (real-world data),
+        # Huygens for uniform fuel or small test grids
+        if self.fuel_grid is not None and self.fuel_grid.rows >= 50 and self.fuel_grid.cols >= 50:
+            yield from self._run_cellular()
+            return
 
         # Initialize fire front at ignition point
         # Start with a small circle of vertices (avoids single-point issues)
@@ -110,41 +126,150 @@ class Simulator:
             self.default_fuel.value,
         )
 
+        # Multi-front support: list of independent fire fronts
+        fronts: list[list[FireVertex]] = [front]
+        all_spot_fires: list[SpotFire] = []
+
         # Yield initial frame (t=0)
-        yield self._create_frame(front, 0.0)
+        merged = self._merge_fronts(fronts)
+        yield self._create_frame(merged, 0.0, spot_fires=[], num_fronts=1)
 
         # Main simulation loop
         while elapsed_minutes < total_minutes:
-            # Advance one timestep
             dt = min(self.dt_minutes, total_minutes - elapsed_minutes)
 
-            new_front = expand_fire_front(
-                front=front,
-                conditions=conditions,
-                fuel_grid=self.fuel_grid,
-                terrain_grid=self.terrain_grid,
-                dt_minutes=dt,
-                default_fuel=self.default_fuel,
-                num_rays=self.num_rays,
-            )
+            new_fronts: list[list[FireVertex]] = []
+            timestep_spots: list[SpotFire] = []
 
-            # Simplify to control vertex count
-            front = simplify_front(new_front)
+            for f in fronts:
+                new_front = expand_fire_front(
+                    front=f,
+                    conditions=conditions,
+                    fuel_grid=self.fuel_grid,
+                    terrain_grid=self.terrain_grid,
+                    dt_minutes=dt,
+                    default_fuel=self.default_fuel,
+                    num_rays=self.num_rays,
+                    spread_modifier_grid=self.spread_modifier_grid,
+                )
+                new_fronts.append(simplify_front(new_front))
 
+                # Check ember spotting (only when fuel grid present — no barriers to jump otherwise)
+                if self.fuel_grid is not None:
+                    spots = check_ember_spotting(
+                        front=f,
+                        conditions=conditions,
+                        fuel_grid=self.fuel_grid,
+                        spread_modifier_grid=self.spread_modifier_grid,
+                        default_fuel=self.default_fuel,
+                        dt_minutes=dt,
+                    )
+                    timestep_spots.extend(spots)
+
+            # Create new fronts from spot fires (cap at 10 active fronts)
+            MAX_FRONTS = 10
+            for spot in timestep_spots:
+                if len(new_fronts) >= MAX_FRONTS:
+                    break
+                new_fronts.append(
+                    self._create_ignition_front(spot.lat, spot.lng, radius_m=15.0)
+                )
+                all_spot_fires.append(spot)
+
+            fronts = new_fronts
             elapsed_minutes += dt
 
             # Yield snapshot if we've reached the interval
             if elapsed_minutes >= next_snapshot or elapsed_minutes >= total_minutes:
                 time_hours = elapsed_minutes / 60.0
-                frame = self._create_frame(front, time_hours)
+                merged = self._merge_fronts(fronts)
+                frame = self._create_frame(
+                    merged, time_hours,
+                    spot_fires=all_spot_fires,
+                    num_fronts=len(fronts),
+                )
                 yield frame
                 next_snapshot += snapshot_interval
 
+        merged_final = self._merge_fronts(fronts)
         logger.info(
-            "Simulation complete: %.1fh, final area=%.1f ha",
+            "Simulation complete: %.1fh, final area=%.1f ha, %d fronts, %d spot fires",
             config.duration_hours,
-            calculate_polygon_area_ha(front),
+            calculate_polygon_area_ha(merged_final),
+            len(fronts),
+            len(all_spot_fires),
         )
+
+    def _run_cellular(self) -> Generator[SimulationFrame, None, None]:
+        """Run cellular automaton spread model.
+
+        Used when fuel_grid is present (urban/WUI scenarios).
+        Produces per-cell burned data instead of perimeter polygons.
+        """
+        config = self.config
+        conditions = SpreadConditions(
+            wind_speed=config.weather.wind_speed,
+            wind_direction=config.weather.wind_direction,
+            ffmc=config.ffmc if config.ffmc is not None else 85.0,
+            dmc=config.dmc if config.dmc is not None else 40.0,
+            dc=config.dc if config.dc is not None else 200.0,
+        )
+
+        ca_frames = run_cellular_simulation(
+            config={
+                "ignition_lat": config.ignition_lat,
+                "ignition_lng": config.ignition_lng,
+                "duration_hours": config.duration_hours,
+            },
+            fuel_grid=self.fuel_grid,
+            conditions=conditions,
+            default_fuel=self.default_fuel,
+            spread_modifier_grid=self.spread_modifier_grid,
+            dt_minutes=1.0,
+            snapshot_interval_minutes=config.snapshot_interval_minutes,
+        )
+
+        for cf in ca_frames:
+            # Convert CellularFrame to SimulationFrame
+            # Perimeter = convex boundary of burned cells (for area display)
+            if cf.burned_cells:
+                perimeter = [
+                    (c.lat, c.lng) for c in cf.burned_cells[::max(1, len(cf.burned_cells) // 100)]
+                ]
+            else:
+                perimeter = []
+
+            # Build burned_cells list for heatmap rendering (with age for coloring)
+            burned_data = [
+                {"lat": c.lat, "lng": c.lng, "intensity": c.intensity, "fuel": c.fuel_type, "t": c.timestep}
+                for c in cf.burned_cells
+            ]
+
+            yield SimulationFrame(
+                time_hours=cf.time_hours,
+                perimeter=perimeter,
+                area_ha=cf.area_ha,
+                head_ros_m_min=cf.mean_ros,
+                max_hfi_kw_m=cf.max_intensity,
+                fire_type=FireType.SURFACE,
+                flame_length_m=0.0,
+                fuel_breakdown=cf.fuel_breakdown,
+                spot_fires=None,
+                num_fronts=1,
+                burned_cells=burned_data,
+            )
+
+    @staticmethod
+    def _merge_fronts(fronts: list[list[FireVertex]]) -> list[FireVertex]:
+        """Merge multiple fire fronts into a single vertex list.
+
+        For simplicity, concatenates all vertices. The convex hull in
+        simplify_front will handle the outer boundary.
+        """
+        merged: list[FireVertex] = []
+        for f in fronts:
+            merged.extend(f)
+        return merged
 
     def _create_ignition_front(
         self, lat: float, lng: float, radius_m: float = 30.0, num_points: int = 12
@@ -176,7 +301,9 @@ class Simulator:
         return vertices
 
     def _create_frame(
-        self, front: list[FireVertex], time_hours: float
+        self, front: list[FireVertex], time_hours: float,
+        spot_fires: list[SpotFire] | None = None,
+        num_fronts: int = 1,
     ) -> SimulationFrame:
         """Create a SimulationFrame from the current fire front.
 
@@ -222,4 +349,9 @@ class Simulator:
             fire_type=fbp.fire_type,
             flame_length_m=fbp.flame_length,
             fuel_breakdown=fuel_breakdown,
+            spot_fires=[
+                {"lat": s.lat, "lng": s.lng, "distance_m": s.distance_m, "hfi_kw_m": s.hfi_kw_m}
+                for s in (spot_fires or [])
+            ] or None,
+            num_fronts=num_fronts,
         )

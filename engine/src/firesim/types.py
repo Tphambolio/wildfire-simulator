@@ -83,3 +83,6 @@ class SimulationFrame:
     fire_type: FireType
     flame_length_m: float
     fuel_breakdown: dict[str, float]  # {fuel_code: fraction_of_burned_area}
+    spot_fires: list[dict] | None = None  # [{lat, lng, distance_m, hfi_kw_m}, ...]
+    num_fronts: int = 1
+    burned_cells: list[dict] | None = None  # [{lat, lng, intensity, fuel}, ...] for CA mode
