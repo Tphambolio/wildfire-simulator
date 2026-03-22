@@ -164,6 +164,7 @@ def run_cellular_simulation(
     all_burned_cells: list[BurnedCell] = []
     snapshot_burned_cells: list[BurnedCell] = []  # cells since last snapshot
     iteration = 0
+    last_mean_ros = 0.0  # mean ROS of active burning cells at last timestep
 
     # Fire spread direction (opposite of wind FROM)
     spread_dir = (conditions.wind_direction + 180.0) % 360.0
@@ -179,6 +180,7 @@ def run_cellular_simulation(
             frame = _make_frame(
                 elapsed, all_burned_cells, snapshot_burned_cells,
                 rows, cols, cell_size_m, fuel_grid, burned,
+                mean_ros=last_mean_ros,
             )
             frames.append(frame)
             snapshot_burned_cells = []  # reset for next interval
@@ -192,6 +194,9 @@ def run_cellular_simulation(
         # Get all currently burning cell coordinates
         burn_rows, burn_cols = np.where(burning)
 
+        ros_sum = 0.0
+        ros_count = 0
+
         for idx in range(len(burn_rows)):
             row, col = int(burn_rows[idx]), int(burn_cols[idx])
 
@@ -202,6 +207,8 @@ def run_cellular_simulation(
 
             # Get FBP output
             ros_base, fi, lbr, fire_type = get_fbp(fuel)
+            ros_sum += ros_base
+            ros_count += 1
 
             # Apply WUI modifiers
             ros_mod = 1.0
@@ -265,6 +272,10 @@ def run_cellular_simulation(
                     all_burned_cells.append(cell)
                     snapshot_burned_cells.append(cell)
 
+        # Update mean ROS for this timestep
+        if ros_count > 0:
+            last_mean_ros = ros_sum / ros_count
+
         # Update burn timers — cells burn for duration then become burned-out
         burn_timer[burning] += dt_minutes
         exhausted = burning & (burn_timer >= burn_duration)
@@ -281,6 +292,7 @@ def run_cellular_simulation(
         frame = _make_frame(
             min(elapsed, duration_minutes), all_burned_cells, snapshot_burned_cells,
             rows, cols, cell_size_m, fuel_grid, burned,
+            mean_ros=last_mean_ros,
         )
         frames.append(frame)
 
@@ -340,6 +352,7 @@ def _make_frame(
     cell_size_m: float,
     fuel_grid: FuelGrid,
     burned: np.ndarray,
+    mean_ros: float = 0.0,
 ) -> CellularFrame:
     """Create a frame snapshot with all cumulative cells + timestamps."""
     total = int(np.sum(burned))
@@ -361,6 +374,6 @@ def _make_frame(
         new_cells=len(new_burned_cells),
         area_ha=area_ha,
         max_intensity=max_intensity,
-        mean_ros=0.0,
+        mean_ros=mean_ros,
         fuel_breakdown=fuel_breakdown,
     )

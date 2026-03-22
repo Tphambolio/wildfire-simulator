@@ -558,3 +558,44 @@ class TestMakeFrame:
         )
         assert frame.fuel_breakdown.get("C2", 0) == pytest.approx(2 / 3, rel=1e-6)
         assert frame.fuel_breakdown.get("C3", 0) == pytest.approx(1 / 3, rel=1e-6)
+
+    def test_mean_ros_passed_through(self):
+        """mean_ros parameter must be stored in the frame (not hardcoded 0)."""
+        grid = make_uniform_grid(rows=10, cols=10)
+        burned = np.zeros((10, 10), dtype=bool)
+        frame = _make_frame(
+            elapsed_minutes=30.0,
+            all_burned_cells=[],
+            new_burned_cells=[],
+            rows=10,
+            cols=10,
+            cell_size_m=100.0,
+            fuel_grid=grid,
+            burned=burned,
+            mean_ros=7.42,
+        )
+        assert frame.mean_ros == pytest.approx(7.42)
+
+
+class TestMeanROSFromSimulation:
+    """Verify mean_ros is non-zero in frames from an active simulation."""
+
+    def test_mean_ros_nonzero_after_spread(self, moderate_conditions):
+        """Frames after ignition must report mean_ros > 0."""
+        random.seed(10)
+        np.random.seed(10)
+        grid = make_uniform_grid(rows=15, cols=15)
+        config = center_config(grid, duration_hours=1.0)
+        frames = run_cellular_simulation(
+            config=config,
+            fuel_grid=grid,
+            conditions=moderate_conditions,
+            dt_minutes=1.0,
+            snapshot_interval_minutes=30.0,
+        )
+        # After fire has spread there must be at least one frame with mean_ros > 0
+        nonzero = [f for f in frames if f.mean_ros > 0.0]
+        assert len(nonzero) >= 1, (
+            "Expected at least one frame with mean_ros > 0 after fire spread, "
+            f"got: {[f.mean_ros for f in frames]}"
+        )
