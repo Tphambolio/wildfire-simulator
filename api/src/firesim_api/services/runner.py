@@ -53,6 +53,10 @@ class SimulationRunner:
     def __init__(self) -> None:
         self._runs: dict[str, SimulationRun] = {}
         self._lock = threading.Lock()
+        # Cache loaded grids keyed by (fuel_path, water_path, buildings_path, wui_path)
+        # Grids are spatial only — independent of weather/FWI, so safe to reuse
+        self._grid_cache: dict[tuple, tuple] = {}
+        self._grid_cache_lock = threading.Lock()
 
     def create(
         self,
@@ -87,6 +91,83 @@ class SimulationRunner:
     def get(self, sim_id: str) -> SimulationRun | None:
         with self._lock:
             return self._runs.get(sim_id)
+
+    def _load_grids(
+        self,
+        fuel_path: str | None,
+        water_path: str | None,
+        buildings_path: str | None,
+        wui_path: str | None,
+    ) -> tuple:
+        """Load fuel grid and WUI modifiers, caching by path combo.
+
+        Grids are purely spatial — independent of weather/FWI/ignition point,
+        so they're safe to reuse across simulations.
+        """
+        if not fuel_path:
+            return None, None
+
+        cache_key = (fuel_path, water_path, buildings_path, wui_path)
+
+        with self._grid_cache_lock:
+            if cache_key in self._grid_cache:
+                cached_fuel, _ = self._grid_cache[cache_key]
+                if cached_fuel is not None:
+                    logger.info(
+                        "Grid cache HIT: %s — serving %dx%d grid from cache",
+                        fuel_path, cached_fuel.rows, cached_fuel.cols,
+                    )
+                else:
+                    logger.info("Grid cache HIT: %s (no grid loaded)", fuel_path)
+                return self._grid_cache[cache_key]
+
+        logger.info("Grid cache MISS: loading %s", fuel_path)
+
+        # Load outside lock (slow operation, don't block other threads)
+        from firesim.data.fuel_loader import load_fuel_grid
+
+        try:
+            fuel_grid = load_fuel_grid(
+                fuel_path,
+                water_path=water_path,
+                buildings_path=buildings_path,
+            )
+        except FileNotFoundError:
+            logger.error("Fuel grid file not found: %s", fuel_path)
+            raise
+        except ValueError as exc:
+            logger.error("Fuel grid rejected (%s): %s", fuel_path, exc)
+            raise
+        except Exception as exc:
+            logger.error(
+                "Failed to load fuel grid from %s: %s — "
+                "file may be corrupt or in an unsupported format",
+                fuel_path, exc,
+            )
+            raise
+
+        spread_modifier_grid = None
+        if wui_path:
+            from firesim.data.wui_loader import load_wui_modifiers
+
+            spread_modifier_grid = load_wui_modifiers(
+                wui_path,
+                bounds=(fuel_grid.lat_min, fuel_grid.lat_max,
+                        fuel_grid.lng_min, fuel_grid.lng_max),
+                rows=fuel_grid.rows,
+                cols=fuel_grid.cols,
+            )
+
+        result = (fuel_grid, spread_modifier_grid)
+
+        with self._grid_cache_lock:
+            self._grid_cache[cache_key] = result
+            logger.info(
+                "Grid cache STORE: %s — %dx%d grid, wui=%s",
+                fuel_path, fuel_grid.rows, fuel_grid.cols, wui_path is not None,
+            )
+
+        return result
 
     def _execute(
         self,
@@ -123,7 +204,20 @@ class SimulationRunner:
                 dc=fwi.dc if fwi else 200.0,
             )
 
-            simulator = Simulator(config, default_fuel=fuel_type)
+            # Load spatial grids (cached — only loads once per unique path combo)
+            fuel_grid, spread_modifier_grid = self._load_grids(
+                params.fuel_grid_path,
+                params.water_path,
+                params.buildings_path,
+                getattr(params, "wui_zones_path", None),
+            )
+
+            simulator = Simulator(
+                config,
+                fuel_grid=fuel_grid,
+                default_fuel=fuel_type,
+                spread_modifier_grid=spread_modifier_grid,
+            )
 
             for frame in simulator.run():
                 run.add_frame(frame)
