@@ -154,8 +154,11 @@ class FWICalculator:
         dl = _DMC_DAY_LENGTH[month]
 
         if temp > -1.1:
+            # Van Wagner & Pickett (1985) Eq. 17-18: drying rate k, then Ps = Po + k
+            # Note: the 1e-4 factor is already included in the coefficient — do NOT
+            # multiply k by 100 (that was a transcription error giving 100x inflation).
             k = 1.894 * (temp + 1.1) * (100.0 - rh) * dl * 1e-4
-            dmc = dmc_prev + 100.0 * k
+            dmc = dmc_prev + k
         else:
             dmc = dmc_prev
 
