@@ -10,6 +10,24 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 
+/** A simple non-modal toast — disappears after 3 s */
+function MapToast({ message, onDone }: { message: string; onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3000);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div style={{
+      position: "absolute", bottom: 80, left: "50%", transform: "translateX(-50%)",
+      zIndex: 20, background: "rgba(20,30,50,0.92)", color: "#e0e0e0",
+      padding: "8px 18px", borderRadius: 20, fontSize: 13, fontWeight: 500,
+      border: "1px solid #3a60a0", pointerEvents: "none", whiteSpace: "nowrap",
+    }}>
+      {message}
+    </div>
+  );
+}
+
 function LocationSearch({ onSelect }: { onSelect: (lat: number, lng: number, name: string) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Array<{ display_name: string; lat: string; lon: string }>>([]);
@@ -139,6 +157,7 @@ interface MapViewProps {
   frames: SimulationFrame[];
   currentFrameIndex: number;
   onMapClick: (lat: number, lng: number) => void;
+  onClearIgnition?: () => void;
   ignitionPoint: { lat: number; lng: number } | null;
   burnProbabilityData?: BurnProbabilityResponse | null;
   showBurnProbView?: boolean;
@@ -148,6 +167,7 @@ export default function MapView({
   frames,
   currentFrameIndex,
   onMapClick,
+  onClearIgnition,
   ignitionPoint,
   burnProbabilityData,
   showBurnProbView = false,
@@ -157,6 +177,10 @@ export default function MapView({
   const markerRef = useRef<maplibregl.Marker | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [basemap, setBasemap] = useState<BasemapId>("osm");
+  // Ignition placement mode — true while operator is picking a start point
+  const [ignitionMode, setIgnitionMode] = useState(!ignitionPoint);
+  const ignitionModeRef = useRef(!ignitionPoint);
+  const [toast, setToast] = useState<string | null>(null);
   // Counter incremented each time fire layers are (re-)added to the map.
   // The perimeter-update effect depends on this so it re-runs after
   // basemap switches that destroy and recreate sources.
@@ -446,7 +470,12 @@ export default function MapView({
     });
 
     m.on("click", (e) => {
+      if (!ignitionModeRef.current) return;
       onMapClick(e.lngLat.lat, e.lngLat.lng);
+      // Exit placement mode after setting ignition
+      ignitionModeRef.current = false;
+      setIgnitionMode(false);
+      m.getCanvas().style.cursor = "";
     });
 
     map.current = m;
@@ -476,6 +505,14 @@ export default function MapView({
       addFireLayers(map.current!);
     });
   }, [basemap, mapReady, addFireLayers]);
+
+  // Sync ignitionMode state → ref (used in map click handler) + cursor
+  useEffect(() => {
+    ignitionModeRef.current = ignitionMode;
+    if (map.current && mapReady) {
+      map.current.getCanvas().style.cursor = ignitionMode ? "crosshair" : "";
+    }
+  }, [ignitionMode, mapReady]);
 
   // Update ignition marker
   useEffect(() => {
@@ -720,6 +757,60 @@ export default function MapView({
           </button>
         ))}
       </div>
+      {/* Ignition placement mode button */}
+      <button
+        onClick={() => {
+          const next = !ignitionMode;
+          setIgnitionMode(next);
+        }}
+        title={ignitionMode ? "Click map to place ignition point (ESC to cancel)" : "Click to enter ignition placement mode"}
+        style={{
+          position: "absolute",
+          bottom: ignitionPoint ? 72 : 72,
+          right: 10,
+          zIndex: 10,
+          padding: "5px 10px",
+          background: ignitionMode
+            ? "rgba(255, 61, 0, 0.85)"
+            : "rgba(20, 30, 50, 0.85)",
+          color: "#fff",
+          border: ignitionMode ? "2px solid #ff3d00" : "1px solid #445",
+          borderRadius: 4,
+          cursor: "pointer",
+          fontSize: 12,
+          fontWeight: 600,
+          transition: "all 0.15s",
+        }}
+      >
+        {ignitionMode ? "🔥 Click map to ignite" : ignitionPoint ? "🔥 Move ignition" : "🔥 Place ignition"}
+      </button>
+
+      {/* Clear ignition button — shown when ignition is set */}
+      {ignitionPoint && onClearIgnition && (
+        <button
+          onClick={() => {
+            onClearIgnition();
+            setIgnitionMode(true); // Re-enter placement mode so they can set a new point
+          }}
+          title="Clear ignition point"
+          style={{
+            position: "absolute",
+            bottom: 108,
+            right: 10,
+            zIndex: 10,
+            padding: "5px 10px",
+            background: "rgba(20, 30, 50, 0.85)",
+            color: "#aaa",
+            border: "1px solid #445",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontSize: 12,
+          }}
+        >
+          ✕ Clear
+        </button>
+      )}
+
       <button
         onClick={() => setShowSpotFires((v) => !v)}
         style={{
@@ -739,6 +830,34 @@ export default function MapView({
       >
         {showSpotFires ? "🔥 Spot Fires ON" : "🔥 Spot Fires OFF"}
       </button>
+
+      {/* Placement mode hint overlay */}
+      {ignitionMode && (
+        <div style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          pointerEvents: "none",
+          zIndex: 5,
+          textAlign: "center",
+        }}>
+          <div style={{
+            background: "rgba(20,30,50,0.75)",
+            color: "#e0e0e0",
+            padding: "10px 20px",
+            borderRadius: 8,
+            fontSize: 14,
+            border: "1px dashed #ff3d00",
+          }}>
+            Click map to set ignition point
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <MapToast message={toast} onDone={() => setToast(null)} />
+      )}
     </div>
   );
 }

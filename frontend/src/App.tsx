@@ -96,6 +96,10 @@ export default function App() {
     setIgnitionPoint({ lat, lng });
   }, []);
 
+  const handleClearIgnition = useCallback(() => {
+    setIgnitionPoint(null);
+  }, []);
+
   const handleStartSimulation = useCallback(
     (params: SimulationCreate) => {
       startSimulation(params);
@@ -221,6 +225,7 @@ export default function App() {
             frames={frames}
             currentFrameIndex={currentFrameIndex}
             onMapClick={handleMapClick}
+            onClearIgnition={handleClearIgnition}
             ignitionPoint={ignitionPoint}
             burnProbabilityData={burnProbabilityData}
             showBurnProbView={showBurnProbView}
