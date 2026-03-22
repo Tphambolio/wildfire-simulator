@@ -141,6 +141,7 @@ interface MapViewProps {
   onMapClick: (lat: number, lng: number) => void;
   ignitionPoint: { lat: number; lng: number } | null;
   burnProbabilityData?: BurnProbabilityResponse | null;
+  showBurnProbView?: boolean;
 }
 
 export default function MapView({
@@ -149,6 +150,7 @@ export default function MapView({
   onMapClick,
   ignitionPoint,
   burnProbabilityData,
+  showBurnProbView = false,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -291,6 +293,12 @@ export default function MapView({
     });
 
     // Burn probability heatmap source + layer (Monte Carlo mode)
+    // Color scale: white (0%) → yellow (30%) → orange (60%) → red (90%+)
+    if (m.getSource("burn-probability")) {
+      if (m.getLayer("burn-probability-layer")) m.removeLayer("burn-probability-layer");
+      if (m.getLayer("burn-probability-circles")) m.removeLayer("burn-probability-circles");
+      m.removeSource("burn-probability");
+    }
     m.addSource("burn-probability", {
       type: "geojson",
       data: { type: "FeatureCollection", features: [] },
@@ -299,20 +307,43 @@ export default function MapView({
       id: "burn-probability-layer",
       type: "heatmap",
       source: "burn-probability",
+      maxzoom: 14,
       paint: {
         "heatmap-weight": ["interpolate", ["linear"], ["get", "probability"], 0, 0, 1, 1],
-        "heatmap-intensity": 2.0,
-        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 10, 12, 20, 14, 35],
+        "heatmap-intensity": 1.8,
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 12, 11, 22, 14, 40],
         "heatmap-color": [
           "interpolate", ["linear"], ["heatmap-density"],
-          0,   "rgba(0,0,0,0)",
-          0.1, "rgba(0,100,220,0.4)",
-          0.3, "rgba(0,200,180,0.55)",
-          0.5, "rgba(255,220,0,0.7)",
-          0.7, "rgba(255,140,0,0.82)",
-          1.0, "rgba(200,30,10,0.92)",
+          0,    "rgba(255,255,255,0)",
+          0.15, "rgba(255,255,200,0.5)",
+          0.35, "rgba(255,230,50,0.7)",
+          0.55, "rgba(255,150,0,0.82)",
+          0.75, "rgba(230,60,10,0.90)",
+          1.0,  "rgba(170,10,5,0.95)",
         ],
-        "heatmap-opacity": 0.88,
+        "heatmap-opacity": 0.9,
+      },
+    });
+    // Per-cell circle layer at high zoom for exact probability display
+    m.addLayer({
+      id: "burn-probability-circles",
+      type: "circle",
+      source: "burn-probability",
+      minzoom: 13,
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 4, 16, 14],
+        "circle-color": [
+          "interpolate", ["linear"], ["get", "probability"],
+          0,    "#ffffff",
+          0.1,  "#ffffc0",
+          0.3,  "#ffdd00",
+          0.6,  "#ff8800",
+          0.9,  "#dd2200",
+          1.0,  "#880000",
+        ],
+        "circle-opacity": 0.82,
+        "circle-stroke-width": 0.5,
+        "circle-stroke-color": "rgba(0,0,0,0.2)",
       },
     });
 
@@ -625,6 +656,27 @@ export default function MapView({
     }
   }, [showSpotFires, mapReady]);
 
+  // Toggle between burn probability view and fire spread view
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const m = map.current;
+    const hasBurnData = !!burnProbabilityData && showBurnProbView;
+
+    const burnLayers = ["burn-probability-layer", "burn-probability-circles"];
+    const fireLayers = [
+      "fire-fill", "fire-outline", "fire-history-outline",
+      "fire-heatmap-layer", "fire-cells-layer",
+      "spot-fires-circle", "spot-fires-pulse",
+    ];
+
+    burnLayers.forEach((id) => {
+      if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", hasBurnData ? "visible" : "none");
+    });
+    fireLayers.forEach((id) => {
+      if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", hasBurnData ? "none" : "visible");
+    });
+  }, [showBurnProbView, burnProbabilityData, mapReady, fireLayersVersion]);
+
   const flyTo = useCallback((lat: number, lng: number, zoom = 12) => {
     map.current?.flyTo({ center: [lng, lat], zoom, duration: 1500 });
   }, []);
@@ -633,6 +685,30 @@ export default function MapView({
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
       <LocationSearch onSelect={(lat, lng) => flyTo(lat, lng)} />
+
+      {/* Burn Probability Legend */}
+      {burnProbabilityData && showBurnProbView && (
+        <div className="burn-prob-legend">
+          <div className="burn-prob-legend-title">Burn Probability</div>
+          <div className="burn-prob-legend-meta">
+            {burnProbabilityData.iterations_completed} iterations · {burnProbabilityData.cell_size_m.toFixed(0)} m cells
+          </div>
+          <div className="burn-prob-legend-scale">
+            {[
+              { label: "≥90%", color: "#aa0000" },
+              { label: "60%",  color: "#ff8800" },
+              { label: "30%",  color: "#ffdd00" },
+              { label: "10%",  color: "#ffffcc" },
+              { label: "0%",   color: "rgba(255,255,255,0.15)" },
+            ].map(({ label, color }) => (
+              <div key={label} className="burn-prob-legend-row">
+                <div className="burn-prob-legend-swatch" style={{ background: color }} />
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="basemap-toggle">
         {(Object.keys(BASEMAPS) as BasemapId[]).map((id) => (
           <button

@@ -73,6 +73,7 @@ export default function App() {
   const [burnProbabilityData, setBurnProbabilityData] = useState<BurnProbabilityResponse | null>(null);
   const [burnProbRunning, setBurnProbRunning] = useState(false);
   const [burnProbError, setBurnProbError] = useState<string | null>(null);
+  const [showBurnProbView, setShowBurnProbView] = useState(false);
 
   const {
     status,
@@ -108,6 +109,7 @@ export default function App() {
       try {
         const result = await computeBurnProbability(params);
         setBurnProbabilityData(result);
+        setShowBurnProbView(true);
       } catch (err) {
         setBurnProbError(err instanceof Error ? err.message : "Burn probability failed");
       } finally {
@@ -153,6 +155,15 @@ export default function App() {
             Export GeoJSON
           </button>
         )}
+        {burnProbabilityData && (
+          <button
+            className={`btn-control btn-view-toggle${showBurnProbView ? " active" : ""}`}
+            onClick={() => setShowBurnProbView((v) => !v)}
+            title="Toggle between burn probability heatmap and fire spread view"
+          >
+            {showBurnProbView ? "Prob View" : "Spread View"}
+          </button>
+        )}
         {status && (
           <span className={`status-badge status-${status}`}>
             {status}
@@ -183,6 +194,7 @@ export default function App() {
             onMapClick={handleMapClick}
             ignitionPoint={ignitionPoint}
             burnProbabilityData={burnProbabilityData}
+            showBurnProbView={showBurnProbView}
           />
           <TimeSlider
             frames={frames}

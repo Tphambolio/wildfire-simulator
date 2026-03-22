@@ -441,18 +441,21 @@ export default function WeatherPanel({
 
       {onComputeBurnProbability && (
         <div style={{ marginTop: 12, borderTop: "1px solid #2a3a5a", paddingTop: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <label style={{ fontSize: 12, color: "#aab", flex: "0 0 auto" }}>Monte Carlo iterations:</label>
-            <input
-              type="number"
-              min={5}
-              max={500}
-              step={5}
-              value={mcIterations}
-              onChange={e => setMcIterations(Math.max(5, Math.min(500, parseInt(e.target.value) || 50)))}
-              style={{ width: 64, padding: "3px 6px", background: "#1a2540", color: "#e0e0e0",
-                border: "1px solid #445", borderRadius: 4, fontSize: 12 }}
-            />
+          <div style={{ marginBottom: 8 }}>
+            <label>
+              Iterations: <strong>{mcIterations}</strong>
+              <input
+                type="range"
+                min={10}
+                max={200}
+                step={10}
+                value={mcIterations}
+                onChange={e => setMcIterations(Number(e.target.value))}
+              />
+            </label>
+            <div style={{ fontSize: 11, color: "#667", display: "flex", justifyContent: "space-between" }}>
+              <span>10 (fast)</span><span>200 (accurate)</span>
+            </div>
           </div>
           <button
             className="btn-secondary"
@@ -465,8 +468,13 @@ export default function WeatherPanel({
                 : "Run Monte Carlo burn probability analysis"
             }
           >
-            {burnProbRunning ? "Running Monte Carlo..." : "Burn Probability (Monte Carlo)"}
+            {burnProbRunning ? `Running ${mcIterations} iterations...` : "Burn Probability (Monte Carlo)"}
           </button>
+          {burnProbRunning && (
+            <div className="burn-prob-progress">
+              <div className="burn-prob-progress-bar" />
+            </div>
+          )}
           {!useEdmontonGrid && !useSyntheticCA && (
             <div style={{ fontSize: 11, color: "#778", marginTop: 4 }}>
               Enable Edmonton Grid or Synthetic CA to use Monte Carlo.
