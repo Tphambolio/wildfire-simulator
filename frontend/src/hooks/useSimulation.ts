@@ -16,6 +16,7 @@ interface SimulationState {
   currentFrameIndex: number;
   error: string | null;
   isRunning: boolean;
+  isPaused: boolean;
 }
 
 export function useSimulation() {
@@ -26,6 +27,7 @@ export function useSimulation() {
     currentFrameIndex: 0,
     error: null,
     isRunning: false,
+    isPaused: false,
   });
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -44,6 +46,7 @@ export function useSimulation() {
       currentFrameIndex: 0,
       error: null,
       isRunning: true,
+      isPaused: false,
     });
 
     try {
@@ -73,6 +76,7 @@ export function useSimulation() {
             ...prev,
             status: "completed",
             isRunning: false,
+            isPaused: false,
           }));
         } else if (data.type === "simulation.error") {
           setState((prev) => ({
@@ -80,7 +84,21 @@ export function useSimulation() {
             status: "failed",
             error: data.error || "Unknown error",
             isRunning: false,
+            isPaused: false,
           }));
+        } else if (data.type === "status") {
+          if (data.state === "paused") {
+            setState((prev) => ({ ...prev, status: "paused", isPaused: true }));
+          } else if (data.state === "running") {
+            setState((prev) => ({ ...prev, status: "running", isPaused: false }));
+          } else if (data.state === "cancelled") {
+            setState((prev) => ({
+              ...prev,
+              status: "cancelled",
+              isRunning: false,
+              isPaused: false,
+            }));
+          }
         }
       };
 
@@ -139,6 +157,24 @@ export function useSimulation() {
     }));
   }, []);
 
+  const pauseSimulation = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: "pause" }));
+    }
+  }, []);
+
+  const resumeSimulation = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: "resume" }));
+    }
+  }, []);
+
+  const cancelSimulation = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: "cancel" }));
+    }
+  }, []);
+
   const currentFrame =
     state.frames.length > 0 ? state.frames[state.currentFrameIndex] : null;
 
@@ -147,5 +183,8 @@ export function useSimulation() {
     currentFrame,
     startSimulation,
     setFrameIndex,
+    pauseSimulation,
+    resumeSimulation,
+    cancelSimulation,
   };
 }
