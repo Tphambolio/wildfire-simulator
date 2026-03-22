@@ -211,3 +211,178 @@ class TestFWIPrevDayEffect:
         dry = client.post("/api/v1/fwi/calculate", json={**base, "precipitation_24h": 0.0}).json()
         wet = client.post("/api/v1/fwi/calculate", json={**base, "precipitation_24h": 15.0}).json()
         assert wet["ffmc"] < dry["ffmc"]
+
+
+# ---------------------------------------------------------------------------
+# Multi-day endpoint tests
+# ---------------------------------------------------------------------------
+
+# Two-day Van Wagner & Pickett (1985) reference sequence.
+# Day 1: spring startup → (87.7, 8.5, 21.8) — same as single-day test.
+# Day 2: use Day 1 outputs as starting codes, same weather.
+_MULTI_DAY_OBS = [
+    {"temperature": 17.0, "relative_humidity": 42.0, "wind_speed": 25.0,
+     "precipitation_24h": 0.0, "month": 7},
+    {"temperature": 22.0, "relative_humidity": 35.0, "wind_speed": 30.0,
+     "precipitation_24h": 0.0, "month": 7},
+    {"temperature": 28.0, "relative_humidity": 28.0, "wind_speed": 35.0,
+     "precipitation_24h": 0.0, "month": 7},
+]
+
+_MULTI_DAY_REQUEST = {
+    "ffmc_start": 85.0,
+    "dmc_start": 6.0,
+    "dc_start": 15.0,
+    "observations": _MULTI_DAY_OBS,
+}
+
+
+class TestFWIMultiDayContract:
+    """API contract for POST /api/v1/fwi/multi-day."""
+
+    def test_returns_200(self, client):
+        resp = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST)
+        assert resp.status_code == 200
+
+    def test_response_has_days_list(self, client):
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        assert "days" in data
+        assert isinstance(data["days"], list)
+
+    def test_day_count_matches_observations(self, client):
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        assert len(data["days"]) == len(_MULTI_DAY_OBS)
+
+    def test_day_indices_are_one_based(self, client):
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        assert data["days"][0]["day"] == 1
+        assert data["days"][-1]["day"] == len(_MULTI_DAY_OBS)
+
+    def test_each_day_has_all_fwi_fields(self, client):
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        for day in data["days"]:
+            for field in ("ffmc", "dmc", "dc", "isi", "bui", "fwi", "danger_rating"):
+                assert field in day, f"Day {day['day']} missing {field}"
+
+    def test_has_peak_fields(self, client):
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        assert "peak_fwi_day" in data
+        assert "peak_fwi" in data
+        assert "peak_danger_rating" in data
+
+    def test_single_observation_accepted(self, client):
+        payload = {**_MULTI_DAY_REQUEST, "observations": [_MULTI_DAY_OBS[0]]}
+        resp = client.post("/api/v1/fwi/multi-day", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["days"]) == 1
+        assert data["peak_fwi_day"] == 1
+
+    def test_empty_observations_rejected(self, client):
+        payload = {**_MULTI_DAY_REQUEST, "observations": []}
+        resp = client.post("/api/v1/fwi/multi-day", json=payload)
+        assert resp.status_code == 422
+
+
+class TestFWIMultiDayAccumulation:
+    """Scientific validation: codes accumulate correctly across days."""
+
+    def test_day1_matches_single_day_reference(self, client):
+        """Day 1 of a multi-day run == single /calculate result from same inputs."""
+        single = client.post("/api/v1/fwi/calculate", json={
+            **_MULTI_DAY_OBS[0], "ffmc_prev": 85.0, "dmc_prev": 6.0, "dc_prev": 15.0,
+        }).json()
+        multi = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        day1 = multi["days"][0]
+        assert day1["ffmc"] == pytest.approx(single["ffmc"], abs=0.1)
+        assert day1["dmc"] == pytest.approx(single["dmc"], abs=0.1)
+        assert day1["dc"] == pytest.approx(single["dc"], abs=0.1)
+        assert day1["fwi"] == pytest.approx(single["fwi"], abs=0.1)
+
+    def test_codes_propagate_day_to_day(self, client):
+        """Day 2 starting codes == Day 1 output codes (chain is connected)."""
+        multi = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        # Manually compute Day 2 using Day 1 outputs as prev
+        day1 = multi["days"][0]
+        single_day2 = client.post("/api/v1/fwi/calculate", json={
+            **_MULTI_DAY_OBS[1],
+            "ffmc_prev": day1["ffmc"],
+            "dmc_prev": day1["dmc"],
+            "dc_prev": day1["dc"],
+        }).json()
+        day2 = multi["days"][1]
+        assert day2["ffmc"] == pytest.approx(single_day2["ffmc"], abs=0.1)
+        assert day2["dmc"] == pytest.approx(single_day2["dmc"], abs=0.1)
+        # DC tolerance is 0.2: the multi-day chain carries full float precision
+        # internally; passing the rounded response value back through the single-
+        # day endpoint accumulates ~0.1 rounding drift in DC's log formula.
+        assert day2["dc"] == pytest.approx(single_day2["dc"], abs=0.2)
+
+    def test_drought_codes_increase_without_rain(self, client):
+        """DMC and DC should trend upward under hot, dry conditions with no rain."""
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        days = data["days"]
+        assert days[1]["dmc"] > days[0]["dmc"]
+        assert days[2]["dmc"] > days[1]["dmc"]
+        assert days[1]["dc"] > days[0]["dc"]
+        assert days[2]["dc"] > days[1]["dc"]
+
+    def test_fwi_increases_under_worsening_conditions(self, client):
+        """FWI should rise as weather worsens across the 3-day sequence."""
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        days = data["days"]
+        assert days[1]["fwi"] > days[0]["fwi"]
+        assert days[2]["fwi"] > days[1]["fwi"]
+
+    def test_peak_fwi_is_last_day(self, client):
+        """With monotonically worsening weather, peak should be the final day."""
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        assert data["peak_fwi_day"] == len(_MULTI_DAY_OBS)
+        assert data["peak_fwi"] == data["days"][-1]["fwi"]
+
+    def test_peak_fwi_detected_on_middle_day(self, client):
+        """Peak is correctly identified when it falls on a middle day."""
+        # Hot day 1, cool rainy day 2, warm day 3 — peak should be day 1
+        obs = [
+            {"temperature": 35.0, "relative_humidity": 20.0, "wind_speed": 50.0,
+             "precipitation_24h": 0.0, "month": 7},
+            {"temperature": 10.0, "relative_humidity": 90.0, "wind_speed": 5.0,
+             "precipitation_24h": 20.0, "month": 7},
+            {"temperature": 20.0, "relative_humidity": 60.0, "wind_speed": 15.0,
+             "precipitation_24h": 0.0, "month": 7},
+        ]
+        payload = {**_MULTI_DAY_REQUEST, "observations": obs}
+        data = client.post("/api/v1/fwi/multi-day", json=payload).json()
+        assert data["peak_fwi_day"] == 1
+
+    def test_rain_resets_ffmc(self, client):
+        """Heavy rain on day 2 should drop FFMC relative to day 1."""
+        obs = [
+            {"temperature": 30.0, "relative_humidity": 30.0, "wind_speed": 30.0,
+             "precipitation_24h": 0.0, "month": 7},
+            {"temperature": 20.0, "relative_humidity": 70.0, "wind_speed": 10.0,
+             "precipitation_24h": 25.0, "month": 7},
+        ]
+        payload = {**_MULTI_DAY_REQUEST, "observations": obs}
+        data = client.post("/api/v1/fwi/multi-day", json=payload).json()
+        assert data["days"][1]["ffmc"] < data["days"][0]["ffmc"]
+
+    def test_day_obs_weather_echoed(self, client):
+        """Each day result echoes the input weather values."""
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        for i, obs in enumerate(_MULTI_DAY_OBS):
+            day = data["days"][i]
+            assert day["temperature"] == obs["temperature"]
+            assert day["wind_speed"] == obs["wind_speed"]
+            assert day["month"] == obs["month"]
+
+    def test_van_wagner_day1_reference_values(self, client):
+        """Day 1 output matches Van Wagner & Pickett (1985) reference to ±0.5."""
+        data = client.post("/api/v1/fwi/multi-day", json=_MULTI_DAY_REQUEST).json()
+        day1 = data["days"][0]
+        assert day1["ffmc"] == pytest.approx(87.7, abs=0.5)
+        assert day1["dmc"] == pytest.approx(8.5, abs=0.5)
+        assert day1["dc"] == pytest.approx(21.8, abs=0.5)
+        assert day1["isi"] == pytest.approx(10.9, abs=0.5)
+        assert day1["bui"] == pytest.approx(8.6, abs=0.5)
+        assert day1["fwi"] == pytest.approx(10.1, abs=0.5)
