@@ -6,7 +6,62 @@ import WeatherPanel from "./components/WeatherPanel";
 import FireMetrics from "./components/FireMetrics";
 import TimeSlider from "./components/TimeSlider";
 import { useSimulation } from "./hooks/useSimulation";
-import type { SimulationCreate } from "./types/simulation";
+import type { SimulationCreate, SimulationFrame } from "./types/simulation";
+
+function exportPerimeterGeoJSON(
+  frames: SimulationFrame[],
+  ignitionPoint: { lat: number; lng: number } | null
+) {
+  // Build a GeoJSON FeatureCollection: one Polygon per time step.
+  // Perimeter coords are [lat, lng] — GeoJSON requires [lng, lat].
+  const features = frames
+    .filter((f) => f.perimeter && f.perimeter.length >= 3)
+    .map((f) => ({
+      type: "Feature" as const,
+      properties: {
+        time_hours: f.time_hours,
+        area_ha: f.area_ha,
+        head_ros_m_min: f.head_ros_m_min,
+        max_hfi_kw_m: f.max_hfi_kw_m,
+        fire_type: f.fire_type,
+        flame_length_m: f.flame_length_m,
+      },
+      geometry: {
+        type: "Polygon" as const,
+        // Close the ring by repeating the first coordinate
+        coordinates: [
+          [
+            ...f.perimeter.map(([lat, lng]) => [lng, lat]),
+            [f.perimeter[0][1], f.perimeter[0][0]],
+          ],
+        ],
+      },
+    }));
+
+  const geojson = {
+    type: "FeatureCollection" as const,
+    crs: { type: "name", properties: { name: "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+    metadata: {
+      source: "FireSim V3 — Canadian FBP Wildfire Spread Simulator",
+      ignition_lat: ignitionPoint?.lat ?? null,
+      ignition_lng: ignitionPoint?.lng ?? null,
+      exported_at: new Date().toISOString(),
+      total_frames: features.length,
+    },
+    features,
+  };
+
+  const blob = new Blob([JSON.stringify(geojson, null, 2)], {
+    type: "application/geo+json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+  a.href = url;
+  a.download = `firesim_perimeter_${ts}.geojson`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function App() {
   const [ignitionPoint, setIgnitionPoint] = useState<{
@@ -67,6 +122,15 @@ export default function App() {
               &#9632; Cancel
             </button>
           </>
+        )}
+        {status === "completed" && frames.length > 0 && (
+          <button
+            className="btn-control btn-export"
+            onClick={() => exportPerimeterGeoJSON(frames, ignitionPoint)}
+            title="Export all perimeter frames as GeoJSON FeatureCollection"
+          >
+            Export GeoJSON
+          </button>
         )}
         {status && (
           <span className={`status-badge status-${status}`}>

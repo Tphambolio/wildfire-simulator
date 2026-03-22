@@ -95,6 +95,12 @@ body {
   border: 1px solid var(--fire-red);
 }
 
+.btn-export {
+  background: rgba(100, 181, 246, 0.15);
+  color: #64b5f6;
+  border: 1px solid #64b5f6;
+}
+
 .status-badge {
   margin-left: auto;
   padding: 3px 10px;
