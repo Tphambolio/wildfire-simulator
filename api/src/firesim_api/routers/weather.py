@@ -10,6 +10,7 @@ Source: Natural Resources Canada CWFIS — https://cwfis.cfs.nrcan.gc.ca
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Annotated
 
 import httpx
@@ -42,6 +43,7 @@ class CurrentWeather(BaseModel):
     source: str
     available: bool
     message: str
+    data_timestamp: str | None = None
 
 
 @router.get("/current", response_model=CurrentWeather)
@@ -100,6 +102,10 @@ async def get_current_weather(
         lat, lng, fwi or 0, fwi_label,
     )
 
+    # Use forecast date from response if available, otherwise current UTC time
+    raw_date = data.get("rep_date") or data.get("date") or data.get("forecast_date")
+    data_ts = str(raw_date) if raw_date else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     return CurrentWeather(
         lat=lat,
         lng=lng,
@@ -116,6 +122,7 @@ async def get_current_weather(
         source="CWFIS / Natural Resources Canada",
         available=True,
         message=f"FWI {fwi:.1f} — {fwi_label}" if fwi is not None else "Fire weather loaded",
+        data_timestamp=data_ts,
     )
 
 

@@ -1,6 +1,6 @@
 /** Weather and simulation parameter controls. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI } from "../services/api";
@@ -131,12 +131,49 @@ export default function WeatherPanel({
   const [weatherMessage, setWeatherMessage] = useState<string | null>(null);
   const [fwiLoading, setFwiLoading] = useState(false);
   const [mcIterations, setMcIterations] = useState(50);
+  const [weatherSource, setWeatherSource] = useState<string | null>(null);
+  const [weatherTimestamp, setWeatherTimestamp] = useState<string | null>(null);
   const [simMode, setSimMode] = useState<"single" | "multiday">("single");
   const [multiDayDays, setMultiDayDays] = useState<MultiDayWeatherParams[]>([
     { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
     { wind_speed: 25, wind_direction: 270, temperature: 28, relative_humidity: 25, precipitation_24h: 0 },
     { wind_speed: 30, wind_direction: 260, temperature: 30, relative_humidity: 20, precipitation_24h: 0 },
   ]);
+
+  // ── Auto-fetch CWFIS weather when ignition point is first set ─────────────
+  const autoFetchedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ignitionPoint) return;
+    const key = `${ignitionPoint.lat.toFixed(4)},${ignitionPoint.lng.toFixed(4)}`;
+    if (autoFetchedRef.current === key) return; // already fetched for this point
+    autoFetchedRef.current = key;
+    setWeatherLoading(true);
+    setWeatherMessage(null);
+    fetchCurrentWeather(ignitionPoint.lat, ignitionPoint.lng)
+      .then((w) => {
+        if (w.available) {
+          if (w.wind_speed !== null) setWeather((prev) => ({ ...prev, wind_speed: Math.round(w.wind_speed!) }));
+          if (w.wind_direction !== null) setWeather((prev) => ({ ...prev, wind_direction: Math.round(w.wind_direction!) }));
+          if (w.temperature !== null) setWeather((prev) => ({ ...prev, temperature: Math.round(w.temperature!) }));
+          if (w.relative_humidity !== null) setWeather((prev) => ({ ...prev, relative_humidity: Math.round(w.relative_humidity!) }));
+          setFwi({
+            ffmc: w.ffmc ?? fwi.ffmc,
+            dmc: w.dmc ?? fwi.dmc,
+            dc: w.dc ?? fwi.dc,
+          });
+          setWeatherSource(w.source);
+          setWeatherTimestamp(w.data_timestamp ?? null);
+          if (!showAdvanced) setShowAdvanced(true);
+        }
+        setWeatherMessage(w.message);
+      })
+      .catch(() => {
+        setWeatherMessage("Could not reach CWFIS — check network");
+      })
+      .finally(() => setWeatherLoading(false));
+  // fwi and showAdvanced intentionally omitted — only re-run when ignitionPoint changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ignitionPoint]);
 
   // ── Live ISI / BUI / FWI (reactive to slider changes) ────────────────────
   const liveISI = useMemo(
@@ -246,6 +283,8 @@ export default function WeatherPanel({
     if (!ignitionPoint) return;
     setWeatherLoading(true);
     setWeatherMessage(null);
+    // Force re-fetch even if already auto-fetched for this point
+    autoFetchedRef.current = null;
     try {
       const w = await fetchCurrentWeather(ignitionPoint.lat, ignitionPoint.lng);
       if (w.available) {
@@ -258,6 +297,8 @@ export default function WeatherPanel({
           dmc: w.dmc ?? fwi.dmc,
           dc: w.dc ?? fwi.dc,
         });
+        setWeatherSource(w.source);
+        setWeatherTimestamp(w.data_timestamp ?? null);
         if (!showAdvanced) setShowAdvanced(true);
       }
       setWeatherMessage(w.message);
@@ -625,7 +666,7 @@ export default function WeatherPanel({
         <div
           className="hint"
           style={{
-            marginBottom: "8px",
+            marginBottom: "4px",
             color: weatherMessage.toLowerCase().includes("not available") ||
                    weatherMessage.toLowerCase().includes("could not")
               ? "#e57373"
@@ -633,6 +674,12 @@ export default function WeatherPanel({
           }}
         >
           {weatherMessage}
+        </div>
+      )}
+
+      {weatherSource && weatherTimestamp && (
+        <div className="hint" style={{ marginBottom: "8px", fontSize: "0.8em", opacity: 0.6 }}>
+          {weatherSource} · {weatherTimestamp}
         </div>
       )}
 

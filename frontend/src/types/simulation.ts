@@ -141,6 +141,7 @@ export interface CurrentWeather {
   source: string;
   available: boolean;
   message: string;
+  data_timestamp: string | null;
 }
 
 export const FUEL_TYPES: Record<string, string> = {
