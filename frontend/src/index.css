@@ -451,21 +451,94 @@ select {
 .time-slider {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 8px 16px;
   background: var(--bg-panel);
   border-top: 1px solid var(--border);
 }
 
-.time-slider input[type="range"] {
+.time-slider input[type="range"],
+.ts-range {
   flex: 1;
+  accent-color: var(--fire-orange);
 }
 
 .time-label {
   font-size: 12px;
   color: var(--text-secondary);
   font-family: monospace;
+  min-width: 50px;
+  text-align: center;
+}
+
+.ts-current {
+  color: var(--fire-orange);
+  font-weight: 600;
   min-width: 60px;
+}
+
+.ts-frame-count {
+  min-width: 44px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* Playback control buttons */
+.ts-btn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+  line-height: 1.4;
+}
+
+.ts-btn:hover:not(:disabled) {
+  background: rgba(255, 152, 0, 0.15);
+  color: var(--fire-orange);
+  border-color: var(--fire-orange);
+}
+
+.ts-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ts-play {
+  font-size: 14px;
+  min-width: 32px;
+}
+
+.ts-play.playing {
+  color: var(--fire-orange);
+  border-color: var(--fire-orange);
+  background: rgba(255, 152, 0, 0.12);
+}
+
+.ts-step {
+  font-size: 10px;
+  padding: 3px 6px;
+}
+
+/* Speed buttons group */
+.ts-speeds {
+  display: flex;
+  gap: 2px;
+}
+
+.ts-speed {
+  padding: 2px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+
+.ts-speed.active {
+  background: rgba(255, 152, 0, 0.2);
+  color: var(--fire-orange);
+  border-color: var(--fire-orange);
 }
 
 /* Error toast */
