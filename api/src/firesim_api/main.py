@@ -16,7 +16,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from firesim_api.routers import health, simulations, weather
+from firesim_api.routers import fwi, health, simulations, weather
 from firesim_api.services.runner import SimulationRunner
 from firesim_api.ws.manager import ConnectionManager
 
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     application.include_router(health.router)
     application.include_router(simulations.router)
     application.include_router(weather.router)
+    application.include_router(fwi.router)
 
     return application
 
