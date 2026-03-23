@@ -10,6 +10,7 @@ import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulati
 import type { RunParams } from "./WeatherPanel";
 import { buildGeoJSON, buildKML, downloadFile } from "../utils/geoExport";
 import type { EvacZone } from "../utils/evacZones";
+import { openICS209Report } from "../utils/ics209";
 
 interface EOCSummaryProps {
   frames: SimulationFrame[];
@@ -490,6 +491,19 @@ export default function EOCSummary({
 
   const handlePrint = () => window.print();
 
+  const handleICS209 = () => {
+    openICS209Report({
+      frames,
+      burnProbData,
+      runParams,
+      ignitionPoint,
+      fuelTypeLabel,
+      atRiskCounts,
+      evacZones,
+      suppAdvisory,
+    });
+  };
+
   const exportOpts = { frames, burnProbData, runParams, ignitionPoint, fuelTypeLabel, overlayRoads, overlayCommunities, overlayInfrastructure, evacZones };
   const timestamp = new Date().toISOString().slice(0, 10);
 
@@ -517,6 +531,16 @@ export default function EOCSummary({
           <button className="ts-btn ts-speed" onClick={handlePrint} title="Print report">
             Print
           </button>
+          {frames.length > 0 && (
+            <button
+              className="ts-btn ts-speed"
+              onClick={handleICS209}
+              title="Generate printable ICS-209 Incident Status Summary"
+              style={{ background: "#1a237e", color: "#fff", fontWeight: 600 }}
+            >
+              ICS-209
+            </button>
+          )}
           {frames.length > 0 && (
             <>
               <button
