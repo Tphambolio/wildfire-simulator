@@ -1,10 +1,11 @@
 /** Hook for managing simulation state and WebSocket streaming. */
 
 import { useCallback, useRef, useState } from "react";
-import { createSimulation, createMultiDaySimulation, getSimulation, getWebSocketUrl } from "../services/api";
+import { createSimulation, createMultiDaySimulation, createPerimeterOverride, getSimulation, getWebSocketUrl } from "../services/api";
 import type {
   SimulationCreate,
   MultiDaySimulationCreate,
+  PerimeterOverrideRequest,
   SimulationFrame,
   SimulationStatus,
   WSEvent,
@@ -141,6 +142,11 @@ export function useSimulation() {
     [_startWithCreateFn]
   );
 
+  const startPerimeterOverride = useCallback(
+    (req: PerimeterOverrideRequest) => _startWithCreateFn(() => createPerimeterOverride(req)),
+    [_startWithCreateFn]
+  );
+
   const pollForResults = useCallback(async (simId: string) => {
     const poll = async () => {
       try {
@@ -196,6 +202,7 @@ export function useSimulation() {
     currentFrame,
     startSimulation,
     startMultiDaySimulation,
+    startPerimeterOverride,
     setFrameIndex,
     pauseSimulation,
     resumeSimulation,

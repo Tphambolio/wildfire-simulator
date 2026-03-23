@@ -171,6 +171,36 @@ class MultiDaySimulationCreate(BaseModel):
     dem_path: str | None = Field(default=None, description="Path to DEM GeoTIFF for slope-adjusted spread")
 
 
+class PerimeterOverrideRequest(BaseModel):
+    """Request to override simulated fire perimeter with drone reconnaissance data.
+
+    The corrected perimeter (GeoJSON geometry) replaces the model-predicted
+    front and seeds a fresh Huygens spread run, closing the loop between
+    simulation and ground truth during an active incident.
+    """
+
+    simulation_id: str = Field(
+        ...,
+        description="ID of a running or completed simulation whose config is reused",
+    )
+    perimeter_geojson: dict = Field(
+        ...,
+        description=(
+            "GeoJSON Polygon or MultiPolygon *geometry* (not Feature) "
+            "representing the drone-observed fire perimeter. "
+            "Coordinates must be [lng, lat] per GeoJSON standard (RFC 7946)."
+        ),
+    )
+    duration_hours: float = Field(
+        default=4.0, gt=0, le=24,
+        description="Spread prediction duration from corrected perimeter (hours)",
+    )
+    snapshot_interval_minutes: float = Field(
+        default=30.0, gt=0, le=120,
+        description="Snapshot interval for new frames (minutes)",
+    )
+
+
 class BurnProbabilityRequest(BaseModel):
     """Request body for Monte Carlo burn probability analysis."""
 

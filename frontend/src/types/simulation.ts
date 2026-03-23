@@ -174,6 +174,14 @@ export interface ScenarioConfig {
   } | null;
 }
 
+export interface PerimeterOverrideRequest {
+  simulation_id: string;
+  /** GeoJSON Polygon or MultiPolygon *geometry* (not Feature). Coords [lng, lat]. */
+  perimeter_geojson: GeoJSON.Geometry;
+  duration_hours?: number;
+  snapshot_interval_minutes?: number;
+}
+
 export const FUEL_TYPES: Record<string, string> = {
   C1: "Spruce-Lichen Woodland",
   C2: "Boreal Spruce",

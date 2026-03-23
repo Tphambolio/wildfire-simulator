@@ -15,11 +15,12 @@ import { FUEL_TYPES } from "./types/simulation";
 import { useSimulation } from "./hooks/useSimulation";
 import { useScenarios } from "./hooks/useScenarios";
 import { computeBurnProbability } from "./services/api";
-import type { SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig } from "./types/simulation";
+import type { SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { computeEvacZones } from "./utils/evacZones";
 import type { EvacZoneLabel } from "./utils/evacZones";
 import IsochronePanel from "./components/IsochronePanel";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
+import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 
 /**
  * Export burn probability contour polygons as GeoJSON.
@@ -277,18 +278,27 @@ export default function App() {
   const {
     status,
     frames,
+    simulationId,
     currentFrameIndex,
     currentFrame,
     isRunning,
     isPaused,
     startSimulation,
     startMultiDaySimulation,
+    startPerimeterOverride,
     setFrameIndex,
     pauseSimulation,
     resumeSimulation,
     cancelSimulation,
     error,
   } = useSimulation();
+
+  const handlePerimeterOverride = useCallback(
+    (req: PerimeterOverrideRequest) => {
+      startPerimeterOverride(req);
+    },
+    [startPerimeterOverride]
+  );
 
   // Compute evac zones from simulation frames (updates live as frames arrive)
   const evacZones = useMemo(
@@ -498,6 +508,11 @@ export default function App() {
             targetHours={isoTargetHours}
             onToggleVisible={setIsochronesVisible}
             onTargetHoursChange={setIsoTargetHours}
+          />
+          <PerimeterOverridePanel
+            simulationId={simulationId}
+            onOverrideStart={handlePerimeterOverride}
+            isRunning={isRunning}
           />
           <ScenarioPanel
             scenarios={scenarios}

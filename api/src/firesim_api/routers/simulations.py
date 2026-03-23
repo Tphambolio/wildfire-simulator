@@ -12,6 +12,7 @@ from firesim_api.schemas.simulation import (
     BurnProbabilityRequest,
     BurnProbabilityResponse,
     MultiDaySimulationCreate,
+    PerimeterOverrideRequest,
     SimulationCreate,
     SimulationFrame as FrameSchema,
     SimulationResponse,
@@ -212,6 +213,40 @@ async def create_multiday_simulation(params: MultiDaySimulationCreate) -> Simula
 
     return SimulationResponse(
         simulation_id=sim_id,
+        status=SimulationStatus.RUNNING,
+        config=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Perimeter override (drone reconnaissance correction)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/perimeter-override", response_model=SimulationResponse)
+async def create_perimeter_override(req: PerimeterOverrideRequest) -> SimulationResponse:
+    """Override simulated fire perimeter with drone reconnaissance data.
+
+    Accepts a GeoJSON Polygon or MultiPolygon geometry representing the actual
+    fire extent observed by drone, replaces the model-predicted front, and
+    runs a new Huygens spread prediction from that corrected initial state.
+
+    The new simulation inherits the original simulation's weather, fuel grid,
+    terrain, WUI zones, and spotting configuration.  Connect to
+    ``/ws/{simulation_id}`` for real-time frame streaming.
+
+    Returns the new simulation_id immediately (status ``running``).
+    """
+    if runner is None:
+        raise HTTPException(status_code=500, detail="Runner not initialized")
+
+    try:
+        new_sim_id = runner.create_perimeter_override(req, on_frame=_on_frame)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return SimulationResponse(
+        simulation_id=new_sim_id,
         status=SimulationStatus.RUNNING,
         config=None,
     )

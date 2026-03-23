@@ -18,6 +18,7 @@ from firesim.types import SimulationConfig, SimulationFrame, WeatherInput
 
 from firesim_api.schemas.simulation import (
     MultiDaySimulationCreate,
+    PerimeterOverrideRequest,
     SimulationCreate,
     SimulationStatus,
 )
@@ -507,3 +508,143 @@ class SimulationRunner:
             run.status = SimulationStatus.FAILED
             run.error = str(e)
             logger.exception("Multi-day simulation %s failed: %s", run.id, e)
+
+    # ── Perimeter override (drone recon correction) ──────────────────────────
+
+    def create_perimeter_override(
+        self,
+        req: PerimeterOverrideRequest,
+        on_frame: Callable[[str, SimulationFrame], None] | None = None,
+    ) -> str:
+        """Create a new simulation seeded from a drone-observed fire perimeter.
+
+        Looks up the original simulation, reuses its spatial/weather config,
+        converts the supplied GeoJSON geometry to a FireVertex list, and runs
+        a fresh Huygens spread from that corrected initial front.
+
+        Args:
+            req: Perimeter override parameters including original simulation ID
+                 and GeoJSON geometry.
+            on_frame: Optional callback invoked per frame (sim_id, frame).
+
+        Returns:
+            New simulation ID.
+
+        Raises:
+            ValueError: Original simulation not found, or invalid perimeter.
+        """
+        original = self.get(req.simulation_id)
+        if original is None:
+            raise ValueError(f"Simulation '{req.simulation_id}' not found")
+
+        if not isinstance(original.config, SimulationCreate):
+            raise ValueError(
+                "Perimeter override requires a single-day simulation as the source. "
+                "Multi-day source simulations are not supported."
+            )
+
+        from firesim.spread.geojson_utils import geojson_to_fire_vertices
+
+        try:
+            initial_front = geojson_to_fire_vertices(req.perimeter_geojson)
+        except (ValueError, KeyError, TypeError, IndexError) as exc:
+            raise ValueError(f"Invalid perimeter GeoJSON: {exc}") from exc
+
+        logger.info(
+            "Perimeter override: source=%s vertices=%d dur=%.1fh",
+            req.simulation_id, len(initial_front), req.duration_hours,
+        )
+
+        sim_id = str(uuid.uuid4())[:8]
+        run = SimulationRun(sim_id, original.config)
+
+        with self._lock:
+            self._runs[sim_id] = run
+
+        thread = threading.Thread(
+            target=self._execute_perimeter_override,
+            args=(run, original.config, initial_front, req, on_frame),
+            daemon=True,
+        )
+        thread.start()
+
+        return sim_id
+
+    def _execute_perimeter_override(
+        self,
+        run: SimulationRun,
+        params: SimulationCreate,
+        initial_front: list,
+        req: PerimeterOverrideRequest,
+        on_frame: Callable[[str, SimulationFrame], None] | None,
+    ) -> None:
+        """Execute a simulation from a corrected drone-recon fire front."""
+        run.status = SimulationStatus.RUNNING
+
+        try:
+            try:
+                fuel_type = FuelType(params.fuel_type)
+            except ValueError:
+                fuel_type = FuelType.C2
+
+            from firesim_api.settings import settings
+
+            fwi = params.fwi_overrides
+            config = SimulationConfig(
+                ignition_lat=params.ignition_lat,
+                ignition_lng=params.ignition_lng,
+                weather=WeatherInput(
+                    temperature=params.weather.temperature,
+                    relative_humidity=params.weather.relative_humidity,
+                    wind_speed=params.weather.wind_speed,
+                    wind_direction=params.weather.wind_direction,
+                    precipitation_24h=params.weather.precipitation_24h,
+                ),
+                duration_hours=req.duration_hours,
+                snapshot_interval_minutes=req.snapshot_interval_minutes,
+                ffmc=fwi.ffmc if fwi and fwi.ffmc is not None else 85.0,
+                dmc=fwi.dmc if fwi and fwi.dmc is not None else 40.0,
+                dc=fwi.dc if fwi and fwi.dc is not None else 200.0,
+            )
+
+            dem_path = params.dem_path or settings.dem_path
+            fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
+                params.fuel_grid_path,
+                params.water_path,
+                params.buildings_path,
+                params.wui_zones_path,
+                dem_path,
+            )
+
+            simulator = Simulator(
+                config,
+                fuel_grid=fuel_grid,
+                terrain_grid=terrain_grid,
+                default_fuel=fuel_type,
+                spread_modifier_grid=spread_modifier_grid,
+                initial_front=initial_front,
+                enable_spotting=params.enable_spotting,
+                spotting_intensity=params.spotting_intensity,
+            )
+
+            for frame in simulator.run():
+                run.add_frame(frame)
+                if on_frame is not None:
+                    on_frame(run.id, frame)
+                run._pause_event.wait()
+                if run._cancel_event.is_set():
+                    break
+
+            if not run._cancel_event.is_set():
+                run.status = SimulationStatus.COMPLETED
+                logger.info(
+                    "Perimeter override sim %s completed: %d frames",
+                    run.id, len(run.frames),
+                )
+            else:
+                logger.info("Perimeter override sim %s cancelled", run.id)
+
+        except Exception as e:
+            run.status = SimulationStatus.FAILED
+            run.error = str(e)
+            logger.exception("Perimeter override sim %s failed: %s", run.id, e)

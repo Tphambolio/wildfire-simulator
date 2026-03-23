@@ -1,6 +1,6 @@
 /** API client for the FireSim backend. */
 
-import type { SimulationCreate, MultiDaySimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse } from "../types/simulation";
+import type { SimulationCreate, MultiDaySimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse, PerimeterOverrideRequest } from "../types/simulation";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -90,6 +90,21 @@ export async function computeBurnProbability(
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     throw new Error(err.detail || "Burn probability computation failed");
+  }
+  return resp.json();
+}
+
+export async function createPerimeterOverride(
+  req: PerimeterOverrideRequest
+): Promise<SimulationResponse> {
+  const resp = await fetch(`${API_BASE}/api/v1/simulations/perimeter-override`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(err.detail || "Perimeter override request failed");
   }
   return resp.json();
 }

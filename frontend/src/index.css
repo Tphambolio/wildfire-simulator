@@ -1667,3 +1667,111 @@ select {
   margin-top: 4px;
   line-height: 1.4;
 }
+
+/* ── Perimeter Override Panel (RPAS recon correction) ──────────────────── */
+
+.recon-panel {
+  border-top: 2px solid #ff6b35;
+}
+
+.recon-title {
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.recon-hint {
+  font-size: 0.72em;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.recon-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.recon-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72em;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.recon-unit {
+  color: #556;
+}
+
+.recon-input {
+  width: 52px;
+  background: #0d1b2e;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.85em;
+  padding: 2px 5px;
+  text-align: right;
+}
+
+.recon-drop {
+  border: 2px dashed var(--border);
+  border-radius: 6px;
+  padding: 14px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+
+.recon-drop:hover:not(.recon-drop-disabled) {
+  border-color: var(--accent);
+  background: rgba(255, 107, 53, 0.07);
+}
+
+.recon-drop.drag-over {
+  border-color: var(--accent);
+  background: rgba(255, 107, 53, 0.12);
+}
+
+.recon-drop.recon-drop-disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.recon-drop-icon {
+  display: block;
+  font-size: 1.4em;
+  margin-bottom: 4px;
+}
+
+.recon-drop-text {
+  font-size: 0.72em;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.recon-error {
+  margin-top: 8px;
+  font-size: 0.72em;
+  color: var(--fire-red);
+  background: rgba(244, 67, 54, 0.1);
+  border-radius: 4px;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+
+.recon-success {
+  margin-top: 8px;
+  font-size: 0.72em;
+  color: var(--success);
+  background: rgba(76, 175, 80, 0.1);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
