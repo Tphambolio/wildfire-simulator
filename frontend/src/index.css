@@ -1046,6 +1046,36 @@ select {
   margin-top: 4px;
 }
 
+/* ── Suppression & RPAS advisory sections ────────────────────────────────── */
+
+.eoc-supp-section {
+  border-top: 1px solid rgba(244, 67, 54, 0.3);
+  background: rgba(244, 67, 54, 0.04);
+  border-radius: 4px;
+  padding: 6px;
+  margin-top: 4px;
+}
+
+.eoc-rpas-section {
+  border-top: 1px solid rgba(100, 180, 255, 0.25);
+  background: rgba(100, 180, 255, 0.04);
+  border-radius: 4px;
+  padding: 6px;
+  margin-top: 4px;
+}
+
+.eoc-resource-list {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+  color: #c8d0e0;
+  line-height: 1.55;
+}
+
+.eoc-rpas-notes {
+  color: #a0c8ff;
+}
+
 /* ── Simulation mode tabs (Single / Multi-day) ───────────────────────────── */
 
 .sim-mode-tabs {
