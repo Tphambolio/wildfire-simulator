@@ -1038,6 +1038,36 @@ select {
   margin-top: 4px;
 }
 
+.ov-edmonton-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
+.ov-edmonton-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 4px;
+  color: #a5b4fc;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ov-edmonton-btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.28);
+  border-color: rgba(99, 102, 241, 0.7);
+}
+
+.ov-edmonton-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .eoc-at-risk-section {
   border-top: 1px solid rgba(255, 102, 0, 0.3);
   background: rgba(255, 102, 0, 0.05);

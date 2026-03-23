@@ -10,6 +10,13 @@ import { useState, useCallback, useRef } from "react";
 
 export type LayerType = "roads" | "communities" | "infrastructure";
 
+// Edmonton Open Data layers bundled in public/edmonton/
+const EDMONTON_LAYERS: Record<LayerType, string> = {
+  roads:          "./edmonton/roads.geojson",
+  communities:    "./edmonton/neighbourhoods.geojson",
+  infrastructure: "./edmonton/infrastructure.geojson",
+};
+
 interface LayerConfig {
   label: string;
   icon: string;
@@ -206,6 +213,27 @@ export default function OverlayPanel({
   onLayerClear,
 }: OverlayPanelProps) {
   const hasAny = layers.roads.data || layers.communities.data || layers.infrastructure.data;
+  const [edmontonLoading, setEdmontonLoading] = useState(false);
+  const [edmontonError, setEdmontonError] = useState<string | null>(null);
+
+  const loadEdmontonLayers = useCallback(async () => {
+    setEdmontonLoading(true);
+    setEdmontonError(null);
+    try {
+      await Promise.all(
+        (["roads", "communities", "infrastructure"] as LayerType[]).map(async (type) => {
+          const resp = await fetch(EDMONTON_LAYERS[type]);
+          if (!resp.ok) throw new Error(`Failed to load ${type}: HTTP ${resp.status}`);
+          const fc = await resp.json() as GeoJSON.FeatureCollection;
+          onLayerLoad(type, fc);
+        })
+      );
+    } catch (err) {
+      setEdmontonError(err instanceof Error ? err.message : "Load failed.");
+    } finally {
+      setEdmontonLoading(false);
+    }
+  }, [onLayerLoad]);
 
   return (
     <div className="panel ov-panel">
@@ -215,6 +243,19 @@ export default function OverlayPanel({
           <span className="ov-panel-hint">at-risk = P ≥ 50% burn zone</span>
         )}
       </div>
+      {!hasAny && (
+        <div className="ov-edmonton-row">
+          <button
+            className="ov-edmonton-btn"
+            onClick={loadEdmontonLayers}
+            disabled={edmontonLoading}
+            title="Load Edmonton neighbourhoods, arterial roads, and critical infrastructure"
+          >
+            {edmontonLoading ? "Loading…" : "🏙 Load Edmonton Defaults"}
+          </button>
+          {edmontonError && <span className="ov-error">{edmontonError}</span>}
+        </div>
+      )}
       {(["roads", "communities", "infrastructure"] as LayerType[]).map((type) => (
         <LayerPanel
           key={type}

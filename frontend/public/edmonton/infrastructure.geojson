@@ -1,0 +1,355 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5265,
+          53.5225
+        ]
+      },
+      "properties": {
+        "name": "University of Alberta Hospital",
+        "type": "Hospital"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5008,
+          53.5549
+        ]
+      },
+      "properties": {
+        "name": "Royal Alexandra Hospital",
+        "type": "Hospital"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5265,
+          53.5225
+        ]
+      },
+      "properties": {
+        "name": "Stollery Children's Hospital",
+        "type": "Hospital"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.572,
+          53.5273
+        ]
+      },
+      "properties": {
+        "name": "Misericordia Community Hospital",
+        "type": "Hospital"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.4406,
+          53.4752
+        ]
+      },
+      "properties": {
+        "name": "Grey Nuns Community Hospital",
+        "type": "Hospital"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.3898,
+          53.5866
+        ]
+      },
+      "properties": {
+        "name": "Northeast Community Health Centre",
+        "type": "Hospital"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.6348,
+          53.6464
+        ]
+      },
+      "properties": {
+        "name": "Sturgeon Community Hospital (St. Albert)",
+        "type": "Hospital"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.6034,
+          53.5596
+        ]
+      },
+      "properties": {
+        "name": "E.L. Smith Water Treatment Plant",
+        "type": "Water Treatment"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.4949,
+          53.5388
+        ]
+      },
+      "properties": {
+        "name": "Rossdale Water Treatment Plant",
+        "type": "Water Treatment"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.4003,
+          53.5438
+        ]
+      },
+      "properties": {
+        "name": "Gold Bar Wastewater Treatment",
+        "type": "Wastewater Treatment"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.3439,
+          53.5618
+        ]
+      },
+      "properties": {
+        "name": "Clover Bar Wastewater Treatment",
+        "type": "Wastewater Treatment"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.3423,
+          53.568
+        ]
+      },
+      "properties": {
+        "name": "Clover Bar Generating Station",
+        "type": "Power Generation"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.4935,
+          53.5351
+        ]
+      },
+      "properties": {
+        "name": "Rossdale Power Plant (heritage)",
+        "type": "Power Generation"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.4919,
+          53.5433
+        ]
+      },
+      "properties": {
+        "name": "Edmonton Police HQ (Chancery Hall)",
+        "type": "Emergency Services"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5019,
+          53.537
+        ]
+      },
+      "properties": {
+        "name": "Edmonton Fire Rescue HQ",
+        "type": "Emergency Services"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.4808,
+          53.546
+        ]
+      },
+      "properties": {
+        "name": "Edmonton Emergency Operations Centre",
+        "type": "EOC"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5098,
+          53.5531
+        ]
+      },
+      "properties": {
+        "name": "RCMP K Division HQ",
+        "type": "Emergency Services"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5794,
+          53.3097
+        ]
+      },
+      "properties": {
+        "name": "Edmonton International Airport",
+        "type": "Airport"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5082,
+          53.5723
+        ]
+      },
+      "properties": {
+        "name": "Edmonton City Centre Airport (Blatchford)",
+        "type": "Development Site"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.4395,
+          53.4748
+        ]
+      },
+      "properties": {
+        "name": "CN Rail Yard (Walker)",
+        "type": "Rail Infrastructure"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.3979,
+          53.5
+        ]
+      },
+      "properties": {
+        "name": "Imperial Oil Strathcona Refinery",
+        "type": "Petroleum Refinery"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.196,
+          53.7082
+        ]
+      },
+      "properties": {
+        "name": "Heartland Industrial (Fort Saskatchewan)",
+        "type": "Industrial"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5263,
+          53.5232
+        ]
+      },
+      "properties": {
+        "name": "University of Alberta",
+        "type": "University"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5065,
+          53.5693
+        ]
+      },
+      "properties": {
+        "name": "NAIT",
+        "type": "Post-Secondary"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -113.5068,
+          53.5472
+        ]
+      },
+      "properties": {
+        "name": "MacEwan University",
+        "type": "Post-Secondary"
+      }
+    }
+  ]
+}
