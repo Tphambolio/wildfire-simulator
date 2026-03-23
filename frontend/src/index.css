@@ -1539,3 +1539,101 @@ select {
   border-radius: 3px;
   flex-shrink: 0;
 }
+
+/* ── Isochrone Panel ─────────────────────────────────────────────────────── */
+
+.iso-panel {
+  margin-top: 8px;
+}
+
+.iso-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.iso-header h3 {
+  margin: 0;
+  font-size: 0.92em;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.iso-subtitle {
+  font-size: 0.75em;
+  color: #778;
+  margin-bottom: 8px;
+}
+
+.iso-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.iso-preset-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #445;
+  color: #889;
+  border-radius: 3px;
+  padding: 2px 7px;
+  font-size: 0.72em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.iso-preset-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #aab;
+  border-color: #667;
+}
+
+.iso-preset-btn.active {
+  background: rgba(144, 202, 249, 0.15);
+  border-color: #90caf9;
+  color: #90caf9;
+}
+
+.iso-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.iso-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iso-color-swatch {
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.iso-label {
+  font-size: 0.82em;
+  color: var(--text-primary);
+  font-weight: 600;
+  min-width: 48px;
+}
+
+.iso-time-val {
+  font-size: 0.75em;
+  color: #778;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.iso-note {
+  font-size: 0.7em;
+  color: #667;
+  margin-top: 4px;
+  line-height: 1.4;
+}

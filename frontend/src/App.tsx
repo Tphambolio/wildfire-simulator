@@ -18,6 +18,8 @@ import { computeBurnProbability } from "./services/api";
 import type { SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig } from "./types/simulation";
 import { computeEvacZones } from "./utils/evacZones";
 import type { EvacZoneLabel } from "./utils/evacZones";
+import IsochronePanel from "./components/IsochronePanel";
+import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 
 /**
  * Export burn probability contour polygons as GeoJSON.
@@ -229,6 +231,8 @@ export default function App() {
   const [evacZoneScales, setEvacZoneScales] = useState<Record<EvacZoneLabel, number>>({
     Order: 1, Alert: 1, Watch: 1,
   });
+  const [isochronesVisible, setIsochronesVisible] = useState(true);
+  const [isoTargetHours, setIsoTargetHours] = useState<number[]>(DEFAULT_ISO_HOURS);
 
   // ── Scenario management ───────────────────────────────────────────────────
   const { scenarios, saveScenario, deleteScenario, exportScenario, importScenario } = useScenarios();
@@ -290,6 +294,12 @@ export default function App() {
   const evacZones = useMemo(
     () => computeEvacZones(frames, overlayLayers.communities.data, evacZoneScales),
     [frames, overlayLayers.communities.data, evacZoneScales],
+  );
+
+  // Compute arrival time isochrones from simulation frames
+  const isochrones = useMemo(
+    () => computeIsochrones(frames, isoTargetHours),
+    [frames, isoTargetHours],
   );
 
   const handleMapClick = useCallback((lat: number, lng: number) => {
@@ -482,6 +492,13 @@ export default function App() {
             onToggleVisible={setEvacZonesVisible}
             onScaleChange={handleEvacScaleChange}
           />
+          <IsochronePanel
+            isochrones={isochrones}
+            visible={isochronesVisible}
+            targetHours={isoTargetHours}
+            onToggleVisible={setIsochronesVisible}
+            onTargetHoursChange={setIsoTargetHours}
+          />
           <ScenarioPanel
             scenarios={scenarios}
             currentConfig={currentConfigRef.current ?? {
@@ -528,6 +545,8 @@ export default function App() {
             overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
             evacZones={evacZones}
             evacZonesVisible={evacZonesVisible}
+            isochrones={isochrones}
+            isochronesVisible={isochronesVisible}
           />
           <TimeSlider
             frames={frames}

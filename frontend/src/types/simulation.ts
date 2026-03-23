@@ -43,7 +43,7 @@ export interface SimulationFrame {
   fuel_breakdown: Record<string, number>;
   spot_fires?: Array<{ lat: number; lng: number; distance_m: number; hfi_kw_m: number }> | null;
   num_fronts?: number;
-  burned_cells?: Array<{ lat: number; lng: number; intensity: number; fuel: string }> | null;
+  burned_cells?: Array<{ lat: number; lng: number; intensity: number; fuel: string; t?: number }> | null;
   day?: number | null; // Multi-day scenario: which day (1-based)
 }
 

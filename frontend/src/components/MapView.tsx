@@ -11,6 +11,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { EvacZone } from "../utils/evacZones";
 import { evacZonesToGeoJSON } from "../utils/evacZones";
+import type { Isochrone } from "../utils/isochrones";
+import { isochronesToGeoJSON, isochroneLabelsGeoJSON } from "../utils/isochrones";
 
 /** A simple non-modal toast — disappears after 3 s */
 function MapToast({ message, onDone }: { message: string; onDone: () => void }) {
@@ -173,6 +175,9 @@ interface MapViewProps {
   /** ICS evacuation zones derived from simulation frames */
   evacZones?: EvacZone[];
   evacZonesVisible?: boolean;
+  /** Fire arrival time isochrone contours */
+  isochrones?: Isochrone[];
+  isochronesVisible?: boolean;
 }
 
 export default function MapView({
@@ -191,6 +196,8 @@ export default function MapView({
   overlayInfrastructureVisible = true,
   evacZones = [],
   evacZonesVisible = true,
+  isochrones = [],
+  isochronesVisible = true,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -580,6 +587,57 @@ export default function MapView({
       });
     }
 
+    // ── Fire arrival time isochrone layers ─────────────────────────────────
+    // Line rings for each time threshold, colored by time urgency
+    if (m.getSource("fire-isochrones")) {
+      if (m.getLayer("fire-isochrone-lines")) m.removeLayer("fire-isochrone-lines");
+      m.removeSource("fire-isochrones");
+    }
+    m.addSource("fire-isochrones", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    m.addLayer({
+      id: "fire-isochrone-lines",
+      type: "line",
+      source: "fire-isochrones",
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 2,
+        "line-opacity": 0.85,
+        "line-dasharray": [6, 3],
+      },
+    });
+
+    // Label anchor points — text showing arrival time at northernmost point
+    if (m.getSource("fire-isochrone-labels")) {
+      if (m.getLayer("fire-isochrone-label-text")) m.removeLayer("fire-isochrone-label-text");
+      m.removeSource("fire-isochrone-labels");
+    }
+    m.addSource("fire-isochrone-labels", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    m.addLayer({
+      id: "fire-isochrone-label-text",
+      type: "symbol",
+      source: "fire-isochrone-labels",
+      layout: {
+        "text-field": ["get", "label"],
+        "text-size": 11,
+        "text-anchor": "bottom",
+        "text-offset": [0, -0.3],
+        "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+      },
+      paint: {
+        "text-color": ["get", "color"],
+        "text-halo-color": "rgba(5,10,20,0.85)",
+        "text-halo-width": 1.5,
+      },
+    });
+
     // Click handler for community polygons
     m.on("click", "overlay-communities-fill", (e) => {
       if (!e.features || !e.features.length) return;
@@ -931,6 +989,33 @@ export default function MapView({
       if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", vis);
     }
   }, [evacZonesVisible, mapReady, fireLayersVersion]);
+
+  // Sync isochrone GeoJSON sources
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const m = map.current;
+    const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+    const lineSrc = m.getSource("fire-isochrones") as maplibregl.GeoJSONSource | undefined;
+    const labelSrc = m.getSource("fire-isochrone-labels") as maplibregl.GeoJSONSource | undefined;
+    if (!lineSrc || !labelSrc) return;
+    if (!isochrones || isochrones.length === 0) {
+      lineSrc.setData(empty);
+      labelSrc.setData(empty);
+      return;
+    }
+    lineSrc.setData(isochronesToGeoJSON(isochrones));
+    labelSrc.setData(isochroneLabelsGeoJSON(isochrones));
+  }, [isochrones, mapReady, fireLayersVersion]);
+
+  // Isochrone layer visibility
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const m = map.current;
+    const vis = isochronesVisible ? "visible" : "none";
+    for (const id of ["fire-isochrone-lines", "fire-isochrone-label-text"]) {
+      if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", vis);
+    }
+  }, [isochronesVisible, mapReady, fireLayersVersion]);
 
   const flyTo = useCallback((lat: number, lng: number, zoom = 12) => {
     map.current?.flyTo({ center: [lng, lat], zoom, duration: 1500 });
