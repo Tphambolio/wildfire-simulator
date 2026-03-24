@@ -1,15 +1,23 @@
 """Live fire weather endpoint.
 
-Fetches current FWI system indices from the CWFIS (Canadian Wildland Fire
-Information System) forecast API for any lat/lng, returning values ready
-to load directly into a simulation's FWI overrides.
+Fetches current fire weather observations from the CWFIS (Canadian Wildland
+Fire Information System) via their public GeoServer WFS service, selecting
+the nearest station to the requested lat/lng.
 
-Source: Natural Resources Canada CWFIS — https://cwfis.cfs.nrcan.gc.ca
+Source: Natural Resources Canada CWFIS WFS
+  https://cwfis.cfs.nrcan.gc.ca/geoserver/public/ows
+  Layer: public:firewx_stns_current
+
+FWI codes (FFMC, DMC, DC, ISI, BUI, FWI) are only computed during the active
+fire season (approximately April–October).  Off-season observations still
+return valid weather parameters (wind, temperature, RH) but with null FWI
+codes.  The frontend should handle this gracefully.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -21,8 +29,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/weather", tags=["weather"])
 
-_CWFIS_URL = "https://cwfis.cfs.nrcan.gc.ca/api/forecast"
-_TIMEOUT_S = 8.0
+_WFS_URL = (
+    "https://cwfis.cfs.nrcan.gc.ca/geoserver/public/ows"
+)
+_LAYER = "public:firewx_stns_current"
+# Bounding box half-width in degrees; ~220 km — captures ≥1 station in all of Canada
+_BBOX_DEG = 2.0
+_MAX_FEATURES = 50
+_TIMEOUT_S = 10.0
 
 
 class CurrentWeather(BaseModel):
@@ -44,6 +58,8 @@ class CurrentWeather(BaseModel):
     available: bool
     message: str
     data_timestamp: str | None = None
+    station_name: str | None = None
+    distance_km: float | None = None
 
 
 @router.get("/current", response_model=CurrentWeather)
@@ -51,60 +67,72 @@ async def get_current_weather(
     lat: Annotated[float, Query(ge=-90, le=90, description="Latitude")],
     lng: Annotated[float, Query(ge=-180, le=180, description="Longitude")],
 ) -> CurrentWeather:
-    """Fetch current FWI indices for a location from CWFIS.
+    """Fetch current fire weather for a location from the nearest CWFIS station.
+
+    Queries the CWFIS GeoServer WFS for all fire weather stations within
+    ±2° of the requested point and returns data from the closest station.
 
     Returns FFMC, DMC, DC (for use as FWI overrides) plus wind/temp/RH.
-    During off-season or when the API is unavailable, returns
-    available=false with a descriptive message — the frontend should
-    show this gracefully rather than erroring.
+    During the off-season (approx. Nov–Mar), FWI codes will be null but
+    weather observations are still returned — the frontend should populate
+    weather fields and leave FWI sliders at their current values.
+
+    Returns available=false only when no station data can be retrieved at all.
     """
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
-            resp = await client.get(
-                _CWFIS_URL,
-                params={"lat": lat, "lon": lng, "format": "json"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
+        features = await _fetch_nearby_stations(lat, lng)
     except httpx.TimeoutException:
-        logger.warning("CWFIS request timed out for (%.4f, %.4f)", lat, lng)
+        logger.warning("CWFIS WFS timed out for (%.4f, %.4f)", lat, lng)
         return _unavailable(lat, lng, "CWFIS request timed out")
-
-    except httpx.HTTPStatusError as exc:
-        logger.warning("CWFIS returned HTTP %d", exc.response.status_code)
-        return _unavailable(lat, lng, f"CWFIS returned HTTP {exc.response.status_code}")
-
     except Exception as exc:
         logger.warning("CWFIS fetch failed: %s", exc)
         return _unavailable(lat, lng, "Could not reach CWFIS")
 
-    ffmc = _float(data.get("ffmc"))
-    dmc = _float(data.get("dmc"))
-    dc = _float(data.get("dc"))
-    isi = _float(data.get("isi"))
-    bui = _float(data.get("bui"))
-    fwi = _float(data.get("fwi"))
-    wind_speed = _float(data.get("ws") or data.get("wind_speed"))
-    wind_direction = _float(data.get("wd") or data.get("wind_direction"))
-    temperature = _float(data.get("temp") or data.get("temperature"))
-    rh = _float(data.get("rh") or data.get("relative_humidity"))
-
-    if ffmc is None and fwi is None:
+    if not features:
         return _unavailable(
             lat, lng,
-            "Fire weather data not available — CWFIS may be in off-season mode"
+            "No fire weather stations found within range — try a different location"
         )
 
-    fwi_label = _fwi_label(fwi)
-    logger.info(
-        "CWFIS weather for (%.3f, %.3f): FWI=%.1f (%s)",
-        lat, lng, fwi or 0, fwi_label,
-    )
+    station, dist_km = _nearest(lat, lng, features)
+    props = station["properties"]
 
-    # Use forecast date from response if available, otherwise current UTC time
-    raw_date = data.get("rep_date") or data.get("date") or data.get("forecast_date")
-    data_ts = str(raw_date) if raw_date else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ffmc = _float(props.get("ffmc"))
+    dmc = _float(props.get("dmc"))
+    dc = _float(props.get("dc"))
+    isi = _float(props.get("isi"))
+    bui = _float(props.get("bui"))
+    fwi = _float(props.get("fwi"))
+    wind_speed = _float(props.get("ws"))
+    wind_direction = _float(props.get("wdir"))
+    temperature = _float(props.get("temp"))
+    rh = _float(props.get("rh"))
+
+    station_name = str(props.get("name", "")).replace("+", " ").strip() or None
+    rep_date = props.get("rep_date")
+    data_ts = str(rep_date) if rep_date else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    has_weather = temperature is not None or rh is not None or wind_speed is not None
+    has_fwi = fwi is not None
+
+    if not has_weather:
+        return _unavailable(lat, lng, "Station data incomplete — no weather observations")
+
+    if has_fwi:
+        fwi_label = _fwi_label(fwi)
+        msg = f"FWI {fwi:.1f} — {fwi_label}"
+    else:
+        msg = "Weather loaded — FWI codes unavailable (off-season)"
+
+    prov = str(props.get("prov", "")).strip()
+    source_tag = f"CWFIS — {station_name}" if station_name else "CWFIS / Natural Resources Canada"
+    if prov:
+        source_tag += f" ({prov})"
+
+    logger.info(
+        "CWFIS station '%s' %.1f km away for (%.3f, %.3f): FWI=%s, T=%.1f°C",
+        station_name, dist_km, lat, lng, fwi, temperature or 0,
+    )
 
     return CurrentWeather(
         lat=lat,
@@ -119,11 +147,73 @@ async def get_current_weather(
         wind_direction=wind_direction,
         temperature=temperature,
         relative_humidity=rh,
-        source="CWFIS / Natural Resources Canada",
+        source=source_tag,
         available=True,
-        message=f"FWI {fwi:.1f} — {fwi_label}" if fwi is not None else "Fire weather loaded",
+        message=msg,
         data_timestamp=data_ts,
+        station_name=station_name,
+        distance_km=round(dist_km, 1),
     )
+
+
+async def _fetch_nearby_stations(lat: float, lng: float) -> list[dict]:
+    """Query CWFIS WFS for fire weather stations within ±BBOX_DEG of point."""
+    lat_min = lat - _BBOX_DEG
+    lat_max = lat + _BBOX_DEG
+    lon_min = lng - _BBOX_DEG
+    lon_max = lng + _BBOX_DEG
+
+    # CQL filter on the lat/lon property columns (available in this layer)
+    cql = (
+        f"lat BETWEEN {lat_min} AND {lat_max} "
+        f"AND lon BETWEEN {lon_min} AND {lon_max}"
+    )
+
+    params = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeName": _LAYER,
+        "outputFormat": "application/json",
+        "count": str(_MAX_FEATURES),
+        "CQL_FILTER": cql,
+    }
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+        resp = await client.get(_WFS_URL, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+
+    return data.get("features", [])
+
+
+def _nearest(lat: float, lng: float, features: list[dict]) -> tuple[dict, float]:
+    """Return the (feature, distance_km) of the closest station."""
+    best: dict | None = None
+    best_d = float("inf")
+    for feat in features:
+        props = feat["properties"]
+        try:
+            slat = float(props["lat"])
+            slng = float(props["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        d = _haversine_km(lat, lng, slat, slng)
+        if d < best_d:
+            best_d = d
+            best = feat
+    if best is None:
+        best = features[0]
+        best_d = 0.0
+    return best, best_d
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
 
 
 def _unavailable(lat: float, lng: float, reason: str) -> CurrentWeather:

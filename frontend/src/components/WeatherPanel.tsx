@@ -141,6 +141,8 @@ export default function WeatherPanel({
   const [mcIterations, setMcIterations] = useState(50);
   const [weatherSource, setWeatherSource] = useState<string | null>(null);
   const [weatherTimestamp, setWeatherTimestamp] = useState<string | null>(null);
+  const [stationName, setStationName] = useState<string | null>(null);
+  const [stationDistanceKm, setStationDistanceKm] = useState<number | null>(null);
   const [simMode, setSimMode] = useState<"single" | "multiday">("single");
   const [multiDayDays, setMultiDayDays] = useState<MultiDayWeatherParams[]>([
     { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
@@ -215,13 +217,17 @@ export default function WeatherPanel({
           if (w.wind_direction !== null) setWeather((prev) => ({ ...prev, wind_direction: Math.round(w.wind_direction!) }));
           if (w.temperature !== null) setWeather((prev) => ({ ...prev, temperature: Math.round(w.temperature!) }));
           if (w.relative_humidity !== null) setWeather((prev) => ({ ...prev, relative_humidity: Math.round(w.relative_humidity!) }));
-          setFwi({
-            ffmc: w.ffmc ?? fwi.ffmc,
-            dmc: w.dmc ?? fwi.dmc,
-            dc: w.dc ?? fwi.dc,
-          });
+          if (w.ffmc !== null || w.dmc !== null || w.dc !== null) {
+            setFwi({
+              ffmc: w.ffmc ?? fwi.ffmc,
+              dmc: w.dmc ?? fwi.dmc,
+              dc: w.dc ?? fwi.dc,
+            });
+          }
           setWeatherSource(w.source);
           setWeatherTimestamp(w.data_timestamp ?? null);
+          setStationName(w.station_name ?? null);
+          setStationDistanceKm(w.distance_km ?? null);
           if (!showAdvanced) setShowAdvanced(true);
         }
         setWeatherMessage(w.message);
@@ -353,13 +359,17 @@ export default function WeatherPanel({
         if (w.wind_direction !== null) setWeather((prev) => ({ ...prev, wind_direction: Math.round(w.wind_direction!) }));
         if (w.temperature !== null) setWeather((prev) => ({ ...prev, temperature: Math.round(w.temperature!) }));
         if (w.relative_humidity !== null) setWeather((prev) => ({ ...prev, relative_humidity: Math.round(w.relative_humidity!) }));
-        setFwi({
-          ffmc: w.ffmc ?? fwi.ffmc,
-          dmc: w.dmc ?? fwi.dmc,
-          dc: w.dc ?? fwi.dc,
-        });
+        if (w.ffmc !== null || w.dmc !== null || w.dc !== null) {
+          setFwi({
+            ffmc: w.ffmc ?? fwi.ffmc,
+            dmc: w.dmc ?? fwi.dmc,
+            dc: w.dc ?? fwi.dc,
+          });
+        }
         setWeatherSource(w.source);
         setWeatherTimestamp(w.data_timestamp ?? null);
+        setStationName(w.station_name ?? null);
+        setStationDistanceKm(w.distance_km ?? null);
         if (!showAdvanced) setShowAdvanced(true);
       }
       setWeatherMessage(w.message);
@@ -769,9 +779,17 @@ export default function WeatherPanel({
         </div>
       )}
 
-      {weatherSource && weatherTimestamp && (
+      {(weatherSource || stationName) && (
         <div className="hint" style={{ marginBottom: "8px", fontSize: "0.8em", opacity: 0.6 }}>
-          {weatherSource} · {weatherTimestamp}
+          {stationName && (
+            <span>
+              {stationName}
+              {stationDistanceKm !== null && <span> · {stationDistanceKm} km away</span>}
+              {" · "}
+            </span>
+          )}
+          {weatherSource && !stationName && <span>{weatherSource} · </span>}
+          {weatherTimestamp ?? ""}
         </div>
       )}
 

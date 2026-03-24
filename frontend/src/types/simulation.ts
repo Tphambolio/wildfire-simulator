@@ -144,6 +144,8 @@ export interface CurrentWeather {
   available: boolean;
   message: string;
   data_timestamp: string | null;
+  station_name: string | null;
+  distance_km: number | null;
 }
 
 export interface ScenarioConfig {
