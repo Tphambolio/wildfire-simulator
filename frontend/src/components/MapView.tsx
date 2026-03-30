@@ -178,6 +178,9 @@ interface MapViewProps {
   /** Fire arrival time isochrone contours */
   isochrones?: Isochrone[];
   isochronesVisible?: boolean;
+  /** Fuel grid raster overlay — base64 PNG + WGS84 bounds */
+  fuelGridImage?: { image: string; bounds: [number, number, number, number] } | null;
+  fuelGridVisible?: boolean;
 }
 
 export default function MapView({
@@ -198,6 +201,8 @@ export default function MapView({
   evacZonesVisible = true,
   isochrones = [],
   isochronesVisible = true,
+  fuelGridImage = null,
+  fuelGridVisible = true,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -471,6 +476,65 @@ export default function MapView({
       pulseAnimRef.current = requestAnimationFrame(animatePulse);
     };
     pulseAnimRef.current = requestAnimationFrame(animatePulse);
+
+    // Ember trajectory lines (source crown front → spot fire landing)
+    if (m.getSource("ember-trajectories")) {
+      if (m.getLayer("ember-lines")) m.removeLayer("ember-lines");
+      if (m.getLayer("ember-arrows")) m.removeLayer("ember-arrows");
+      m.removeSource("ember-trajectories");
+    }
+
+    // Build a right-pointing arrowhead as a canvas image for use on line symbols
+    if (!m.hasImage("ember-arrow")) {
+      const sz = 16;
+      const canvas = document.createElement("canvas");
+      canvas.width = sz; canvas.height = sz;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#ff8c00";
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(sz, sz / 2);   // tip → right
+      ctx.lineTo(0, 0);         // top-left
+      ctx.lineTo(sz * 0.3, sz / 2); // notch
+      ctx.lineTo(0, sz);        // bottom-left
+      ctx.closePath();
+      ctx.fill();
+      const imgData = ctx.getImageData(0, 0, sz, sz);
+      m.addImage("ember-arrow", { width: sz, height: sz, data: new Uint8ClampedArray(imgData.data) });
+    }
+
+    m.addSource("ember-trajectories", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    m.addLayer({
+      id: "ember-lines",
+      type: "line",
+      source: "ember-trajectories",
+      paint: {
+        "line-color": "#ff8c00",
+        "line-width": 1.5,
+        "line-opacity": 0.55,
+        "line-dasharray": [3, 2],
+      },
+    });
+    m.addLayer({
+      id: "ember-arrows",
+      type: "symbol",
+      source: "ember-trajectories",
+      layout: {
+        "symbol-placement": "line",
+        "symbol-spacing": 80,
+        "icon-image": "ember-arrow",
+        "icon-size": 0.9,
+        "icon-keep-upright": false,
+        "icon-allow-overlap": true,
+        "icon-rotation-alignment": "map",
+      },
+      paint: {
+        "icon-opacity": 0.85,
+      },
+    });
 
     // ── Infrastructure overlay layers ──────────────────────────────────────
     // Roads (LineString)
@@ -755,6 +819,24 @@ export default function MapView({
     const currentFrame = frames[currentFrameIndex];
     if (!currentFrame) return;
 
+    // T=0 synthetic frame: clear all fire layers and return
+    if (
+      (!currentFrame.burned_cells || currentFrame.burned_cells.length === 0) &&
+      currentFrame.perimeter.length === 0
+    ) {
+      (map.current.getSource("fire-heatmap") as maplibregl.GeoJSONSource | undefined)
+        ?.setData({ type: "FeatureCollection", features: [] });
+      (map.current.getSource("fire-perimeter") as maplibregl.GeoJSONSource | undefined)
+        ?.setData({ type: "FeatureCollection", features: [] });
+      (map.current.getSource("fire-history") as maplibregl.GeoJSONSource | undefined)
+        ?.setData({ type: "FeatureCollection", features: [] });
+      (map.current.getSource("spot-fires") as maplibregl.GeoJSONSource | undefined)
+        ?.setData({ type: "FeatureCollection", features: [] });
+      (map.current.getSource("ember-trajectories") as maplibregl.GeoJSONSource | undefined)
+        ?.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
     // CA mode: burned_cells present → render as heatmap
     if (currentFrame.burned_cells && currentFrame.burned_cells.length > 0) {
       const heatSrc = map.current.getSource("fire-heatmap") as maplibregl.GeoJSONSource | undefined;
@@ -780,15 +862,34 @@ export default function MapView({
       const histSrc = map.current.getSource("fire-history") as maplibregl.GeoJSONSource | undefined;
       if (histSrc) histSrc.setData({ type: "FeatureCollection", features: [] });
 
-      // Update spot fires for current frame
+      // Update spot fires + ember trajectories — accumulate up to current frame
       const spotSrcCA = map.current.getSource("spot-fires") as maplibregl.GeoJSONSource | undefined;
+      const trajSrcCA = map.current.getSource("ember-trajectories") as maplibregl.GeoJSONSource | undefined;
+      const allSpotFiresCA = frames.slice(0, currentFrameIndex + 1).flatMap((f) => f.spot_fires ?? []);
       if (spotSrcCA) {
-        const sfFeatures: GeoJSON.Feature[] = (currentFrame.spot_fires ?? []).map((sf) => ({
-          type: "Feature" as const,
-          geometry: { type: "Point" as const, coordinates: [sf.lng, sf.lat] },
-          properties: { distance_m: sf.distance_m, hfi_kw_m: sf.hfi_kw_m },
-        }));
-        spotSrcCA.setData({ type: "FeatureCollection", features: sfFeatures });
+        spotSrcCA.setData({
+          type: "FeatureCollection",
+          features: allSpotFiresCA.map((sf) => ({
+            type: "Feature" as const,
+            geometry: { type: "Point" as const, coordinates: [sf.lng, sf.lat] },
+            properties: { distance_m: sf.distance_m, hfi_kw_m: sf.hfi_kw_m },
+          })),
+        });
+      }
+      if (trajSrcCA) {
+        trajSrcCA.setData({
+          type: "FeatureCollection",
+          features: allSpotFiresCA
+            .filter((sf) => sf.source_lat != null && sf.source_lng != null)
+            .map((sf) => ({
+              type: "Feature" as const,
+              geometry: {
+                type: "LineString" as const,
+                coordinates: [[sf.source_lng!, sf.source_lat!], [sf.lng, sf.lat]],
+              },
+              properties: { distance_m: sf.distance_m, hfi_kw_m: sf.hfi_kw_m },
+            })),
+        });
       }
       return;
     }
@@ -840,15 +941,34 @@ export default function MapView({
     const heatSrc = map.current.getSource("fire-heatmap") as maplibregl.GeoJSONSource | undefined;
     if (heatSrc) heatSrc.setData({ type: "FeatureCollection", features: [] });
 
-    // Update spot fires for current frame
+    // Update spot fires + ember trajectories — accumulate up to current frame
     const spotSrc = map.current.getSource("spot-fires") as maplibregl.GeoJSONSource | undefined;
+    const trajSrc = map.current.getSource("ember-trajectories") as maplibregl.GeoJSONSource | undefined;
+    const allSpotFires = frames.slice(0, currentFrameIndex + 1).flatMap((f) => f.spot_fires ?? []);
     if (spotSrc) {
-      const sfFeatures: GeoJSON.Feature[] = (currentFrame.spot_fires ?? []).map((sf) => ({
-        type: "Feature" as const,
-        geometry: { type: "Point" as const, coordinates: [sf.lng, sf.lat] },
-        properties: { distance_m: sf.distance_m, hfi_kw_m: sf.hfi_kw_m },
-      }));
-      spotSrc.setData({ type: "FeatureCollection", features: sfFeatures });
+      spotSrc.setData({
+        type: "FeatureCollection",
+        features: allSpotFires.map((sf) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [sf.lng, sf.lat] },
+          properties: { distance_m: sf.distance_m, hfi_kw_m: sf.hfi_kw_m },
+        })),
+      });
+    }
+    if (trajSrc) {
+      trajSrc.setData({
+        type: "FeatureCollection",
+        features: allSpotFires
+          .filter((sf) => sf.source_lat != null && sf.source_lng != null)
+          .map((sf) => ({
+            type: "Feature" as const,
+            geometry: {
+              type: "LineString" as const,
+              coordinates: [[sf.source_lng!, sf.source_lat!], [sf.lng, sf.lat]],
+            },
+            properties: { distance_m: sf.distance_m, hfi_kw_m: sf.hfi_kw_m },
+          })),
+      });
     }
   }, [frames, currentFrameIndex, mapReady, fireLayersVersion]);
 
@@ -924,6 +1044,53 @@ export default function MapView({
     });
   }, [showBurnProbView, burnProbabilityData, mapReady, fireLayersVersion]);
 
+  // Fuel grid raster overlay
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const m = map.current;
+
+    // Remove any existing fuel layer/source before re-adding
+    if (m.getLayer("fuel-grid-layer")) m.removeLayer("fuel-grid-layer");
+    if (m.getSource("fuel-grid")) m.removeSource("fuel-grid");
+
+    if (!fuelGridImage) return;
+
+    const [west, south, east, north] = fuelGridImage.bounds;
+    m.addSource("fuel-grid", {
+      type: "image",
+      url: fuelGridImage.image,
+      coordinates: [
+        [west, north], // top-left
+        [east, north], // top-right
+        [east, south], // bottom-right
+        [west, south], // bottom-left
+      ],
+    });
+    m.addLayer(
+      {
+        id: "fuel-grid-layer",
+        type: "raster",
+        source: "fuel-grid",
+        paint: {
+          "raster-opacity": fuelGridVisible ? 0.55 : 0,
+          "raster-resampling": "nearest",
+        },
+      },
+      // Insert below fire layers so the fire renders on top
+      "fire-fill",
+    );
+  }, [fuelGridImage, mapReady, fireLayersVersion]);
+
+  // Toggle fuel grid visibility
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    if (map.current.getLayer("fuel-grid-layer")) {
+      map.current.setPaintProperty(
+        "fuel-grid-layer", "raster-opacity", fuelGridVisible ? 0.55 : 0,
+      );
+    }
+  }, [fuelGridVisible, mapReady]);
+
   // Sync overlay GeoJSON sources
   useEffect(() => {
     if (!map.current || !mapReady) return;
@@ -991,7 +1158,7 @@ export default function MapView({
     }
   }, [evacZonesVisible, mapReady, fireLayersVersion]);
 
-  // Sync isochrone GeoJSON sources
+  // Sync isochrone GeoJSON sources — only show isochrones up to current frame time
   useEffect(() => {
     if (!map.current || !mapReady) return;
     const m = map.current;
@@ -999,14 +1166,16 @@ export default function MapView({
     const lineSrc = m.getSource("fire-isochrones") as maplibregl.GeoJSONSource | undefined;
     const labelSrc = m.getSource("fire-isochrone-labels") as maplibregl.GeoJSONSource | undefined;
     if (!lineSrc || !labelSrc) return;
-    if (!isochrones || isochrones.length === 0) {
+    const currentTime = frames[currentFrameIndex]?.time_hours ?? 0;
+    const visible = (isochrones ?? []).filter((iso) => iso.timeHours <= currentTime);
+    if (visible.length === 0) {
       lineSrc.setData(empty);
       labelSrc.setData(empty);
       return;
     }
-    lineSrc.setData(isochronesToGeoJSON(isochrones));
-    labelSrc.setData(isochroneLabelsGeoJSON(isochrones));
-  }, [isochrones, mapReady, fireLayersVersion]);
+    lineSrc.setData(isochronesToGeoJSON(visible));
+    labelSrc.setData(isochroneLabelsGeoJSON(visible));
+  }, [isochrones, mapReady, fireLayersVersion, frames, currentFrameIndex]);
 
   // Isochrone layer visibility
   useEffect(() => {

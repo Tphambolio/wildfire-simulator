@@ -11,6 +11,21 @@ import type {
   WSEvent,
 } from "../types/simulation";
 
+/** Synthetic T=0 frame prepended to every simulation so the scrubber always starts at ignition. */
+const T0_FRAME: SimulationFrame = {
+  time_hours: 0,
+  perimeter: [],
+  area_ha: 0,
+  head_ros_m_min: 0,
+  max_hfi_kw_m: 0,
+  fire_type: "SURFACE",
+  flame_length_m: 0,
+  fuel_breakdown: {},
+  spot_fires: null,
+  burned_cells: null,
+  num_fronts: 0,
+};
+
 interface SimulationState {
   simulationId: string | null;
   status: SimulationStatus | null;
@@ -68,7 +83,11 @@ export function useSimulation() {
 
         if (data.type === "simulation.frame" && data.frame) {
           setState((prev) => {
-            const newFrames = [...prev.frames, data.frame!];
+            // Prepend a synthetic T=0 frame on the very first real frame so the
+            // scrubber always starts at the ignition state (nothing burning).
+            const newFrames = prev.frames.length === 0
+              ? [T0_FRAME, data.frame!]
+              : [...prev.frames, data.frame!];
             return {
               ...prev,
               frames: newFrames,
@@ -151,11 +170,12 @@ export function useSimulation() {
     const poll = async () => {
       try {
         const resp = await getSimulation(simId);
+        const framesWithT0 = resp.frames.length > 0 ? [T0_FRAME, ...resp.frames] : [];
         setState((prev) => ({
           ...prev,
-          frames: resp.frames,
+          frames: framesWithT0,
           status: resp.status,
-          currentFrameIndex: resp.frames.length - 1,
+          currentFrameIndex: framesWithT0.length - 1,
           isRunning: resp.status === "running",
           error: resp.error,
         }));
