@@ -19,3 +19,24 @@ htmlcov/
 # Test screenshots and debug artifacts
 *.png
 *.backup
+
+# Frontend build outputs
+frontend/dist/
+frontend/.env.local
+frontend/.env.production
+
+# API / engine
+api/.env
+engine/.env
+*.log
+
+# Data files (large)
+*.tif
+*.tiff
+*.geotiff
+*.gpkg
+*.gdb/
+
+# OS
+.DS_Store
+Thumbs.db
