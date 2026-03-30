@@ -82,7 +82,7 @@ export default function PerimeterOverridePanel({
 
           onOverrideStart({
             simulation_id: simulationId,
-            perimeter_geojson: geometry as GeoJSON.Geometry,
+            perimeter_geojson: geometry as unknown as GeoJSON.Geometry,
             duration_hours: durationHours,
             snapshot_interval_minutes: snapshotMinutes,
           });
