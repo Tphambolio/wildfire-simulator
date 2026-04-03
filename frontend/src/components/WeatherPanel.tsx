@@ -98,6 +98,8 @@ interface WeatherPanelProps {
   scenarioToLoad?: ScenarioConfig | null;
   /** Called after a scenario config has been extracted for saving. */
   onConfigSnapshot?: (config: Omit<ScenarioConfig, "id" | "createdAt" | "name" | "description">) => void;
+  /** Called when Edmonton fuel grid is toggled on/off, with the grid path or null */
+  onEdmontonGridChange?: (fuelGridPath: string | null) => void;
 }
 
 export default function WeatherPanel({
@@ -110,6 +112,7 @@ export default function WeatherPanel({
   burnProbRunning,
   scenarioToLoad,
   onConfigSnapshot,
+  onEdmontonGridChange,
 }: WeatherPanelProps) {
   const [weather, setWeather] = useState<WeatherParams>({
     wind_speed: 20,
@@ -535,7 +538,10 @@ export default function WeatherPanel({
           <input
             type="checkbox"
             checked={useEdmontonGrid}
-            onChange={(e) => setUseEdmontonGrid(e.target.checked)}
+            onChange={(e) => {
+              setUseEdmontonGrid(e.target.checked);
+              onEdmontonGridChange?.(e.target.checked ? EDMONTON_FUEL_GRID_PATH : null);
+            }}
           />
           Use Edmonton Fuel Grid (FBP 10m)
         </label>

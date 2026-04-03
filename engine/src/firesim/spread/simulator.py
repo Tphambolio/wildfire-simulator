@@ -265,7 +265,11 @@ class Simulator:
             ca_spot_fires = None
             if cf.spot_fires:
                 ca_spot_fires = [
-                    {"lat": s.lat, "lng": s.lng, "distance_m": s.distance_m, "hfi_kw_m": s.hfi_kw_m}
+                    {
+                        "lat": s.lat, "lng": s.lng,
+                        "distance_m": s.distance_m, "hfi_kw_m": s.hfi_kw_m,
+                        "source_lat": s.source_lat, "source_lng": s.source_lng,
+                    }
                     for s in cf.spot_fires
                 ]
 
@@ -390,7 +394,11 @@ class Simulator:
             flame_length_m=fbp.flame_length,
             fuel_breakdown=fuel_breakdown,
             spot_fires=[
-                {"lat": s.lat, "lng": s.lng, "distance_m": s.distance_m, "hfi_kw_m": s.hfi_kw_m}
+                {
+                    "lat": s.lat, "lng": s.lng,
+                    "distance_m": s.distance_m, "hfi_kw_m": s.hfi_kw_m,
+                    "source_lat": s.source_lat, "source_lng": s.source_lng,
+                }
                 for s in (spot_fires or [])
             ] or None,
             num_fronts=num_fronts,

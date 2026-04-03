@@ -88,6 +88,90 @@ async def create_simulation(params: SimulationCreate) -> SimulationResponse:
     )
 
 
+@router.get("/fuel-grid-image")
+async def fuel_grid_image(fuel_grid_path: str) -> dict:
+    """Return a base64-encoded PNG of the fuel grid with WGS84 bounds.
+
+    Used by the frontend to render a raster overlay on the map showing
+    which FBP fuel types are present and where.
+
+    Returns JSON with: image (base64 PNG), bounds [west, south, east, north]
+    """
+    import base64
+    import io
+    import os
+
+    import numpy as np
+    from fastapi.responses import JSONResponse
+    from firesim_api.settings import settings
+
+    path = fuel_grid_path or settings.fuel_grid_path
+    if not path:
+        raise HTTPException(status_code=422, detail="No fuel_grid_path supplied")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=422, detail=f"Fuel grid not found: {path!r}")
+
+    try:
+        import rasterio
+        from rasterio.warp import transform_bounds
+        from PIL import Image as PILImage
+
+        from firesim.data.fuel_loader import ALL_CODES, _detect_code_map
+
+        with rasterio.open(path) as src:
+            data = src.read(1)
+            nodata = src.nodata
+            src_crs = src.crs
+            src_bounds = src.bounds
+
+        lng_min, lat_min, lng_max, lat_max = transform_bounds(
+            src_crs, "EPSG:4326",
+            src_bounds.left, src_bounds.bottom,
+            src_bounds.right, src_bounds.top,
+        )
+
+        if nodata is not None:
+            data[data == int(nodata)] = 0
+
+        # Downsample to max 512px on longest side for a lightweight overlay
+        rows, cols = data.shape
+        scale = min(512 / max(rows, cols), 1.0)
+        if scale < 1.0:
+            from scipy.ndimage import zoom as ndimage_zoom
+            data = ndimage_zoom(data, scale, order=0)
+            rows, cols = data.shape
+
+        unique_codes = set(np.unique(data).tolist())
+        code_map = _detect_code_map(unique_codes)
+
+        rgba = np.zeros((rows, cols, 4), dtype=np.uint8)
+        for r_code, fuel_type in code_map.items():
+            if fuel_type is None:
+                continue
+            colour = _FUEL_COLOURS.get(fuel_type.value)
+            if colour is None:
+                continue
+            mask = data == r_code
+            rgba[mask, 0] = colour[0]
+            rgba[mask, 1] = colour[1]
+            rgba[mask, 2] = colour[2]
+            rgba[mask, 3] = 200  # Semi-transparent
+
+        img = PILImage.fromarray(rgba, "RGBA")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        encoded = base64.b64encode(buf.getvalue()).decode()
+
+        return JSONResponse({
+            "image": f"data:image/png;base64,{encoded}",
+            "bounds": [lng_min, lat_min, lng_max, lat_max],
+            "fuel_grid_path": path,
+        })
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to render fuel grid: {exc}") from exc
+
+
 @router.get("/{sim_id}", response_model=SimulationResponse)
 async def get_simulation(sim_id: str) -> SimulationResponse:
     """Get simulation status and results."""
@@ -375,3 +459,33 @@ async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbab
         iterations_completed=result.iterations_completed,
         cell_size_m=result.cell_size_m,
     )
+
+
+# ---------------------------------------------------------------------------
+# Fuel grid raster image (for map overlay)
+# ---------------------------------------------------------------------------
+
+# NOTE: The /fuel-grid-image GET route is registered above /{sim_id} to
+# prevent FastAPI from matching "fuel-grid-image" as a sim_id path param.
+
+# FBP fuel type → RGBA colour (matches standard Canadian FBP colour conventions)
+_FUEL_COLOURS: dict[str, tuple[int, int, int]] = {
+    "C1":  (0,   104,  55),   # Dark green
+    "C2":  (0,   128,   0),   # Green
+    "C3":  (34,  139,  34),   # Forest green
+    "C4":  (85,  107,  47),   # Dark olive
+    "C5":  (107, 142,  35),   # Olive
+    "C6":  (154, 205,  50),   # Yellow-green
+    "C7":  (173, 255,  47),   # Chartreuse
+    "D1":  (160, 120,  40),   # Brown
+    "D2":  (205, 133,  63),   # Peru
+    "M1":  (210, 180, 140),   # Tan
+    "M2":  (188, 143, 143),   # Rosy brown
+    "M3":  (128,   0, 128),   # Purple
+    "M4":  (186,  85, 211),   # Medium orchid
+    "O1a": (255, 215,   0),   # Gold
+    "O1b": (255, 165,   0),   # Orange
+    "S1":  (220,  20,  60),   # Crimson
+    "S2":  (178,  34,  34),   # Firebrick
+    "S3":  (139,   0,   0),   # Dark red
+}

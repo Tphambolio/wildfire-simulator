@@ -109,6 +109,13 @@ export async function createPerimeterOverride(
   return resp.json();
 }
 
+export async function fetchFuelGridImage(fuelGridPath: string): Promise<{ image: string; bounds: [number, number, number, number] }> {
+  const params = new URLSearchParams({ fuel_grid_path: fuelGridPath });
+  const res = await fetch(`${API_BASE}/api/v1/simulations/fuel-grid-image?${params}`);
+  if (!res.ok) throw new Error(`Fuel grid image failed: ${res.status}`);
+  return res.json();
+}
+
 export function getWebSocketUrl(simId: string): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = API_BASE || `${proto}//${window.location.host}`;
