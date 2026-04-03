@@ -1581,18 +1581,6 @@ select {
 }
 
 /* ── TimeSlider: range wrapper + day-boundary ticks ─────────────────────── */
-.ts-range-wrap {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
-.ts-range-wrap .ts-range {
-  width: 100%;
-}
-
 .ts-day-tick {
   position: absolute;
   top: 0;
@@ -2119,4 +2107,108 @@ select {
   background: rgba(76, 175, 80, 0.1);
   border-radius: 4px;
   padding: 6px 8px;
+}
+
+/* ── Telemetry strip — floating glass chips on map canvas ──────────────────── */
+.telemetry-strip {
+  position: absolute;
+  top: 54px;  /* below the search box (which is ~41px tall at offset 8px) */
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.tel-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  background: rgba(17, 17, 37, 0.82);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(89, 65, 57, 0.22);
+  border-radius: var(--radius-md);
+  padding: 5px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+.tel-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.tel-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'Inter', monospace;
+  color: var(--on-surface);
+  line-height: 1;
+}
+
+.tel-unit {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.03em;
+}
+
+.tel-dir {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+}
+
+.tel-danger {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: 2px;
+  margin-left: 2px;
+}
+
+/* FWI danger rating chip colors */
+.tel-chip-danger.low     .tel-danger { background: rgba(76,175,80,0.25);  color: #81c784; }
+.tel-chip-danger.moderate .tel-danger{ background: rgba(255,235,59,0.2);  color: #fff176; }
+.tel-chip-danger.high    .tel-danger { background: rgba(255,152,0,0.25);  color: #ffb74d; }
+.tel-chip-danger.very-high .tel-danger { background: rgba(255,107,53,0.3); color: var(--accent); }
+.tel-chip-danger.extreme .tel-danger { background: rgba(183,28,28,0.35);  color: #ef9a9a; }
+
+/* ── Timeline labels row inside scrubber ───────────────────────────────────── */
+.ts-range-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ts-range-wrap .ts-range {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.ts-timeline-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px;
+  margin-top: 1px;
+}
+
+.ts-tl-start,
+.ts-tl-end {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  font-family: 'Inter', monospace;
 }

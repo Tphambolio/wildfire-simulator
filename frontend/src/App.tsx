@@ -540,6 +540,29 @@ export default function App() {
 
       {/* ── Map area — full canvas between topbar and bottombar ─── */}
       <main className="map-area">
+        {/* Telemetry strip — floating glass chips over the map */}
+        {lastRunParams && (
+          <div className="telemetry-strip">
+            <div className="tel-chip">
+              <span className="tel-label">Wind</span>
+              <span className="tel-value">{lastRunParams.weather.wind_speed}<span className="tel-unit"> km/h</span></span>
+              <span className="tel-dir">{["N","NE","E","SE","S","SW","W","NW"][Math.round(lastRunParams.weather.wind_direction / 45) % 8]}</span>
+            </div>
+            <div className="tel-chip">
+              <span className="tel-label">Humidity</span>
+              <span className="tel-value">{lastRunParams.weather.relative_humidity}<span className="tel-unit">%</span></span>
+            </div>
+            <div className="tel-chip">
+              <span className="tel-label">Temp</span>
+              <span className="tel-value">{lastRunParams.weather.temperature}<span className="tel-unit">°C</span></span>
+            </div>
+            <div className={`tel-chip tel-chip-danger ${lastRunParams.danger_rating.toLowerCase().replace(/\s+/g, "-")}`}>
+              <span className="tel-label">FWI</span>
+              <span className="tel-value">{lastRunParams.fwi_value.toFixed(0)}</span>
+              <span className="tel-danger">{lastRunParams.danger_rating}</span>
+            </div>
+          </div>
+        )}
         <MapView
             frames={frames}
             currentFrameIndex={currentFrameIndex}

@@ -155,12 +155,11 @@ export default function TimeSlider({
             </div>
           );
         })}
+        <div className="ts-timeline-labels">
+          <span className="ts-tl-start">Start · T+0</span>
+          <span className="ts-tl-end">End · T+{totalFrame?.time_hours.toFixed(1)}h</span>
+        </div>
       </div>
-
-      {/* Total duration */}
-      <span className="time-label" title="Total simulation duration">
-        {totalFrame?.time_hours.toFixed(1)}h
-      </span>
 
       {/* Speed selector */}
       <div className="ts-speeds">
