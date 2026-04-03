@@ -769,47 +769,208 @@ select {
   color: var(--text-secondary) !important;
 }
 
-/* Basemap toggle */
-.basemap-toggle {
+/* ── Map controls panel — bottom-right glass panel ────────────────────────── */
+.map-controls-panel {
   position: absolute;
-  bottom: 48px;
+  bottom: 36px;
   right: 10px;
+  z-index: 10;
   display: flex;
-  gap: 0;
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  z-index: 5;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(51, 51, 72, 0.75);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(89, 65, 57, 0.25);
+  border-radius: 6px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  min-width: 140px;
 }
 
-.basemap-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
+.mcp-basemap-row {
+  display: flex;
+  gap: 2px;
+}
+
+.mcp-basemap-btn {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(89, 65, 57, 0.3);
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
+  border-radius: 3px;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 
-.basemap-btn:first-child {
-  border-radius: var(--radius) 0 0 var(--radius);
-}
-
-.basemap-btn:last-child {
-  border-radius: 0 var(--radius) var(--radius) 0;
-}
-
-.basemap-btn.active {
+.mcp-basemap-btn.active {
   background: var(--accent);
   color: white;
   border-color: var(--accent);
 }
 
-.basemap-btn:hover:not(.active) {
-  background: var(--bg-section);
+.mcp-basemap-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
+}
+
+.mcp-divider {
+  height: 1px;
+  background: rgba(89, 65, 57, 0.25);
+  margin: 2px 0;
+}
+
+.mcp-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.mcp-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid rgba(89, 65, 57, 0.3);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  transition: all 0.15s;
+  position: relative;
+  white-space: nowrap;
+}
+
+.mcp-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.mcp-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.mcp-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Ignition button — active state with pulsing ring */
+.mcp-ignite {
+  flex: 1;
+}
+
+.mcp-ignite.active {
+  background: rgba(255, 61, 0, 0.2);
+  border-color: #ff3d00;
+  color: #ff7043;
+  box-shadow: 0 0 0 0 rgba(255, 61, 0, 0.5);
+  animation: ignite-pulse 1.5s ease-out infinite;
+}
+
+@keyframes ignite-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 61, 0, 0.5); }
+  70%  { box-shadow: 0 0 0 6px rgba(255, 61, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 61, 0, 0); }
+}
+
+.mcp-active-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ff3d00;
+  flex-shrink: 0;
+  animation: dot-blink 1s ease-in-out infinite;
+}
+
+@keyframes dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Clear button */
+.mcp-clear {
+  padding: 5px 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.mcp-clear:hover {
+  color: var(--fire-red);
+  border-color: var(--fire-red);
+}
+
+/* Spot fires toggle */
+.mcp-spotfire {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.mcp-spotfire.active {
+  background: rgba(255, 107, 53, 0.15);
+  border-color: rgba(255, 107, 53, 0.4);
+  color: var(--accent);
+}
+
+.mcp-toggle-dot {
+  width: 20px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--surface-high);
+  margin-left: auto;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.mcp-toggle-dot::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  top: 1px;
+  left: 1px;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.mcp-toggle-dot.on {
+  background: rgba(255, 107, 53, 0.3);
+}
+
+.mcp-toggle-dot.on::after {
+  transform: translateX(10px);
+  background: var(--accent);
+}
+
+/* Placement mode crosshair hint */
+.mcp-placement-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 5;
+  background: rgba(20, 30, 50, 0.8);
+  color: #e0e0e0;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px dashed #ff3d00;
+  backdrop-filter: blur(8px);
+  letter-spacing: 0.03em;
 }
 
 /* Burn Probability Legend */

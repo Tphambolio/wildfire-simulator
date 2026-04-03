@@ -1256,112 +1256,65 @@ export default function MapView({
           ))}
         </div>
       )}
-      <div className="basemap-toggle">
-        {(Object.keys(BASEMAPS) as BasemapId[]).map((id) => (
+      {/* ── Map controls panel — bottom-right glass panel ───── */}
+      <div className="map-controls-panel">
+        {/* Basemap row */}
+        <div className="mcp-basemap-row">
+          {(Object.keys(BASEMAPS) as BasemapId[]).map((id) => (
+            <button
+              key={id}
+              className={`mcp-basemap-btn${basemap === id ? " active" : ""}`}
+              onClick={() => setBasemap(id)}
+              title={BASEMAPS[id].label}
+            >
+              {BASEMAPS[id].label}
+            </button>
+          ))}
+        </div>
+
+        {/* Divider */}
+        <div className="mcp-divider" />
+
+        {/* Ignition row */}
+        <div className="mcp-row">
           <button
-            key={id}
-            className={`basemap-btn${basemap === id ? " active" : ""}`}
-            onClick={() => setBasemap(id)}
+            className={`mcp-btn mcp-ignite${ignitionMode ? " active" : ""}`}
+            onClick={() => setIgnitionMode((v) => !v)}
+            title={ignitionMode ? "Click map to place ignition (ESC to cancel)" : ignitionPoint ? "Move ignition point" : "Place ignition point"}
           >
-            {BASEMAPS[id].label}
+            <span className="mcp-icon">⊕</span>
+            <span className="mcp-label">
+              {ignitionMode ? "Arm" : ignitionPoint ? "Move" : "Ignite"}
+            </span>
+            {ignitionMode && <span className="mcp-active-dot" />}
           </button>
-        ))}
-      </div>
-      {/* Ignition placement mode button */}
-      <button
-        onClick={() => {
-          const next = !ignitionMode;
-          setIgnitionMode(next);
-        }}
-        title={ignitionMode ? "Click map to place ignition point (ESC to cancel)" : "Click to enter ignition placement mode"}
-        style={{
-          position: "absolute",
-          bottom: ignitionPoint ? 72 : 72,
-          right: 10,
-          zIndex: 10,
-          padding: "5px 10px",
-          background: ignitionMode
-            ? "rgba(255, 61, 0, 0.85)"
-            : "rgba(20, 30, 50, 0.85)",
-          color: "#fff",
-          border: ignitionMode ? "2px solid #ff3d00" : "1px solid #445",
-          borderRadius: 4,
-          cursor: "pointer",
-          fontSize: 12,
-          fontWeight: 600,
-          transition: "all 0.15s",
-        }}
-      >
-        {ignitionMode ? "🔥 Click map to ignite" : ignitionPoint ? "🔥 Move ignition" : "🔥 Place ignition"}
-      </button>
+          {ignitionPoint && onClearIgnition && (
+            <button
+              className="mcp-btn mcp-clear"
+              onClick={() => { onClearIgnition(); setIgnitionMode(true); }}
+              title="Clear ignition point"
+            >
+              ✕
+            </button>
+          )}
+        </div>
 
-      {/* Clear ignition button — shown when ignition is set */}
-      {ignitionPoint && onClearIgnition && (
+        {/* Spot fires toggle */}
         <button
-          onClick={() => {
-            onClearIgnition();
-            setIgnitionMode(true); // Re-enter placement mode so they can set a new point
-          }}
-          title="Clear ignition point"
-          style={{
-            position: "absolute",
-            bottom: 108,
-            right: 10,
-            zIndex: 10,
-            padding: "5px 10px",
-            background: "rgba(20, 30, 50, 0.85)",
-            color: "#aaa",
-            border: "1px solid #445",
-            borderRadius: 4,
-            cursor: "pointer",
-            fontSize: 12,
-          }}
+          className={`mcp-btn mcp-spotfire${showSpotFires ? " active" : ""}`}
+          onClick={() => setShowSpotFires((v) => !v)}
+          title={showSpotFires ? "Spotting ON — click to disable" : "Spotting OFF — click to enable"}
         >
-          ✕ Clear
+          <span className="mcp-icon">✦</span>
+          <span className="mcp-label">Spot Fires</span>
+          <span className={`mcp-toggle-dot${showSpotFires ? " on" : ""}`} />
         </button>
-      )}
-
-      <button
-        onClick={() => setShowSpotFires((v) => !v)}
-        style={{
-          position: "absolute",
-          bottom: 36,
-          right: 10,
-          zIndex: 10,
-          padding: "5px 10px",
-          background: showSpotFires ? "rgba(255, 100, 0, 0.85)" : "rgba(20, 30, 50, 0.85)",
-          color: "#fff",
-          border: "1px solid #ff6600",
-          borderRadius: 4,
-          cursor: "pointer",
-          fontSize: 12,
-          fontWeight: 600,
-        }}
-      >
-        {showSpotFires ? "🔥 Spot Fires ON" : "🔥 Spot Fires OFF"}
-      </button>
+      </div>
 
       {/* Placement mode hint overlay */}
       {ignitionMode && (
-        <div style={{
-          position: "absolute",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          pointerEvents: "none",
-          zIndex: 5,
-          textAlign: "center",
-        }}>
-          <div style={{
-            background: "rgba(20,30,50,0.75)",
-            color: "#e0e0e0",
-            padding: "10px 20px",
-            borderRadius: 8,
-            fontSize: 14,
-            border: "1px dashed #ff3d00",
-          }}>
-            Click map to set ignition point
-          </div>
+        <div className="mcp-placement-hint">
+          Click map to set ignition point
         </div>
       )}
 
