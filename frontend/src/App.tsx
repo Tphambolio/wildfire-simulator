@@ -14,7 +14,7 @@ import EvacZonesPanel from "./components/EvacZonesPanel";
 import { FUEL_TYPES } from "./types/simulation";
 import { useSimulation } from "./hooks/useSimulation";
 import { useScenarios } from "./hooks/useScenarios";
-import { computeBurnProbability } from "./services/api";
+import { computeBurnProbability, fetchFuelGridImage } from "./services/api";
 import type { SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { computeEvacZones } from "./utils/evacZones";
 import type { EvacZoneLabel } from "./utils/evacZones";
@@ -221,7 +221,6 @@ export default function App() {
     lat: number;
     lng: number;
   } | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [burnProbabilityData, setBurnProbabilityData] = useState<BurnProbabilityResponse | null>(null);
   const [burnProbRunning, setBurnProbRunning] = useState(false);
   const [burnProbError, setBurnProbError] = useState<string | null>(null);
@@ -234,6 +233,8 @@ export default function App() {
   });
   const [isochronesVisible, setIsochronesVisible] = useState(true);
   const [isoTargetHours, setIsoTargetHours] = useState<number[]>(DEFAULT_ISO_HOURS);
+  const [fuelGridImage, setFuelGridImage] = useState<{ image: string; bounds: [number, number, number, number] } | null>(null);
+  const [fuelGridVisible, setFuelGridVisible] = useState(true);
 
   // ── Scenario management ───────────────────────────────────────────────────
   const { scenarios, saveScenario, deleteScenario, exportScenario, importScenario } = useScenarios();
@@ -258,6 +259,17 @@ export default function App() {
     communities: overlayAnnotated.communities.count,
     infrastructure: overlayAnnotated.infrastructure.count,
   }), [overlayAnnotated]);
+
+  const handleEdmontonGridChange = useCallback(async (path: string | null) => {
+    if (!path) { setFuelGridImage(null); return; }
+    try {
+      const img = await fetchFuelGridImage(path);
+      setFuelGridImage(img);
+      setFuelGridVisible(true);
+    } catch {
+      setFuelGridImage(null);
+    }
+  }, []);
 
   const handleEvacScaleChange = useCallback((label: EvacZoneLabel, scale: number) => {
     setEvacZoneScales((prev) => ({ ...prev, [label]: scale }));
@@ -373,89 +385,13 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>FireSim V3</h1>
-        <span className="subtitle">Canadian FBP Wildfire Spread Simulator</span>
-        <button
-          className="sidebar-toggle"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          aria-label="Toggle sidebar"
-        >
-          {sidebarOpen ? "\u2715" : "\u2630"}
-        </button>
-        {isRunning && !isPaused && (
-          <button className="btn-control btn-pause" onClick={pauseSimulation} title="Pause simulation">
-            &#9646;&#9646; Pause
-          </button>
-        )}
-        {isPaused && (
-          <>
-            <button className="btn-control btn-resume" onClick={resumeSimulation} title="Resume simulation">
-              &#9654; Resume
-            </button>
-            <button className="btn-control btn-cancel" onClick={cancelSimulation} title="Cancel simulation">
-              &#9632; Cancel
-            </button>
-          </>
-        )}
-        {status === "completed" && frames.length > 0 && (
-          <button
-            className="btn-control btn-export"
-            onClick={() => exportPerimeterGeoJSON(frames, ignitionPoint)}
-            title="Export all perimeter frames as GeoJSON FeatureCollection"
-          >
-            Export GeoJSON
-          </button>
-        )}
-        {burnProbabilityData && (
-          <button
-            className={`btn-control btn-view-toggle${showBurnProbView ? " active" : ""}`}
-            onClick={() => setShowBurnProbView((v) => !v)}
-            title="Toggle between burn probability heatmap and fire spread view"
-          >
-            {showBurnProbView ? "Prob View" : "Spread View"}
-          </button>
-        )}
-        {burnProbabilityData && !burnProbRunning && (
-          <button
-            className="btn-control btn-export"
-            onClick={() => exportBurnProbGeoJSON(burnProbabilityData, lastRunParams, ignitionPoint)}
-            title="Export burn probability contours (25/50/75%) as GeoJSON — compatible with QGIS, ArcGIS, GPS units"
-          >
-            Export BP GeoJSON
-          </button>
-        )}
-        {showBurnProbView && lastRunParams && (
-          <div className="run-params-badge" title="Weather conditions used for this burn probability run">
-            <span>{lastRunParams.weather.wind_speed} km/h {["N","NE","E","SE","S","SW","W","NW"][Math.round(lastRunParams.weather.wind_direction / 45) % 8]}</span>
-            <span>·</span>
-            <span>FFMC {lastRunParams.fwi.ffmc}</span>
-            <span>·</span>
-            <span>FWI {lastRunParams.fwi_value.toFixed(1)}</span>
-            <span
-              className="run-params-danger"
-              style={{
-                background:
-                  lastRunParams.fwi_value >= 30 ? "#b71c1c" :
-                  lastRunParams.fwi_value >= 20 ? "#e65100" :
-                  lastRunParams.fwi_value >= 10 ? "#f57f17" :
-                  lastRunParams.fwi_value >= 5  ? "#558b2f" : "#2e7d32",
-              }}
-            >
-              {lastRunParams.danger_rating}
-            </span>
-            <span>· {lastRunParams.n_iterations} iter · {lastRunParams.duration_hours}h</span>
-          </div>
-        )}
-        {status && (
-          <span className={`status-badge status-${status}`}>
-            {status}
-          </span>
-        )}
-      </header>
-
-      <div className="app-content">
-        <aside className={`sidebar${sidebarOpen ? "" : " collapsed"}`}>
+      {/* ── Fixed sidebar ───────────────────────────────────── */}
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <h1>FIRESIM</h1>
+          <span className="sidebar-subtitle">Canadian FBP Simulator</span>
+        </div>
+        <div className="sidebar-content">
           <WeatherPanel
             onStartSimulation={handleStartSimulation}
             onStartMultiDaySimulation={startMultiDaySimulation}
@@ -466,6 +402,7 @@ export default function App() {
             burnProbRunning={burnProbRunning}
             scenarioToLoad={scenarioToLoad}
             onConfigSnapshot={handleConfigSnapshot}
+            onEdmontonGridChange={handleEdmontonGridChange}
           />
           <FireMetrics
             frame={currentFrame}
@@ -541,10 +478,69 @@ export default function App() {
             onExport={exportScenario}
             onImport={importScenario}
           />
-        </aside>
+        </div>
+        <footer className="sidebar-footer">
+          <button className="sidebar-footer-btn">⚙ Settings</button>
+          <button className="sidebar-footer-btn">? Support</button>
+        </footer>
+      </aside>
 
-        <main className="map-area">
-          <MapView
+      {/* ── Fixed top bar ───────────────────────────────────── */}
+      <header className="top-bar">
+        <div className="top-bar-left">
+          <span className="top-bar-title">Wildfire Tactical Navigator</span>
+          <nav className="top-bar-nav">
+            <span className="nav-link active">Dashboard</span>
+            <span className="nav-link">Map View</span>
+            <span className="nav-link">Data Export</span>
+          </nav>
+        </div>
+        <div className="top-bar-right">
+          {isRunning && !isPaused && (
+            <button className="btn-control btn-pause" onClick={pauseSimulation}>&#9646;&#9646; Pause</button>
+          )}
+          {isPaused && (
+            <>
+              <button className="btn-control btn-resume" onClick={resumeSimulation}>&#9654; Resume</button>
+              <button className="btn-control btn-cancel" onClick={cancelSimulation}>&#9632; Cancel</button>
+            </>
+          )}
+          {status === "completed" && frames.length > 0 && (
+            <button className="btn-control btn-export" onClick={() => exportPerimeterGeoJSON(frames, ignitionPoint)}>
+              Export GeoJSON
+            </button>
+          )}
+          {burnProbabilityData && (
+            <button
+              className={`btn-control btn-view-toggle${showBurnProbView ? " active" : ""}`}
+              onClick={() => setShowBurnProbView((v) => !v)}
+            >
+              {showBurnProbView ? "Prob View" : "Spread View"}
+            </button>
+          )}
+          {burnProbabilityData && !burnProbRunning && (
+            <button className="btn-control btn-export" onClick={() => exportBurnProbGeoJSON(burnProbabilityData, lastRunParams, ignitionPoint)}>
+              Export BP GeoJSON
+            </button>
+          )}
+          {showBurnProbView && lastRunParams && (
+            <div className="run-params-badge">
+              <span>{lastRunParams.weather.wind_speed} km/h {["N","NE","E","SE","S","SW","W","NW"][Math.round(lastRunParams.weather.wind_direction / 45) % 8]}</span>
+              <span>·</span>
+              <span>FWI {lastRunParams.fwi_value.toFixed(1)}</span>
+              <span className="run-params-danger" style={{
+                background: lastRunParams.fwi_value >= 30 ? "#b71c1c" : lastRunParams.fwi_value >= 20 ? "#e65100" : lastRunParams.fwi_value >= 10 ? "#f57f17" : "#558b2f",
+              }}>{lastRunParams.danger_rating}</span>
+            </div>
+          )}
+          {status && <span className={`status-badge status-${status}`}>{status}</span>}
+          <button className="btn-emergency">Emergency Alert</button>
+        </div>
+      </header>
+
+      {/* ── Map area — full canvas between topbar and bottombar ─── */}
+      <main className="map-area">
+        <MapView
             frames={frames}
             currentFrameIndex={currentFrameIndex}
             onMapClick={handleMapClick}
@@ -562,13 +558,18 @@ export default function App() {
             evacZonesVisible={evacZonesVisible}
             isochrones={isochrones}
             isochronesVisible={isochronesVisible}
+            fuelGridImage={fuelGridImage}
+            fuelGridVisible={fuelGridVisible}
           />
-          <TimeSlider
-            frames={frames}
-            currentIndex={currentFrameIndex}
-            onIndexChange={setFrameIndex}
-          />
-        </main>
+      </main>
+
+      {/* ── Fixed bottom timeline bar ───────────────────────── */}
+      <div className="bottom-bar">
+        <TimeSlider
+          frames={frames}
+          currentIndex={currentFrameIndex}
+          onIndexChange={setFrameIndex}
+        />
       </div>
 
       {error && (

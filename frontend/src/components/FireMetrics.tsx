@@ -72,51 +72,38 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
         )}
       </div>
 
-      <div className="metric-grid">
-        <div className="metric">
-          <span className="metric-label">Time</span>
-          <span className="metric-value">{frame.time_hours.toFixed(1)}h</span>
+      <div className="metrics-rows">
+        <div className="metric-row">
+          <span className="metric-label">Time Elapsed</span>
+          <span className="metric-value mono">T+{frame.time_hours.toFixed(1)}h</span>
         </div>
-
-        <div className="metric">
-          <span className="metric-label">Area</span>
+        <div className="metric-row">
+          <span className="metric-label">Area Burned</span>
           <span className="metric-value">{frame.area_ha.toFixed(1)} ha</span>
         </div>
-
-        <div className="metric">
+        <div className="metric-row">
           <span className="metric-label">{isCAMode ? "Mean ROS" : "Head ROS"}</span>
           <span className="metric-value">{frame.head_ros_m_min.toFixed(1)} m/min</span>
         </div>
-
-        <div className="metric">
-          <span className="metric-label">HFI</span>
+        <div className="metric-row">
+          <span className="metric-label">Max HFI</span>
           <span className="metric-value" style={{ color: intensity.color }}>
             {frame.max_hfi_kw_m.toFixed(0)} kW/m
           </span>
         </div>
-
-        <div className="metric">
-          <span className="metric-label">Intensity</span>
-          <span className="metric-value" style={{ color: intensity.color }}>
-            {intensity.label}
-          </span>
-        </div>
-
         {!isCAMode && (
-          <div className="metric">
+          <div className="metric-row">
             <span className="metric-label">Fire Type</span>
-            <span className="metric-value">{formatFireType(frame.fire_type)}</span>
+            <span className="metric-fire-type">{formatFireType(frame.fire_type)}</span>
           </div>
         )}
-
         {!isCAMode && (
-          <div className="metric">
+          <div className="metric-row">
             <span className="metric-label">Flame Length</span>
             <span className="metric-value">{frame.flame_length_m.toFixed(1)} m</span>
           </div>
         )}
-
-        <div className="metric">
+        <div className="metric-row">
           <span className="metric-label">Frames</span>
           <span className="metric-value">{totalFrames}</span>
         </div>
