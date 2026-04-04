@@ -17,7 +17,7 @@
  * tonal layering. Reference: /tmp/stitch_export/stitch/stitch/eoc_tactical_dark/DESIGN.md
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
 import EOCSummary from "./EOCSummary";
@@ -118,6 +118,66 @@ export default function EOCConsole({
   const [mapSnapshot, setMapSnapshot] = useState<string | undefined>(undefined);
   const consoleMapRef = useRef<maplibregl.Map | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // ── Map markup state ─────────────────────────────────────────────────────
+  type MarkupTool = "pen" | "text" | null;
+  const [markupTool, setMarkupTool] = useState<MarkupTool>(null);
+  const [penPaths, setPenPaths] = useState<string[]>([]);
+  const [currentPenPath, setCurrentPenPath] = useState<string | null>(null);
+  const [textMarkers, setTextMarkers] = useState<Array<{ x: number; y: number; text: string }>>([]);
+  const [pendingTextPos, setPendingTextPos] = useState<{ x: number; y: number } | null>(null);
+  const isPenDownRef = useRef(false);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const textInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (pendingTextPos) textInputRef.current?.focus(); }, [pendingTextPos]);
+
+  const getSvgCoords = useCallback((e: React.MouseEvent): { x: number; y: number } => {
+    const rect = svgRef.current!.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }, []);
+
+  const handleSvgMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const { x, y } = getSvgCoords(e);
+    if (markupTool === "pen") {
+      isPenDownRef.current = true;
+      setCurrentPenPath(`M ${x.toFixed(1)} ${y.toFixed(1)}`);
+    } else if (markupTool === "text") {
+      setPendingTextPos({ x, y });
+    }
+  }, [markupTool, getSvgCoords]);
+
+  const handleSvgMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (markupTool !== "pen" || !isPenDownRef.current) return;
+    const { x, y } = getSvgCoords(e);
+    setCurrentPenPath(prev => prev ? `${prev} L ${x.toFixed(1)} ${y.toFixed(1)}` : `M ${x.toFixed(1)} ${y.toFixed(1)}`);
+  }, [markupTool, getSvgCoords]);
+
+  const handleSvgMouseUp = useCallback(() => {
+    if (markupTool !== "pen") return;
+    isPenDownRef.current = false;
+    setCurrentPenPath(prev => {
+      if (prev) setPenPaths(paths => [...paths, prev]);
+      return null;
+    });
+  }, [markupTool]);
+
+  const handleTextSubmit = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && pendingTextPos) {
+      const text = e.currentTarget.value.trim();
+      if (text) setTextMarkers(prev => [...prev, { ...pendingTextPos, text }]);
+      setPendingTextPos(null);
+    } else if (e.key === "Escape") {
+      setPendingTextPos(null);
+    }
+  }, [pendingTextPos]);
+
+  const clearMarkup = useCallback(() => {
+    setPenPaths([]);
+    setTextMarkers([]);
+    setCurrentPenPath(null);
+  }, []);
 
   const handleMapRefCallback = useCallback((m: maplibregl.Map) => {
     consoleMapRef.current = m;
@@ -284,7 +344,7 @@ export default function EOCConsole({
       {/* ── Main body ─────────────────────────────────────────────── */}
       <div className={`eoc-body${isMapFullWidth ? " eoc-body--map-full" : ""}`}>
 
-        {/* Left: read-only map */}
+        {/* Left: read-only map + markup overlay */}
         <div className={`eoc-map-panel${isMapFullWidth ? " eoc-map-panel--full" : ""}`}>
           <MapView
             frames={frames}
@@ -308,6 +368,56 @@ export default function EOCConsole({
             readOnly
             mapRefCallback={handleMapRefCallback}
           />
+
+          {/* SVG markup overlay */}
+          <svg
+            ref={svgRef}
+            className={`eoc-markup-svg${markupTool ? ` active${markupTool === "text" ? " text-mode" : ""}` : ""}`}
+            onMouseDown={handleSvgMouseDown}
+            onMouseMove={handleSvgMouseMove}
+            onMouseUp={handleSvgMouseUp}
+            onMouseLeave={handleSvgMouseUp}
+          >
+            {penPaths.map((d, i) => <path key={i} d={d} className="eoc-markup-path" />)}
+            {currentPenPath && <path d={currentPenPath} className="eoc-markup-path eoc-markup-path--live" />}
+            {textMarkers.map((m, i) => (
+              <text key={i} x={m.x} y={m.y} className="eoc-markup-text">{m.text}</text>
+            ))}
+          </svg>
+
+          {/* Floating text input when placing a label */}
+          {pendingTextPos && (
+            <input
+              ref={textInputRef}
+              className="eoc-markup-text-input"
+              style={{ left: pendingTextPos.x, top: pendingTextPos.y }}
+              placeholder="Label…"
+              onKeyDown={handleTextSubmit}
+              onBlur={() => setPendingTextPos(null)}
+            />
+          )}
+
+          {/* Markup toolbar */}
+          <div className="eoc-markup-toolbar">
+            <span className="eoc-markup-label">MARKUP</span>
+            <button
+              className={`eoc-markup-tool${markupTool === "pen" ? " active" : ""}`}
+              onClick={() => setMarkupTool(t => t === "pen" ? null : "pen")}
+              title="Freehand draw"
+            >✏</button>
+            <button
+              className={`eoc-markup-tool${markupTool === "text" ? " active" : ""}`}
+              onClick={() => setMarkupTool(t => t === "text" ? null : "text")}
+              title="Place text label"
+            >T</button>
+            <button
+              className="eoc-markup-tool"
+              onClick={clearMarkup}
+              title="Clear all markup"
+              disabled={penPaths.length === 0 && textMarkers.length === 0}
+            >⌫</button>
+          </div>
+
           {/* Print-only map snapshot */}
           {mapSnapshot && (
             <img className="eoc-print-map" src={mapSnapshot} alt="Map snapshot" />
