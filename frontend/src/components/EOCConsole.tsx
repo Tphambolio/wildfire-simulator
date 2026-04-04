@@ -184,17 +184,24 @@ export default function EOCConsole({
   }, []);
 
   // ── Map snapshot capture ──────────────────────────────────────────────────
+  // WebGL doesn't preserve the drawing buffer between frames, so we must
+  // trigger a repaint and capture inside the 'render' event callback.
 
-  const captureMapSnapshot = useCallback((): string | undefined => {
-    const canvas = consoleMapRef.current?.getCanvas();
-    if (!canvas) return undefined;
-    try {
-      const dataUrl = canvas.toDataURL("image/png");
-      setMapSnapshot(dataUrl);
-      return dataUrl;
-    } catch {
-      return undefined;
-    }
+  const captureMapSnapshot = useCallback((): Promise<string | undefined> => {
+    const map = consoleMapRef.current;
+    if (!map) return Promise.resolve(undefined);
+    return new Promise((resolve) => {
+      map.once("render", () => {
+        try {
+          const dataUrl = map.getCanvas().toDataURL("image/png");
+          setMapSnapshot(dataUrl);
+          resolve(dataUrl);
+        } catch {
+          resolve(undefined);
+        }
+      });
+      map.triggerRepaint();
+    });
   }, []);
 
   // ── Build ICS form options ────────────────────────────────────────────────
@@ -269,8 +276,8 @@ export default function EOCConsole({
     setSelectedForm(formId);
   }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, overlayRoads, overlayCommunities, overlayInfrastructure, evacZones, getSuppressionAdvisory]);
 
-  const handleFormSelect = useCallback((formId: ICSFormId) => {
-    const snap = captureMapSnapshot();
+  const handleFormSelect = useCallback(async (formId: ICSFormId) => {
+    const snap = await captureMapSnapshot();
     if (formId === "ics209") {
       renderForm(formId, snap);
       return;
@@ -316,7 +323,7 @@ export default function EOCConsole({
           {frames.length > 0 && <span className="eoc-status-badge">● ACTIVE</span>}
         </div>
         <div className="eoc-header-right">
-          <button className="eoc-action-btn" onClick={() => { captureMapSnapshot(); setConsoleTab("situation"); }} title="Print EOC Console">
+          <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Print EOC Console">
             🖨 Print
           </button>
           <button className="eoc-action-btn" onClick={() => handleFormSelect("ics209")} title="Open ICS-209">
@@ -399,16 +406,27 @@ export default function EOCConsole({
 
           {/* Markup toolbar */}
           <div className="eoc-markup-toolbar">
-            <span className="eoc-markup-label">MARKUP</span>
+            <button
+              className="eoc-markup-tool"
+              onClick={() => consoleMapRef.current?.zoomIn()}
+              title="Zoom in"
+            >+</button>
+            <button
+              className="eoc-markup-tool"
+              onClick={() => consoleMapRef.current?.zoomOut()}
+              title="Zoom out"
+            >−</button>
+            <div className="eoc-markup-divider" />
+            <span className="eoc-markup-label">MARK</span>
             <button
               className={`eoc-markup-tool${markupTool === "pen" ? " active" : ""}`}
               onClick={() => setMarkupTool(t => t === "pen" ? null : "pen")}
-              title="Freehand draw"
+              title="Freehand draw (click active to pan)"
             >✏</button>
             <button
               className={`eoc-markup-tool${markupTool === "text" ? " active" : ""}`}
               onClick={() => setMarkupTool(t => t === "text" ? null : "text")}
-              title="Place text label"
+              title="Place text label (click active to pan)"
             >T</button>
             <button
               className="eoc-markup-tool"
