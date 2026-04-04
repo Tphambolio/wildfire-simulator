@@ -676,10 +676,15 @@ export function buildFullIAPHTML(opts: ICSFormOptions): string {
     buildICS206HTML(opts),
   ];
 
-  // Extract body content from each form
+  // Extract body content from each form — use string slicing instead of regex so
+  // injected <script> tags after the container don't break the match.
+  const CONTAINER_OPEN = '<div class="ics-container">';
   const bodies = forms.map((html) => {
-    const match = html.match(/<div class="ics-container">([\s\S]*?)<\/div>\s*<\/body>/);
-    return match ? match[1] : "";
+    const start = html.indexOf(CONTAINER_OPEN);
+    if (start === -1) return "";
+    const contentStart = start + CONTAINER_OPEN.length;
+    const end = html.lastIndexOf("</div>"); // last </div> = closing ics-container
+    return end > contentStart ? html.slice(contentStart, end) : "";
   });
 
   const now = new Date();
@@ -730,6 +735,12 @@ export function buildFullIAPHTML(opts: ICSFormOptions): string {
   ${bodies.map((b, i) =>
     `<div class="${i > 0 ? "page-break" : ""}"><div class="ics-container">${b}</div></div>`
   ).join("\n")}
+  <script>
+    document.querySelectorAll('td').forEach(function(td) {
+      td.contentEditable = 'true';
+      td.spellcheck = false;
+    });
+  </script>
 </body>
 </html>`;
 }
