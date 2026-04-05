@@ -233,10 +233,11 @@ export default function EOCConsole({
   }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool, getSvgCoords, pixelToGeo]);
 
   const handleSvgMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if (markupTool !== "pen" || !isPenDownRef.current) return;
+    if (!isPenDownRef.current) return;
+    if (markupTool !== "pen" && !activeSymbolKey) return;
     const { x, y } = getSvgCoords(e);
     setCurrentPenPath(prev => [...prev, pixelToGeo(x, y)]);
-  }, [markupTool, getSvgCoords, pixelToGeo]);
+  }, [markupTool, activeSymbolKey, getSvgCoords, pixelToGeo]);
 
   const handleSvgMouseUp = useCallback(() => {
     if (!isPenDownRef.current) return;
@@ -554,9 +555,12 @@ export default function EOCConsole({
               const d = geoPathToSvgD(points);
               return d ? <path key={i} d={d} className="eoc-markup-path" /> : null;
             })}
-            {currentPenPath.length > 0 && (
-              <path d={geoPathToSvgD(currentPenPath)} className="eoc-markup-path eoc-markup-path--live" />
-            )}
+            {currentPenPath.length > 0 && (() => {
+              const symDef = activeSymbolKey ? SYMBOL_DEFS.find(s => s.key === activeSymbolKey) : null;
+              return symDef
+                ? <path d={geoPathToSvgD(currentPenPath)} fill="none" stroke={symDef.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 3" opacity={0.7} />
+                : <path d={geoPathToSvgD(currentPenPath)} className="eoc-markup-path eoc-markup-path--live" />;
+            })()}
             {textMarkers.map((m, i) => {
               const { x, y } = geoToPixel(m.geo);
               return <text key={i} x={x} y={y} className="eoc-markup-text">{m.text}</text>;
