@@ -304,6 +304,7 @@ export function useIncident() {
   return {
     // State
     incident: activeIncident,
+    activeIncidentId,
     incidents,
     activePeriod,
     // CRUD

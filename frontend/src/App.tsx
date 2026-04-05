@@ -20,6 +20,7 @@ import { computeEvacZones, applyZoneHistory } from "./utils/evacZones";
 import type { EvacZoneLabel } from "./utils/evacZones";
 import EOCConsole from "./components/EOCConsole";
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
+import IncidentPanel from "./components/IncidentPanel";
 import IsochronePanel from "./components/IsochronePanel";
 import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
@@ -211,6 +212,44 @@ function annotateAndCount(
   return { annotated: { ...fc, features }, count };
 }
 
+// ── EOC start screen — shown when no incident is active ──────────────────────
+
+function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
+  const [name, setName] = useState("");
+  const submit = () => {
+    const n = name.trim();
+    if (n) { onCreate(n); setName(""); }
+  };
+  return (
+    <div className="eoc-start-screen">
+      <div className="eoc-start-card">
+        <div className="eoc-start-icon">🔥</div>
+        <h2 className="eoc-start-title">Start a New Incident</h2>
+        <p className="eoc-start-hint">
+          Name the incident before opening the EOC Console.<br />
+          You can rename it at any time from the period strip.
+        </p>
+        <input
+          className="eoc-start-input"
+          type="text"
+          placeholder="e.g. River Valley Fire"
+          value={name}
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          maxLength={60}
+        />
+        <button className="eoc-start-btn" onClick={submit} disabled={!name.trim()}>
+          Open EOC Console
+        </button>
+        <p className="eoc-start-hint" style={{ marginTop: 8 }}>
+          Or resume an existing incident from the <strong>Incidents</strong> panel in the sidebar.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Default overlay state ────────────────────────────────────────────────────
 
 const DEFAULT_OVERLAY_LAYERS: OverlayLayers = {
@@ -251,14 +290,22 @@ export default function App() {
   // ── Incident store (multi-day operational periods) ────────
   const {
     incident,
+    activeIncidentId,
+    incidents,
     activePeriod,
     createIncident,
+    loadIncident,
+    closeIncident,
+    deleteIncident,
     advancePeriod,
     setActivePeriodIndex,
     addAnnotation,
     removeAnnotation,
     clearLayerAnnotations,
     updateIncidentField,
+    saveFrameData,
+    exportIncident,
+    importIncident,
   } = useIncident();
   const currentConfigRef = useRef<Omit<ScenarioConfig, "id" | "createdAt" | "name" | "description"> | null>(null);
 
@@ -362,6 +409,14 @@ export default function App() {
   useEffect(() => {
     if (frames.length === 0) setCommittedEvacHistory(new Map());
   }, [frames.length]);
+
+  // Auto-save completed simulation into active incident period
+  useEffect(() => {
+    if (status === "completed" && frames.length > 0 && simulationId && incident) {
+      saveFrameData(frames, simulationId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   // Accumulate Order + Alert zones into committed history (Watch is never committed)
   useEffect(() => {
@@ -525,6 +580,16 @@ export default function App() {
             onOverrideStart={handlePerimeterOverride}
             isRunning={isRunning}
           />
+          <IncidentPanel
+            incidents={incidents}
+            activeIncidentId={activeIncidentId}
+            onCreate={createIncident}
+            onLoad={loadIncident}
+            onClose={closeIncident}
+            onDelete={deleteIncident}
+            onExport={exportIncident}
+            onImport={importIncident}
+          />
           <ScenarioPanel
             scenarios={scenarios}
             currentConfig={currentConfigRef.current ?? {
@@ -612,24 +677,20 @@ export default function App() {
       </header>
 
       {/* ── EOC Console tab (replaces map area + bottom bar) ─────── */}
-      {activeTab === "eoc" && (
+      {activeTab === "eoc" && !incident && (
         <div className="eoc-tab-wrapper">
-          {/* Operational period strip — auto-create incident if none exists */}
-          {incident ? (
-            <OperationalPeriodPanel
-              incident={incident}
-              activePeriod={activePeriod}
-              onPeriodSelect={setActivePeriodIndex}
-              onAdvancePeriod={advancePeriod}
-              onUpdateName={(name) => updateIncidentField("name", name)}
-            />
-          ) : (
-            <div className="eoc-no-incident">
-              <button className="eoc-create-incident-btn" onClick={() => createIncident("Untitled Incident")}>
-                + New Incident
-              </button>
-            </div>
-          )}
+          <EocStartScreen onCreate={createIncident} />
+        </div>
+      )}
+      {activeTab === "eoc" && incident && (
+        <div className="eoc-tab-wrapper">
+          <OperationalPeriodPanel
+            incident={incident}
+            activePeriod={activePeriod}
+            onPeriodSelect={setActivePeriodIndex}
+            onAdvancePeriod={advancePeriod}
+            onUpdateName={(name) => updateIncidentField("name", name)}
+          />
           <EOCConsole
             frames={frames}
             currentFrameIndex={currentFrameIndex}

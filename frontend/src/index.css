@@ -2283,28 +2283,99 @@ select {
   z-index: 5;
 }
 
-/* No-incident strip */
-.eoc-no-incident {
+/* EOC start screen */
+.eoc-start-screen {
+  flex: 1;
   display: flex;
   align-items: center;
-  padding: 6px 12px;
-  background: rgba(11, 17, 32, 0.85);
-  border-bottom: 1px solid rgba(255, 107, 53, 0.2);
+  justify-content: center;
+  background: var(--surface);
 }
 
-.eoc-create-incident-btn {
-  padding: 4px 14px;
-  background: rgba(255, 107, 53, 0.18);
-  border: 1px solid rgba(255, 107, 53, 0.45);
-  border-radius: 5px;
-  color: #ff6b35;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  cursor: pointer;
-  transition: background 0.12s;
+.eoc-start-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 400px;
+  padding: 36px 32px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 107, 53, 0.25);
+  border-radius: 14px;
+  text-align: center;
 }
-.eoc-create-incident-btn:hover { background: rgba(255, 107, 53, 0.3); }
+
+.eoc-start-icon {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.eoc-start-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.eoc-start-hint {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.5;
+}
+
+.eoc-start-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.eoc-start-input:focus {
+  border-color: rgba(255, 107, 53, 0.7);
+}
+.eoc-start-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.eoc-start-btn {
+  width: 100%;
+  padding: 11px 0;
+  background: rgba(255, 107, 53, 0.28);
+  border: 1px solid rgba(255, 107, 53, 0.7);
+  border-radius: 8px;
+  color: #ff6b35;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.eoc-start-btn:hover:not(:disabled) { background: rgba(255, 107, 53, 0.42); }
+.eoc-start-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* Incident panel item styles */
+.incident-item--active {
+  border-color: rgba(255, 107, 53, 0.45) !important;
+  background: rgba(255, 107, 53, 0.06) !important;
+}
+
+.incident-status-dot {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.incident-status-dot.active {
+  color: #4caf50;
+}
 
 /* Console header — 48px strip with incident name + action buttons */
 .eoc-console {
