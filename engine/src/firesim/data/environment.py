@@ -9,8 +9,6 @@ from pathlib import Path
 
 import numpy as np
 from shapely.geometry import Point, box, shape
-from shapely.ops import unary_union
-from shapely.prepared import prep
 from shapely.strtree import STRtree
 
 logger = logging.getLogger(__name__)
@@ -107,25 +105,38 @@ def load_environment_mask(
         logger.info("No environment barriers found within grid bounds")
         return np.zeros((rows, cols), dtype=bool)
 
-    # Merge all barrier geometries into one prepared geometry for fast lookups
-    logger.info("Merging %d barrier geometries...", len(all_geometries))
-    barrier_union = unary_union(all_geometries)
-    prepared_barrier = prep(barrier_union)
+    # Build a spatial index for fast per-cell queries — avoids the memory-
+    # intensive unary_union of potentially hundreds of thousands of polygons.
+    logger.info("Building spatial index over %d barrier geometries...", len(all_geometries))
+    tree = STRtree(all_geometries)
 
-    # Check each grid cell center against the barrier
-    mask = np.zeros((rows, cols), dtype=bool)
+    # Generate all cell-centre coordinates as a flat array and query the tree
+    # in one vectorised pass using the 'intersects' predicate (faster than
+    # looping over individual Points and calling .contains on each).
     cell_lat = (lat_max - lat_min) / rows
     cell_lng = (lng_max - lng_min) / cols
 
-    masked_count = 0
-    for r in range(rows):
-        lat = lat_max - (r + 0.5) * cell_lat  # Center of cell
-        for c in range(cols):
-            lng = lng_min + (c + 0.5) * cell_lng
-            if prepared_barrier.contains(Point(lng, lat)):
-                mask[r, c] = True
-                masked_count += 1
+    lats = lat_max - (np.arange(rows) + 0.5) * cell_lat  # shape (rows,)
+    lngs = lng_min + (np.arange(cols) + 0.5) * cell_lng  # shape (cols,)
 
+    # Build a grid of cell-centre Points in row-major order
+    lng_grid, lat_grid = np.meshgrid(lngs, lats)  # both shape (rows, cols)
+    cell_points = [
+        Point(lng_grid[r, c], lat_grid[r, c])
+        for r in range(rows)
+        for c in range(cols)
+    ]
+
+    # Query which cell centres fall inside any barrier geometry.
+    # tree.query returns (input_geometry_indices, tree_geometry_indices).
+    # input_geometry_indices are the flat cell indices we need.
+    mask = np.zeros(rows * cols, dtype=bool)
+    result = tree.query(cell_points, predicate="within")
+    if result.shape[1] > 0:
+        mask[result[0]] = True  # result[0] = cell indices
+    mask = mask.reshape(rows, cols)
+
+    masked_count = int(mask.sum())
     total = rows * cols
     logger.info(
         "Environment mask: %d/%d cells masked (%.1f%%)",
