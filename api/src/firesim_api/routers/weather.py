@@ -25,6 +25,8 @@ import httpx
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
+from firesim.fwi.calculator import FWICalculator
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/weather", tags=["weather"])
@@ -37,6 +39,8 @@ _LAYER = "public:firewx_stns_current"
 _BBOX_DEG = 2.0
 _MAX_FEATURES = 50
 _TIMEOUT_S = 10.0
+
+_OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 
 class CurrentWeather(BaseModel):
@@ -122,12 +126,40 @@ async def get_current_weather(
         fwi_label = _fwi_label(fwi)
         msg = f"FWI {fwi:.1f} — {fwi_label}"
     else:
-        msg = "Weather loaded — FWI codes unavailable (off-season)"
+        # Off-season: attempt Open-Meteo fallback with Van Wagner cold-start
+        estimated = await _estimate_fwi_from_open_meteo(lat, lng)
+        if estimated is not None:
+            result, om_data = estimated
+            ffmc = result.ffmc
+            dmc = result.dmc
+            dc = result.dc
+            isi = result.isi
+            bui = result.bui
+            fwi = result.fwi
+            # Override weather with Open-Meteo values if CWFIS was incomplete
+            if temperature is None:
+                temperature = om_data.get("temperature_2m")
+            if rh is None:
+                rh = om_data.get("relative_humidity_2m")
+            if wind_speed is None:
+                wind_speed = om_data.get("wind_speed_10m")
+            if wind_direction is None:
+                wind_direction = om_data.get("wind_direction_10m")
+            fwi_label = _fwi_label(fwi)
+            msg = f"FWI {fwi:.1f} — {fwi_label} (estimated, off-season cold-start)"
+        else:
+            msg = "Weather loaded — FWI codes unavailable (off-season)"
 
     prov = str(props.get("prov", "")).strip()
-    source_tag = f"CWFIS — {station_name}" if station_name else "CWFIS / Natural Resources Canada"
-    if prov:
-        source_tag += f" ({prov})"
+    if has_fwi:
+        source_tag = f"CWFIS — {station_name}" if station_name else "CWFIS / Natural Resources Canada"
+        if prov:
+            source_tag += f" ({prov})"
+    else:
+        cwfis_tag = f"CWFIS — {station_name}" if station_name else "CWFIS / Natural Resources Canada"
+        if prov:
+            cwfis_tag += f" ({prov})"
+        source_tag = f"{cwfis_tag} + Open-Meteo / Van Wagner (FWI estimated)" if fwi is not None else cwfis_tag
 
     logger.info(
         "CWFIS station '%s' %.1f km away for (%.3f, %.3f): FWI=%s, T=%.1f°C",
@@ -154,6 +186,60 @@ async def get_current_weather(
         station_name=station_name,
         distance_km=round(dist_km, 1),
     )
+
+
+async def _fetch_open_meteo(lat: float, lng: float) -> dict | None:
+    """Fetch current weather from Open-Meteo (no key required, CORS-safe)."""
+    params = {
+        "latitude": lat,
+        "longitude": lng,
+        "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation",
+        "timezone": "auto",
+        "wind_speed_unit": "kmh",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(_OPEN_METEO_URL, params=params)
+            r.raise_for_status()
+            return r.json().get("current")
+    except Exception as exc:
+        logger.warning("Open-Meteo fetch failed: %s", exc)
+        return None
+
+
+async def _estimate_fwi_from_open_meteo(lat: float, lng: float) -> tuple | None:
+    """Compute FWI codes via Open-Meteo weather + Van Wagner cold-start values.
+
+    Returns (FWIResult, open_meteo_current_dict) or None on failure.
+    Cold-start defaults: FFMC=85, DMC=6, DC=15 (Van Wagner & Pickett 1985).
+    """
+    data = await _fetch_open_meteo(lat, lng)
+    if not data:
+        return None
+    temp = data.get("temperature_2m")
+    rh = data.get("relative_humidity_2m")
+    wind = data.get("wind_speed_10m")
+    rain = data.get("precipitation", 0.0)
+    if temp is None or rh is None or wind is None:
+        return None
+    month = datetime.now(timezone.utc).month
+    try:
+        calc = FWICalculator(ffmc_prev=85.0, dmc_prev=6.0, dc_prev=15.0)
+        result = calc.calculate_daily(
+            temp=float(temp),
+            rh=float(rh),
+            wind=float(wind),
+            rain=float(rain) if rain is not None else 0.0,
+            month=month,
+        )
+    except Exception as exc:
+        logger.warning("FWI calculation failed: %s", exc)
+        return None
+    logger.info(
+        "Open-Meteo FWI estimate for (%.3f, %.3f): FWI=%.1f (cold-start)",
+        lat, lng, result.fwi,
+    )
+    return result, data
 
 
 async def _fetch_nearby_stations(lat: float, lng: float) -> list[dict]:

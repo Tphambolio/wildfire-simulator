@@ -775,6 +775,16 @@ export default function WeatherPanel({
         {weatherLoading ? "Loading..." : "Load Current Fire Weather"}
       </button>
 
+      <a
+        href="https://tphambolio.github.io/FWI/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="hint"
+        style={{ display: "inline-block", color: "#64b5f6", marginBottom: "4px" }}
+      >
+        Fire Weather Detail →
+      </a>
+
       {weatherMessage && (
         <div
           className="hint"
