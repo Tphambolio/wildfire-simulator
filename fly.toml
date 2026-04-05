@@ -29,3 +29,4 @@ primary_region = "yyz"
   # Set FIRESIM_CORS_ORIGINS to your Vercel URL after first deploy, e.g.:
   # FIRESIM_CORS_ORIGINS = "https://wildfire-simulator.vercel.app"
   FIRESIM_CORS_ORIGINS = "https://wildfire-simulator.vercel.app"
+  FIRESIM_NEIGHBOURHOODS_PATH = "/app/data/edmonton_neighbourhoods.geojson"

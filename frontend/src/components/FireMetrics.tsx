@@ -103,6 +103,14 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
             <span className="metric-value">{frame.flame_length_m.toFixed(1)} m</span>
           </div>
         )}
+        {(frame.buildings_at_risk ?? 0) > 0 && (
+          <div className="metric-row">
+            <span className="metric-label">Structures at Risk</span>
+            <span className="metric-value" style={{ color: "#ff6400" }}>
+              {frame.buildings_at_risk}
+            </span>
+          </div>
+        )}
         <div className="metric-row">
           <span className="metric-label">Frames</span>
           <span className="metric-value">{totalFrames}</span>

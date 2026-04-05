@@ -39,6 +39,7 @@ def load_environment_mask(
     cols: int,
     water_path: str | None = None,
     buildings_path: str | None = None,
+    building_geoms: list | None = None,
 ) -> np.ndarray:
     """Create a boolean mask of non-fuel cells from environment layers.
 
@@ -47,7 +48,10 @@ def load_environment_mask(
         rows: Number of grid rows.
         cols: Number of grid columns.
         water_path: Path to water body GeoJSON (.geojson or .geojson.gz).
-        buildings_path: Path to building footprint GeoJSON.
+        buildings_path: Path to building footprint GeoJSON. Ignored when
+            building_geoms is provided.
+        building_geoms: Pre-filtered list of shapely geometries (e.g. from
+            BuildingIndex). When provided, buildings_path is skipped entirely.
 
     Returns:
         Boolean array [rows, cols] where True = non-fuel (barrier).
@@ -79,24 +83,28 @@ def load_environment_mask(
             all_geometries.extend(clipped)
             logger.info("  %d intersect grid bounds", len(clipped))
 
-    if buildings_path:
+    if building_geoms is not None:
+        # Pre-filtered geometries from BuildingIndex — skip GeoJSON load entirely
+        logger.info("Using %d pre-filtered building geometries", len(building_geoms))
+        all_geometries.extend(building_geoms)
+    elif buildings_path:
         logger.info("Loading buildings from %s", buildings_path)
         features = _load_geojson(buildings_path)
-        building_geoms = []
+        loaded_geoms = []
         for f in features:
             try:
                 geom = shape(f["geometry"])
                 if geom.is_valid and not geom.is_empty:
-                    building_geoms.append(geom)
+                    loaded_geoms.append(geom)
             except Exception:
                 continue
-        logger.info("Loaded %d building geometries", len(building_geoms))
+        logger.info("Loaded %d building geometries", len(loaded_geoms))
 
         # Use STRtree to find only buildings that intersect the grid
-        if building_geoms:
-            tree = STRtree(building_geoms)
+        if loaded_geoms:
+            tree = STRtree(loaded_geoms)
             intersecting = tree.query(grid_box)
-            clipped = [building_geoms[i] for i in intersecting]
+            clipped = [loaded_geoms[i] for i in intersecting]
             all_geometries.extend(clipped)
             logger.info("  %d intersect grid bounds", len(clipped))
 

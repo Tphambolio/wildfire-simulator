@@ -37,6 +37,16 @@ class Settings:
         return os.environ.get("FIRESIM_BUILDINGS_PATH")
 
     @property
+    def neighbourhoods_path(self) -> str | None:
+        """Path to neighbourhood polygons GeoJSON for BuildingIndex partitioning.
+
+        When set alongside buildings_path, enables neighbourhood-filtered building
+        masks — only the 3-4 nearest neighbourhoods to the ignition point are loaded.
+        Defaults to the bundled Edmonton neighbourhoods file.
+        """
+        return os.environ.get("FIRESIM_NEIGHBOURHOODS_PATH")
+
+    @property
     def dem_path(self) -> str | None:
         """Default DEM GeoTIFF for slope-adjusted fire spread.
 

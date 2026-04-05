@@ -62,6 +62,7 @@ class Simulator:
         initial_front: list[FireVertex] | None = None,
         enable_spotting: bool = False,
         spotting_intensity: float = 1.0,
+        building_centroids: list[tuple[float, float]] | None = None,
     ):
         """Initialize simulator.
 
@@ -75,6 +76,8 @@ class Simulator:
             num_rays: Number of directional rays per Huygens wavelet.
                 More rays = smoother perimeters but slower.
             spread_modifier_grid: Per-cell WUI zone modifiers (None = no modification)
+            building_centroids: List of (lat, lng) for buildings in nearby
+                neighbourhoods. Used to count structures at risk per frame.
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -86,6 +89,7 @@ class Simulator:
         self.initial_front = initial_front
         self.enable_spotting = enable_spotting
         self.spotting_intensity = spotting_intensity
+        self.building_centroids = building_centroids
 
     def run(self) -> Generator[SimulationFrame, None, None]:
         """Run the simulation, yielding frames at snapshot intervals.
@@ -384,6 +388,17 @@ class Simulator:
         # Perimeter as list of (lat, lng)
         perimeter = vertices_to_polygon(front)
 
+        # Count structures at risk within the fire perimeter
+        buildings_at_risk = 0
+        if self.building_centroids and len(perimeter) >= 3:
+            from shapely.geometry import Point, Polygon
+            fire_poly = Polygon([(lng, lat) for lat, lng in perimeter])
+            if fire_poly.is_valid:
+                buildings_at_risk = sum(
+                    1 for (blat, blng) in self.building_centroids
+                    if fire_poly.contains(Point(blng, blat))
+                )
+
         return SimulationFrame(
             time_hours=time_hours,
             perimeter=perimeter,
@@ -402,4 +417,5 @@ class Simulator:
                 for s in (spot_fires or [])
             ] or None,
             num_fronts=num_fronts,
+            buildings_at_risk=buildings_at_risk,
         )

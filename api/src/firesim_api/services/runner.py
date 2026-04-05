@@ -78,10 +78,15 @@ class SimulationRunner:
     def __init__(self) -> None:
         self._runs: dict[str, SimulationRun] = {}
         self._lock = threading.Lock()
-        # Cache loaded grids keyed by (fuel_path, water_path, buildings_path, wui_path)
-        # Grids are spatial only — independent of weather/FWI, so safe to reuse
+        # Cache loaded grids keyed by (fuel_path, water_path, wui_path, dem_path).
+        # Buildings are intentionally excluded — they are applied per-simulation
+        # using the neighbourhood-filtered BuildingIndex, not baked into the grid.
         self._grid_cache: dict[tuple, tuple] = {}
         self._grid_cache_lock = threading.Lock()
+        # BuildingIndex cache keyed by (buildings_path, neighbourhoods_path).
+        # One expensive load+join per unique pair; reused across all simulations.
+        self._building_index_cache: dict[tuple, object] = {}
+        self._building_index_lock = threading.Lock()
 
     def create(
         self,
@@ -117,18 +122,39 @@ class SimulationRunner:
         with self._lock:
             return self._runs.get(sim_id)
 
+    def _get_building_index(self, buildings_path: str, neighbourhoods_path: str):
+        """Return a BuildingIndex, loading and caching on first call."""
+        from firesim.data.building_index import BuildingIndex
+
+        key = (buildings_path, neighbourhoods_path)
+        with self._building_index_lock:
+            if key in self._building_index_cache:
+                return self._building_index_cache[key]
+
+        # Load outside the lock — can be slow (30-60s), but only happens once.
+        logger.info(
+            "BuildingIndex cache MISS: loading buildings=%s nbhd=%s",
+            buildings_path, neighbourhoods_path,
+        )
+        bidx = BuildingIndex(buildings_path, neighbourhoods_path)
+
+        with self._building_index_lock:
+            self._building_index_cache[key] = bidx
+        logger.info("BuildingIndex cached for key=%s", key)
+        return bidx
+
     def _load_grids(
         self,
         fuel_path: str | None,
         water_path: str | None,
-        buildings_path: str | None,
         wui_path: str | None,
         dem_path: str | None = None,
     ) -> tuple:
         """Load fuel grid, WUI modifiers, and terrain grid, caching by path combo.
 
         Grids are purely spatial — independent of weather/FWI/ignition point,
-        so they're safe to reuse across simulations.
+        so they're safe to reuse across simulations. Buildings are NOT baked in
+        here; they are applied per-simulation via BuildingIndex neighbourhood filter.
 
         Returns:
             (fuel_grid, spread_modifier_grid, terrain_grid) — any may be None.
@@ -136,7 +162,7 @@ class SimulationRunner:
         if not fuel_path and not dem_path:
             return None, None, None
 
-        cache_key = (fuel_path, water_path, buildings_path, wui_path, dem_path)
+        cache_key = (fuel_path, water_path, wui_path, dem_path)
 
         with self._grid_cache_lock:
             if cache_key in self._grid_cache:
@@ -164,7 +190,8 @@ class SimulationRunner:
                 fuel_grid = load_fuel_grid(
                     fuel_path,
                     water_path=water_path,
-                    buildings_path=buildings_path,
+                    # buildings_path intentionally omitted — applied per-simulation
+                    # via BuildingIndex neighbourhood filter in _execute.
                 )
             except FileNotFoundError:
                 logger.error("Fuel grid file not found: %s", fuel_path)
@@ -258,11 +285,11 @@ class SimulationRunner:
             # Resolve DEM path: per-request overrides env-var default
             dem_path = getattr(params, "dem_path", None) or settings.dem_path
 
-            # Load spatial grids (cached — only loads once per unique path combo)
+            # Load spatial grids (cached — only loads once per unique path combo).
+            # Buildings are NOT baked in here; applied per-simulation below.
             fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
                 params.fuel_grid_path,
                 params.water_path,
-                params.buildings_path,
                 getattr(params, "wui_zones_path", None),
                 dem_path,
             )
@@ -275,7 +302,6 @@ class SimulationRunner:
                     real_grid, real_wui, real_terrain = self._load_grids(
                         default_fuel_path,
                         params.water_path or settings.water_path,
-                        params.buildings_path or settings.buildings_path,
                         getattr(params, "wui_zones_path", None),
                         dem_path,
                     )
@@ -305,14 +331,56 @@ class SimulationRunner:
                         params.ignition_lat, params.ignition_lng,
                     )
 
+            # Apply neighbourhood-filtered building mask per simulation.
+            # Uses BuildingIndex (loaded once, cached) to find the 4 nearest
+            # neighbourhoods to the ignition point, then rasterizes only those
+            # ~5-15K buildings instead of all 334K citywide.
+            masked_fuel_grid = fuel_grid
+            building_centroids = None
+            buildings_path = getattr(params, "buildings_path", None) or settings.buildings_path
+            if buildings_path and fuel_grid is not None and settings.neighbourhoods_path:
+                import dataclasses
+                from firesim.data.environment import load_environment_mask
+
+                bidx = self._get_building_index(buildings_path, settings.neighbourhoods_path)
+                nearest = bidx.nearest_neighbourhoods(
+                    params.ignition_lat, params.ignition_lng, n=4
+                )
+                logger.info("Nearest neighbourhoods for ignition (%.4f, %.4f): %s",
+                            params.ignition_lat, params.ignition_lng, nearest)
+                building_geoms = bidx.building_geoms_for(nearest)
+                building_centroids = bidx.building_centroids_for(nearest)
+                logger.info("Building mask: %d geometries from %d neighbourhoods",
+                            len(building_geoms), len(nearest))
+
+                if building_geoms:
+                    bldg_mask = load_environment_mask(
+                        bounds=(fuel_grid.lat_min, fuel_grid.lat_max,
+                                fuel_grid.lng_min, fuel_grid.lng_max),
+                        rows=fuel_grid.rows,
+                        cols=fuel_grid.cols,
+                        building_geoms=building_geoms,
+                    )
+                    # Apply mask to a copy of fuel_grid — never mutate the cached grid
+                    new_fuel_types = [list(row) for row in fuel_grid.fuel_types]
+                    masked = 0
+                    for r in range(fuel_grid.rows):
+                        for c in range(fuel_grid.cols):
+                            if bldg_mask[r, c] and new_fuel_types[r][c] is not None:
+                                new_fuel_types[r][c] = None
+                                masked += 1
+                    masked_fuel_grid = dataclasses.replace(fuel_grid, fuel_types=new_fuel_types)
+                    logger.info("Building mask applied: %d cells masked", masked)
+
             simulator = Simulator(
                 config,
-                fuel_grid=fuel_grid,
+                fuel_grid=masked_fuel_grid,
                 terrain_grid=terrain_grid,
                 default_fuel=fuel_type,
                 spread_modifier_grid=spread_modifier_grid,
                 enable_spotting=getattr(params, "enable_spotting", False),
                 spotting_intensity=getattr(params, "spotting_intensity", 1.0),
+                building_centroids=building_centroids,
             )
 
             for frame in simulator.run():
@@ -397,7 +465,6 @@ class SimulationRunner:
             fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
                 params.fuel_grid_path,
                 params.water_path,
-                params.buildings_path,
                 None,  # no WUI for multiday
                 dem_path,
             )
@@ -611,7 +678,6 @@ class SimulationRunner:
             fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
                 params.fuel_grid_path,
                 params.water_path,
-                params.buildings_path,
                 params.wui_zones_path,
                 dem_path,
             )

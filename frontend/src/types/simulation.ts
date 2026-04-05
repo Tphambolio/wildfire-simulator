@@ -45,6 +45,7 @@ export interface SimulationFrame {
   num_fronts?: number;
   burned_cells?: Array<{ lat: number; lng: number; intensity: number; fuel: string; fire_type?: string; t?: number }> | null;
   day?: number | null; // Multi-day scenario: which day (1-based)
+  buildings_at_risk?: number;
 }
 
 export interface MultiDayWeatherParams {

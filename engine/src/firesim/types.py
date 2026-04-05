@@ -86,3 +86,4 @@ class SimulationFrame:
     spot_fires: list[dict] | None = None  # [{lat, lng, distance_m, hfi_kw_m}, ...]
     num_fronts: int = 1
     burned_cells: list[dict] | None = None  # [{lat, lng, intensity, fuel}, ...] for CA mode
+    buildings_at_risk: int = 0
