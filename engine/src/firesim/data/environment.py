@@ -97,11 +97,8 @@ def load_environment_mask(
             tree = STRtree(building_geoms)
             intersecting = tree.query(grid_box)
             clipped = [building_geoms[i] for i in intersecting]
-            # Small buffer (~10m / 0.00009 degrees) to account for
-            # adjacent non-vegetated land around structures
-            buffered = [g.buffer(0.00009) for g in clipped]
-            all_geometries.extend(buffered)
-            logger.info("  %d intersect grid bounds (buffered ~10m)", len(clipped))
+            all_geometries.extend(clipped)
+            logger.info("  %d intersect grid bounds", len(clipped))
 
     if not all_geometries:
         logger.info("No environment barriers found within grid bounds")
@@ -115,13 +112,15 @@ def load_environment_mask(
     # upper-left corner at (lng_min, lat_max), matching row-0 = lat_max.
     logger.info("Rasterizing %d barrier geometries onto %dx%d grid...", len(all_geometries), rows, cols)
     transform = from_bounds(lng_min, lat_min, lng_max, lat_max, cols, rows)
+    # all_touched=True marks any cell the geometry touches (not just contains),
+    # giving a natural ~1-cell buffer around buildings at no extra cost.
     burned = rasterize(
         ((geom, 1) for geom in all_geometries),
         out_shape=(rows, cols),
         transform=transform,
         fill=0,
         dtype="uint8",
-        all_touched=False,
+        all_touched=True,
     )
     mask = burned > 0
 
