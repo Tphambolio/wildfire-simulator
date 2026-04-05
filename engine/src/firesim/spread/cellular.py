@@ -68,6 +68,7 @@ class CellularFrame:
     fuel_breakdown: dict[str, float]
     spot_fires: list[SpotFire] | None = None
     num_fronts: int = 1
+    ignition_snapped_m: float = 0.0  # >0 if ignition was moved to nearest fuel cell
 
 
 def run_cellular_simulation(
@@ -122,22 +123,49 @@ def run_cellular_simulation(
     ign_row = max(0, min(rows - 1, ign_row))
     ign_col = max(0, min(cols - 1, ign_col))
 
-    # Check ignition point has fuel
+    # Check ignition point has fuel; BFS outward to nearest fuel cell if not
     ign_fuel = fuel_grid.fuel_types[ign_row][ign_col]
+    ignition_snapped_m = 0.0
     if ign_fuel is None:
-        # Search nearby for a fuel cell
-        found = False
-        for r in range(max(0, ign_row - 5), min(rows, ign_row + 6)):
-            for c in range(max(0, ign_col - 5), min(cols, ign_col + 6)):
-                if fuel_grid.fuel_types[r][c] is not None:
-                    ign_row, ign_col = r, c
-                    ign_fuel = fuel_grid.fuel_types[r][c]
-                    found = True
-                    break
-            if found:
+        from collections import deque
+        MAX_SNAP_CELLS = 100  # ~5 km at 50 m cell size
+        visited: set[tuple[int, int]] = {(ign_row, ign_col)}
+        q: deque[tuple[int, int, int]] = deque([(ign_row, ign_col, 0)])
+        snapped_row: int | None = None
+        snapped_col: int | None = None
+        snap_cells = 0
+
+        while q:
+            r, c, dist = q.popleft()
+            if dist >= MAX_SNAP_CELLS:
                 break
-        if not found:
-            logger.warning("No fuel near ignition point — simulation will be empty")
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                nr, nc = r + dr, c + dc
+                if not (0 <= nr < rows and 0 <= nc < cols):
+                    continue
+                if (nr, nc) in visited:
+                    continue
+                visited.add((nr, nc))
+                if fuel_grid.fuel_types[nr][nc] is not None:
+                    snapped_row, snapped_col, snap_cells = nr, nc, dist + 1
+                    break
+                q.append((nr, nc, dist + 1))
+            if snapped_row is not None:
+                break
+
+        if snapped_row is not None:
+            ign_row, ign_col = snapped_row, snapped_col
+            ign_fuel = fuel_grid.fuel_types[ign_row][ign_col]
+            ignition_snapped_m = snap_cells * cell_size_m
+            logger.warning(
+                "Ignition in non-fuel zone — snapped %.0fm to nearest fuel cell (%d,%d) fuel=%s",
+                ignition_snapped_m, ign_row, ign_col, ign_fuel.value if ign_fuel else "none",
+            )
+        else:
+            logger.warning(
+                "No fuel within %.0fm of ignition point — simulation will be empty",
+                MAX_SNAP_CELLS * cell_size_m,
+            )
 
     # Initialize grids
     burned = np.zeros((rows, cols), dtype=bool)
@@ -214,6 +242,7 @@ def run_cellular_simulation(
                 rows, cols, cell_size_m, fuel_grid, burned,
                 mean_ros=last_mean_ros,
                 spot_fires=list(snapshot_spot_fires) if snapshot_spot_fires else None,
+                ignition_snapped_m=ignition_snapped_m if not frames else 0.0,
             )
             frames.append(frame)
             snapshot_burned_cells = []  # reset for next interval
@@ -546,6 +575,7 @@ def _make_frame(
     burned: np.ndarray,
     mean_ros: float = 0.0,
     spot_fires: list[SpotFire] | None = None,
+    ignition_snapped_m: float = 0.0,
 ) -> CellularFrame:
     """Create a frame snapshot with all cumulative cells + timestamps."""
     total = int(np.sum(burned))
@@ -570,4 +600,5 @@ def _make_frame(
         mean_ros=mean_ros,
         fuel_breakdown=fuel_breakdown,
         spot_fires=spot_fires,
+        ignition_snapped_m=ignition_snapped_m,
     )

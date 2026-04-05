@@ -305,6 +305,7 @@ class Simulator:
                 spot_fires=ca_spot_fires,
                 num_fronts=1,
                 burned_cells=burned_data,
+                ignition_snapped_m=cf.ignition_snapped_m,
             )
 
     @staticmethod

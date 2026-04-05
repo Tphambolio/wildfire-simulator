@@ -87,3 +87,4 @@ class SimulationFrame:
     num_fronts: int = 1
     burned_cells: list[dict] | None = None  # [{lat, lng, intensity, fuel}, ...] for CA mode
     buildings_at_risk: int = 0
+    ignition_snapped_m: float = 0.0  # >0 if ignition was moved to nearest fuel cell

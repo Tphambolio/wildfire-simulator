@@ -42,6 +42,20 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
     <div className="panel metrics-panel">
       <h3>Fire Metrics</h3>
 
+      {(frame.ignition_snapped_m ?? 0) > 0 && (
+        <div style={{
+          marginBottom: 8,
+          padding: "4px 8px",
+          borderRadius: 3,
+          fontSize: 11,
+          background: "rgba(255, 200, 0, 0.12)",
+          color: "#ffc800",
+          border: "1px solid #806400",
+        }}>
+          Ignition snapped {Math.round(frame.ignition_snapped_m!)}m to nearest fuel cell
+        </div>
+      )}
+
       <div style={{ marginBottom: 8 }}>
         <span style={{
           display: "inline-block",
