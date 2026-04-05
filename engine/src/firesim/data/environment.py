@@ -8,7 +8,9 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from shapely.geometry import Point, box, shape
+from rasterio.features import rasterize
+from rasterio.transform import from_bounds
+from shapely.geometry import box, shape
 from shapely.strtree import STRtree
 
 logger = logging.getLogger(__name__)
@@ -105,36 +107,23 @@ def load_environment_mask(
         logger.info("No environment barriers found within grid bounds")
         return np.zeros((rows, cols), dtype=bool)
 
-    # Build a spatial index for fast per-cell queries — avoids the memory-
-    # intensive unary_union of potentially hundreds of thousands of polygons.
-    logger.info("Building spatial index over %d barrier geometries...", len(all_geometries))
-    tree = STRtree(all_geometries)
-
-    # Generate all cell-centre coordinates as a flat array and query the tree
-    # in one vectorised pass using the 'intersects' predicate (faster than
-    # looping over individual Points and calling .contains on each).
-    cell_lat = (lat_max - lat_min) / rows
-    cell_lng = (lng_max - lng_min) / cols
-
-    lats = lat_max - (np.arange(rows) + 0.5) * cell_lat  # shape (rows,)
-    lngs = lng_min + (np.arange(cols) + 0.5) * cell_lng  # shape (cols,)
-
-    # Build a grid of cell-centre Points in row-major order
-    lng_grid, lat_grid = np.meshgrid(lngs, lats)  # both shape (rows, cols)
-    cell_points = [
-        Point(lng_grid[r, c], lat_grid[r, c])
-        for r in range(rows)
-        for c in range(cols)
-    ]
-
-    # Query which cell centres fall inside any barrier geometry.
-    # tree.query returns (input_geometry_indices, tree_geometry_indices).
-    # input_geometry_indices are the flat cell indices we need.
-    mask = np.zeros(rows * cols, dtype=bool)
-    result = tree.query(cell_points, predicate="within")
-    if result.shape[1] > 0:
-        mask[result[0]] = True  # result[0] = cell indices
-    mask = mask.reshape(rows, cols)
+    # Rasterize all barrier geometries directly onto the grid using rasterio.
+    # This burns polygon footprints into a uint8 raster in C — orders of
+    # magnitude faster than per-cell point-in-polygon queries.
+    #
+    # from_bounds(west, south, east, north, width, height) places the
+    # upper-left corner at (lng_min, lat_max), matching row-0 = lat_max.
+    logger.info("Rasterizing %d barrier geometries onto %dx%d grid...", len(all_geometries), rows, cols)
+    transform = from_bounds(lng_min, lat_min, lng_max, lat_max, cols, rows)
+    burned = rasterize(
+        ((geom, 1) for geom in all_geometries),
+        out_shape=(rows, cols),
+        transform=transform,
+        fill=0,
+        dtype="uint8",
+        all_touched=False,
+    )
+    mask = burned > 0
 
     masked_count = int(mask.sum())
     total = rows * cols
