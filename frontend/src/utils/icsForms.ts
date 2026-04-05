@@ -549,30 +549,43 @@ export function buildICS204HTML(opts: ICSFormOptions): string {
 
   // ── Annotation legend from ics204 layer ──────────────────────────────────
   const ann204 = (opts.annotations ?? []).filter(a => a.layer === "ics204");
+  const supAnns = ann204.filter(a => a.symbolKey === "division_supervisor");
   const stagingAnns = ann204.filter(a => a.symbolKey === "staging_area");
   const dropAnns = ann204.filter(a => a.symbolKey === "drop_point");
   const campAnns = ann204.filter(a => a.symbolKey === "camp");
-  const supAnns = ann204.filter(a => a.symbolKey === "division_supervisor");
   const waterAnns = ann204.filter(a => a.symbolKey === "water_fill");
   const lineAnns = ann204.filter(a => a.symbolKey === "dozer_line" || a.symbolKey === "hand_line");
+  const markerAnns = ann204.filter(a => a.symbolKey === "generic_point");
+  const textAnns = ann204.filter(a => a.type === "text" || a.symbolKey === "text_label");
+  const freehandAnns = ann204.filter(a => a.symbolKey === "freehand_path");
 
   const hasMapAnnotations = ann204.length > 0;
 
+  const SYM_LABELS: Record<string, string> = {
+    division_supervisor: "Div. Supervisor", staging_area: "Staging Area",
+    drop_point: "Drop Point", camp: "Camp/Base", water_fill: "Water Fill",
+    dozer_line: "Dozer Line", hand_line: "Hand Line",
+    generic_point: "Marker", freehand_path: "Freehand", text_label: "Note",
+  };
+
   const annotationLegend = hasMapAnnotations ? `
 <table class="kv">
-  <tr><th>Symbol</th><th>Label</th><th>Coordinates</th><th>Notes</th></tr>
-  ${[...supAnns, ...stagingAnns, ...dropAnns, ...campAnns, ...waterAnns].map(a => {
+  <tr><th>Type</th><th>Label / Note</th><th>Location</th></tr>
+  ${[...supAnns, ...stagingAnns, ...dropAnns, ...campAnns, ...waterAnns, ...markerAnns].map(a => {
     const coord = a.coordinates[0];
     const loc = coord ? `${coord[1].toFixed(4)}°N, ${Math.abs(coord[0]).toFixed(4)}°W` : "See map";
-    const symLabels: Record<string, string> = {
-      division_supervisor: "Div. Supervisor", staging_area: "Staging Area",
-      drop_point: "Drop Point", camp: "Camp/Base", water_fill: "Water Fill",
-    };
-    return `<tr><td>${symLabels[a.symbolKey] ?? a.symbolKey}</td><td>${a.label}</td><td>${loc}</td><td>${a.properties.contact ?? ""}</td></tr>`;
+    return `<tr><td>${SYM_LABELS[a.symbolKey] ?? a.symbolKey}</td><td>${a.label}</td><td>${loc}</td></tr>`;
   }).join("")}
-  ${lineAnns.map(a => {
-    const symLabels: Record<string, string> = { dozer_line: "Dozer Line", hand_line: "Hand Line" };
-    return `<tr><td>${symLabels[a.symbolKey] ?? a.symbolKey}</td><td>${a.label}</td><td>${a.coordinates.length} pts — see map</td><td></td></tr>`;
+  ${lineAnns.map(a =>
+    `<tr><td>${SYM_LABELS[a.symbolKey]}</td><td>${a.label}</td><td>${a.coordinates.length} waypoints — see map</td></tr>`
+  ).join("")}
+  ${freehandAnns.map(a =>
+    `<tr><td>Freehand</td><td>${a.label}</td><td>See map overlay</td></tr>`
+  ).join("")}
+  ${textAnns.map(a => {
+    const coord = a.coordinates[0];
+    const loc = coord ? `${coord[1].toFixed(4)}°N, ${Math.abs(coord[0]).toFixed(4)}°W` : "See map";
+    return `<tr><td>Note</td><td><em>${a.label}</em></td><td>${loc}</td></tr>`;
   }).join("")}
 </table>` : "";
 

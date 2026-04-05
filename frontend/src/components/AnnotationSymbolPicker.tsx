@@ -1,7 +1,9 @@
 /** Form-aware symbol palette for EOC map annotation. */
 
 import type { AnnotationLayer, ICSSymbolKey } from "../types/incident";
-import { SYMBOLS_BY_LAYER, ANNOTATION_LAYER_LABELS } from "../types/incident";
+import { SYMBOLS_BY_LAYER, ANNOTATION_LAYER_LABELS, DRAWING_TOOLS } from "../types/incident";
+
+const DRAWING_TOOL_KEYS = new Set(DRAWING_TOOLS.map(t => t.key));
 
 interface AnnotationSymbolPickerProps {
   activeLayer: AnnotationLayer;
@@ -46,13 +48,30 @@ export default function AnnotationSymbolPicker({
         ))}
       </div>
 
-      {/* Symbol palette */}
+      {/* ICS symbols */}
       <div className="annotation-picker-symbols">
-        {symbols.map((sym) => (
+        {symbols.filter(s => !DRAWING_TOOL_KEYS.has(s.key)).map((sym) => (
           <button
             key={sym.key}
             className={`annotation-symbol-btn${activeSymbol === sym.key ? " active" : ""}`}
             style={activeSymbol === sym.key ? { borderColor: layerColor, background: `${layerColor}22` } : {}}
+            onClick={() => onSymbolSelect(sym.key)}
+            title={sym.label}
+          >
+            <SymbolIcon symbolKey={sym.key} color={sym.color} />
+            <span className="annotation-symbol-label">{sym.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Universal drawing tools — always visible, separated */}
+      <div className="annotation-picker-divider" />
+      <div className="annotation-picker-symbols">
+        {DRAWING_TOOLS.map((sym) => (
+          <button
+            key={sym.key}
+            className={`annotation-symbol-btn${activeSymbol === sym.key ? " active" : ""}`}
+            style={activeSymbol === sym.key ? { borderColor: "#aaa", background: "rgba(255,255,255,0.1)" } : {}}
             onClick={() => onSymbolSelect(sym.key)}
             title={sym.label}
           >
@@ -140,6 +159,13 @@ export function SymbolIcon({ symbolKey, color, size = 20 }: { symbolKey: ICSSymb
           <line x1={h} y1={h} x2={h} y2={2} stroke={color} strokeWidth={2} />
           <line x1={h} y1={2} x2={h - 4} y2={6} stroke={color} strokeWidth={1.5} />
           <line x1={h} y1={2} x2={h + 4} y2={6} stroke={color} strokeWidth={1.5} />
+        </svg>
+      );
+    case "generic_point":
+      return (
+        <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+          <circle cx={h} cy={h} r={h - 2} fill={color} opacity={0.85} />
+          <text x={h} y={h + 3} textAnchor="middle" fontSize={s * 0.4} fontWeight="bold" fill="#000">●</text>
         </svg>
       );
     case "freehand_path":

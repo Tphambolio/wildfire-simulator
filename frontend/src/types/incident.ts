@@ -28,8 +28,8 @@ export type ICSSymbolKey =
   // Evac / General
   | "checkpoint" | "reception_centre" | "shelter" | "vulnerable_pop"
   | "evac_route" | "do_not_enter" | "command_post" | "icp"
-  // Drawing modes (no icon — use existing SVG tools)
-  | "freehand_path" | "text_label";
+  // Universal drawing tools — available on every layer
+  | "generic_point" | "freehand_path" | "text_label";
 
 export interface SymbolDef {
   key: ICSSymbolKey;
@@ -67,17 +67,21 @@ export const SYMBOL_DEFS: SymbolDef[] = [
   // ── General ──
   { key: "command_post",        label: "Command Post",       shortCode: "CP★", color: "#4caf50", layer: "situation", type: "point" },
   { key: "icp",                 label: "Incident Cmd Post",  shortCode: "ICP", color: "#4caf50", layer: "situation", type: "point" },
-  // ── Drawing modes ──
-  { key: "freehand_path",       label: "Freehand Draw",      shortCode: "✏",   color: "#ff6400", layer: "situation", type: "path"  },
-  { key: "text_label",          label: "Text Label",         shortCode: "T",   color: "#ffffff", layer: "situation", type: "point" },
+];
+
+/** Universal drawing tools appended to every layer's palette. */
+export const DRAWING_TOOLS: SymbolDef[] = [
+  { key: "generic_point", label: "Labeled Marker", shortCode: "●", color: "#9e9e9e", layer: "situation", type: "point" },
+  { key: "freehand_path", label: "Freehand Draw",  shortCode: "✏", color: "#888888", layer: "situation", type: "path"  },
+  { key: "text_label",    label: "Text Label",      shortCode: "T", color: "#ffffff", layer: "situation", type: "point" },
 ];
 
 export const SYMBOLS_BY_LAYER: Record<AnnotationLayer, SymbolDef[]> = {
-  situation: SYMBOL_DEFS.filter(s => s.layer === "situation"),
-  ics204:    SYMBOL_DEFS.filter(s => s.layer === "ics204"),
-  ics205:    SYMBOL_DEFS.filter(s => s.layer === "ics205"),
-  ics206:    SYMBOL_DEFS.filter(s => s.layer === "ics206"),
-  evac:      SYMBOL_DEFS.filter(s => s.layer === "evac"),
+  situation: [...SYMBOL_DEFS.filter(s => s.layer === "situation"), ...DRAWING_TOOLS],
+  ics204:    [...SYMBOL_DEFS.filter(s => s.layer === "ics204"),    ...DRAWING_TOOLS],
+  ics205:    [...SYMBOL_DEFS.filter(s => s.layer === "ics205"),    ...DRAWING_TOOLS],
+  ics206:    [...SYMBOL_DEFS.filter(s => s.layer === "ics206"),    ...DRAWING_TOOLS],
+  evac:      [...SYMBOL_DEFS.filter(s => s.layer === "evac"),      ...DRAWING_TOOLS],
 };
 
 // ── Annotations ───────────────────────────────────────────────────────────────

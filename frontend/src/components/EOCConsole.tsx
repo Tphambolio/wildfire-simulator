@@ -202,16 +202,18 @@ export default function EOCConsole({
   const handleSvgMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     e.preventDefault();
     const { x, y } = getSvgCoords(e);
-    if (activeSymbolKey && onAddAnnotation) {
-      // Place a symbol annotation at click point
-      const geo = pixelToGeo(x, y);
+    if (activeSymbolKey) {
       const symDef = SYMBOL_DEFS.find(s => s.key === activeSymbolKey);
-      if (symDef?.type === "path") {
-        // Path symbols start a pen-style drag — handled in mouse move/up
+      const geo = pixelToGeo(x, y);
+      if (activeSymbolKey === "text_label" || activeSymbolKey === "generic_point") {
+        // Show label prompt — committed in handleTextSubmit
+        setPendingTextPos({ x, y });
+      } else if (symDef?.type === "path") {
+        // Path symbols: drag to draw, committed in handleSvgMouseUp
         isPenDownRef.current = true;
         setCurrentPenPath([geo]);
-      } else {
-        const annotation: IncidentAnnotation = {
+      } else if (onAddAnnotation) {
+        onAddAnnotation({
           id: crypto.randomUUID(),
           layer: activeLayer,
           type: "symbol",
@@ -221,8 +223,7 @@ export default function EOCConsole({
           properties: {},
           operationalDay: 1,
           createdAt: new Date().toISOString(),
-        };
-        onAddAnnotation(annotation);
+        });
       }
     } else if (markupTool === "pen") {
       isPenDownRef.current = true;
@@ -272,13 +273,30 @@ export default function EOCConsole({
       const text = e.currentTarget.value.trim();
       if (text) {
         const geo = pixelToGeo(pendingTextPos.x, pendingTextPos.y);
-        setTextMarkers(prev => [...prev, { geo, text }]);
+        if (onAddAnnotation) {
+          // Commit as a layer-aware IncidentAnnotation
+          const symKey = (activeSymbolKey === "generic_point") ? "generic_point" : "text_label";
+          onAddAnnotation({
+            id: crypto.randomUUID(),
+            layer: activeLayer,
+            type: activeSymbolKey === "generic_point" ? "symbol" : "text",
+            symbolKey: symKey,
+            coordinates: [[geo.lng, geo.lat]],
+            label: text,
+            properties: {},
+            operationalDay: 1,
+            createdAt: new Date().toISOString(),
+          });
+        } else {
+          // No incident active — fall back to session-only text marker
+          setTextMarkers(prev => [...prev, { geo, text }]);
+        }
       }
       setPendingTextPos(null);
     } else if (e.key === "Escape") {
       setPendingTextPos(null);
     }
-  }, [pendingTextPos, pixelToGeo]);
+  }, [pendingTextPos, pixelToGeo, onAddAnnotation, activeLayer, activeSymbolKey]);
 
   const clearMarkup = useCallback(() => {
     setPenPaths([]);
@@ -493,7 +511,7 @@ export default function EOCConsole({
           {/* SVG markup overlay */}
           <svg
             ref={svgRef}
-            className={`eoc-markup-svg${(markupTool || activeSymbolKey) ? ` active${markupTool === "text" ? " text-mode" : ""}` : ""}`}
+            className={`eoc-markup-svg${activeSymbolKey ? ` active${activeSymbolKey === "text_label" || activeSymbolKey === "generic_point" ? " text-mode" : ""}` : ""}`}
             onMouseDown={handleSvgMouseDown}
             onMouseMove={handleSvgMouseMove}
             onMouseUp={handleSvgMouseUp}
@@ -527,7 +545,21 @@ export default function EOCConsole({
                 );
               }
 
-              if ((ann.type === "symbol" || ann.type === "text") && ann.coordinates.length > 0) {
+              if (ann.type === "text" && ann.coordinates.length > 0) {
+                const [lng, lat] = ann.coordinates[0];
+                const { x, y } = geoToPixel({ lng, lat });
+                return (
+                  <text key={ann.id} x={x} y={y} fill={color} fontSize={13} fontWeight="600"
+                    opacity={opacity} style={{ cursor: isActive ? "pointer" : "default", userSelect: "none" }}
+                    onClick={() => isActive && onRemoveAnnotation?.(ann.id)}
+                    stroke="#000" strokeWidth={3} strokeLinejoin="round" paintOrder="stroke"
+                  >
+                    {ann.label}
+                  </text>
+                );
+              }
+
+              if (ann.type === "symbol" && ann.coordinates.length > 0) {
                 const [lng, lat] = ann.coordinates[0];
                 const { x, y } = geoToPixel({ lng, lat });
                 return (
@@ -537,9 +569,10 @@ export default function EOCConsole({
                     onClick={() => isActive && onRemoveAnnotation?.(ann.id)}
                   >
                     <SymbolIcon symbolKey={ann.symbolKey} color={color} size={20} />
-                    {ann.label && (
+                    {ann.label && ann.symbolKey !== "text_label" && (
                       <text x={10} y={26} textAnchor="middle" fontSize={9} fill={color}
-                        style={{ pointerEvents: "none", textShadow: "0 0 3px #000" }}
+                        stroke="#000" strokeWidth={2.5} strokeLinejoin="round" paintOrder="stroke"
+                        style={{ pointerEvents: "none" }}
                       >
                         {ann.label}
                       </text>
@@ -626,14 +659,14 @@ export default function EOCConsole({
               title="ICS symbol palette"
             >⊕</button>
             <button
-              className={`eoc-markup-tool${markupTool === "pen" && !activeSymbolKey ? " active" : ""}`}
-              onClick={() => { setMarkupTool(t => t === "pen" ? null : "pen"); setActiveSymbolKey(null); }}
-              title="Freehand draw (click active to pan)"
+              className={`eoc-markup-tool${activeSymbolKey === "freehand_path" ? " active" : ""}`}
+              onClick={() => setActiveSymbolKey(k => k === "freehand_path" ? null : "freehand_path")}
+              title="Freehand draw on active layer (click active to pan)"
             >✏</button>
             <button
-              className={`eoc-markup-tool${markupTool === "text" ? " active" : ""}`}
-              onClick={() => { setMarkupTool(t => t === "text" ? null : "text"); setActiveSymbolKey(null); }}
-              title="Place text label (click active to pan)"
+              className={`eoc-markup-tool${activeSymbolKey === "text_label" ? " active" : ""}`}
+              onClick={() => setActiveSymbolKey(k => k === "text_label" ? null : "text_label")}
+              title="Place text label on active layer (click active to pan)"
             >T</button>
             <button
               className="eoc-markup-tool"
