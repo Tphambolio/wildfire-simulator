@@ -182,8 +182,18 @@ export function useSimulation() {
         if (resp.status === "running") {
           setTimeout(poll, 1000);
         }
-      } catch {
-        // Ignore polling errors
+      } catch (err) {
+        // On 404 (simulation not found after machine restart), surface the error
+        const msg = err instanceof Error ? err.message : "";
+        if (msg.includes("not found") || msg.includes("404")) {
+          setState((prev) => ({
+            ...prev,
+            status: "failed",
+            error: "Simulation lost — the server restarted. Please run the simulation again.",
+            isRunning: false,
+          }));
+        }
+        // Other transient network errors are ignored (retry next tick)
       }
     };
     poll();
