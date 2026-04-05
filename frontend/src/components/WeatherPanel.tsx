@@ -127,7 +127,7 @@ export default function WeatherPanel({
     dc: 300,
   });
   const [fuelType, setFuelType] = useState("C2");
-  const [useEdmontonGrid, setUseEdmontonGrid] = useState(false);
+  const [useEdmontonGrid, setUseEdmontonGrid] = useState(true);
   const [useSyntheticCA, setUseSyntheticCA] = useState(false);
   const [enableSpotting, setEnableSpotting] = useState(false);
   const [spottingIntensity, setSpottingIntensity] = useState(1.0);
@@ -277,6 +277,12 @@ export default function WeatherPanel({
   const EDMONTON_DEM_PATH =
     import.meta.env.VITE_EDMONTON_DEM_PATH ??
     "/app/data/edmonton_dem.tif";
+
+  // Notify parent of the default fuel grid on mount
+  useEffect(() => {
+    onEdmontonGridChange?.(EDMONTON_FUEL_GRID_PATH);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleMonteCarlo = () => {
     if (!ignitionPoint || !onComputeBurnProbability || hasErrors) return;

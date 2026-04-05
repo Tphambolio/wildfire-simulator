@@ -511,7 +511,7 @@ export default function App() {
               weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
               fwi: { ffmc: 90, dmc: 45, dc: 300 },
               fuelType: "C2",
-              useEdmontonGrid: false,
+              useEdmontonGrid: true,
               useSyntheticCA: false,
               enableSpotting: false,
               spottingIntensity: 1.0,
