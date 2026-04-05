@@ -30,16 +30,11 @@ api/.env
 engine/.env
 *.log
 
-# Data files (large spatial assets — bundled into Docker image, not committed to git)
-data/
-*.tif
-*.tiff
-*.geotiff
+# Spatial scratch files (committed data lives in data/)
 *.gpkg
 *.gdb/
-*.geojson
-*.geojson.gz
 
 # OS
 .DS_Store
 Thumbs.db
+.vercel

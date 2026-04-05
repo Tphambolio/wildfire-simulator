@@ -59,5 +59,13 @@ jobs:
           npx tsc --noEmit
           npm run build
 
-  # Note: API deploy is manual (fly deploy --local-only) because data files
-  # (~20 MB Edmonton spatial data) are git-ignored and must be bundled locally.
+  deploy:
+    needs: [engine-tests, frontend]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: fly deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
