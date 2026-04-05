@@ -268,13 +268,19 @@ export default function App() {
 
   const handleEdmontonGridChange = useCallback(async (path: string | null) => {
     if (!path) { setFuelGridImage(null); return; }
-    try {
-      const img = await fetchFuelGridImage(path);
-      setFuelGridImage(img);
-      setFuelGridVisible(true);
-    } catch {
-      setFuelGridImage(null);
+    // Retry up to 3 times — the Fly.io machine may be suspended on first load
+    // and needs a few seconds to resume before the image endpoint responds.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const img = await fetchFuelGridImage(path);
+        setFuelGridImage(img);
+        setFuelGridVisible(true);
+        return;
+      } catch {
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+      }
     }
+    setFuelGridImage(null);
   }, []);
 
   const handleEvacScaleChange = useCallback((label: EvacZoneLabel, scale: number) => {
