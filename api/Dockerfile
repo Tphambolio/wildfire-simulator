@@ -2,6 +2,12 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# System libs needed by rasterio/GDAL and llvmlite (numba)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libexpat1 \
+    libgdal-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install engine
 COPY engine/pyproject.toml engine/pyproject.toml
 COPY engine/src engine/src
