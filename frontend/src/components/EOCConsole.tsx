@@ -320,12 +320,57 @@ export default function EOCConsole({
   const captureMapSnapshot = useCallback((): Promise<string | undefined> => {
     const map = consoleMapRef.current;
     if (!map) return Promise.resolve(undefined);
+
     return new Promise((resolve) => {
       map.once("render", () => {
         try {
-          const dataUrl = map.getCanvas().toDataURL("image/png");
-          setMapSnapshot(dataUrl);
-          resolve(dataUrl);
+          const glCanvas = map.getCanvas();
+          const rect = glCanvas.getBoundingClientRect();
+          const w = Math.round(rect.width);
+          const h = Math.round(rect.height);
+
+          const offscreen = document.createElement("canvas");
+          offscreen.width = w;
+          offscreen.height = h;
+          const ctx = offscreen.getContext("2d");
+          if (!ctx) { resolve(undefined); return; }
+
+          // Draw the WebGL map layer (scale from physical → CSS pixels)
+          ctx.drawImage(glCanvas, 0, 0, w, h);
+
+          const svg = svgRef.current;
+          if (!svg || !svg.childElementCount) {
+            // No annotations — return map only
+            const dataUrl = offscreen.toDataURL("image/png");
+            setMapSnapshot(dataUrl);
+            resolve(dataUrl);
+            return;
+          }
+
+          // Composite SVG annotation overlay on top
+          const clone = svg.cloneNode(true) as SVGSVGElement;
+          clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+          clone.setAttribute("width", String(w));
+          clone.setAttribute("height", String(h));
+          const svgStr = new XMLSerializer().serializeToString(clone);
+          const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            const dataUrl = offscreen.toDataURL("image/png");
+            setMapSnapshot(dataUrl);
+            resolve(dataUrl);
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            // Annotation overlay failed — return map-only snapshot
+            const dataUrl = offscreen.toDataURL("image/png");
+            setMapSnapshot(dataUrl);
+            resolve(dataUrl);
+          };
+          img.src = url;
         } catch {
           resolve(undefined);
         }
@@ -549,13 +594,19 @@ export default function EOCConsole({
                 const [lng, lat] = ann.coordinates[0];
                 const { x, y } = geoToPixel({ lng, lat });
                 return (
-                  <text key={ann.id} x={x} y={y} fill={color} fontSize={13} fontWeight="600"
-                    opacity={opacity} style={{ cursor: isActive ? "pointer" : "default", userSelect: "none" }}
+                  <g key={ann.id} opacity={opacity}
+                    style={{ cursor: isActive ? "pointer" : "default" }}
                     onClick={() => isActive && onRemoveAnnotation?.(ann.id)}
-                    stroke="#000" strokeWidth={3} strokeLinejoin="round" paintOrder="stroke"
                   >
-                    {ann.label}
-                  </text>
+                    {/* Outline stroke for legibility */}
+                    <text x={x} y={y} fill="none" stroke="#000" strokeWidth={3}
+                      strokeLinejoin="round" fontSize={13} fontWeight="600"
+                      style={{ userSelect: "none", pointerEvents: "none" }}
+                    >{ann.label}</text>
+                    <text x={x} y={y} fill={color} fontSize={13} fontWeight="600"
+                      style={{ userSelect: "none" }}
+                    >{ann.label}</text>
+                  </g>
                 );
               }
 
@@ -570,12 +621,13 @@ export default function EOCConsole({
                   >
                     <SymbolIcon symbolKey={ann.symbolKey} color={color} size={20} />
                     {ann.label && ann.symbolKey !== "text_label" && (
-                      <text x={10} y={26} textAnchor="middle" fontSize={9} fill={color}
-                        stroke="#000" strokeWidth={2.5} strokeLinejoin="round" paintOrder="stroke"
-                        style={{ pointerEvents: "none" }}
-                      >
-                        {ann.label}
-                      </text>
+                      <g style={{ pointerEvents: "none" }}>
+                        <text x={10} y={26} textAnchor="middle" fontSize={9}
+                          fill="none" stroke="#000" strokeWidth={2.5} strokeLinejoin="round"
+                        >{ann.label}</text>
+                        <text x={10} y={26} textAnchor="middle" fontSize={9} fill={color}
+                        >{ann.label}</text>
+                      </g>
                     )}
                   </g>
                 );
