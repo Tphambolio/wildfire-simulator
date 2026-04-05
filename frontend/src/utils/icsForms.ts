@@ -23,6 +23,7 @@
 import type { SimulationFrame } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { EvacZone } from "./evacZones";
+import type { IncidentAnnotation } from "../types/incident";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ export interface ICSFormOptions {
   evacZones?: EvacZone[];
   /** base64 PNG from maplibregl canvas.toDataURL() */
   mapSnapshotDataUrl?: string;
+  /** ICS map annotations from the incident store — used to populate form tables */
+  annotations?: IncidentAnnotation[];
 }
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -600,12 +603,32 @@ export function buildICS205HTML(opts: ICSFormOptions): string {
 // ── ICS-206: Medical Plan ─────────────────────────────────────────────────────
 
 export function buildICS206HTML(opts: ICSFormOptions): string {
+  // Populate from ics206 layer annotations if available
+  const medAnnotations = (opts.annotations ?? []).filter(a => a.layer === "ics206");
+  const aidStationAnns = medAnnotations.filter(a => a.symbolKey === "medical_aid_station");
+  const lzAnns = medAnnotations.filter(a => a.symbolKey === "medevac_lz");
+
+  const aidStationRows = aidStationAnns.length > 0
+    ? aidStationAnns.map(a => {
+        const coord = a.coordinates[0];
+        const locStr = coord ? `${coord[1].toFixed(4)}°N, ${Math.abs(coord[0]).toFixed(4)}°W` : "";
+        return `<tr><td>${a.label}</td><td>${locStr}</td><td>${a.properties.contact ?? ""}</td><td>&nbsp;</td><td>${a.properties.capacity ?? ""}</td></tr>`;
+      }).join("")
+    : `<tr><td>Station 1 — ICP (Primary)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>Station 2 — Forward (Div A)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>`;
+
+  const lzNote = lzAnns.length > 0
+    ? `<p style="margin-top:6px"><strong>Medevac LZ${lzAnns.length > 1 ? "s" : ""}:</strong> ${lzAnns.map(a => {
+        const coord = a.coordinates[0];
+        return `${a.label} (${coord ? `${coord[1].toFixed(4)}°N, ${Math.abs(coord[0]).toFixed(4)}°W` : "see map"})`;
+      }).join("; ")}</p>`
+    : "";
+
   const aidStations = `
 <table class="kv">
   <tr><th>Aid Station</th><th>Location</th><th>Contact</th><th>Paramedics</th><th>Capacity</th></tr>
-  <tr><td>Station 1 — ICP (Primary)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Station 2 — Forward (Div A)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-</table>`;
+  ${aidStationRows}
+</table>${lzNote}`;
 
   const transport = `
 <table class="kv">

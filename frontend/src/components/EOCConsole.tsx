@@ -21,6 +21,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
 import EOCSummary from "./EOCSummary";
+import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "./WeatherPanel";
 import type { EvacZone } from "../utils/evacZones";
@@ -38,6 +39,8 @@ import {
 import { openICS209Report } from "../utils/ics209";
 import type { SuppressionAdvisory } from "./EOCSummary";
 import { buildSuppressionAdvisory } from "./EOCSummary";
+import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation } from "../types/incident";
+import { SYMBOL_DEFS } from "../types/incident";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -68,6 +71,15 @@ interface EOCConsoleProps {
   // Fuel grid
   fuelGridImage?: { image: string; bounds: [number, number, number, number] } | null;
   fuelGridVisible?: boolean;
+  // Incident annotation store (from useIncident)
+  incidentAnnotations?: IncidentAnnotation[];
+  onAddAnnotation?: (a: IncidentAnnotation) => void;
+  onRemoveAnnotation?: (id: string) => void;
+  onClearLayer?: (layer: AnnotationLayer) => void;
+  /** Previous operational period's final perimeter — shown as ghost on Day 2+ */
+  ghostPerimeter?: [number, number][] | null;
+  incidentName?: string;
+  onIncidentNameChange?: (name: string) => void;
 }
 
 type ConsoleTab = "situation" | "ics-forms" | "map";
@@ -109,10 +121,26 @@ export default function EOCConsole({
   isochronesVisible = false,
   fuelGridImage = null,
   fuelGridVisible = true,
+  incidentAnnotations = [],
+  onAddAnnotation,
+  onRemoveAnnotation,
+  onClearLayer,
+  ghostPerimeter = null,
+  incidentName: incidentNameProp,
+  onIncidentNameChange,
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("situation");
-  const [incidentName, setIncidentName] = useState("Untitled Incident");
+  // Use incident name from prop if provided (incident store), else local state
+  const [localIncidentName, setLocalIncidentName] = useState("Untitled Incident");
+  const incidentName = incidentNameProp ?? localIncidentName;
+  const setIncidentName = (name: string) => {
+    setLocalIncidentName(name);
+    onIncidentNameChange?.(name);
+  };
   const [editingName, setEditingName] = useState(false);
+  const [activeLayer, setActiveLayer] = useState<AnnotationLayer>("situation");
+  const [activeSymbolKey, setActiveSymbolKey] = useState<ICSSymbolKey | null>(null);
+  const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const [selectedForm, setSelectedForm] = useState<ICSFormId>("ics201");
   const [formHtml, setFormHtml] = useState<string>("");
   const [mapSnapshot, setMapSnapshot] = useState<string | undefined>(undefined);
@@ -174,13 +202,35 @@ export default function EOCConsole({
   const handleSvgMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     e.preventDefault();
     const { x, y } = getSvgCoords(e);
-    if (markupTool === "pen") {
+    if (activeSymbolKey && onAddAnnotation) {
+      // Place a symbol annotation at click point
+      const geo = pixelToGeo(x, y);
+      const symDef = SYMBOL_DEFS.find(s => s.key === activeSymbolKey);
+      if (symDef?.type === "path") {
+        // Path symbols start a pen-style drag — handled in mouse move/up
+        isPenDownRef.current = true;
+        setCurrentPenPath([geo]);
+      } else {
+        const annotation: IncidentAnnotation = {
+          id: crypto.randomUUID(),
+          layer: activeLayer,
+          type: "symbol",
+          symbolKey: activeSymbolKey,
+          coordinates: [[geo.lng, geo.lat]],
+          label: symDef?.label ?? activeSymbolKey,
+          properties: {},
+          operationalDay: 1,
+          createdAt: new Date().toISOString(),
+        };
+        onAddAnnotation(annotation);
+      }
+    } else if (markupTool === "pen") {
       isPenDownRef.current = true;
       setCurrentPenPath([pixelToGeo(x, y)]);
     } else if (markupTool === "text") {
       setPendingTextPos({ x, y });
     }
-  }, [markupTool, getSvgCoords, pixelToGeo]);
+  }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool, getSvgCoords, pixelToGeo]);
 
   const handleSvgMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (markupTool !== "pen" || !isPenDownRef.current) return;
@@ -189,13 +239,32 @@ export default function EOCConsole({
   }, [markupTool, getSvgCoords, pixelToGeo]);
 
   const handleSvgMouseUp = useCallback(() => {
-    if (markupTool !== "pen") return;
+    if (!isPenDownRef.current) return;
     isPenDownRef.current = false;
     setCurrentPenPath(prev => {
-      if (prev.length > 0) setPenPaths(paths => [...paths, prev]);
+      if (prev.length > 0) {
+        if (activeSymbolKey && onAddAnnotation) {
+          // Commit path-type symbol annotation
+          const symDef = SYMBOL_DEFS.find(s => s.key === activeSymbolKey);
+          const annotation: IncidentAnnotation = {
+            id: crypto.randomUUID(),
+            layer: activeLayer,
+            type: "path",
+            symbolKey: activeSymbolKey,
+            coordinates: prev.map(g => [g.lng, g.lat]),
+            label: symDef?.label ?? activeSymbolKey,
+            properties: {},
+            operationalDay: 1,
+            createdAt: new Date().toISOString(),
+          };
+          onAddAnnotation(annotation);
+        } else if (markupTool === "pen") {
+          setPenPaths(paths => [...paths, prev]);
+        }
+      }
       return [];
     });
-  }, [markupTool]);
+  }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool]);
 
   const handleTextSubmit = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && pendingTextPos) {
@@ -257,7 +326,8 @@ export default function EOCConsole({
     atRiskCounts,
     evacZones,
     mapSnapshotDataUrl: snapshot ?? mapSnapshot,
-  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, evacZones, mapSnapshot]);
+    annotations: incidentAnnotations,
+  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, evacZones, mapSnapshot, incidentAnnotations]);
 
   // ── Suppression advisory for ICS-209 ─────────────────────────────────────
 
@@ -422,12 +492,64 @@ export default function EOCConsole({
           {/* SVG markup overlay */}
           <svg
             ref={svgRef}
-            className={`eoc-markup-svg${markupTool ? ` active${markupTool === "text" ? " text-mode" : ""}` : ""}`}
+            className={`eoc-markup-svg${(markupTool || activeSymbolKey) ? ` active${markupTool === "text" ? " text-mode" : ""}` : ""}`}
             onMouseDown={handleSvgMouseDown}
             onMouseMove={handleSvgMouseMove}
             onMouseUp={handleSvgMouseUp}
             onMouseLeave={handleSvgMouseUp}
           >
+            {/* Ghost perimeter from previous operational period */}
+            {ghostPerimeter && ghostPerimeter.length > 0 && (() => {
+              const d = ghostPerimeter.map(([lng, lat], i) => {
+                const { x, y } = geoToPixel({ lng, lat });
+                return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+              }).join(" ") + " Z";
+              return <path d={d} className="eoc-ghost-perimeter" />;
+            })()}
+
+            {/* Incident annotations — dimmed if not on active layer */}
+            {incidentAnnotations.map((ann) => {
+              const isActive = ann.layer === activeLayer;
+              const opacity = isActive ? 1 : 0.3;
+              const symDef = SYMBOL_DEFS.find(s => s.key === ann.symbolKey);
+              const color = symDef?.color ?? "#ffffff";
+
+              if (ann.type === "path" && ann.coordinates.length > 1) {
+                const d = ann.coordinates.map(([lng, lat], i) => {
+                  const { x, y } = geoToPixel({ lng, lat });
+                  return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+                }).join(" ");
+                return (
+                  <g key={ann.id} opacity={opacity}>
+                    <path d={d} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                  </g>
+                );
+              }
+
+              if ((ann.type === "symbol" || ann.type === "text") && ann.coordinates.length > 0) {
+                const [lng, lat] = ann.coordinates[0];
+                const { x, y } = geoToPixel({ lng, lat });
+                return (
+                  <g key={ann.id} opacity={opacity}
+                    transform={`translate(${x - 10},${y - 10})`}
+                    style={{ cursor: isActive ? "pointer" : "default" }}
+                    onClick={() => isActive && onRemoveAnnotation?.(ann.id)}
+                  >
+                    <SymbolIcon symbolKey={ann.symbolKey} color={color} size={20} />
+                    {ann.label && (
+                      <text x={10} y={26} textAnchor="middle" fontSize={9} fill={color}
+                        style={{ pointerEvents: "none", textShadow: "0 0 3px #000" }}
+                      >
+                        {ann.label}
+                      </text>
+                    )}
+                  </g>
+                );
+              }
+              return null;
+            })}
+
+            {/* Legacy freehand pen paths */}
             {penPaths.map((points, i) => {
               const d = geoPathToSvgD(points);
               return d ? <path key={i} d={d} className="eoc-markup-path" /> : null;
@@ -453,6 +575,27 @@ export default function EOCConsole({
             />
           )}
 
+          {/* Symbol picker flyout */}
+          {showSymbolPicker && (
+            <div className="eoc-symbol-picker-flyout">
+              <AnnotationSymbolPicker
+                activeLayer={activeLayer}
+                activeSymbol={activeSymbolKey}
+                onLayerChange={(layer) => { setActiveLayer(layer); setActiveSymbolKey(null); setMarkupTool(null); }}
+                onSymbolSelect={(key) => { setActiveSymbolKey(prev => prev === key ? null : key); setMarkupTool(null); }}
+              />
+              {incidentAnnotations.filter(a => a.layer === activeLayer).length > 0 && (
+                <button
+                  className="eoc-clear-layer-btn"
+                  onClick={() => onClearLayer?.(activeLayer)}
+                  title={`Clear all ${activeLayer} layer annotations`}
+                >
+                  Clear layer
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Markup toolbar */}
           <div className="eoc-markup-toolbar">
             <button
@@ -474,19 +617,24 @@ export default function EOCConsole({
             <div className="eoc-markup-divider" />
             <span className="eoc-markup-label">MARK</span>
             <button
-              className={`eoc-markup-tool${markupTool === "pen" ? " active" : ""}`}
-              onClick={() => setMarkupTool(t => t === "pen" ? null : "pen")}
+              className={`eoc-markup-tool${showSymbolPicker ? " active" : ""}`}
+              onClick={() => setShowSymbolPicker(v => !v)}
+              title="ICS symbol palette"
+            >⊕</button>
+            <button
+              className={`eoc-markup-tool${markupTool === "pen" && !activeSymbolKey ? " active" : ""}`}
+              onClick={() => { setMarkupTool(t => t === "pen" ? null : "pen"); setActiveSymbolKey(null); }}
               title="Freehand draw (click active to pan)"
             >✏</button>
             <button
               className={`eoc-markup-tool${markupTool === "text" ? " active" : ""}`}
-              onClick={() => setMarkupTool(t => t === "text" ? null : "text")}
+              onClick={() => { setMarkupTool(t => t === "text" ? null : "text"); setActiveSymbolKey(null); }}
               title="Place text label (click active to pan)"
             >T</button>
             <button
               className="eoc-markup-tool"
               onClick={clearMarkup}
-              title="Clear all markup"
+              title="Clear freehand markup"
               disabled={penPaths.length === 0 && textMarkers.length === 0 && currentPenPath.length === 0}
             >⌫</button>
           </div>

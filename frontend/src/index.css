@@ -2283,6 +2283,29 @@ select {
   z-index: 5;
 }
 
+/* No-incident strip */
+.eoc-no-incident {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(11, 17, 32, 0.85);
+  border-bottom: 1px solid rgba(255, 107, 53, 0.2);
+}
+
+.eoc-create-incident-btn {
+  padding: 4px 14px;
+  background: rgba(255, 107, 53, 0.18);
+  border: 1px solid rgba(255, 107, 53, 0.45);
+  border-radius: 5px;
+  color: #ff6b35;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.eoc-create-incident-btn:hover { background: rgba(255, 107, 53, 0.3); }
+
 /* Console header — 48px strip with incident name + action buttons */
 .eoc-console {
   display: flex;
@@ -2588,6 +2611,290 @@ select {
   background: rgba(255, 255, 255, 0.15);
   margin: 0 2px;
   flex-shrink: 0;
+}
+
+/* ── Symbol picker flyout ──────────────────────────────────── */
+
+.eoc-symbol-picker-flyout {
+  position: absolute;
+  bottom: 92px;
+  left: 12px;
+  z-index: 20;
+  background: rgba(11, 17, 32, 0.96);
+  border: 1px solid rgba(255, 107, 53, 0.35);
+  border-radius: 10px;
+  padding: 10px;
+  backdrop-filter: blur(8px);
+  min-width: 260px;
+  max-width: 320px;
+}
+
+.eoc-clear-layer-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: rgba(244, 67, 54, 0.12);
+  border: 1px solid rgba(244, 67, 54, 0.35);
+  border-radius: 5px;
+  color: #f44336;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background 0.12s;
+}
+.eoc-clear-layer-btn:hover {
+  background: rgba(244, 67, 54, 0.24);
+}
+
+/* ── Ghost perimeter (previous op period) ─────────────────── */
+
+.eoc-ghost-perimeter {
+  fill: none;
+  stroke: rgba(255, 200, 80, 0.45);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+
+/* ── Annotation symbol picker component ───────────────────── */
+
+.annotation-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.annotation-picker-layers {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.annotation-layer-btn {
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  text-transform: uppercase;
+}
+.annotation-layer-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+}
+.annotation-layer-btn.active {
+  font-weight: 700;
+}
+
+.annotation-picker-symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.annotation-symbol-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  min-width: 50px;
+}
+.annotation-symbol-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.annotation-symbol-btn.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.annotation-symbol-label {
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  line-height: 1.2;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Operational period panel ─────────────────────────────── */
+
+.op-period-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(11, 17, 32, 0.85);
+  border-bottom: 1px solid rgba(255, 107, 53, 0.2);
+}
+
+.op-period-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.op-period-name-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.op-period-name-btn:hover { color: #fff; }
+
+.op-period-name-input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 107, 53, 0.5);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 6px;
+  outline: none;
+}
+
+.op-period-days {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.op-period-day-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.op-period-day-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+}
+.op-period-day-btn.active {
+  background: rgba(255, 107, 53, 0.22);
+  border-color: rgba(255, 107, 53, 0.6);
+  color: #fff;
+}
+
+.op-period-day-date {
+  font-size: 9px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+.op-period-day-done {
+  font-size: 9px;
+  color: #4caf50;
+}
+
+.op-period-advance-btn {
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.op-period-advance-btn:hover {
+  background: rgba(255, 107, 53, 0.12);
+  border-color: rgba(255, 107, 53, 0.45);
+  color: rgba(255, 107, 53, 0.85);
+}
+
+.op-period-advance-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.op-period-advance-form label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.op-period-advance-form input[type="date"],
+.op-period-advance-form input[type="time"] {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 4px;
+  outline: none;
+}
+
+.op-period-advance-actions {
+  display: flex;
+  gap: 4px;
+}
+.op-period-confirm-btn {
+  padding: 3px 10px;
+  background: rgba(255, 107, 53, 0.25);
+  border: 1px solid rgba(255, 107, 53, 0.6);
+  border-radius: 4px;
+  color: #ff6b35;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.op-period-confirm-btn:hover { background: rgba(255, 107, 53, 0.4); }
+
+.op-period-cancel-btn {
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  cursor: pointer;
+}
+.op-period-cancel-btn:hover { color: rgba(255, 255, 255, 0.8); }
+
+.op-period-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.03em;
+}
+
+.op-period-stats {
+  color: rgba(255, 107, 53, 0.75);
+  font-weight: 600;
 }
 
 /* ── ICS Forms panel ───────────────────────────────────────── */

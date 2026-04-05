@@ -19,7 +19,9 @@ import type { SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnPro
 import { computeEvacZones, applyZoneHistory } from "./utils/evacZones";
 import type { EvacZoneLabel } from "./utils/evacZones";
 import EOCConsole from "./components/EOCConsole";
+import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IsochronePanel from "./components/IsochronePanel";
+import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 
@@ -245,6 +247,19 @@ export default function App() {
   // ── Scenario management ───────────────────────────────────────────────────
   const { scenarios, saveScenario, deleteScenario, exportScenario, importScenario } = useScenarios();
   const [scenarioToLoad, setScenarioToLoad] = useState<ScenarioConfig | null>(null);
+
+  // ── Incident store (multi-day operational periods) ────────
+  const {
+    incident,
+    activePeriod,
+    createIncident,
+    advancePeriod,
+    setActivePeriodIndex,
+    addAnnotation,
+    removeAnnotation,
+    clearLayerAnnotations,
+    updateIncidentField,
+  } = useIncident();
   const currentConfigRef = useRef<Omit<ScenarioConfig, "id" | "createdAt" | "name" | "description"> | null>(null);
 
   // Compute at-risk annotations whenever burn prob data or overlay data changes
@@ -599,6 +614,22 @@ export default function App() {
       {/* ── EOC Console tab (replaces map area + bottom bar) ─────── */}
       {activeTab === "eoc" && (
         <div className="eoc-tab-wrapper">
+          {/* Operational period strip — auto-create incident if none exists */}
+          {incident ? (
+            <OperationalPeriodPanel
+              incident={incident}
+              activePeriod={activePeriod}
+              onPeriodSelect={setActivePeriodIndex}
+              onAdvancePeriod={advancePeriod}
+              onUpdateName={(name) => updateIncidentField("name", name)}
+            />
+          ) : (
+            <div className="eoc-no-incident">
+              <button className="eoc-create-incident-btn" onClick={() => createIncident("Untitled Incident")}>
+                + New Incident
+              </button>
+            </div>
+          )}
           <EOCConsole
             frames={frames}
             currentFrameIndex={currentFrameIndex}
@@ -620,6 +651,17 @@ export default function App() {
             isochronesVisible={isochronesVisible}
             fuelGridImage={fuelGridImage}
             fuelGridVisible={fuelGridVisible}
+            incidentAnnotations={activePeriod?.annotations ?? []}
+            onAddAnnotation={addAnnotation}
+            onRemoveAnnotation={removeAnnotation}
+            onClearLayer={clearLayerAnnotations}
+            ghostPerimeter={
+              incident && incident.activePeriodIndex > 0
+                ? (incident.operationalPeriods[incident.activePeriodIndex - 1]?.finalPerimeter ?? null)
+                : null
+            }
+            incidentName={incident?.name}
+            onIncidentNameChange={(name) => updateIncidentField("name", name)}
           />
         </div>
       )}
