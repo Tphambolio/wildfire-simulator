@@ -21,8 +21,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: pip install numpy numba pytest pytest-asyncio httpx fastapi uvicorn pydantic rasterio shapely
+      - name: Install engine and API
+        run: |
+          pip install engine/
+          pip install "api/[dev]"
 
       - name: Test engine
         run: PYTHONPATH=engine/src python -m pytest engine/tests/ -v --tb=short
