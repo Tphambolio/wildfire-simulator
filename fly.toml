@@ -22,6 +22,9 @@ primary_region = "yyz"
   cpu_kind = "shared"
   cpus = 1
 
+[deploy]
+  strategy = "immediate"
+
 [env]
   # Set FIRESIM_CORS_ORIGINS to your Vercel URL after first deploy, e.g.:
   # FIRESIM_CORS_ORIGINS = "https://wildfire-simulator.vercel.app"
