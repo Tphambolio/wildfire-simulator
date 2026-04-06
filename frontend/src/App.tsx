@@ -302,6 +302,7 @@ export default function App() {
     addAnnotation,
     removeAnnotation,
     clearLayerAnnotations,
+    fetchAndPlaceFacilities,
     updateIncidentField,
     saveFrameData,
     exportIncident,
@@ -716,6 +717,9 @@ export default function App() {
             onAddAnnotation={addAnnotation}
             onRemoveAnnotation={removeAnnotation}
             onClearLayer={clearLayerAnnotations}
+            onFetchFacilities={ignitionPoint
+              ? async () => fetchAndPlaceFacilities(ignitionPoint.lat, ignitionPoint.lng)
+              : undefined}
             ghostPerimeter={
               incident && incident.activePeriodIndex > 0
                 ? (incident.operationalPeriods[incident.activePeriodIndex - 1]?.finalPerimeter ?? null)

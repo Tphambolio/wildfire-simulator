@@ -29,7 +29,9 @@ export type ICSSymbolKey =
   | "checkpoint" | "reception_centre" | "shelter" | "vulnerable_pop"
   | "evac_route" | "do_not_enter" | "command_post" | "icp"
   // Universal drawing tools — available on every layer
-  | "generic_point" | "freehand_path" | "text_label";
+  | "generic_point" | "freehand_path" | "text_label"
+  // OSM-sourced community assets
+  | "pharmacy" | "fire_station" | "assembly_point" | "fuel_station" | "police_station";
 
 export interface SymbolDef {
   key: ICSSymbolKey;
@@ -49,11 +51,13 @@ export const SYMBOL_DEFS: SymbolDef[] = [
   { key: "water_fill",          label: "Water Fill Site",    shortCode: "W",   color: "#2196f3", layer: "ics204", type: "point" },
   { key: "hand_line",           label: "Hand Line",          shortCode: "HL",  color: "#ff9800", layer: "ics204", type: "path"  },
   { key: "dozer_line",          label: "Dozer Line",         shortCode: "DZL", color: "#ff9800", layer: "ics204", type: "path"  },
+  { key: "fire_station",        label: "Fire Station",       shortCode: "FS",  color: "#f44336", layer: "ics204", type: "point" },
   // ── ICS-206 ──
   { key: "medical_aid_station", label: "Medical Aid Station",shortCode: "MAS", color: "#f44336", layer: "ics206", type: "point" },
   { key: "hospital",            label: "Hospital",           shortCode: "H",   color: "#f44336", layer: "ics206", type: "point" },
   { key: "medevac_lz",          label: "Medevac LZ",         shortCode: "LZ",  color: "#f44336", layer: "ics206", type: "point" },
   { key: "ambulance_staging",   label: "Ambulance Staging",  shortCode: "AMB", color: "#f44336", layer: "ics206", type: "point" },
+  { key: "pharmacy",            label: "Pharmacy",           shortCode: "Rx",  color: "#4caf50", layer: "ics206", type: "point" },
   // ── ICS-205 ──
   { key: "radio_repeater",      label: "Radio Repeater",     shortCode: "REP", color: "#9c27b0", layer: "ics205", type: "point" },
   { key: "net_control",         label: "Net Control Station",shortCode: "NCS", color: "#9c27b0", layer: "ics205", type: "point" },
@@ -64,9 +68,12 @@ export const SYMBOL_DEFS: SymbolDef[] = [
   { key: "vulnerable_pop",      label: "Vulnerable Pop.",    shortCode: "VP",  color: "#ff5722", layer: "evac",   type: "point" },
   { key: "evac_route",          label: "Evacuation Route",   shortCode: "→",   color: "#00bcd4", layer: "evac",   type: "path"  },
   { key: "do_not_enter",        label: "Do Not Enter",       shortCode: "DNE", color: "#f44336", layer: "evac",   type: "path"  },
+  { key: "assembly_point",      label: "Assembly Point",     shortCode: "AP",  color: "#00bcd4", layer: "evac",   type: "point" },
+  { key: "fuel_station",        label: "Fuel Station",       shortCode: "GAS", color: "#ff9800", layer: "evac",   type: "point" },
   // ── General ──
   { key: "command_post",        label: "Command Post",       shortCode: "CP★", color: "#4caf50", layer: "situation", type: "point" },
   { key: "icp",                 label: "Incident Cmd Post",  shortCode: "ICP", color: "#4caf50", layer: "situation", type: "point" },
+  { key: "police_station",      label: "Police Station",     shortCode: "PS",  color: "#3f51b5", layer: "situation", type: "point" },
 ];
 
 /** Universal drawing tools appended to every layer's palette. */
@@ -94,6 +101,7 @@ export interface IncidentAnnotation {
   /** [[lng, lat], ...] — GeoJSON coordinate order. Single-element for point symbols. */
   coordinates: [number, number][];
   label: string;
+  color?: string;                       // overrides SymbolDef default when set
   properties: Record<string, string>;   // form-specific: contact, capacity, frequency
   operationalDay: number;               // 1-based
   createdAt: string;

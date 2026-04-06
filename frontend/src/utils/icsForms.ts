@@ -560,6 +560,14 @@ export function buildICS204HTML(opts: ICSFormOptions): string {
   const freehandAnns = ann204.filter(a => a.symbolKey === "freehand_path");
 
   const hasMapAnnotations = ann204.length > 0;
+  const fireStationAnns = ann204.filter(a => a.symbolKey === "fire_station");
+  const fireStationTable = `
+<table class="kv">
+  <tr><th>Fire Station / Mutual Aid</th><th>Contact</th><th>Address</th></tr>
+  ${fireStationAnns.map(a =>
+    `<tr><td>${a.label}</td><td>${a.properties.phone ?? ""}</td><td>${a.properties.address ?? ""}</td></tr>`
+  ).join("")}
+</table>`;
 
   const SYM_LABELS: Record<string, string> = {
     division_supervisor: "Div. Supervisor", staging_area: "Staging Area",
@@ -597,6 +605,7 @@ export function buildICS204HTML(opts: ICSFormOptions): string {
       ["Active Divisions", divisions.map((d) => d.name).join("; ")],
     ])),
     ...divBlocks,
+    ...(fireStationAnns.length > 0 ? [icsBlock("Resources", "Fire Stations / Mutual Aid", fireStationTable)] : []),
     ...(hasMapAnnotations ? [icsBlock("Map Legend", "Annotated Resources", annotationLegend)] : []),
     icsBlock("4", "Operational Map", renderMapSnapshot(opts.mapSnapshotDataUrl, "Assignments Map")),
   ], opts, "portrait");
@@ -649,7 +658,10 @@ export function buildICS206HTML(opts: ICSFormOptions): string {
   // Populate from ics206 layer annotations if available
   const medAnnotations = (opts.annotations ?? []).filter(a => a.layer === "ics206");
   const aidStationAnns = medAnnotations.filter(a => a.symbolKey === "medical_aid_station");
-  const lzAnns = medAnnotations.filter(a => a.symbolKey === "medevac_lz");
+  const lzAnns        = medAnnotations.filter(a => a.symbolKey === "medevac_lz");
+  const hospitalAnns  = medAnnotations.filter(a => a.symbolKey === "hospital");
+  const ambulanceAnns = medAnnotations.filter(a => a.symbolKey === "ambulance_staging");
+  const pharmacyAnns  = medAnnotations.filter(a => a.symbolKey === "pharmacy");
 
   const aidStationRows = aidStationAnns.length > 0
     ? aidStationAnns.map(a => {
@@ -673,41 +685,74 @@ export function buildICS206HTML(opts: ICSFormOptions): string {
   ${aidStationRows}
 </table>${lzNote}`;
 
+  // ── Transportation Resources ──────────────────────────────────────────────
+  const transportRows = ambulanceAnns.length > 0
+    ? ambulanceAnns.map(a =>
+        `<tr><td>${a.label}</td><td>${a.properties.phone ?? ""}</td><td>${a.properties.address ?? ""}</td><td>&nbsp;</td></tr>`
+      ).join("")
+    : `<tr><td>Ground Ambulance (Primary)</td><td>AHS EMS: 911 / dispatch</td><td>&nbsp;</td><td>ALS / BLS</td></tr>
+  <tr><td>Ground Ambulance (Backup)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>Air Ambulance (STARS)</td><td>STARS: 1-800-387-7772</td><td>&nbsp;</td><td>Critical care transport</td></tr>`;
+
   const transport = `
 <table class="kv">
   <tr><th>Resource</th><th>Contact</th><th>Location / Staging</th><th>Capability</th></tr>
-  <tr><td>Ground Ambulance (Primary)</td><td>AHS EMS: 911 / dispatch</td><td>&nbsp;</td><td>ALS / BLS</td></tr>
-  <tr><td>Ground Ambulance (Backup)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Air Ambulance (STARS)</td><td>STARS: 1-800-387-7772</td><td>&nbsp;</td><td>Critical care transport</td></tr>
+  ${transportRows}
 </table>`;
+
+  // ── Hospitals ─────────────────────────────────────────────────────────────
+  const hospitalRows = hospitalAnns.length > 0
+    ? hospitalAnns.map(a => {
+        const phone = a.properties.phone ?? "";
+        const specialty = a.properties["healthcare:speciality"] ?? a.properties.speciality ?? "";
+        const distKm = opts.ignitionPoint && a.coordinates[0]
+          ? haversineKm(opts.ignitionPoint.lat, opts.ignitionPoint.lng,
+              a.coordinates[0][1], a.coordinates[0][0]).toFixed(0) + " km"
+          : "&nbsp;";
+        return `<tr><td>${a.label}</td><td>${phone}</td><td>${distKm}</td><td>&nbsp;</td><td>${specialty || a.properties.address || "&nbsp;"}</td></tr>`;
+      }).join("")
+    : `<tr><td>Royal Alexandra Hospital</td><td>(780) 477-4111</td><td>&nbsp;</td><td>&nbsp;</td><td>Level I Trauma, Burn Unit</td></tr>
+  <tr><td>University of Alberta Hospital</td><td>(780) 407-8822</td><td>&nbsp;</td><td>&nbsp;</td><td>Level I Trauma</td></tr>
+  <tr><td>Grey Nuns Community Hospital</td><td>(780) 735-7000</td><td>&nbsp;</td><td>&nbsp;</td><td>Emergency, Surgery</td></tr>`;
+
+  const hospitalNote = hospitalAnns.length > 0
+    ? `<p class="muted" style="margin-top:6px">Sources include OpenStreetMap data — verify all details at time of incident.</p>`
+    : `<p class="muted" style="margin-top:6px"><em>Default — Edmonton region hospitals. Click 📡 on the map to fetch facilities for your incident location.</em></p>`;
 
   const hospitals = `
 <table class="kv">
-  <tr><th>Hospital</th><th>Phone</th><th>Ground Travel</th><th>Air Travel</th><th>Capabilities</th></tr>
-  <tr><td>Royal Alexandra Hospital</td><td>(780) 477-4111</td><td>&nbsp;</td><td>&nbsp;</td><td>Level I Trauma, Burn Unit</td></tr>
-  <tr><td>University of Alberta Hospital</td><td>(780) 407-8822</td><td>&nbsp;</td><td>&nbsp;</td><td>Level I Trauma</td></tr>
-  <tr><td>Grey Nuns Community Hospital</td><td>(780) 735-7000</td><td>&nbsp;</td><td>&nbsp;</td><td>Emergency, Surgery</td></tr>
-</table>
-${opts.ignitionPoint ? `<p class="muted" style="margin-top:6px">Distances from ignition point (${opts.ignitionPoint.lat.toFixed(4)}°N, ${Math.abs(opts.ignitionPoint.lng).toFixed(4)}°W) — verify travel times via routing at time of incident.</p>` : ""}`;
+  <tr><th>Hospital</th><th>Phone</th><th>Distance</th><th>Air Travel</th><th>Capabilities</th></tr>
+  ${hospitalRows}
+</table>${hospitalNote}`;
+
+  // ── Pharmacies ────────────────────────────────────────────────────────────
+  const pharmacySec = pharmacyAnns.length > 0 ? `
+<table class="kv">
+  <tr><th>Pharmacy</th><th>Phone</th><th>Address</th></tr>
+  ${pharmacyAnns.map(a =>
+    `<tr><td>${a.label}</td><td>${a.properties.phone ?? ""}</td><td>${a.properties.address ?? ""}</td></tr>`
+  ).join("")}
+</table>` : `<p class="muted">No pharmacies on ICS-206 layer. Use 📡 Fetch or place markers manually.</p>`;
 
   return wrapForm("ICS 206 – Medical Plan", [
     icsBlock("1", "Incident Information", incidentInfoBlock(opts)),
     icsBlock("2", "Medical Aid Stations", aidStations),
     icsBlock("3", "Transportation Resources", transport),
     icsBlock("4", "Hospitals", hospitals),
-    icsBlock("5", "Medical Emergency Procedures", renderList([
+    icsBlock("5", "Pharmacies", pharmacySec),
+    icsBlock("7", "Medical Emergency Procedures", renderList([
       "Any injury or illness: notify Safety Officer immediately",
       "Life-threatening emergency: call 911 and notify IC",
       "Dehydration/heat stress: remove from work area, transport to aid station",
       "Smoke inhalation: immediate medical assessment; evacuate to fresh air",
       "Burns: cool with water, cover with sterile dressing, transport to hospital",
     ])),
-    icsBlock("6", "Responder Safety Notes", renderList([
+    icsBlock("8", "Responder Safety Notes", renderList([
       "Assign Medical Unit Leader before incident personnel exceed 25",
       "Pre-position ALS unit at ICP during active firefighting operations",
       "RPAS pilots: eye protection mandatory; rotor strike first aid kit required at LZ",
     ])),
-    icsBlock("7", "Operational Map", renderMapSnapshot(opts.mapSnapshotDataUrl, "Medical Support Map")),
+    icsBlock("9", "Operational Map", renderMapSnapshot(opts.mapSnapshotDataUrl, "Medical Support Map")),
   ], opts, "portrait");
 }
 

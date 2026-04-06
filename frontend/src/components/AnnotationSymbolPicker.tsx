@@ -10,7 +10,21 @@ interface AnnotationSymbolPickerProps {
   activeSymbol: ICSSymbolKey | null;
   onLayerChange: (layer: AnnotationLayer) => void;
   onSymbolSelect: (key: ICSSymbolKey) => void;
+  activeColor?: string | null;
+  onColorChange?: (color: string | null) => void;
 }
+
+const COLOR_SWATCHES: Array<{ color: string; label: string }> = [
+  { color: "#f44336", label: "Red" },
+  { color: "#ff9800", label: "Orange" },
+  { color: "#ffeb3b", label: "Yellow" },
+  { color: "#4caf50", label: "Green" },
+  { color: "#00bcd4", label: "Cyan" },
+  { color: "#2196f3", label: "Blue" },
+  { color: "#9c27b0", label: "Purple" },
+  { color: "#ffffff", label: "White" },
+  { color: "#888888", label: "Grey" },
+];
 
 const LAYERS: AnnotationLayer[] = ["situation", "ics204", "ics205", "ics206", "evac"];
 
@@ -27,6 +41,8 @@ export default function AnnotationSymbolPicker({
   activeSymbol,
   onLayerChange,
   onSymbolSelect,
+  activeColor = null,
+  onColorChange,
 }: AnnotationSymbolPickerProps) {
   const symbols = SYMBOLS_BY_LAYER[activeLayer];
   const layerColor = LAYER_COLORS[activeLayer];
@@ -61,6 +77,27 @@ export default function AnnotationSymbolPicker({
             <SymbolIcon symbolKey={sym.key} color={sym.color} />
             <span className="annotation-symbol-label">{sym.label}</span>
           </button>
+        ))}
+      </div>
+
+      {/* Color override swatches */}
+      <div className="annotation-picker-divider" />
+      <div className="annotation-color-row">
+        <button
+          className={`annotation-color-swatch annotation-color-swatch--default${activeColor === null ? " active" : ""}`}
+          onClick={() => onColorChange?.(null)}
+          title="Default color (from symbol)"
+        >
+          <span style={{ fontSize: 11, lineHeight: 1 }}>auto</span>
+        </button>
+        {COLOR_SWATCHES.map(({ color, label }) => (
+          <button
+            key={color}
+            className={`annotation-color-swatch${activeColor === color ? " active" : ""}`}
+            style={{ background: color, boxShadow: activeColor === color ? `0 0 0 2px #fff` : undefined }}
+            onClick={() => onColorChange?.(activeColor === color ? null : color)}
+            title={label}
+          />
         ))}
       </div>
 
@@ -166,6 +203,43 @@ export function SymbolIcon({ symbolKey, color, size = 20 }: { symbolKey: ICSSymb
         <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
           <circle cx={h} cy={h} r={h - 2} fill={color} opacity={0.85} />
           <text x={h} y={h + 3} textAnchor="middle" fontSize={s * 0.4} fontWeight="bold" fill="#000">●</text>
+        </svg>
+      );
+    case "pharmacy":
+      return (
+        <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+          <circle cx={h} cy={h} r={h - 1} fill="none" stroke={color} strokeWidth={2} />
+          <text x={h} y={h + 4} textAnchor="middle" fontSize={s * 0.45} fontWeight="bold" fill={color}>Rx</text>
+        </svg>
+      );
+    case "fire_station":
+      return (
+        <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+          <rect x={1} y={1} width={s - 2} height={s - 2} fill="none" stroke={color} strokeWidth={2} />
+          <polygon points={`${h},4 ${s - 4},${s - 4} 4,${s - 4}`} fill={color} />
+        </svg>
+      );
+    case "assembly_point":
+      return (
+        <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+          <circle cx={h} cy={h} r={h - 1} fill="none" stroke={color} strokeWidth={2} />
+          <polygon points={`${h},4 ${h + 4},${h + 1} ${h - 4},${h + 1}`} fill={color} />
+          <line x1={h} y1={h + 1} x2={h} y2={s - 4} stroke={color} strokeWidth={1.5} />
+        </svg>
+      );
+    case "fuel_station":
+      return (
+        <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+          <circle cx={h} cy={h} r={h - 1} fill="none" stroke={color} strokeWidth={2} />
+          <text x={h} y={h + 4} textAnchor="middle" fontSize={s * 0.38} fontWeight="bold" fill={color}>GAS</text>
+        </svg>
+      );
+    case "police_station":
+      return (
+        <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+          <path d={`M${h},2 L${s - 2},${h - 1} L${s - 3},${s - 2} L3,${s - 2} L2,${h - 1} Z`}
+            fill="none" stroke={color} strokeWidth={2} />
+          <text x={h} y={h + 5} textAnchor="middle" fontSize={s * 0.38} fontWeight="bold" fill={color}>PS</text>
         </svg>
       );
     case "freehand_path":

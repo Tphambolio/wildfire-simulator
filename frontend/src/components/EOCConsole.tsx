@@ -76,6 +76,7 @@ interface EOCConsoleProps {
   onAddAnnotation?: (a: IncidentAnnotation) => void;
   onRemoveAnnotation?: (id: string) => void;
   onClearLayer?: (layer: AnnotationLayer) => void;
+  onFetchFacilities?: () => Promise<number>;
   /** Previous operational period's final perimeter — shown as ghost on Day 2+ */
   ghostPerimeter?: [number, number][] | null;
   incidentName?: string;
@@ -125,6 +126,7 @@ export default function EOCConsole({
   onAddAnnotation,
   onRemoveAnnotation,
   onClearLayer,
+  onFetchFacilities,
   ghostPerimeter = null,
   incidentName: incidentNameProp,
   onIncidentNameChange,
@@ -140,6 +142,7 @@ export default function EOCConsole({
   const [editingName, setEditingName] = useState(false);
   const [activeLayer, setActiveLayer] = useState<AnnotationLayer>("situation");
   const [activeSymbolKey, setActiveSymbolKey] = useState<ICSSymbolKey | null>(null);
+  const [activeColor, setActiveColor] = useState<string | null>(null);
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const [selectedForm, setSelectedForm] = useState<ICSFormId>("ics201");
   const [formHtml, setFormHtml] = useState<string>("");
@@ -149,6 +152,8 @@ export default function EOCConsole({
 
   // ── Layer visibility ─────────────────────────────────────────────────────
   const [spotFiresVisible, setSpotFiresVisible] = useState(true);
+  const [isFetchingFacilities, setIsFetchingFacilities] = useState(false);
+  const [fetchFacilitiesMsg, setFetchFacilitiesMsg] = useState<string | null>(null);
 
   // ── Map markup state ─────────────────────────────────────────────────────
   // All markup is stored in geographic (LngLat) coordinates so it stays
@@ -220,6 +225,7 @@ export default function EOCConsole({
           symbolKey: activeSymbolKey,
           coordinates: [[geo.lng, geo.lat]],
           label: symDef?.label ?? activeSymbolKey,
+          color: activeColor ?? undefined,
           properties: {},
           operationalDay: 1,
           createdAt: new Date().toISOString(),
@@ -255,6 +261,7 @@ export default function EOCConsole({
             symbolKey: activeSymbolKey,
             coordinates: prev.map(g => [g.lng, g.lat]),
             label: symDef?.label ?? activeSymbolKey,
+            color: activeColor ?? undefined,
             properties: {},
             operationalDay: 1,
             createdAt: new Date().toISOString(),
@@ -283,6 +290,7 @@ export default function EOCConsole({
             symbolKey: symKey,
             coordinates: [[geo.lng, geo.lat]],
             label: text,
+            color: activeColor ?? undefined,
             properties: {},
             operationalDay: 1,
             createdAt: new Date().toISOString(),
@@ -576,7 +584,10 @@ export default function EOCConsole({
               const isActive = ann.layer === activeLayer;
               const opacity = isActive ? 1 : 0.3;
               const symDef = SYMBOL_DEFS.find(s => s.key === ann.symbolKey);
-              const color = symDef?.color ?? "#ffffff";
+              const color = ann.color ?? symDef?.color ?? "#ffffff";
+              // OSM-fetched annotations render as small reference dots — no label clutter.
+              // Their data appears in ICS form tables; the map stays tactically readable.
+              const isOsm = ann.properties.source === "osm";
 
               if (ann.type === "path" && ann.coordinates.length > 1) {
                 const d = ann.coordinates.map(([lng, lat], i) => {
@@ -613,6 +624,18 @@ export default function EOCConsole({
               if (ann.type === "symbol" && ann.coordinates.length > 0) {
                 const [lng, lat] = ann.coordinates[0];
                 const { x, y } = geoToPixel({ lng, lat });
+
+                // OSM reference dot — small, no label, shows category color
+                if (isOsm) {
+                  return (
+                    <circle key={ann.id} cx={x} cy={y} r={3} fill={color}
+                      opacity={isActive ? 0.6 : 0.2}
+                      style={{ cursor: isActive ? "pointer" : "default" }}
+                      onClick={() => isActive && onRemoveAnnotation?.(ann.id)}
+                    />
+                  );
+                }
+
                 return (
                   <g key={ann.id} opacity={opacity}
                     transform={`translate(${x - 10},${y - 10})`}
@@ -643,7 +666,7 @@ export default function EOCConsole({
             {currentPenPath.length > 0 && (() => {
               const symDef = activeSymbolKey ? SYMBOL_DEFS.find(s => s.key === activeSymbolKey) : null;
               return symDef
-                ? <path d={geoPathToSvgD(currentPenPath)} fill="none" stroke={symDef.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 3" opacity={0.7} />
+                ? <path d={geoPathToSvgD(currentPenPath)} fill="none" stroke={activeColor ?? symDef.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 3" opacity={0.7} />
                 : <path d={geoPathToSvgD(currentPenPath)} className="eoc-markup-path eoc-markup-path--live" />;
             })()}
             {textMarkers.map((m, i) => {
@@ -672,6 +695,8 @@ export default function EOCConsole({
                 activeSymbol={activeSymbolKey}
                 onLayerChange={(layer) => { setActiveLayer(layer); setActiveSymbolKey(null); setMarkupTool(null); }}
                 onSymbolSelect={(key) => { setActiveSymbolKey(prev => prev === key ? null : key); setMarkupTool(null); }}
+                activeColor={activeColor}
+                onColorChange={setActiveColor}
               />
               {incidentAnnotations.filter(a => a.layer === activeLayer).length > 0 && (
                 <button
@@ -711,6 +736,25 @@ export default function EOCConsole({
               title="ICS symbol palette"
             >⊕</button>
             <button
+              className={`eoc-markup-tool${isFetchingFacilities ? " active" : ""}`}
+              title={!ignitionPoint ? "Set an ignition point first to fetch nearby resources" : "Fetch nearby emergency facilities from OpenStreetMap"}
+              disabled={isFetchingFacilities || !ignitionPoint || !onFetchFacilities}
+              onClick={async () => {
+                if (!onFetchFacilities) return;
+                setIsFetchingFacilities(true);
+                setFetchFacilitiesMsg("Fetching OSM resources…");
+                try {
+                  const count = await onFetchFacilities();
+                  setFetchFacilitiesMsg(count > 0 ? `+${count} facilities added` : "No new facilities found");
+                } catch {
+                  setFetchFacilitiesMsg("Fetch failed — check connection");
+                } finally {
+                  setIsFetchingFacilities(false);
+                  setTimeout(() => setFetchFacilitiesMsg(null), 4000);
+                }
+              }}
+            >{isFetchingFacilities ? "…" : "📡"}</button>
+            <button
               className={`eoc-markup-tool${activeSymbolKey === "freehand_path" ? " active" : ""}`}
               onClick={() => setActiveSymbolKey(k => k === "freehand_path" ? null : "freehand_path")}
               title="Freehand draw on active layer (click active to pan)"
@@ -727,6 +771,11 @@ export default function EOCConsole({
               disabled={penPaths.length === 0 && textMarkers.length === 0 && currentPenPath.length === 0}
             >⌫</button>
           </div>
+
+          {/* OSM fetch status chip */}
+          {fetchFacilitiesMsg && (
+            <div className="eoc-fetch-msg">{fetchFacilitiesMsg}</div>
+          )}
 
           {/* Print-only map snapshot */}
           {mapSnapshot && (

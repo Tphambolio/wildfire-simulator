@@ -2676,6 +2676,20 @@ select {
   opacity: 0.3;
   cursor: default;
 }
+.eoc-fetch-msg {
+  position: absolute;
+  bottom: 52px;
+  right: 8px;
+  background: rgba(20, 20, 40, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 20;
+}
 .eoc-markup-divider {
   width: 1px;
   height: 16px;
@@ -2763,6 +2777,45 @@ select {
 }
 .annotation-layer-btn.active {
   font-weight: 700;
+}
+
+.annotation-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+  align-items: center;
+}
+.annotation-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.annotation-color-swatch:hover {
+  transform: scale(1.2);
+}
+.annotation-color-swatch.active {
+  border-color: #fff;
+  transform: scale(1.15);
+}
+.annotation-color-swatch--default {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  border-radius: 4px;
+}
+.annotation-color-swatch--default.active {
+  border-color: #fff;
+  color: #fff;
 }
 
 .annotation-picker-divider {

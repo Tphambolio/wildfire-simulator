@@ -1,6 +1,7 @@
 /** Persist incident sessions (multi-day operational periods) to localStorage. */
 
 import { useState, useCallback } from "react";
+import { fetchNearbyFacilities } from "../services/overpass";
 import type { SimulationFrame } from "../types/simulation";
 import type {
   IncidentSession,
@@ -158,6 +159,36 @@ export function useIncident() {
       }));
     },
     [updateActivePeriod]
+  );
+
+  // ── OSM facility fetch ────────────────────────────────────────────────────
+
+  const fetchAndPlaceFacilities = useCallback(
+    async (lat: number, lng: number): Promise<number> => {
+      const facilities = await fetchNearbyFacilities(lat, lng);
+      if (facilities.length === 0) return 0;
+      const existingOsmIds = new Set(
+        (activePeriod?.annotations ?? []).map(a => a.properties.osm_id).filter(Boolean)
+      );
+      let added = 0;
+      for (const f of facilities) {
+        if (existingOsmIds.has(f.osmId)) continue;
+        addAnnotation({
+          id: crypto.randomUUID(),
+          layer: f.layer,
+          type: "symbol",
+          symbolKey: f.symbolKey,
+          coordinates: [[f.lng, f.lat]],
+          label: f.name,
+          properties: { ...f.properties, phone: f.phone, address: f.address, source: "osm", osm_id: f.osmId },
+          operationalDay: activePeriod?.day ?? 1,
+          createdAt: new Date().toISOString(),
+        });
+        added++;
+      }
+      return added;
+    },
+    [activePeriod, addAnnotation]
   );
 
   // ── Evac decisions ────────────────────────────────────────────────────────
@@ -318,6 +349,7 @@ export function useIncident() {
     addAnnotation,
     removeAnnotation,
     clearLayerAnnotations,
+    fetchAndPlaceFacilities,
     // Evac
     commitEvacDecision,
     // Frames
