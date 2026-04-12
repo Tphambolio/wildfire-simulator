@@ -68,8 +68,8 @@ export default function OperationalPeriodPanel({
             title={`Day ${p.day}: ${p.date} ${p.opPeriodStart}–${p.opPeriodEnd}`}
           >
             Day {p.day}
-            <span className="op-period-day-date">{p.date.slice(5)}</span>
-            {p.annotations.length > 0 && <span className="op-period-day-done">✓</span>}
+            <span className="op-period-day-date">{(p.date ?? "").slice(5)}</span>
+            {(p.annotations?.length ?? 0) > 0 && <span className="op-period-day-done">✓</span>}
           </button>
         ))}
 

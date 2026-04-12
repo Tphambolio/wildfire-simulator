@@ -677,7 +677,7 @@ export default function EOCConsole({
             drawingZonePoints={drawingZonePoints}
             onZonePoint={onZonePoint}
             onZoneClose={onZoneClose}
-            readOnly={!drawingZone && !!incidentLocation}
+            readOnly={consoleTab !== "map" || (!drawingZone && !!incidentLocation)}
             mapRefCallback={handleMapRefCallback}
           />
 
