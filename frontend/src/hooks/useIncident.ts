@@ -42,12 +42,8 @@ function saveToStorage(incidents: IncidentSession[]): void {
 
 export function useIncident() {
   const [incidents, setIncidents] = useState<IncidentSession[]>(loadFromStorage);
-  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(() => {
-    // Auto-restore the most recently updated active incident
-    const all = loadFromStorage();
-    const active = all.find((i) => i.status === "active");
-    return active?.id ?? null;
-  });
+  // Always start without an active incident — user explicitly opens or creates one each session
+  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
 
   const activeIncident = incidents.find((i) => i.id === activeIncidentId) ?? null;
   const activePeriod = activeIncident
