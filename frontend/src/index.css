@@ -3874,6 +3874,119 @@ select {
   font-weight: 600;
 }
 
+/* ── No-incident sidebar panel ──────────────────────────────── */
+
+.no-incident-panel {
+  padding: 20px 14px 12px;
+}
+
+.no-incident-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.no-incident-btn {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.88em;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: center;
+}
+
+.no-incident-btn--primary {
+  background: #3d5a80;
+  color: #e0e0e0;
+  border-color: #5577a0;
+}
+.no-incident-btn--primary:hover { background: #4e6f98; }
+
+.no-incident-btn--secondary {
+  background: transparent;
+  color: #b0c4d8;
+  border-color: #3a4a60;
+}
+.no-incident-btn--secondary:hover { background: #1e2d45; border-color: #5577a0; }
+
+.no-incident-btn--ghost {
+  background: transparent;
+  color: #7a90a8;
+  border-color: transparent;
+  font-weight: 400;
+}
+.no-incident-btn--ghost:hover { color: #b0c4d8; }
+
+.no-incident-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.no-incident-label {
+  font-size: 0.8em;
+  color: #7a90a8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.no-incident-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: #111b2e;
+  border: 1px solid #3a4a60;
+  border-radius: 5px;
+  color: #e0e0e0;
+  font-size: 0.88em;
+  box-sizing: border-box;
+}
+.no-incident-input:focus { outline: none; border-color: #5577a0; }
+.no-incident-form-actions {
+  display: flex;
+  gap: 6px;
+}
+.no-incident-form-actions .no-incident-btn { width: auto; flex: 1; }
+
+.no-incident-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78em;
+  color: #7a90a8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.no-incident-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.no-incident-list-item {
+  width: 100%;
+  background: #111b2e;
+  border: 1px solid #2a3a50;
+  border-radius: 5px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.no-incident-list-item:hover { background: #1a2a40; border-color: #3d5a80; }
+.no-incident-list-name {
+  color: #c8d8e8;
+  font-size: 0.88em;
+  font-weight: 600;
+}
+.no-incident-list-meta {
+  color: #5a7080;
+  font-size: 0.78em;
+}
+
 /* ── Cloud Sync Panel ───────────────────────────────────────── */
 
 .sync-panel {

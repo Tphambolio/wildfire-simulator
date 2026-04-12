@@ -1,6 +1,6 @@
 /** AIMS Console — All-Hazards Incident Management System */
 
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import MapView from "./components/MapView";
 import OverlayPanel from "./components/OverlayPanel";
 import type { OverlayLayers, LayerType } from "./components/OverlayPanel";
@@ -60,6 +60,109 @@ function SyncPanel({ shareCode, onShare }: SyncPanelProps) {
           <span className="sync-code">🔗 {effectiveCode}</span>
           <button className="sync-btn" onClick={handleCopyLink}>Copy Link</button>
           <span className="sync-indicator">Syncing</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sidebar: no active incident ──────────────────────────────────────────────
+
+interface NoIncidentPanelProps {
+  incidents: import("./types/incident").IncidentSession[];
+  onCreate: (name: string) => void;
+  onLoad: (id: string) => void;
+  onImport: (file: File) => Promise<import("./types/incident").IncidentSession>;
+}
+
+function NoIncidentPanel({ incidents, onCreate, onLoad, onImport }: NoIncidentPanelProps) {
+  const [mode, setMode] = useState<"idle" | "new" | "open">("idle");
+  const [name, setName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCreate = () => {
+    const n = name.trim();
+    if (!n) return;
+    onCreate(n);
+    setName("");
+    setMode("idle");
+  };
+
+  return (
+    <div className="no-incident-panel">
+      {mode === "idle" && (
+        <div className="no-incident-actions">
+          <button className="no-incident-btn no-incident-btn--primary" onClick={() => setMode("new")}>
+            + New Incident
+          </button>
+          {incidents.length > 0 && (
+            <button className="no-incident-btn no-incident-btn--secondary" onClick={() => setMode("open")}>
+              Open Incident
+            </button>
+          )}
+          <button
+            className="no-incident-btn no-incident-btn--ghost"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Import JSON
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            style={{ display: "none" }}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (file) { await onImport(file).catch(() => {}); }
+              e.target.value = "";
+            }}
+          />
+        </div>
+      )}
+
+      {mode === "new" && (
+        <div className="no-incident-form">
+          <label className="no-incident-label">Incident name</label>
+          <input
+            className="no-incident-input"
+            type="text"
+            placeholder="e.g. River Valley Flood 2026"
+            value={name}
+            autoFocus
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+            maxLength={60}
+          />
+          <div className="no-incident-form-actions">
+            <button className="no-incident-btn no-incident-btn--primary" onClick={handleCreate} disabled={!name.trim()}>
+              Start
+            </button>
+            <button className="no-incident-btn no-incident-btn--ghost" onClick={() => { setMode("idle"); setName(""); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === "open" && (
+        <div className="no-incident-list">
+          <div className="no-incident-list-header">
+            <span>Recent Incidents</span>
+            <button className="no-incident-btn no-incident-btn--ghost" style={{ padding: "2px 8px", fontSize: "0.8em" }} onClick={() => setMode("idle")}>✕</button>
+          </div>
+          {incidents.map((inc) => (
+            <button
+              key={inc.id}
+              className="no-incident-list-item"
+              onClick={() => { onLoad(inc.id); setMode("idle"); }}
+            >
+              <span className="no-incident-list-name">{inc.name}</span>
+              <span className="no-incident-list-meta">
+                {inc.operationalPeriods.length} day{inc.operationalPeriods.length !== 1 ? "s" : ""}
+                {" · "}{inc.status === "active" ? "active" : "closed"}
+              </span>
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -240,38 +343,43 @@ export default function App() {
           />
         )}
         <div className="sidebar-content">
-          <IncidentPanel
-            incidents={incidents}
-            activeIncidentId={activeIncidentId}
-            onCreate={createIncident}
-            onLoad={loadIncident}
-            onClose={closeIncident}
-            onDelete={deleteIncident}
-            onExport={exportIncident}
-            onImport={importIncident}
-          />
-          {incident && (
-            <IncidentSetupPanel
-              hazardType={incident.hazardType}
-              onHazardTypeChange={(h: HazardType) => updateIncidentField("hazardType", h)}
-              incidentComplexity={incident.incidentComplexity}
-              onComplexityChange={(c) => updateIncidentField("incidentComplexity", c)}
-              weather={activePeriod?.weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
-              onWeatherChange={(w) => updatePeriodField("weather", w)}
-              incidentLocation={incidentLocation}
-              onFetchFacilities={incidentLocation
-                ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
-                : undefined}
+          {!incident ? (
+            <NoIncidentPanel
+              incidents={incidents}
+              onCreate={createIncident}
+              onLoad={loadIncident}
+              onImport={importIncident}
             />
-          )}
-          <OverlayPanel
-            layers={overlayLayers}
-            onLayerLoad={handleOverlayLoad}
-            onLayerToggle={handleOverlayToggle}
-            onLayerClear={handleOverlayClear}
-          />
-          {incident && (
+          ) : (
             <>
+              <IncidentPanel
+                incidents={incidents}
+                activeIncidentId={activeIncidentId}
+                onCreate={createIncident}
+                onLoad={loadIncident}
+                onClose={closeIncident}
+                onDelete={deleteIncident}
+                onExport={exportIncident}
+                onImport={importIncident}
+              />
+              <IncidentSetupPanel
+                hazardType={incident.hazardType}
+                onHazardTypeChange={(h: HazardType) => updateIncidentField("hazardType", h)}
+                incidentComplexity={incident.incidentComplexity}
+                onComplexityChange={(c) => updateIncidentField("incidentComplexity", c)}
+                weather={activePeriod?.weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
+                onWeatherChange={(w) => updatePeriodField("weather", w)}
+                incidentLocation={incidentLocation}
+                onFetchFacilities={incidentLocation
+                  ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
+                  : undefined}
+              />
+              <OverlayPanel
+                layers={overlayLayers}
+                onLayerLoad={handleOverlayLoad}
+                onLayerToggle={handleOverlayToggle}
+                onLayerClear={handleOverlayClear}
+              />
               <HazardZonePanel
                 hazardType={incident.hazardType}
                 zones={activePeriod?.hazardZones ?? []}
