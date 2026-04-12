@@ -8,12 +8,13 @@ import EOCConsole from "./components/EOCConsole";
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IncidentPanel from "./components/IncidentPanel";
 import IncidentSetupPanel from "./components/IncidentSetupPanel";
+import HazardZonePanel from "./components/HazardZonePanel";
 import ResourcePanel from "./components/ResourcePanel";
 import type { Resource } from "./components/ResourcePanel";
 import AgencyPanel from "./components/AgencyPanel";
 import type { Agency } from "./components/AgencyPanel";
 import { useIncident } from "./hooks/useIncident";
-import type { HazardType } from "./types/incident";
+import type { HazardType, HazardZone } from "./types/incident";
 
 // ── EOC start screen — shown when no incident is active ──────────────────────
 
@@ -66,6 +67,12 @@ export default function App() {
   const [overlayLayers, setOverlayLayers] = useState<OverlayLayers>(DEFAULT_OVERLAY_LAYERS);
   const [activeTab, setActiveTab] = useState<"map" | "eoc">("map");
 
+  // Zone drawing state
+  const [drawingZone, setDrawingZone] = useState(false);
+  const [drawingZonePoints, setDrawingZonePoints] = useState<[number, number][]>([]);
+  const [drawingZoneName, setDrawingZoneName] = useState("");
+  const [drawingZoneColor, setDrawingZoneColor] = useState("#f44336");
+
   // ── Incident store (multi-day operational periods) ────────
   const {
     incident,
@@ -84,6 +91,9 @@ export default function App() {
     fetchAndPlaceFacilities,
     updateIncidentField,
     updatePeriodField,
+    addHazardZone,
+    removeHazardZone,
+    clearHazardZones,
     exportIncident,
     importIncident,
   } = useIncident();
@@ -106,6 +116,39 @@ export default function App() {
 
   const handleClearLocation = useCallback(() => {
     setIncidentLocation(null);
+  }, []);
+
+  const handleZoneDrawStart = useCallback((name: string, color: string) => {
+    setDrawingZoneName(name);
+    setDrawingZoneColor(color);
+    setDrawingZonePoints([]);
+    setDrawingZone(true);
+  }, []);
+
+  const handleZonePoint = useCallback((lng: number, lat: number) => {
+    setDrawingZonePoints((prev) => [...prev, [lng, lat]]);
+  }, []);
+
+  const handleZoneClose = useCallback(() => {
+    setDrawingZone(false);
+    setDrawingZonePoints((pts) => {
+      if (pts.length >= 3) {
+        const zone: HazardZone = {
+          id: crypto.randomUUID(),
+          name: drawingZoneName,
+          color: drawingZoneColor,
+          polygon: pts,
+          createdAt: new Date().toISOString(),
+        };
+        addHazardZone(zone);
+      }
+      return [];
+    });
+  }, [drawingZoneName, drawingZoneColor, addHazardZone]);
+
+  const handleZoneCancel = useCallback(() => {
+    setDrawingZone(false);
+    setDrawingZonePoints([]);
   }, []);
 
   return (
@@ -149,6 +192,17 @@ export default function App() {
           />
           {incident && (
             <>
+              <HazardZonePanel
+                hazardType={incident.hazardType}
+                zones={activePeriod?.hazardZones ?? []}
+                isDrawing={drawingZone}
+                drawingPoints={drawingZonePoints}
+                onDrawStart={handleZoneDrawStart}
+                onDrawCancel={handleZoneCancel}
+                onDrawClose={handleZoneClose}
+                onRemoveZone={removeHazardZone}
+                onClearAll={clearHazardZones}
+              />
               <ResourcePanel
                 resources={(incident.resources ?? []) as Resource[]}
                 onChange={(r) => updateIncidentField("resources", r as typeof incident.resources)}
@@ -228,6 +282,11 @@ export default function App() {
           overlayCommunitiesVisible={overlayLayers.communities.visible}
           overlayInfrastructure={overlayLayers.infrastructure.data}
           overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
+          hazardZones={activePeriod?.hazardZones ?? []}
+          drawingZone={drawingZone}
+          drawingZonePoints={drawingZonePoints}
+          onZonePoint={handleZonePoint}
+          onZoneClose={handleZoneClose}
         />
       </main>
     </div>

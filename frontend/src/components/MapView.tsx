@@ -8,6 +8,7 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState, useCallback } from "react";
+import type { HazardZone } from "../types/incident";
 
 /** A simple non-modal toast — disappears after 3 s */
 function MapToast({ message, onDone }: { message: string; onDone: () => void }) {
@@ -162,6 +163,14 @@ interface MapViewProps {
   overlayCommunitiesVisible?: boolean;
   overlayInfrastructure?: GeoJSON.FeatureCollection | null;
   overlayInfrastructureVisible?: boolean;
+  /** Hazard zone polygon data */
+  hazardZones?: HazardZone[];
+  hazardZonesVisible?: boolean;
+  /** Zone drawing mode — map clicks add polygon vertices */
+  drawingZone?: boolean;
+  drawingZonePoints?: [number, number][];   // [lng, lat] pairs
+  onZonePoint?: (lng: number, lat: number) => void;
+  onZoneClose?: () => void;
   /** When true: disables click-to-set-location and hides the map controls panel */
   readOnly?: boolean;
   /** Called with the maplibregl.Map instance once the map has loaded */
@@ -178,6 +187,12 @@ export default function MapView({
   overlayCommunitiesVisible = true,
   overlayInfrastructure = null,
   overlayInfrastructureVisible = true,
+  hazardZones = [],
+  hazardZonesVisible = true,
+  drawingZone = false,
+  drawingZonePoints = [],
+  onZonePoint,
+  onZoneClose,
   readOnly = false,
   mapRefCallback,
 }: MapViewProps) {
@@ -192,6 +207,10 @@ export default function MapView({
   const ignitionModeRef = useRef(!ignitionPoint);
   const [toast, setToast] = useState<string | null>(null);
   const prevBasemapRef = useRef<BasemapId>("osm");
+  // Zone drawing mode refs — updated via useEffect so click handler always sees fresh values
+  const drawingZoneModeRef = useRef(drawingZone);
+  const onZonePointRef = useRef(onZonePoint);
+  const onZoneCloseRef = useRef(onZoneClose);
 
   const addMapLayers = useCallback((m: maplibregl.Map) => {
     // ── Infrastructure overlay layers ──────────────────────────────────────
@@ -281,81 +300,76 @@ export default function MapView({
     m.on("mouseenter", "overlay-infra-circle", () => { m.getCanvas().style.cursor = "pointer"; });
     m.on("mouseleave", "overlay-infra-circle", () => { m.getCanvas().style.cursor = ""; });
 
-    // ── Evacuation zone layers ─────────────────────────────────────────────
-    // Three zones rendered outermost→innermost so Order is on top.
-    for (const [zoneId, color] of [
-      ["evac-watch",  "#f9a825"],
-      ["evac-alert",  "#f57c00"],
-      ["evac-order",  "#d32f2f"],
-    ] as Array<[string, string]>) {
-      if (m.getSource(zoneId)) {
-        if (m.getLayer(`${zoneId}-fill`))    m.removeLayer(`${zoneId}-fill`);
-        if (m.getLayer(`${zoneId}-outline`)) m.removeLayer(`${zoneId}-outline`);
-        m.removeSource(zoneId);
-      }
-      m.addSource(zoneId, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-      m.addLayer({
-        id: `${zoneId}-fill`,
-        type: "fill",
-        source: zoneId,
-        paint: {
-          "fill-color": color,
-          "fill-opacity": 0.28,
-          // Suppress the auto 1px outline — self-intersecting Huygens vertices
-          // cause it to render as a dense orange web across the map.
-          "fill-outline-color": "transparent",
-        },
-      });
+    // ── Hazard zone layers (manually drawn polygons) ───────────────────────
+    if (m.getSource("hazard-zones")) {
+      if (m.getLayer("hazard-zones-fill"))   m.removeLayer("hazard-zones-fill");
+      if (m.getLayer("hazard-zones-stroke")) m.removeLayer("hazard-zones-stroke");
+      if (m.getLayer("hazard-zone-labels"))  m.removeLayer("hazard-zone-labels");
+      m.removeSource("hazard-zones");
     }
-
-    // ── Fire arrival time isochrone layers ─────────────────────────────────
-    // Line rings for each time threshold, colored by time urgency
-    if (m.getSource("fire-isochrones")) {
-      if (m.getLayer("fire-isochrone-lines")) m.removeLayer("fire-isochrone-lines");
-      m.removeSource("fire-isochrones");
-    }
-    m.addSource("fire-isochrones", {
-      type: "geojson",
-      data: { type: "FeatureCollection", features: [] },
+    m.addSource("hazard-zones", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    m.addLayer({
+      id: "hazard-zones-fill",
+      type: "fill",
+      source: "hazard-zones",
+      paint: { "fill-color": ["get", "color"], "fill-opacity": 0.22, "fill-outline-color": "transparent" },
     });
     m.addLayer({
-      id: "fire-isochrone-lines",
+      id: "hazard-zones-stroke",
       type: "line",
-      source: "fire-isochrones",
-      paint: {
-        "line-color": ["get", "color"],
-        "line-width": 2,
-        "line-opacity": 0.85,
-        "line-dasharray": [6, 3],
-      },
-    });
-
-    // Label anchor points — text showing arrival time at northernmost point
-    if (m.getSource("fire-isochrone-labels")) {
-      if (m.getLayer("fire-isochrone-label-text")) m.removeLayer("fire-isochrone-label-text");
-      m.removeSource("fire-isochrone-labels");
-    }
-    m.addSource("fire-isochrone-labels", {
-      type: "geojson",
-      data: { type: "FeatureCollection", features: [] },
+      source: "hazard-zones",
+      paint: { "line-color": ["get", "color"], "line-width": 2.5, "line-opacity": 0.9 },
     });
     m.addLayer({
-      id: "fire-isochrone-label-text",
+      id: "hazard-zone-labels",
       type: "symbol",
-      source: "fire-isochrone-labels",
+      source: "hazard-zones",
       layout: {
-        "text-field": ["get", "label"],
-        "text-size": 11,
-        "text-anchor": "bottom",
-        "text-offset": [0, -0.3],
+        "text-field": ["get", "name"],
+        "text-size": 12,
+        "text-anchor": "center",
         "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
         "text-allow-overlap": false,
-        "text-ignore-placement": false,
       },
       paint: {
         "text-color": ["get", "color"],
         "text-halo-color": "rgba(5,10,20,0.85)",
         "text-halo-width": 1.5,
+      },
+    });
+
+    // ── Zone drawing preview layers ────────────────────────────────────────
+    if (m.getSource("hazard-zone-drawing")) {
+      if (m.getLayer("hazard-zone-drawing-fill"))   m.removeLayer("hazard-zone-drawing-fill");
+      if (m.getLayer("hazard-zone-drawing-line"))   m.removeLayer("hazard-zone-drawing-line");
+      if (m.getLayer("hazard-zone-drawing-dots"))   m.removeLayer("hazard-zone-drawing-dots");
+      m.removeSource("hazard-zone-drawing");
+    }
+    m.addSource("hazard-zone-drawing", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    m.addLayer({
+      id: "hazard-zone-drawing-fill",
+      type: "fill",
+      source: "hazard-zone-drawing",
+      filter: ["==", "$type", "Polygon"],
+      paint: { "fill-color": "#ffffff", "fill-opacity": 0.08, "fill-outline-color": "transparent" },
+    });
+    m.addLayer({
+      id: "hazard-zone-drawing-line",
+      type: "line",
+      source: "hazard-zone-drawing",
+      paint: { "line-color": "#ffffff", "line-width": 2, "line-dasharray": [4, 2], "line-opacity": 0.8 },
+    });
+    m.addLayer({
+      id: "hazard-zone-drawing-dots",
+      type: "circle",
+      source: "hazard-zone-drawing",
+      filter: ["==", "$type", "Point"],
+      paint: {
+        "circle-radius": 5,
+        "circle-color": "#ffffff",
+        "circle-stroke-width": 1.5,
+        "circle-stroke-color": "#000000",
+        "circle-opacity": 0.9,
       },
     });
 
@@ -398,12 +412,24 @@ export default function MapView({
     });
 
     m.on("click", (e) => {
-      if (readOnlyRef.current || !ignitionModeRef.current) return;
+      if (readOnlyRef.current) return;
+      // Zone drawing mode takes priority
+      if (drawingZoneModeRef.current) {
+        onZonePointRef.current?.(e.lngLat.lng, e.lngLat.lat);
+        return;
+      }
+      if (!ignitionModeRef.current) return;
       onMapClick(e.lngLat.lat, e.lngLat.lng);
-      // Exit placement mode after setting ignition
+      // Exit placement mode after setting location
       ignitionModeRef.current = false;
       setIgnitionMode(false);
       m.getCanvas().style.cursor = "";
+    });
+
+    m.on("dblclick", (e) => {
+      if (readOnlyRef.current || !drawingZoneModeRef.current) return;
+      e.preventDefault(); // prevent zoom
+      onZoneCloseRef.current?.();
     });
 
     map.current = m;
@@ -465,6 +491,94 @@ export default function MapView({
       map.current.panTo([ignitionPoint.lng, ignitionPoint.lat], { duration: 500 });
     }
   }, [ignitionPoint]);
+
+  // Keep drawing mode refs in sync with props
+  useEffect(() => { drawingZoneModeRef.current = drawingZone; }, [drawingZone]);
+  useEffect(() => { onZonePointRef.current = onZonePoint; }, [onZonePoint]);
+  useEffect(() => { onZoneCloseRef.current = onZoneClose; }, [onZoneClose]);
+
+  // Update cursor when drawing mode changes
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    if (drawingZone) {
+      map.current.getCanvas().style.cursor = "crosshair";
+      // Exit ignition placement mode when drawing starts
+      ignitionModeRef.current = false;
+      setIgnitionMode(false);
+    } else {
+      map.current.getCanvas().style.cursor = "";
+    }
+  }, [drawingZone, mapReady]);
+
+  // Sync hazard zone polygons to map source
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const src = map.current.getSource("hazard-zones") as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    const features: GeoJSON.Feature[] = (hazardZones ?? []).map((z) => ({
+      type: "Feature" as const,
+      geometry: {
+        type: "Polygon" as const,
+        coordinates: [z.polygon.length > 0 && z.polygon[0][0] !== z.polygon[z.polygon.length - 1][0]
+          ? [...z.polygon, z.polygon[0]]
+          : z.polygon],
+      },
+      properties: { name: z.name, color: z.color, id: z.id },
+    }));
+    src.setData({ type: "FeatureCollection", features });
+  }, [hazardZones, mapReady]);
+
+  // Hazard zone visibility
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const vis = hazardZonesVisible ? "visible" : "none";
+    for (const id of ["hazard-zones-fill", "hazard-zones-stroke", "hazard-zone-labels"]) {
+      if (map.current.getLayer(id)) map.current.setLayoutProperty(id, "visibility", vis);
+    }
+  }, [hazardZonesVisible, mapReady]);
+
+  // Render in-progress zone drawing
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const src = map.current.getSource("hazard-zone-drawing") as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+
+    const pts = drawingZonePoints;
+    if (pts.length === 0) {
+      src.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    const features: GeoJSON.Feature[] = [
+      // Vertex dots
+      ...pts.map((pt) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: pt },
+        properties: {},
+      })),
+    ];
+
+    // Line connecting vertices (and closing preview if 3+)
+    if (pts.length >= 2) {
+      const lineCoords = pts.length >= 3 ? [...pts, pts[0]] : pts;
+      features.push({
+        type: "Feature" as const,
+        geometry: { type: "LineString" as const, coordinates: lineCoords },
+        properties: {},
+      });
+    }
+
+    // Fill preview when 3+ points
+    if (pts.length >= 3) {
+      features.push({
+        type: "Feature" as const,
+        geometry: { type: "Polygon" as const, coordinates: [[...pts, pts[0]]] },
+        properties: {},
+      });
+    }
+
+    src.setData({ type: "FeatureCollection", features });
+  }, [drawingZonePoints, mapReady]);
 
   // Sync overlay GeoJSON sources
   useEffect(() => {
@@ -546,9 +660,15 @@ export default function MapView({
       </div>}
 
       {/* Placement mode hint overlay (hidden in readOnly mode) */}
-      {!readOnly && ignitionMode && (
+      {!readOnly && ignitionMode && !drawingZone && (
         <div className="mcp-placement-hint">
           Click map to set incident location
+        </div>
+      )}
+      {!readOnly && drawingZone && (
+        <div className="mcp-placement-hint" style={{ background: "rgba(20,40,70,0.92)", borderColor: "#3d5a80" }}>
+          Click to add points · Double-click or "Close Zone" to finish
+          {drawingZonePoints.length > 0 && ` (${drawingZonePoints.length} pts)`}
         </div>
       )}
 
