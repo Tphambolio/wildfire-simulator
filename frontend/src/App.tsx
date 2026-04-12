@@ -472,10 +472,7 @@ export default function App() {
                 onImport={importIncident}
               />
 
-              {/* ── Phase 0: No location yet ──────────────────────────
-                  Show only the NextStepCard guiding to the map.
-                  Nothing else — don't overwhelm before the basics are set.
-              ─────────────────────────────────────────────────────── */}
+              {/* ── Phase 0: No location yet ─────────────────────────── */}
               {!incidentLocation && (
                 <div className="sidebar-phase-hint">
                   <div className="sidebar-phase-icon">📍</div>
@@ -485,9 +482,14 @@ export default function App() {
                 </div>
               )}
 
-              {/* ── Phase 1+: Location set — show setup controls ──────
-                  Hazard type and complexity are needed before briefing.
+              {/* ── NextStepCard: pinned near the top so it's always
+                  visible as the primary guide, above setup details.
               ─────────────────────────────────────────────────────── */}
+              {incidentLocation && (
+                <NextStepCard incident={incident} onNavigate={handleNavigate} />
+              )}
+
+              {/* ── Phase 1+: Incident setup below the guide card ─────── */}
               {incidentLocation && (
                 <IncidentSetupPanel
                   hazardType={incident.hazardType}
@@ -501,11 +503,6 @@ export default function App() {
                     ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
                     : undefined}
                 />
-              )}
-
-              {/* ── NextStepCard: always visible once location is set ── */}
-              {incidentLocation && (
-                <NextStepCard incident={incident} onNavigate={handleNavigate} />
               )}
 
               {/* ── Phase 2: Briefing done — unlock advanced tools ────

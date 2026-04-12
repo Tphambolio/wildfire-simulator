@@ -4088,7 +4088,10 @@ select {
 
 /* ── Next Step Card ─────────────────────────────────────────── */
 
-.next-step-panel {}
+.next-step-panel {
+  border-top: 2px solid rgba(149, 76, 233, 0.5);  /* purple accent — matches the phase-0 pill */
+  background: rgba(149, 76, 233, 0.05);
+}
 
 .ns-phase-pill {
   display: inline-block;
