@@ -4846,3 +4846,77 @@ select {
     min-height: 0;
   }
 }
+
+/* ── EOC Split-pane resize ──────────────────────────────────────────── */
+
+/* Drag handle between map and forms panels */
+.eoc-resize-handle {
+  width: 6px;
+  flex-shrink: 0;
+  background: var(--border);
+  cursor: col-resize;
+  position: relative;
+  z-index: 5;
+  transition: background 0.15s;
+}
+
+.eoc-resize-handle:hover,
+.eoc-resize-handle:active {
+  background: var(--accent);
+}
+
+.eoc-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  background: var(--text-secondary);
+  border-radius: 1px;
+  opacity: 0.5;
+}
+
+/* Layout preset buttons in EOC header */
+.eoc-layout-btns {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  background: var(--surface-mid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.eoc-layout-btn {
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1em;
+  line-height: 1;
+  padding: 4px 7px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.eoc-layout-btn:hover {
+  background: var(--surface-highest);
+  color: var(--text-primary);
+}
+
+.eoc-layout-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* On mobile, hide the resize handle — full-stack layout takes over */
+@media (max-width: 768px) {
+  .eoc-resize-handle {
+    display: none;
+  }
+  .eoc-layout-btns {
+    display: none;
+  }
+}

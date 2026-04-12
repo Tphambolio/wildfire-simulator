@@ -6,7 +6,7 @@
  *   Right 55% : sub-tabbed content — Situation / ICS Forms / Map (full-width)
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
 import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
@@ -138,6 +138,43 @@ export default function EOCConsole({
 
   const [isFetchingFacilities, setIsFetchingFacilities] = useState(false);
   const [fetchFacilitiesMsg, setFetchFacilitiesMsg] = useState<string | null>(null);
+
+  // ── Split-pane resize state ───────────────────────────────────────────────
+  // mapWidthPct: 0 = map hidden (forms full), 100 = forms hidden (map full)
+  const [mapWidthPct, setMapWidthPct] = useState(42);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      if (!isDraggingRef.current || !bodyRef.current) return;
+      const rect = bodyRef.current.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setMapWidthPct(Math.round(Math.min(88, Math.max(12, pct))));
+    };
+
+    const onUp = () => {
+      isDraggingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
+
+  // Notify MapLibre to resize when split changes
+  useLayoutEffect(() => {
+    const t = setTimeout(() => consoleMapRef.current?.resize(), 50);
+    return () => clearTimeout(t);
+  }, [mapWidthPct]);
 
   // ── Map markup state ─────────────────────────────────────────────────────
   type MarkupTool = "pen" | "text" | null;
@@ -457,7 +494,8 @@ export default function EOCConsole({
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const isMapFullWidth = consoleTab === "map";
+  const isMapHidden  = mapWidthPct <= 4;
+  const isFormsHidden = mapWidthPct >= 96;
 
   // Count of annotations by layer for the situation panel
   const annotationsByLayer = incidentAnnotations.reduce((acc, a) => {
@@ -487,6 +525,24 @@ export default function EOCConsole({
           )}
         </div>
         <div className="eoc-header-right">
+          {/* Layout presets */}
+          <div className="eoc-layout-btns" title="Adjust map/forms split">
+            <button
+              className={`eoc-layout-btn${isFormsHidden ? " active" : ""}`}
+              onClick={() => setMapWidthPct(97)}
+              title="Map full width"
+            >🗺</button>
+            <button
+              className={`eoc-layout-btn${!isMapHidden && !isFormsHidden ? " active" : ""}`}
+              onClick={() => setMapWidthPct(42)}
+              title="Split view"
+            >⊞</button>
+            <button
+              className={`eoc-layout-btn${isMapHidden ? " active" : ""}`}
+              onClick={() => setMapWidthPct(3)}
+              title="Forms full width"
+            >📋</button>
+          </div>
           <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Capture map snapshot">
             🖨 Print
           </button>
@@ -498,7 +554,7 @@ export default function EOCConsole({
 
       {/* ── Sub-tabs ───────────────────────────────────────────────── */}
       <div className="eoc-subtabs">
-        {(["situation", "command", "operations", "planning", "logistics", "finance", "iap", "map"] as ConsoleTab[]).map((tab) => (
+        {(["situation", "command", "operations", "planning", "logistics", "finance", "iap"] as ConsoleTab[]).map((tab) => (
           <button
             key={tab}
             className={`eoc-subtab${consoleTab === tab ? " active" : ""}`}
@@ -510,17 +566,19 @@ export default function EOCConsole({
               : tab === "planning" ? "Plans"
               : tab === "logistics" ? "Logs"
               : tab === "finance" ? "Finance"
-              : tab === "iap" ? "IAP Forms"
-              : "Map"}
+              : "IAP Forms"}
           </button>
         ))}
       </div>
 
       {/* ── Main body ─────────────────────────────────────────────── */}
-      <div className={`eoc-body${isMapFullWidth ? " eoc-body--map-full" : ""}`}>
+      <div className="eoc-body" ref={bodyRef}>
 
         {/* Left: read-only map + markup overlay */}
-        <div className={`eoc-map-panel${isMapFullWidth ? " eoc-map-panel--full" : ""}`}>
+        <div
+          className="eoc-map-panel"
+          style={{ width: isMapHidden ? "0" : isFormsHidden ? "100%" : `${mapWidthPct}%`, display: isMapHidden ? "none" : undefined }}
+        >
           <MapView
             onMapClick={() => {}}
             ignitionPoint={incidentLocation}
@@ -690,6 +748,11 @@ export default function EOCConsole({
           )}
         </div>
 
+        {/* Drag-to-resize handle */}
+        {!isMapHidden && !isFormsHidden && (
+          <div className="eoc-resize-handle" onMouseDown={handleResizeStart} title="Drag to resize" />
+        )}
+
         {/* Symbol picker flyout — desktop: floats over map; mobile: between map and panels */}
         {showSymbolPicker && (
           <div className="eoc-symbol-picker-flyout">
@@ -713,9 +776,9 @@ export default function EOCConsole({
           </div>
         )}
 
-        {/* Right: content panel (hidden in full-map mode) */}
-        {!isMapFullWidth && (
-          <div className="eoc-data-panels">
+        {/* Right: content panel */}
+        {!isFormsHidden && (
+          <div className="eoc-data-panels" style={{ flex: 1, minWidth: 0 }}>
 
             {/* ── Situation tab ───────────────────────────── */}
             {consoleTab === "situation" && !ics201CompletedAt && (
