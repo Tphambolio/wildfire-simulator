@@ -605,14 +605,6 @@ export default function App() {
 
       {/* ── Map area — always mounted so MapLibre doesn't reinitialize on tab switch ─── */}
       <main className="map-area" style={activeTab === "eoc" ? { display: "none" } : {}}>
-        {/* Location prompt — shown when incident active but no location set yet */}
-        {incident && !incidentLocation && (
-          <div className="map-location-prompt">
-            <span className="map-location-prompt-icon">📍</span>
-            <span>Tap the map or use <strong>⊕</strong> to set the incident location</span>
-            <span className="map-location-prompt-sub">Required before opening the EOC Console</span>
-          </div>
-        )}
         <MapView
           onMapClick={handleMapClick}
           onClearIgnition={handleClearLocation}

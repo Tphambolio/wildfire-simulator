@@ -416,6 +416,8 @@ export default function MapView({
     m.on("load", () => {
       addMapLayers(m);
       m.resize();
+      // Set cursor immediately on load — don't wait for useEffect
+      if (ignitionModeRef.current) m.getCanvas().style.cursor = "crosshair";
       setMapReady(true);
       mapRefCallback?.(m);
     });
@@ -671,7 +673,8 @@ export default function MapView({
       {/* Placement mode hint overlay (hidden in readOnly mode) */}
       {!readOnly && ignitionMode && !drawingZone && (
         <div className="mcp-placement-hint">
-          Click map to set incident location
+          <span className="mcp-placement-pin" aria-hidden="true">📍</span>
+          Tap anywhere to drop the incident pin
         </div>
       )}
       {!readOnly && drawingZone && (
