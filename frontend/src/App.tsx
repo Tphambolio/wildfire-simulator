@@ -460,6 +460,7 @@ export default function App() {
             />
           ) : (
             <>
+              {/* ── Always visible: incident switcher ── */}
               <IncidentPanel
                 incidents={incidents}
                 activeIncidentId={activeIncidentId}
@@ -470,41 +471,73 @@ export default function App() {
                 onExport={exportIncident}
                 onImport={importIncident}
               />
-              <IncidentSetupPanel
-                hazardType={incident.hazardType}
-                onHazardTypeChange={(h: HazardType) => updateIncidentField("hazardType", h)}
-                incidentComplexity={incident.incidentComplexity}
-                onComplexityChange={(c) => updateIncidentField("incidentComplexity", c)}
-                weather={activePeriod?.weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
-                onWeatherChange={(w) => updatePeriodField("weather", w)}
-                incidentLocation={incidentLocation}
-                onFetchFacilities={incidentLocation
-                  ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
-                  : undefined}
-              />
-              <OverlayPanel
-                layers={overlayLayers}
-                onLayerLoad={handleOverlayLoad}
-                onLayerToggle={handleOverlayToggle}
-                onLayerClear={handleOverlayClear}
-              />
-              <HazardZonePanel
-                hazardType={incident.hazardType}
-                zones={activePeriod?.hazardZones ?? []}
-                isDrawing={drawingZone}
-                drawingPoints={drawingZonePoints}
-                onDrawStart={handleZoneDrawStart}
-                onDrawCancel={handleZoneCancel}
-                onDrawClose={handleZoneClose}
-                onRemoveZone={removeHazardZone}
-                onClearAll={clearHazardZones}
-              />
-              <NextStepCard incident={incident} onNavigate={handleNavigate} />
-              <TeamSummaryPanel
-                resources={incident.resources ?? []}
-                agencies={incident.agencies ?? []}
-                onOpenSection={handleOpenSection}
-              />
+
+              {/* ── Phase 0: No location yet ──────────────────────────
+                  Show only the NextStepCard guiding to the map.
+                  Nothing else — don't overwhelm before the basics are set.
+              ─────────────────────────────────────────────────────── */}
+              {!incidentLocation && (
+                <div className="sidebar-phase-hint">
+                  <div className="sidebar-phase-icon">📍</div>
+                  <p className="sidebar-phase-text">
+                    Click the map to drop the incident pin. This sets your operating area and unlocks the EOC Console.
+                  </p>
+                </div>
+              )}
+
+              {/* ── Phase 1+: Location set — show setup controls ──────
+                  Hazard type and complexity are needed before briefing.
+              ─────────────────────────────────────────────────────── */}
+              {incidentLocation && (
+                <IncidentSetupPanel
+                  hazardType={incident.hazardType}
+                  onHazardTypeChange={(h: HazardType) => updateIncidentField("hazardType", h)}
+                  incidentComplexity={incident.incidentComplexity}
+                  onComplexityChange={(c) => updateIncidentField("incidentComplexity", c)}
+                  weather={activePeriod?.weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
+                  onWeatherChange={(w) => updatePeriodField("weather", w)}
+                  incidentLocation={incidentLocation}
+                  onFetchFacilities={incidentLocation
+                    ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
+                    : undefined}
+                />
+              )}
+
+              {/* ── NextStepCard: always visible once location is set ── */}
+              {incidentLocation && (
+                <NextStepCard incident={incident} onNavigate={handleNavigate} />
+              )}
+
+              {/* ── Phase 2: Briefing done — unlock advanced tools ────
+                  Overlay layers, hazard zones, and team summary only
+                  appear once the ICS-201 initial briefing is complete.
+              ─────────────────────────────────────────────────────── */}
+              {incident.ics201CompletedAt && (
+                <>
+                  <OverlayPanel
+                    layers={overlayLayers}
+                    onLayerLoad={handleOverlayLoad}
+                    onLayerToggle={handleOverlayToggle}
+                    onLayerClear={handleOverlayClear}
+                  />
+                  <HazardZonePanel
+                    hazardType={incident.hazardType}
+                    zones={activePeriod?.hazardZones ?? []}
+                    isDrawing={drawingZone}
+                    drawingPoints={drawingZonePoints}
+                    onDrawStart={handleZoneDrawStart}
+                    onDrawCancel={handleZoneCancel}
+                    onDrawClose={handleZoneClose}
+                    onRemoveZone={removeHazardZone}
+                    onClearAll={clearHazardZones}
+                  />
+                  <TeamSummaryPanel
+                    resources={incident.resources ?? []}
+                    agencies={incident.agencies ?? []}
+                    onOpenSection={handleOpenSection}
+                  />
+                </>
+              )}
             </>
           )}
         </div>
