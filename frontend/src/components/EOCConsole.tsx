@@ -89,7 +89,7 @@ interface EOCConsoleProps {
   teamSummarySlot?: ReactNode;
 }
 
-export type ConsoleTab = "setup" | "layers" | "situation" | "command" | "operations" | "planning" | "logistics" | "finance" | "iap";
+export type ConsoleTab = "incident" | "map" | "briefing" | "command" | "operations" | "planning" | "logistics" | "finance" | "iap";
 
 export type ICSFormId =
   | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics206"
@@ -160,7 +160,7 @@ export default function EOCConsole({
   nextStepCardSlot,
   teamSummarySlot,
 }: EOCConsoleProps) {
-  const [consoleTab, setConsoleTabState] = useState<ConsoleTab>(initialConsoleTab ?? "situation");
+  const [consoleTab, setConsoleTabState] = useState<ConsoleTab>(initialConsoleTab ?? "briefing");
   const setConsoleTab = useCallback((tab: ConsoleTab) => {
     setConsoleTabState(tab);
     onConsoleTabChange?.(tab);
@@ -616,7 +616,7 @@ export default function EOCConsole({
           </div>
           {ics201CompletedAt && (
             <>
-              <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Capture map snapshot">
+              <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("briefing"); }} title="Capture map snapshot">
                 🖨 Print
               </button>
               <button className="eoc-action-btn" onClick={() => handleFormSelect("full-iap")} title="Generate Full IAP Package">
@@ -629,15 +629,15 @@ export default function EOCConsole({
 
       {/* ── Sub-tabs ───────────────────────────────────────────────── */}
       <div className="eoc-subtabs">
-        {(["setup", "layers", "situation", "command", "operations", "planning", "logistics", "finance", ...(ics201CompletedAt ? ["iap"] : [])] as ConsoleTab[]).map((tab) => (
+        {(["incident", "map", "briefing", "command", "operations", "planning", "logistics", "finance", ...(ics201CompletedAt ? ["iap"] : [])] as ConsoleTab[]).map((tab) => (
           <button
             key={tab}
             className={`eoc-subtab${consoleTab === tab ? " active" : ""}`}
             onClick={() => setConsoleTab(tab)}
           >
-            {tab === "setup" ? "Setup"
-              : tab === "layers" ? "Layers"
-              : tab === "situation" ? "Situation"
+            {tab === "incident" ? "Incident"
+              : tab === "map" ? "Map"
+              : tab === "briefing" ? "Briefing"
               : tab === "command" ? "Cmd"
               : tab === "operations" ? "Ops"
               : tab === "planning" ? "Plans"
@@ -874,8 +874,8 @@ export default function EOCConsole({
             {/* ── Persistent guidance strip ───────────────── */}
             {nextStepCardSlot}
 
-            {/* ── Setup tab ──────────────────────────────── */}
-            {consoleTab === "setup" && (
+            {/* ── Incident tab ───────────────────────────── */}
+            {consoleTab === "incident" && (
               <div className="eoc-setup-tab">
                 <IncidentSetupPanel
                   hazardType={hazardType ?? "other"}
@@ -886,6 +886,22 @@ export default function EOCConsole({
                   onWeatherChange={onWeatherChange ?? (() => {})}
                   incidentLocation={incidentLocation}
                   onFetchFacilities={onFetchFacilities}
+                />
+              </div>
+            )}
+
+            {/* ── Map tab ────────────────────────────────── */}
+            {consoleTab === "map" && (
+              <div className="eoc-setup-tab">
+                <OverlayPanel
+                  layers={{
+                    roads: { data: overlayRoads ?? null, visible: overlayRoadsVisible ?? true },
+                    communities: { data: overlayCommunities ?? null, visible: overlayCommunitiesVisible ?? true },
+                    infrastructure: { data: overlayInfrastructure ?? null, visible: overlayInfrastructureVisible ?? true },
+                  }}
+                  onLayerLoad={onLayerLoad ?? (() => {})}
+                  onLayerToggle={onLayerToggle ?? (() => {})}
+                  onLayerClear={onLayerClear ?? (() => {})}
                 />
                 <HazardZonePanel
                   hazardType={hazardType ?? "other"}
@@ -901,28 +917,14 @@ export default function EOCConsole({
               </div>
             )}
 
-            {/* ── Layers tab ─────────────────────────────── */}
-            {consoleTab === "layers" && (
-              <OverlayPanel
-                layers={{
-                  roads: { data: overlayRoads ?? null, visible: overlayRoadsVisible ?? true },
-                  communities: { data: overlayCommunities ?? null, visible: overlayCommunitiesVisible ?? true },
-                  infrastructure: { data: overlayInfrastructure ?? null, visible: overlayInfrastructureVisible ?? true },
-                }}
-                onLayerLoad={onLayerLoad ?? (() => {})}
-                onLayerToggle={onLayerToggle ?? (() => {})}
-                onLayerClear={onLayerClear ?? (() => {})}
-              />
-            )}
-
-            {/* ── Situation tab ───────────────────────────── */}
-            {consoleTab === "situation" && !ics201CompletedAt && (
+            {/* ── Briefing tab ────────────────────────────── */}
+            {consoleTab === "briefing" && !ics201CompletedAt && (
               <InitBriefingPanel
                 incidentName={incidentName}
                 onComplete={handleBriefingComplete}
               />
             )}
-            {consoleTab === "situation" && ics201CompletedAt && (
+            {consoleTab === "briefing" && ics201CompletedAt && (
               <div className="eoc-situation-panel">
                 <div className="eoc-section-header">Incident Status</div>
                 <div className="eoc-kpi-grid">

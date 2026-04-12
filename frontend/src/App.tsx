@@ -178,7 +178,7 @@ const DEFAULT_OVERLAY_LAYERS: OverlayLayers = {
 export default function App() {
   const [incidentLocation, setIncidentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [overlayLayers, setOverlayLayers] = useState<OverlayLayers>(DEFAULT_OVERLAY_LAYERS);
-  const [eocConsoleTab, setEocConsoleTab] = useState<ConsoleTab>("setup");
+  const [eocConsoleTab, setEocConsoleTab] = useState<ConsoleTab>("incident");
 
   // Zone drawing state
   const [drawingZone, setDrawingZone] = useState(false);

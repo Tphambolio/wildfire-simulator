@@ -36,7 +36,7 @@ const STEPS: ICSStep[] = [
     phase: 0,
     phaseName: PHASE_LABELS[0],
     isComplete: (i) => !!i.ics201CompletedAt,
-    eocTab: "situation",
+    eocTab: "briefing",
   },
   {
     id: "assign-ic",
