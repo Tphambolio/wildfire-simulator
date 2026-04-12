@@ -1,24 +1,24 @@
-/* FireSim V3 — Global styles */
+/* AIMS Console — All-Hazards Incident Management System */
 
 :root {
-  /* Ignition Core — Tactical High-Density Dark Theme */
-  --surface: #111125;
-  --surface-low: #1a1a2e;
-  --surface-mid: #1e1e32;
-  --surface-high: #28283d;
-  --surface-highest: #333348;
+  /* AIMS Console — Tactical Dark Theme */
+  --surface: #0d1520;
+  --surface-low: #111e30;
+  --surface-mid: #152234;
+  --surface-high: #1e2e44;
+  --surface-highest: #283a52;
 
   /* Legacy aliases */
-  --bg-dark: #111125;
-  --bg-panel: #1a1a2e;
-  --bg-section: #1e1e32;
+  --bg-dark: #0d1520;
+  --bg-panel: #111e30;
+  --bg-section: #152234;
 
-  --primary: #ffb59d;
-  --accent: #ff6b35;
-  --accent-hover: #ff8046;
-  --on-surface: #e2e0fc;
-  --text-primary: #e2e0fc;
-  --text-secondary: #a98a80;
+  --primary: #e0e8f0;
+  --accent: #3d5a80;
+  --accent-hover: #4e6f9a;
+  --on-surface: #dce8f2;
+  --text-primary: #dce8f2;
+  --text-secondary: #7a9ab8;
 
   --fire-red: #f44336;
   --fire-orange: #ff9800;
@@ -27,7 +27,7 @@
   --error-container: #93000a;
   --on-error-container: #ffdad6;
 
-  --border: #333348;
+  --border: #283a52;
   --border-dim: rgba(89, 65, 57, 0.2);
 
   --radius: 2px;
