@@ -380,9 +380,7 @@ export default function App() {
                 />
               }
               nextStepCardSlot={
-                incidentLocation
-                  ? <NextStepCard incident={incident} onNavigate={setEocConsoleTab} />
-                  : null
+                <NextStepCard incident={incident} onNavigate={setEocConsoleTab} />
               }
               teamSummarySlot={
                 incident.ics201CompletedAt
