@@ -674,7 +674,7 @@ export default function MapView({
       {!readOnly && ignitionMode && !drawingZone && (
         <div className="mcp-placement-hint">
           <span className="mcp-placement-pin" aria-hidden="true">📍</span>
-          Tap anywhere to drop the incident pin
+          Drop pin on incident location
         </div>
       )}
       {!readOnly && drawingZone && (
