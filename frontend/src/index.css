@@ -3437,6 +3437,68 @@ select {
   line-height: 1.8;
 }
 
+/* ── IncidentSetupPanel — step-by-step flow ──────────────────── */
+
+.isp-root {
+  display: flex;
+  flex-direction: column;
+}
+
+.isp-step {
+  border-top: 1px solid var(--border-dim);
+  padding: 12px 14px 14px;
+}
+
+.isp-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.isp-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.isp-step-num--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.isp-step-num--done {
+  background: #2e7d32;
+  color: #fff;
+  font-size: 12px;
+}
+
+.isp-step-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.55);
+  flex: 1;
+}
+
+.isp-step-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.isp-step-body {
+  /* content area below the step header */
+}
+
 /* Back-to-list button — hidden on desktop (not needed), shown on mobile */
 .eoc-forms-back-btn {
   display: none;

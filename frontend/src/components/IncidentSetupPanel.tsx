@@ -1,4 +1,4 @@
-/** Hazard type selector, incident complexity, weather conditions, and incident location. */
+/** Hazard type selector, incident complexity, weather conditions — step-by-step flow. */
 
 import { useState } from "react";
 import type { HazardType, WeatherParams } from "../types/incident";
@@ -23,6 +23,13 @@ const COMPLEXITY_GUIDE: Record<number, string> = {
   1: "Complex incident — Unified Command, all forms",
 };
 
+// A type is "confirmed" once the user has picked anything other than the
+// blank default ("other"). Complexity is always considered confirmed once
+// the user has explicitly clicked a button (tracked via local state).
+function isTypeConfirmed(h: HazardType) {
+  return h !== "other";
+}
+
 export default function IncidentSetupPanel({
   hazardType,
   onHazardTypeChange,
@@ -33,11 +40,16 @@ export default function IncidentSetupPanel({
   incidentLocation,
   onFetchFacilities,
 }: IncidentSetupPanelProps) {
-  const [open, setOpen] = useState(true);
+  // Track whether the user has explicitly confirmed complexity so we can
+  // unlock the Conditions step without requiring them to change the default.
+  const [complexityConfirmed, setComplexityConfirmed] = useState(false);
   const [fetchStatus, setFetchStatus] = useState<string | null>(null);
   const [fetchLoading, setFetchLoading] = useState(false);
 
   const activeDef = HAZARD_DEFS.find((d) => d.key === hazardType) ?? HAZARD_DEFS[0];
+  const typeConfirmed = isTypeConfirmed(hazardType);
+  const showComplexity = typeConfirmed;
+  const showConditions = typeConfirmed && complexityConfirmed;
 
   const handleFetch = async () => {
     if (!onFetchFacilities) return;
@@ -57,52 +69,63 @@ export default function IncidentSetupPanel({
     onWeatherChange({ ...weather, ...partial });
 
   return (
-    <div className="panel incident-setup-panel">
-      <button
-        className="panel-collapse-btn"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <span>Incident Setup</span>
-        <span className="collapse-icon">{open ? "▲" : "▼"}</span>
-        <span
-          className="scenario-count-badge"
-          style={{ background: activeDef.color, fontSize: "0.75em" }}
-        >
-          {activeDef.icon}
-        </span>
-      </button>
+    <div className="isp-root">
 
-      {open && (
-        <div className="scenario-body">
-          {/* ── Hazard type grid ── */}
-          <div className="section" style={{ paddingTop: 0 }}>
-            <h4>Incident Type</h4>
-            <div className="hazard-type-grid">
-              {HAZARD_DEFS.map((def) => (
-                <button
-                  key={def.key}
-                  className={`hazard-type-card${hazardType === def.key ? " active" : ""}`}
-                  style={hazardType === def.key ? { borderColor: def.color, background: `${def.color}22` } : {}}
-                  onClick={() => onHazardTypeChange(def.key)}
-                  title={def.label}
-                >
-                  <span className="hazard-type-icon">{def.icon}</span>
-                  <span className="hazard-type-label">{def.label}</span>
-                </button>
-              ))}
-            </div>
+      {/* ── Step 1: Incident Type ──────────────────────────────── */}
+      <div className="isp-step">
+        <div className="isp-step-header">
+          <span className={`isp-step-num${typeConfirmed ? " isp-step-num--done" : " isp-step-num--active"}`}>
+            {typeConfirmed ? "✓" : "1"}
+          </span>
+          <span className="isp-step-label">Incident Type</span>
+          {typeConfirmed && (
+            <span className="isp-step-value" style={{ color: activeDef.color }}>
+              {activeDef.icon} {activeDef.label}
+            </span>
+          )}
+        </div>
+
+        {/* Always show the type grid — it's step 1, always accessible */}
+        <div className="isp-step-body">
+          <div className="hazard-type-grid">
+            {HAZARD_DEFS.map((def) => (
+              <button
+                key={def.key}
+                className={`hazard-type-card${hazardType === def.key ? " active" : ""}`}
+                style={hazardType === def.key ? { borderColor: def.color, background: `${def.color}22` } : {}}
+                onClick={() => onHazardTypeChange(def.key)}
+                title={def.label}
+              >
+                <span className="hazard-type-icon">{def.icon}</span>
+                <span className="hazard-type-label">{def.label}</span>
+              </button>
+            ))}
           </div>
+        </div>
+      </div>
 
-          {/* ── Complexity ── */}
-          <div className="section">
-            <h4>Incident Complexity</h4>
+      {/* ── Step 2: Complexity ────────────────────────────────── */}
+      {showComplexity && (
+        <div className="isp-step">
+          <div className="isp-step-header">
+            <span className={`isp-step-num${complexityConfirmed ? " isp-step-num--done" : " isp-step-num--active"}`}>
+              {complexityConfirmed ? "✓" : "2"}
+            </span>
+            <span className="isp-step-label">Complexity</span>
+            {complexityConfirmed && (
+              <span className="isp-step-value">T{incidentComplexity}</span>
+            )}
+          </div>
+          <div className="isp-step-body">
             <div className="complexity-row">
               {([5, 4, 3, 2, 1] as const).map((c) => (
                 <button
                   key={c}
                   className={`complexity-btn${incidentComplexity === c ? " active" : ""}`}
-                  onClick={() => onComplexityChange(c)}
+                  onClick={() => {
+                    onComplexityChange(c);
+                    setComplexityConfirmed(true);
+                  }}
                   title={COMPLEXITY_GUIDE[c]}
                 >
                   T{c}
@@ -113,17 +136,22 @@ export default function IncidentSetupPanel({
               {COMPLEXITY_GUIDE[incidentComplexity]}
             </div>
           </div>
+        </div>
+      )}
 
-          {/* ── Conditions ── */}
-          <div className="section">
-            <h4>Conditions</h4>
+      {/* ── Step 3: Conditions ───────────────────────────────── */}
+      {showConditions && (
+        <div className="isp-step">
+          <div className="isp-step-header">
+            <span className="isp-step-num isp-step-num--active">3</span>
+            <span className="isp-step-label">Conditions</span>
+          </div>
+          <div className="isp-step-body">
             <div className="weather-grid">
               <label>
                 <span>Wind (km/h)</span>
                 <input
-                  type="number"
-                  min={0}
-                  max={200}
+                  type="number" min={0} max={200}
                   value={weather.wind_speed ?? ""}
                   onChange={(e) => setWeather({ wind_speed: parseFloat(e.target.value) || 0 })}
                 />
@@ -131,9 +159,7 @@ export default function IncidentSetupPanel({
               <label>
                 <span>Direction (°)</span>
                 <input
-                  type="number"
-                  min={0}
-                  max={360}
+                  type="number" min={0} max={360}
                   value={weather.wind_direction ?? ""}
                   onChange={(e) => setWeather({ wind_direction: parseFloat(e.target.value) || 0 })}
                 />
@@ -141,9 +167,7 @@ export default function IncidentSetupPanel({
               <label>
                 <span>Temp (°C)</span>
                 <input
-                  type="number"
-                  min={-40}
-                  max={50}
+                  type="number" min={-40} max={50}
                   value={weather.temperature ?? ""}
                   onChange={(e) => setWeather({ temperature: parseFloat(e.target.value) || 0 })}
                 />
@@ -151,57 +175,29 @@ export default function IncidentSetupPanel({
               <label>
                 <span>RH (%)</span>
                 <input
-                  type="number"
-                  min={0}
-                  max={100}
+                  type="number" min={0} max={100}
                   value={weather.relative_humidity ?? ""}
                   onChange={(e) => setWeather({ relative_humidity: parseFloat(e.target.value) || 0 })}
                 />
               </label>
               <label style={{ gridColumn: "span 2" }}>
-                <span>Visibility (km)</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={50}
-                  step={0.5}
-                  value={weather.visibility_km ?? ""}
-                  onChange={(e) => setWeather({ visibility_km: parseFloat(e.target.value) || undefined })}
-                />
-              </label>
-              <label style={{ gridColumn: "span 2" }}>
                 <span>Precip (mm)</span>
                 <input
-                  type="number"
-                  min={0}
-                  max={500}
-                  step={0.1}
+                  type="number" min={0} max={500} step={0.1}
                   value={weather.precipitation ?? ""}
                   onChange={(e) => setWeather({ precipitation: parseFloat(e.target.value) || 0 })}
                 />
               </label>
             </div>
-          </div>
 
-          {/* ── Incident location ── */}
-          <div className="section">
-            <h4>Incident Location</h4>
-            {incidentLocation ? (
-              <div className="hint">
-                {incidentLocation.lat.toFixed(5)}°N, {Math.abs(incidentLocation.lng).toFixed(5)}°W
-              </div>
-            ) : (
-              <div className="hint">Click map or use ⊕ to set location</div>
-            )}
-
+            {/* OSM fetch once location is set */}
             {incidentLocation && onFetchFacilities && (
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: 10 }}>
                 <button
                   className="btn-secondary"
                   style={{ width: "100%", padding: "6px 0", fontSize: "0.85em" }}
                   onClick={handleFetch}
                   disabled={fetchLoading}
-                  title={`Fetch OSM resources within ${activeDef.defaultRadius} km`}
                 >
                   {fetchLoading ? "Fetching…" : `📡 Fetch OSM Resources (${activeDef.defaultRadius} km)`}
                 </button>
@@ -215,6 +211,7 @@ export default function IncidentSetupPanel({
           </div>
         </div>
       )}
+
     </div>
   );
 }
