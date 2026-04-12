@@ -543,18 +543,22 @@ export default function EOCConsole({
               title="Forms full width"
             >📋</button>
           </div>
-          <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Capture map snapshot">
-            🖨 Print
-          </button>
-          <button className="eoc-action-btn" onClick={() => handleFormSelect("full-iap")} title="Generate Full IAP Package">
-            Full IAP
-          </button>
+          {ics201CompletedAt && (
+            <>
+              <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Capture map snapshot">
+                🖨 Print
+              </button>
+              <button className="eoc-action-btn" onClick={() => handleFormSelect("full-iap")} title="Generate Full IAP Package">
+                Full IAP
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {/* ── Sub-tabs ───────────────────────────────────────────────── */}
       <div className="eoc-subtabs">
-        {(["situation", "command", "operations", "planning", "logistics", "finance", "iap"] as ConsoleTab[]).map((tab) => (
+        {(["situation", "command", "operations", "planning", "logistics", "finance", ...(ics201CompletedAt ? ["iap"] : [])] as ConsoleTab[]).map((tab) => (
           <button
             key={tab}
             className={`eoc-subtab${consoleTab === tab ? " active" : ""}`}

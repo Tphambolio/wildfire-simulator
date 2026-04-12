@@ -4197,8 +4197,7 @@ select {
 
 .init-briefing-panel {
   padding: 24px 28px 28px;
-  max-width: 540px;
-  margin: 0 auto;
+  width: 100%;
   overflow-y: auto;
 }
 
@@ -4851,31 +4850,37 @@ select {
 
 /* Drag handle between map and forms panels */
 .eoc-resize-handle {
-  width: 6px;
+  width: 12px;
   flex-shrink: 0;
-  background: var(--border);
+  background: rgba(61, 90, 128, 0.55); /* accent-tinted — clearly visible */
+  border-left: 1px solid rgba(78, 111, 154, 0.6);
+  border-right: 1px solid rgba(78, 111, 154, 0.6);
   cursor: col-resize;
   position: relative;
   z-index: 5;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .eoc-resize-handle:hover,
 .eoc-resize-handle:active {
   background: var(--accent);
+  border-color: var(--accent-hover);
 }
 
+/* Grip dots */
 .eoc-resize-handle::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 2px;
-  height: 32px;
-  background: var(--text-secondary);
-  border-radius: 1px;
-  opacity: 0.5;
+  content: "⠿";  /* braille 6-dot = natural grip glyph */
+  color: rgba(220, 232, 242, 0.55);
+  font-size: 13px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.eoc-resize-handle:hover::after {
+  color: #fff;
 }
 
 /* Layout preset buttons in EOC header */
