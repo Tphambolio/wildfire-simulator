@@ -622,7 +622,7 @@ export default function MapView({
   }, []);
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+    <div style={{ width: "100%", height: "100%", position: "relative" }} className={ignitionMode && !drawingZone ? "map-pin-mode" : ""}>
       <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
       <LocationSearch onSelect={(lat, lng) => flyTo(lat, lng)} />
 
@@ -674,7 +674,7 @@ export default function MapView({
       {!readOnly && ignitionMode && !drawingZone && (
         <div className="mcp-placement-hint">
           <span className="mcp-placement-pin" aria-hidden="true">📍</span>
-          Drop pin on incident location
+          Drop pin on area
         </div>
       )}
       {!readOnly && drawingZone && (
