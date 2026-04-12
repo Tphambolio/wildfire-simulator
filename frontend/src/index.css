@@ -3157,6 +3157,19 @@ select {
   gap: 6px;
 }
 
+.eoc-form-action {
+  padding: 3px 10px;
+  font-size: 11px;
+  background: var(--surface-high);
+  color: var(--text-primary);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.eoc-form-action:hover { background: var(--surface-highest); }
+.eoc-form-action--reset { color: #f87171; border-color: #f87171; }
+.eoc-form-action--reset:hover { background: rgba(248,113,113,0.1); }
+
 .eoc-form-iframe {
   flex: 1;
   width: 100%;

@@ -125,6 +125,7 @@ export default function EOCConsole({
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const [selectedForm, setSelectedForm] = useState<ICSFormId>("ics201");
   const [formHtml, setFormHtml] = useState<string>("");
+  const [savedFormEdits, setSavedFormEdits] = useState<Partial<Record<ICSFormId, string>>>({});
   const [mapSnapshot, setMapSnapshot] = useState<string | undefined>(undefined);
   const consoleMapRef = useRef<maplibregl.Map | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -147,6 +148,17 @@ export default function EOCConsole({
   const textInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (pendingTextPos) textInputRef.current?.focus(); }, [pendingTextPos]);
+
+  // ── Listen for form edits posted back from the iframe ─────────────────────
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "aims-form-edit" && e.data.formId && e.data.html) {
+        setSavedFormEdits((prev) => ({ ...prev, [e.data.formId as ICSFormId]: e.data.html as string }));
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
   const getSvgCoords = useCallback((e: React.MouseEvent): { x: number; y: number } => {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -365,7 +377,13 @@ export default function EOCConsole({
 
   // ── Form rendering ────────────────────────────────────────────────────────
 
-  const renderForm = useCallback((formId: ICSFormId, snapshot?: string) => {
+  const renderForm = useCallback((formId: ICSFormId, snapshot?: string, forceRefresh = false) => {
+    // Use saved edits if the user has already edited this form this session
+    if (!forceRefresh && savedFormEdits[formId]) {
+      setFormHtml(savedFormEdits[formId]!);
+      setSelectedForm(formId);
+      return;
+    }
     const opts = buildFormOptions(snapshot);
     let html = "";
     if (formId === "ics201") html = buildICS201HTML(opts);
@@ -383,13 +401,19 @@ export default function EOCConsole({
     else if (formId === "full-iap") html = buildFullIAPHTML(opts);
     setFormHtml(html);
     setSelectedForm(formId);
-  }, [buildFormOptions]);
+  }, [buildFormOptions, savedFormEdits]);
 
   const handleFormSelect = useCallback(async (formId: ICSFormId) => {
     const snap = await captureMapSnapshot();
     setConsoleTab("iap");
     renderForm(formId, snap);
   }, [captureMapSnapshot, renderForm]);
+
+  const handleResetForm = useCallback(async () => {
+    setSavedFormEdits((prev) => { const n = { ...prev }; delete n[selectedForm]; return n; });
+    const snap = await captureMapSnapshot();
+    renderForm(selectedForm, snap, true);
+  }, [selectedForm, captureMapSnapshot, renderForm]);
 
   const handlePrintForm = useCallback(() => {
     iframeRef.current?.contentWindow?.print();
@@ -840,6 +864,9 @@ export default function EOCConsole({
                       <span className="eoc-form-viewer-name">{ICS_FORM_LABELS[selectedForm]}</span>
                       <button className="eoc-form-action" onClick={handlePrintForm} title="Print this form">🖨 Print</button>
                       <button className="eoc-form-action" onClick={handleOpenInNewWindow} title="Open in new window">↗ New window</button>
+                      {savedFormEdits[selectedForm] && (
+                        <button className="eoc-form-action eoc-form-action--reset" onClick={handleResetForm} title="Discard edits and regenerate from incident data">↺ Reset</button>
+                      )}
                     </div>
                     <iframe
                       ref={iframeRef}
