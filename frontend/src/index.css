@@ -4099,8 +4099,10 @@ select {
 /* ── Next Step Card ─────────────────────────────────────────── */
 
 .next-step-panel {
-  border-top: 2px solid rgba(149, 76, 233, 0.5);  /* purple accent — matches the phase-0 pill */
+  border-bottom: 1px solid var(--border);
   background: rgba(149, 76, 233, 0.05);
+  padding: 10px 14px 12px;
+  flex-shrink: 0;
 }
 
 .ns-phase-pill {
@@ -4112,6 +4114,12 @@ select {
   margin-bottom: 8px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.ns-phase-0 {
+  background: rgba(149, 76, 233, 0.18);
+  color: #ce93d8;
+  border: 1px solid rgba(149, 76, 233, 0.35);
 }
 
 .ns-phase-1 {
@@ -4189,6 +4197,14 @@ select {
   opacity: 0.55;
   padding: 2px 0;
   line-height: 1.4;
+}
+
+.ns-here-nudge {
+  margin-top: 6px;
+  font-size: 0.78em;
+  font-weight: 600;
+  color: var(--accent);
+  opacity: 0.85;
 }
 
 .ns-complete {

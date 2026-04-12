@@ -364,10 +364,12 @@ export default function SectionWorkspace({
         </span>
         <span className="sw-section-title">{meta.label}</span>
         <button className="btn-secondary sw-add-btn" onClick={() => startAdd()}>+ Add Person</button>
-        <button className="btn-secondary sw-add-btn" onClick={() => {
-          setEditingId("__new__");
-          setDraft({ id: crypto.randomUUID(), kind: "equipment", icsSection: section, name: "", agency: "", status: "available" });
-        }}>+ Equipment</button>
+        {section !== "command" && (
+          <button className="btn-secondary sw-add-btn" onClick={() => {
+            setEditingId("__new__");
+            setDraft({ id: crypto.randomUUID(), kind: "equipment", icsSection: section, name: "", agency: "", status: "available" });
+          }}>+ Equipment</button>
+        )}
       </div>
 
       {/* ── Add/edit form ────────────────────────────────────── */}
