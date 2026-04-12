@@ -871,6 +871,9 @@ export default function EOCConsole({
         {!isFormsHidden && (
           <div className="eoc-data-panels" style={{ flex: 1, minWidth: 0 }}>
 
+            {/* ── Persistent guidance strip ───────────────── */}
+            {nextStepCardSlot}
+
             {/* ── Setup tab ──────────────────────────────── */}
             {consoleTab === "setup" && (
               <div className="eoc-setup-tab">
@@ -913,7 +916,6 @@ export default function EOCConsole({
             )}
 
             {/* ── Situation tab ───────────────────────────── */}
-            {consoleTab === "situation" && nextStepCardSlot}
             {consoleTab === "situation" && !ics201CompletedAt && (
               <InitBriefingPanel
                 incidentName={incidentName}
