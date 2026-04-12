@@ -656,10 +656,6 @@ export default function EOCConsole({
           className="eoc-map-panel"
           style={{ width: isMapHidden ? "0" : isFormsHidden ? "100%" : `${mapWidthPct}%`, display: isMapHidden ? "none" : undefined }}
         >
-          {/* Pin-drop hint — shown before incident location is set */}
-          {!incidentLocation && (
-            <div className="eoc-map-pin-hint">📍 Click map to set incident location</div>
-          )}
           <MapView
             onMapClick={incidentLocation ? () => {} : (onMapPinDrop ?? (() => {}))}
             ignitionPoint={incidentLocation}
