@@ -489,7 +489,10 @@ export default function EOCConsole({
     )?.name ?? "",
     situationNarrative: activePeriod?.situationNarrative ?? "",
     jurisdiction: undefined as string | undefined,
-  }), [incidentName, incidentLocation, mapSnapshot, incidentAnnotations, activePeriod, hazardType, incidentComplexity, hazardZones, resources, agencies]);
+    // Overlay data for form auto-population (hospitals, EOC, power, water, communities)
+    overlayInfrastructure: overlayInfrastructure ?? null,
+    overlayCommunities: overlayCommunities ?? null,
+  }), [incidentName, incidentLocation, mapSnapshot, incidentAnnotations, activePeriod, hazardType, incidentComplexity, hazardZones, resources, agencies, overlayInfrastructure, overlayCommunities]);
 
   // ── Handle initial briefing completion ────────────────────────────────────
 
@@ -905,6 +908,8 @@ export default function EOCConsole({
                   onLayerLoad={onLayerLoad ?? (() => {})}
                   onLayerToggle={onLayerToggle ?? (() => {})}
                   onLayerClear={onLayerClear ?? (() => {})}
+                  incidentLocation={incidentLocation}
+                  hazardType={hazardType}
                 />
                 <HazardZonePanel
                   hazardType={hazardType ?? "other"}

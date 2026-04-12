@@ -51,6 +51,10 @@ export interface ICSFormOptions {
   jurisdiction?: string;
   /** True when this form is being rendered as part of a full IAP package (enables "attached" references) */
   isPartOfFullIAP?: boolean;
+  /** Infrastructure overlay — hospitals, EOC, power, water, etc. from Edmonton Open Data */
+  overlayInfrastructure?: GeoJSON.FeatureCollection | null;
+  /** Communities overlay — neighbourhood polygons */
+  overlayCommunities?: GeoJSON.FeatureCollection | null;
 }
 
 // ── Wind direction label ──────────────────────────────────────────────────────
@@ -257,6 +261,21 @@ export function buildICS201HTML(opts: ICSFormOptions): string {
     ? incidentInfoBlock(opts) + kvTable([["Jurisdiction / Authority", opts.jurisdiction]])
     : incidentInfoBlock(opts);
 
+  // Section H — overlay-based affected area summary
+  const infraFeatures = opts.overlayInfrastructure?.features ?? [];
+  const communityCount = opts.overlayCommunities?.features?.length ?? 0;
+  const critTypes = ["Power Generation", "Water Treatment", "Wastewater Treatment", "EOC", "Emergency Services", "Hospital"];
+  const critInfraNames = infraFeatures
+    .filter(f => critTypes.includes(f.properties?.type ?? ""))
+    .map(f => `${esc(f.properties?.name as string)} (${esc(f.properties?.type as string)})`);
+  const hasOverlay = infraFeatures.length > 0 || communityCount > 0;
+
+  const affectedAreaBlock = hasOverlay ? kvTable([
+    ["Communities loaded (map overlay)", communityCount > 0 ? `${communityCount} neighbourhoods` : "—"],
+    ["Critical infrastructure assets", infraFeatures.length > 0 ? `${infraFeatures.length} total — see ICS-208 for detail` : "—"],
+    ...(critInfraNames.length > 0 ? critInfraNames.slice(0, 6).map((n, i) => [`Asset ${i + 1}`, n] as [string, string]) : []),
+  ]) : `<p class="muted">Load Infrastructure and Communities overlays on the Map tab to auto-populate affected area data.</p>`;
+
   return wrapForm("ICS 201 – Incident Briefing", [
     icsBlock("A", "Incident Information", infoBlock),
     icsBlock("B", "Current Situation Summary", renderList(situationItems)),
@@ -277,6 +296,7 @@ export function buildICS201HTML(opts: ICSFormOptions): string {
       ["Air-to-Ground", "ATGS frequency — if aviation involved"],
       ["Public Information", "Municipal Emergency Alert System + media liaison"],
     ])),
+    icsBlock("H", "Affected Area — Infrastructure & Communities", affectedAreaBlock),
   ], opts, "landscape", "ics201");
 }
 
@@ -546,15 +566,27 @@ export function buildICS206HTML(opts: ICSFormOptions): string {
   const ambAnns = ann206.filter(a => a.symbolKey === "ambulance_staging");
   const pharmacyAnns = ann206.filter(a => a.symbolKey === "pharmacy");
 
+  // Auto-populate hospitals from infrastructure overlay layer if available
+  const infraHospitals = (opts.overlayInfrastructure?.features ?? [])
+    .filter(f => f.properties?.type === "Hospital")
+    .map(f => f.properties?.name as string);
+
   const hospitalTable = hospitalAnns.length > 0 ? `
 <table class="kv">
   <tr><th>Hospital</th><th>Phone</th><th>Address</th><th>Level</th></tr>
   ${hospitalAnns.map(a =>
     `<tr><td>${a.label}</td><td>${a.properties.phone ?? ""}</td><td>${a.properties.address ?? ""}</td><td>${a.properties.level ?? "—"}</td></tr>`
   ).join("")}
-</table>` : `<table class="kv">
+</table>` : infraHospitals.length > 0 ? `
+<table class="kv">
   <tr><th>Hospital</th><th>Phone</th><th>Address</th><th>Level</th></tr>
-  <tr><td>Use 📡 Fetch OSM to auto-populate</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  ${infraHospitals.map(name =>
+    `<tr><td>${esc(name)}</td><td contenteditable="true">—</td><td contenteditable="true">—</td><td contenteditable="true">—</td></tr>`
+  ).join("")}
+</table>
+<p class="muted" style="font-size:0.8em;margin-top:4px;">Auto-populated from Infrastructure Overlay. Edit phone/address before printing.</p>` : `<table class="kv">
+  <tr><th>Hospital</th><th>Phone</th><th>Address</th><th>Level</th></tr>
+  <tr><td>Use 📡 Fetch OSM or load Infrastructure overlay to auto-populate</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
 </table>`;
 
   const medevacTable = lzAnns.length > 0 ? `
@@ -718,18 +750,43 @@ export function buildICS208HTML(opts: ICSFormOptions): string {
     ? zones.map((z) => `<tr><td>${esc(z.name)}</td><td contenteditable="true">—</td><td contenteditable="true">—</td></tr>`).join("")
     : `<tr><td colspan="3" class="muted">No hazard zones defined</td></tr>`;
 
+  // Pull nearest hospital from infrastructure overlay for EAP
+  const infraFeatures = opts.overlayInfrastructure?.features ?? [];
+  const nearestHospital = (infraFeatures.find(f => f.properties?.type === "Hospital")?.properties?.name as string | undefined) ?? "";
+
+  // Critical infrastructure at risk section from overlay
+  const CRITICAL_TYPES = ["Power Generation", "Water Treatment", "Wastewater Treatment", "EOC", "Emergency Services", "Hospital"];
+  const critInfra = infraFeatures.filter(f => CRITICAL_TYPES.includes(f.properties?.type ?? ""));
+  const critInfraBlock = critInfra.length > 0 ? `
+<table class="kv">
+  <tr><th>Asset</th><th>Type</th><th>Impact if Affected</th></tr>
+  ${critInfra.map(f => {
+    const type = f.properties?.type as string;
+    const impact = type === "Power Generation" ? "Loss of grid power to affected sectors"
+      : type === "Water Treatment" ? "Loss of potable water supply"
+      : type === "Wastewater Treatment" ? "Sewage backup / environmental hazard"
+      : type === "EOC" ? "Command and coordination disruption"
+      : type === "Emergency Services" ? "Reduced emergency response capacity"
+      : type === "Hospital" ? "Loss of medical receiving capacity"
+      : "Assess and report";
+    return `<tr><td>${esc(f.properties?.name as string)}</td><td>${esc(type)}</td><td>${esc(impact)}</td></tr>`;
+  }).join("")}
+</table>
+<p class="muted" style="font-size:0.8em;margin-top:4px;">Auto-populated from Infrastructure Overlay. Notify Logistics and Planning if any asset is threatened.</p>` : `<p class="muted">Load Infrastructure overlay on the Map tab to auto-populate critical assets.</p>`;
+
   return wrapForm("ICS 208 – Safety Message / Plan", [
     icsBlock("1", "Incident Information", incidentInfoBlock(opts)),
     icsBlock("2", "Hazard-Specific Safety Concerns", `<p><strong>Hazard type: ${esc(hazardKey.replace("_", " ").toUpperCase())}</strong></p>${concernsList}`),
     icsBlock("3", "PPE Requirements", ppeList),
     icsBlock("4", "Medical Monitoring Plan", medicalList),
     icsBlock("5", "Hazard Zone Safety by Zone", `<table class="kv"><tr><th>Zone</th><th>Entry Restrictions</th><th>Emergency Action</th></tr>${zoneRows}</table>`),
-    icsBlock("6", "Emergency Action Plan (EAP)", `<table class="kv">${[
+    icsBlock("6", "Critical Infrastructure — Situational Awareness", critInfraBlock),
+    icsBlock("7", "Emergency Action Plan (EAP)", `<table class="kv">${[
       ["Emergency signal / evacuation tone", "Air horn: 3 blasts"],
       ["Emergency rally point", ""],
-      ["Nearest medical facility", ""],
-      ["Emergency contact (Incident Safety Officer)", ""],
-      ["Emergency contact (Incident Commander)", ""],
+      ["Nearest medical facility", nearestHospital],
+      ["Emergency contact (Incident Safety Officer)", (opts.resources ?? []).find(r => r.icsPosition === "Safety Officer")?.name ?? ""],
+      ["Emergency contact (Incident Commander)", opts.incidentCommanderName ?? ""],
     ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table>`),
   ], opts, "portrait", "ics208");
 }
