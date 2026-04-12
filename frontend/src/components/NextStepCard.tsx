@@ -6,7 +6,7 @@ import type { ConsoleTab } from "./EOCConsole";
 
 interface NextStepCardProps {
   incident: IncidentSession;
-  onNavigate: (tab: "map" | "eoc", eocTab?: ConsoleTab) => void;
+  onNavigate: (eocTab: ConsoleTab) => void;
 }
 
 interface ICSStep {
@@ -162,7 +162,7 @@ export default function NextStepCard({ incident, onNavigate }: NextStepCardProps
               <div className="ns-complete-check">✓ All sections staffed · Ready for IAP</div>
               <button
                 className="ns-step-btn"
-                onClick={() => onNavigate("eoc", "iap")}
+                onClick={() => onNavigate("iap")}
               >
                 → Open IAP
               </button>
@@ -174,7 +174,7 @@ export default function NextStepCard({ incident, onNavigate }: NextStepCardProps
                 <div className="ns-step-hint">{currentStep.hint}</div>
                 <button
                   className="ns-step-btn"
-                  onClick={() => onNavigate("eoc", currentStep.eocTab)}
+                  onClick={() => onNavigate(currentStep.eocTab)}
                 >
                   → Open {currentStep.eocTab.charAt(0).toUpperCase() + currentStep.eocTab.slice(1)}
                 </button>

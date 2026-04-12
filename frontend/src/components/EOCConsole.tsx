@@ -7,11 +7,16 @@
  */
 
 import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import type { ReactNode } from "react";
 import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
 import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
 import SectionWorkspace from "./SectionWorkspace";
 import InitBriefingPanel, { type BriefingData } from "./InitBriefingPanel";
+import IncidentSetupPanel from "./IncidentSetupPanel";
+import HazardZonePanel from "./HazardZonePanel";
+import OverlayPanel from "./OverlayPanel";
+import type { LayerType } from "./OverlayPanel";
 import {
   buildICS201HTML,
   buildICS202HTML,
@@ -27,7 +32,7 @@ import {
   buildICS215aHTML,
   buildFullIAPHTML,
 } from "../utils/icsForms";
-import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation, HazardType, HazardZone, IncidentResource, IncidentAgency, OperationalPeriod } from "../types/incident";
+import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation, HazardType, HazardZone, IncidentResource, IncidentAgency, OperationalPeriod, WeatherParams } from "../types/incident";
 import { SYMBOL_DEFS } from "../types/incident";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -48,8 +53,25 @@ interface EOCConsoleProps {
   incidentName?: string;
   onIncidentNameChange?: (name: string) => void;
   hazardType?: HazardType;
+  onHazardTypeChange?: (h: HazardType) => void;
   incidentComplexity?: 1 | 2 | 3 | 4 | 5;
+  onComplexityChange?: (c: 1 | 2 | 3 | 4 | 5) => void;
+  weather?: WeatherParams;
+  onWeatherChange?: (w: WeatherParams) => void;
   hazardZones?: HazardZone[];
+  drawingZone?: boolean;
+  drawingZonePoints?: [number, number][];
+  onZonePoint?: (lng: number, lat: number) => void;
+  onZoneClose?: () => void;
+  onHazardZoneDrawStart?: (name: string, color: string) => void;
+  onHazardZoneDrawCancel?: () => void;
+  onRemoveHazardZone?: (id: string) => void;
+  onClearHazardZones?: () => void;
+  onLayerLoad?: (type: LayerType, data: GeoJSON.FeatureCollection) => void;
+  onLayerToggle?: (type: LayerType, visible: boolean) => void;
+  onLayerClear?: (type: LayerType) => void;
+  /** Called when user clicks the map before an incident location is set */
+  onMapPinDrop?: (lat: number, lng: number) => void;
   resources?: IncidentResource[];
   agencies?: IncidentAgency[];
   activePeriod?: OperationalPeriod;
@@ -60,9 +82,14 @@ interface EOCConsoleProps {
   /** Undefined = briefing not yet done; set = ISO timestamp of completion */
   ics201CompletedAt?: string;
   onBriefingComplete?: (data: BriefingData) => void;
+  /** Sidebar-replacement slots — rendered inside EOC header / situation tab */
+  incidentPanelSlot?: ReactNode;
+  syncPanelSlot?: ReactNode;
+  nextStepCardSlot?: ReactNode;
+  teamSummarySlot?: ReactNode;
 }
 
-export type ConsoleTab = "situation" | "command" | "operations" | "planning" | "logistics" | "finance" | "iap" | "map";
+export type ConsoleTab = "setup" | "layers" | "situation" | "command" | "operations" | "planning" | "logistics" | "finance" | "iap";
 
 export type ICSFormId =
   | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics206"
@@ -101,8 +128,24 @@ export default function EOCConsole({
   incidentName: incidentNameProp,
   onIncidentNameChange,
   hazardType,
-  incidentComplexity,
-  hazardZones,
+  onHazardTypeChange,
+  incidentComplexity = 5,
+  onComplexityChange,
+  weather,
+  onWeatherChange,
+  hazardZones = [],
+  drawingZone = false,
+  drawingZonePoints = [],
+  onZonePoint,
+  onZoneClose,
+  onHazardZoneDrawStart,
+  onHazardZoneDrawCancel,
+  onRemoveHazardZone,
+  onClearHazardZones,
+  onLayerLoad,
+  onLayerToggle,
+  onLayerClear,
+  onMapPinDrop,
   resources,
   agencies,
   activePeriod,
@@ -112,6 +155,10 @@ export default function EOCConsole({
   onConsoleTabChange,
   ics201CompletedAt,
   onBriefingComplete,
+  incidentPanelSlot,
+  syncPanelSlot,
+  nextStepCardSlot,
+  teamSummarySlot,
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTabState] = useState<ConsoleTab>(initialConsoleTab ?? "situation");
   const setConsoleTab = useCallback((tab: ConsoleTab) => {
@@ -541,6 +588,14 @@ export default function EOCConsole({
           )}
         </div>
         <div className="eoc-header-right">
+          {syncPanelSlot}
+          {/* Incidents dropdown */}
+          {incidentPanelSlot && (
+            <details className="eoc-incidents-menu">
+              <summary className="eoc-action-btn" title="Switch / manage incidents">☰ Incidents</summary>
+              <div className="eoc-incidents-dropdown">{incidentPanelSlot}</div>
+            </details>
+          )}
           {/* Layout presets */}
           <div className="eoc-layout-btns" title="Adjust map/forms split">
             <button
@@ -574,19 +629,21 @@ export default function EOCConsole({
 
       {/* ── Sub-tabs ───────────────────────────────────────────────── */}
       <div className="eoc-subtabs">
-        {(["situation", "command", "operations", "planning", "logistics", "finance", ...(ics201CompletedAt ? ["iap"] : [])] as ConsoleTab[]).map((tab) => (
+        {(["setup", "layers", "situation", "command", "operations", "planning", "logistics", "finance", ...(ics201CompletedAt ? ["iap"] : [])] as ConsoleTab[]).map((tab) => (
           <button
             key={tab}
             className={`eoc-subtab${consoleTab === tab ? " active" : ""}`}
             onClick={() => setConsoleTab(tab)}
           >
-            {tab === "situation" ? "Situation"
-              : tab === "command" ? "Command"
+            {tab === "setup" ? "Setup"
+              : tab === "layers" ? "Layers"
+              : tab === "situation" ? "Situation"
+              : tab === "command" ? "Cmd"
               : tab === "operations" ? "Ops"
               : tab === "planning" ? "Plans"
               : tab === "logistics" ? "Logs"
               : tab === "finance" ? "Finance"
-              : "IAP Forms"}
+              : "IAP"}
           </button>
         ))}
       </div>
@@ -594,13 +651,17 @@ export default function EOCConsole({
       {/* ── Main body ─────────────────────────────────────────────── */}
       <div className="eoc-body" ref={bodyRef}>
 
-        {/* Left: read-only map + markup overlay */}
+        {/* Left: map panel — handles initial pin-drop, zone drawing, and read-only annotations */}
         <div
           className="eoc-map-panel"
           style={{ width: isMapHidden ? "0" : isFormsHidden ? "100%" : `${mapWidthPct}%`, display: isMapHidden ? "none" : undefined }}
         >
+          {/* Pin-drop hint — shown before incident location is set */}
+          {!incidentLocation && (
+            <div className="eoc-map-pin-hint">📍 Click map to set incident location</div>
+          )}
           <MapView
-            onMapClick={() => {}}
+            onMapClick={incidentLocation ? () => {} : (onMapPinDrop ?? (() => {}))}
             ignitionPoint={incidentLocation}
             overlayRoads={overlayRoads}
             overlayRoadsVisible={overlayRoadsVisible}
@@ -608,7 +669,12 @@ export default function EOCConsole({
             overlayCommunitiesVisible={overlayCommunitiesVisible}
             overlayInfrastructure={overlayInfrastructure}
             overlayInfrastructureVisible={overlayInfrastructureVisible}
-            readOnly
+            hazardZones={hazardZones}
+            drawingZone={drawingZone}
+            drawingZonePoints={drawingZonePoints}
+            onZonePoint={onZonePoint}
+            onZoneClose={onZoneClose}
+            readOnly={!drawingZone && !!incidentLocation}
             mapRefCallback={handleMapRefCallback}
           />
 
@@ -805,7 +871,49 @@ export default function EOCConsole({
         {!isFormsHidden && (
           <div className="eoc-data-panels" style={{ flex: 1, minWidth: 0 }}>
 
+            {/* ── Setup tab ──────────────────────────────── */}
+            {consoleTab === "setup" && (
+              <div className="eoc-setup-tab">
+                <IncidentSetupPanel
+                  hazardType={hazardType ?? "other"}
+                  onHazardTypeChange={onHazardTypeChange ?? (() => {})}
+                  incidentComplexity={incidentComplexity}
+                  onComplexityChange={onComplexityChange ?? (() => {})}
+                  weather={weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
+                  onWeatherChange={onWeatherChange ?? (() => {})}
+                  incidentLocation={incidentLocation}
+                  onFetchFacilities={onFetchFacilities}
+                />
+                <HazardZonePanel
+                  hazardType={hazardType ?? "other"}
+                  zones={hazardZones}
+                  isDrawing={drawingZone}
+                  drawingPoints={drawingZonePoints}
+                  onDrawStart={onHazardZoneDrawStart ?? (() => {})}
+                  onDrawCancel={onHazardZoneDrawCancel ?? (() => {})}
+                  onDrawClose={onZoneClose ?? (() => {})}
+                  onRemoveZone={onRemoveHazardZone ?? (() => {})}
+                  onClearAll={onClearHazardZones ?? (() => {})}
+                />
+              </div>
+            )}
+
+            {/* ── Layers tab ─────────────────────────────── */}
+            {consoleTab === "layers" && (
+              <OverlayPanel
+                layers={{
+                  roads: { data: overlayRoads ?? null, visible: overlayRoadsVisible ?? true },
+                  communities: { data: overlayCommunities ?? null, visible: overlayCommunitiesVisible ?? true },
+                  infrastructure: { data: overlayInfrastructure ?? null, visible: overlayInfrastructureVisible ?? true },
+                }}
+                onLayerLoad={onLayerLoad ?? (() => {})}
+                onLayerToggle={onLayerToggle ?? (() => {})}
+                onLayerClear={onLayerClear ?? (() => {})}
+              />
+            )}
+
             {/* ── Situation tab ───────────────────────────── */}
+            {consoleTab === "situation" && nextStepCardSlot}
             {consoleTab === "situation" && !ics201CompletedAt && (
               <InitBriefingPanel
                 incidentName={incidentName}
@@ -863,6 +971,7 @@ export default function EOCConsole({
                     </div>
                   ))}
                 </div>
+                {teamSummarySlot}
               </div>
             )}
 

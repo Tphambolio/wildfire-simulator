@@ -1,14 +1,10 @@
 /** AIMS Console — All-Hazards Incident Management System */
 
 import { useCallback, useState, useEffect, useRef } from "react";
-import MapView from "./components/MapView";
-import OverlayPanel from "./components/OverlayPanel";
 import type { OverlayLayers, LayerType } from "./components/OverlayPanel";
 import EOCConsole from "./components/EOCConsole";
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IncidentPanel from "./components/IncidentPanel";
-import IncidentSetupPanel from "./components/IncidentSetupPanel";
-import HazardZonePanel from "./components/HazardZonePanel";
 import TeamSummaryPanel from "./components/TeamSummaryPanel";
 import NextStepCard from "./components/NextStepCard";
 import { useIncident } from "./hooks/useIncident";
@@ -68,107 +64,6 @@ function SyncPanel({ shareCode, onShare }: SyncPanelProps) {
 }
 
 // ── Sidebar: no active incident ──────────────────────────────────────────────
-
-interface NoIncidentPanelProps {
-  incidents: import("./types/incident").IncidentSession[];
-  onCreate: (name: string) => void;
-  onLoad: (id: string) => void;
-  onImport: (file: File) => Promise<import("./types/incident").IncidentSession>;
-}
-
-function NoIncidentPanel({ incidents, onCreate, onLoad, onImport }: NoIncidentPanelProps) {
-  const [mode, setMode] = useState<"idle" | "new" | "open">("idle");
-  const [name, setName] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleCreate = () => {
-    const n = name.trim();
-    if (!n) return;
-    onCreate(n);
-    setName("");
-    setMode("idle");
-  };
-
-  return (
-    <div className="no-incident-panel">
-      {mode === "idle" && (
-        <div className="no-incident-actions">
-          <button className="no-incident-btn no-incident-btn--primary" onClick={() => setMode("new")}>
-            + New Incident
-          </button>
-          {incidents.length > 0 && (
-            <button className="no-incident-btn no-incident-btn--secondary" onClick={() => setMode("open")}>
-              Open Incident
-            </button>
-          )}
-          <button
-            className="no-incident-btn no-incident-btn--ghost"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Import JSON
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            style={{ display: "none" }}
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (file) { await onImport(file).catch(() => {}); }
-              e.target.value = "";
-            }}
-          />
-        </div>
-      )}
-
-      {mode === "new" && (
-        <div className="no-incident-form">
-          <label className="no-incident-label">Incident name</label>
-          <input
-            className="no-incident-input"
-            type="text"
-            placeholder="e.g. River Valley Flood 2026"
-            value={name}
-            autoFocus
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-            maxLength={60}
-          />
-          <div className="no-incident-form-actions">
-            <button className="no-incident-btn no-incident-btn--primary" onClick={handleCreate} disabled={!name.trim()}>
-              Start
-            </button>
-            <button className="no-incident-btn no-incident-btn--ghost" onClick={() => { setMode("idle"); setName(""); }}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {mode === "open" && (
-        <div className="no-incident-list">
-          <div className="no-incident-list-header">
-            <span>Recent Incidents</span>
-            <button className="no-incident-btn no-incident-btn--ghost" style={{ padding: "2px 8px", fontSize: "0.8em" }} onClick={() => setMode("idle")}>✕</button>
-          </div>
-          {incidents.map((inc) => (
-            <button
-              key={inc.id}
-              className="no-incident-list-item"
-              onClick={() => { onLoad(inc.id); setMode("idle"); }}
-            >
-              <span className="no-incident-list-name">{inc.name}</span>
-              <span className="no-incident-list-meta">
-                {inc.operationalPeriods.length} day{inc.operationalPeriods.length !== 1 ? "s" : ""}
-                {" · "}{inc.status === "active" ? "active" : "closed"}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── EOC start screen — shown when no incident is active ──────────────────────
 
@@ -260,7 +155,7 @@ function EocStartScreen({ incidents, onCreate, onLoad, onImport }: EocStartScree
               maxLength={60}
             />
             <button className="eoc-start-btn" onClick={submit} disabled={!name.trim()}>
-              Set Location on Map →
+              Start Incident →
             </button>
             <button className="eoc-start-import-btn" onClick={() => { setMode("choose"); setName(""); }}>
               ← Back
@@ -283,19 +178,7 @@ const DEFAULT_OVERLAY_LAYERS: OverlayLayers = {
 export default function App() {
   const [incidentLocation, setIncidentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [overlayLayers, setOverlayLayers] = useState<OverlayLayers>(DEFAULT_OVERLAY_LAYERS);
-  const [activeTab, setActiveTab] = useState<"map" | "eoc">("eoc");
-  const [eocConsoleTab, setEocConsoleTab] = useState<ConsoleTab>("situation");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const handleOpenSection = useCallback((section: "command" | "operations" | "planning" | "logistics" | "finance") => {
-    setActiveTab("eoc");
-    setEocConsoleTab(section);
-  }, []);
-
-  const handleNavigate = useCallback((tab: "map" | "eoc", eocTab?: ConsoleTab) => {
-    setActiveTab(tab);
-    if (eocTab) setEocConsoleTab(eocTab);
-  }, []);
+  const [eocConsoleTab, setEocConsoleTab] = useState<ConsoleTab>("setup");
 
   // Zone drawing state
   const [drawingZone, setDrawingZone] = useState(false);
@@ -378,16 +261,7 @@ export default function App() {
   }, []);
 
   const handleMapClick = useCallback((lat: number, lng: number) => {
-    const isFirstLocation = !incidentLocation;
     setIncidentLocation({ lat, lng });
-    // Auto-advance to EOC Console the first time a location is set
-    if (isFirstLocation) {
-      setActiveTab("eoc");
-    }
-  }, [incidentLocation]);
-
-  const handleClearLocation = useCallback(() => {
-    setIncidentLocation(null);
   }, []);
 
   const handleZoneDrawStart = useCallback((name: string, color: string) => {
@@ -424,230 +298,105 @@ export default function App() {
   }, []);
 
   return (
-    <div className={`app${!incident ? " app--no-sidebar" : ""}`}>
-      {/* ── Sidebar backdrop — tap outside to close on mobile ── */}
-      {sidebarOpen && (
-        <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* ── Fixed sidebar ───────────────────────────────────── */}
-      <aside className={`sidebar${sidebarOpen ? " sidebar--open" : ""}`} style={!incident ? { display: "none" } : {}}>
-        {/* Mobile close button — only visible when drawer is open */}
-        <button
-          className="sidebar-close-btn"
-          onClick={() => setSidebarOpen(false)}
-          aria-label="Close sidebar"
-        >
-          ✕
-        </button>
-        <div className="sidebar-brand">
-          <h1>AIMS CONSOLE</h1>
-          <span className="sidebar-subtitle">All-Hazards Incident Management</span>
-        </div>
-        {incident && (
-          <SyncPanel
-            shareCode={incident.shareCode}
-            onShare={shareIncident}
-          />
-        )}
-        <div className="sidebar-content">
-          {!incident ? (
-            <NoIncidentPanel
-              incidents={incidents}
-              onCreate={createIncident}
-              onLoad={loadIncident}
-              onImport={importIncident}
-            />
-          ) : (
-            <>
-              {/* ── Always visible: incident switcher ── */}
-              <IncidentPanel
-                incidents={incidents}
-                activeIncidentId={activeIncidentId}
-                onCreate={createIncident}
-                onLoad={loadIncident}
-                onClose={closeIncident}
-                onDelete={deleteIncident}
-                onExport={exportIncident}
-                onImport={importIncident}
-              />
-
-              {/* ── Phase 0: No location yet ─────────────────────────── */}
-              {!incidentLocation && (
-                <div className="sidebar-phase-hint">
-                  <div className="sidebar-phase-icon">📍</div>
-                  <p className="sidebar-phase-text">
-                    Click the map to drop the incident pin. This sets your operating area and unlocks the EOC Console.
-                  </p>
-                </div>
-              )}
-
-              {/* ── NextStepCard: pinned near the top so it's always
-                  visible as the primary guide, above setup details.
-              ─────────────────────────────────────────────────────── */}
-              {incidentLocation && (
-                <NextStepCard incident={incident} onNavigate={handleNavigate} />
-              )}
-
-              {/* ── Phase 1+: Incident setup below the guide card ─────── */}
-              {incidentLocation && (
-                <IncidentSetupPanel
-                  hazardType={incident.hazardType}
-                  onHazardTypeChange={(h: HazardType) => updateIncidentField("hazardType", h)}
-                  incidentComplexity={incident.incidentComplexity}
-                  onComplexityChange={(c) => updateIncidentField("incidentComplexity", c)}
-                  weather={activePeriod?.weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
-                  onWeatherChange={(w) => updatePeriodField("weather", w)}
-                  incidentLocation={incidentLocation}
-                  onFetchFacilities={incidentLocation
-                    ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
-                    : undefined}
-                />
-              )}
-
-              {/* ── Phase 2: Briefing done — unlock advanced tools ────
-                  Overlay layers, hazard zones, and team summary only
-                  appear once the ICS-201 initial briefing is complete.
-              ─────────────────────────────────────────────────────── */}
-              {incident.ics201CompletedAt && (
-                <>
-                  <OverlayPanel
-                    layers={overlayLayers}
-                    onLayerLoad={handleOverlayLoad}
-                    onLayerToggle={handleOverlayToggle}
-                    onLayerClear={handleOverlayClear}
-                  />
-                  <HazardZonePanel
-                    hazardType={incident.hazardType}
-                    zones={activePeriod?.hazardZones ?? []}
-                    isDrawing={drawingZone}
-                    drawingPoints={drawingZonePoints}
-                    onDrawStart={handleZoneDrawStart}
-                    onDrawCancel={handleZoneCancel}
-                    onDrawClose={handleZoneClose}
-                    onRemoveZone={removeHazardZone}
-                    onClearAll={clearHazardZones}
-                  />
-                  <TeamSummaryPanel
-                    resources={incident.resources ?? []}
-                    agencies={incident.agencies ?? []}
-                    onOpenSection={handleOpenSection}
-                  />
-                </>
-              )}
-            </>
-          )}
-        </div>
-        <footer className="sidebar-footer">
-          <button className="sidebar-footer-btn">⚙ Settings</button>
-          <button className="sidebar-footer-btn">? Support</button>
-        </footer>
-      </aside>
-
-      {/* ── Fixed top bar — only shown when an incident is active ── */}
-      {incident && (
-        <header className="top-bar">
-          <div className="top-bar-left">
-            {/* Hamburger only shown after location is set */}
-            {incidentLocation && (
-              <button className="mobile-menu-btn" onClick={() => setSidebarOpen(v => !v)} aria-label="Toggle sidebar">
-                ☰
-              </button>
-            )}
-            <span className="top-bar-title">AIMS Console</span>
-            <nav className="top-bar-nav">
-              <button
-                className={`nav-link${activeTab === "map" ? " active" : ""}`}
-                onClick={() => setActiveTab("map")}
-              >
-                Map
-              </button>
-              <button
-                className={`nav-link${activeTab === "eoc" ? " active" : ""}${!incidentLocation ? " nav-link--locked" : ""}`}
-                onClick={() => incidentLocation ? setActiveTab("eoc") : undefined}
-                title={!incidentLocation ? "Set incident location on the map first" : undefined}
-              >
-                <span className="nav-label-full">EOC Console</span>
-                <span className="nav-label-short">EOC</span>
-                {!incidentLocation && <span className="nav-lock-icon">🔒</span>}
-              </button>
-            </nav>
-          </div>
-        </header>
-      )}
-
-      {/* ── EOC Console tab ─────── */}
-      {activeTab === "eoc" && !incident && (
-        <div className="eoc-tab-wrapper">
+    <div className="app">
+      <div className="eoc-tab-wrapper">
+        {!incident ? (
           <EocStartScreen
             incidents={incidents}
-            onCreate={(name) => { createIncident(name); setActiveTab("map"); }}
-            onLoad={(id) => { loadIncident(id); setActiveTab("eoc"); }}
+            onCreate={createIncident}
+            onLoad={loadIncident}
             onImport={importIncident}
           />
-        </div>
-      )}
-      {activeTab === "eoc" && incident && (
-        <div className="eoc-tab-wrapper">
-          <OperationalPeriodPanel
-            incident={incident}
-            activePeriod={activePeriod}
-            onPeriodSelect={setActivePeriodIndex}
-            onAdvancePeriod={advancePeriod}
-            onUpdateName={(name) => updateIncidentField("name", name)}
-          />
-          <EOCConsole
-            incidentLocation={incidentLocation}
-            overlayRoads={overlayLayers.roads.data}
-            overlayRoadsVisible={overlayLayers.roads.visible}
-            overlayCommunities={overlayLayers.communities.data}
-            overlayCommunitiesVisible={overlayLayers.communities.visible}
-            overlayInfrastructure={overlayLayers.infrastructure.data}
-            overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
-            incidentAnnotations={activePeriod?.annotations ?? []}
-            onAddAnnotation={addAnnotation}
-            onRemoveAnnotation={removeAnnotation}
-            onClearLayer={clearLayerAnnotations}
-            onFetchFacilities={incidentLocation
-              ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
-              : undefined}
-            incidentName={incident?.name}
-            onIncidentNameChange={(name) => updateIncidentField("name", name)}
-            hazardType={incident?.hazardType}
-            incidentComplexity={incident?.incidentComplexity}
-            hazardZones={activePeriod?.hazardZones}
-            resources={incident?.resources}
-            agencies={incident?.agencies}
-            activePeriod={activePeriod ?? undefined}
-            onResourcesChange={(r) => updateIncidentField("resources", r)}
-            onAgenciesChange={(a) => updateIncidentField("agencies", a)}
-            initialConsoleTab={eocConsoleTab}
-            onConsoleTabChange={setEocConsoleTab}
-            ics201CompletedAt={incident?.ics201CompletedAt}
-            onBriefingComplete={handleBriefingComplete}
-          />
-        </div>
-      )}
-
-      {/* ── Map area — always mounted so MapLibre doesn't reinitialize on tab switch ─── */}
-      <main className="map-area" style={activeTab === "eoc" ? { display: "none" } : {}}>
-        <MapView
-          onMapClick={handleMapClick}
-          onClearIgnition={handleClearLocation}
-          ignitionPoint={incidentLocation}
-          overlayRoads={overlayLayers.roads.data}
-          overlayRoadsVisible={overlayLayers.roads.visible}
-          overlayCommunities={overlayLayers.communities.data}
-          overlayCommunitiesVisible={overlayLayers.communities.visible}
-          overlayInfrastructure={overlayLayers.infrastructure.data}
-          overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
-          hazardZones={activePeriod?.hazardZones ?? []}
-          drawingZone={drawingZone}
-          drawingZonePoints={drawingZonePoints}
-          onZonePoint={handleZonePoint}
-          onZoneClose={handleZoneClose}
-        />
-      </main>
+        ) : (
+          <>
+            <OperationalPeriodPanel
+              incident={incident}
+              activePeriod={activePeriod}
+              onPeriodSelect={setActivePeriodIndex}
+              onAdvancePeriod={advancePeriod}
+              onUpdateName={(name) => updateIncidentField("name", name)}
+            />
+            <EOCConsole
+              incidentLocation={incidentLocation}
+              overlayRoads={overlayLayers.roads.data}
+              overlayRoadsVisible={overlayLayers.roads.visible}
+              overlayCommunities={overlayLayers.communities.data}
+              overlayCommunitiesVisible={overlayLayers.communities.visible}
+              overlayInfrastructure={overlayLayers.infrastructure.data}
+              overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
+              incidentAnnotations={activePeriod?.annotations ?? []}
+              onAddAnnotation={addAnnotation}
+              onRemoveAnnotation={removeAnnotation}
+              onClearLayer={clearLayerAnnotations}
+              onFetchFacilities={incidentLocation
+                ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
+                : undefined}
+              incidentName={incident.name}
+              onIncidentNameChange={(name) => updateIncidentField("name", name)}
+              hazardType={incident.hazardType}
+              onHazardTypeChange={(h: HazardType) => updateIncidentField("hazardType", h)}
+              incidentComplexity={incident.incidentComplexity}
+              onComplexityChange={(c) => updateIncidentField("incidentComplexity", c)}
+              weather={activePeriod?.weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
+              onWeatherChange={(w) => updatePeriodField("weather", w)}
+              hazardZones={activePeriod?.hazardZones ?? []}
+              drawingZone={drawingZone}
+              drawingZonePoints={drawingZonePoints}
+              onZonePoint={handleZonePoint}
+              onZoneClose={handleZoneClose}
+              onHazardZoneDrawStart={handleZoneDrawStart}
+              onHazardZoneDrawCancel={handleZoneCancel}
+              onRemoveHazardZone={removeHazardZone}
+              onClearHazardZones={clearHazardZones}
+              onLayerLoad={handleOverlayLoad}
+              onLayerToggle={handleOverlayToggle}
+              onLayerClear={handleOverlayClear}
+              onMapPinDrop={handleMapClick}
+              resources={incident.resources}
+              agencies={incident.agencies}
+              activePeriod={activePeriod ?? undefined}
+              onResourcesChange={(r) => updateIncidentField("resources", r)}
+              onAgenciesChange={(a) => updateIncidentField("agencies", a)}
+              initialConsoleTab={eocConsoleTab}
+              onConsoleTabChange={setEocConsoleTab}
+              ics201CompletedAt={incident.ics201CompletedAt}
+              onBriefingComplete={handleBriefingComplete}
+              incidentPanelSlot={
+                <IncidentPanel
+                  incidents={incidents}
+                  activeIncidentId={activeIncidentId}
+                  onCreate={createIncident}
+                  onLoad={loadIncident}
+                  onClose={closeIncident}
+                  onDelete={deleteIncident}
+                  onExport={exportIncident}
+                  onImport={importIncident}
+                />
+              }
+              syncPanelSlot={
+                <SyncPanel
+                  shareCode={incident.shareCode}
+                  onShare={shareIncident}
+                />
+              }
+              nextStepCardSlot={
+                incidentLocation
+                  ? <NextStepCard incident={incident} onNavigate={setEocConsoleTab} />
+                  : null
+              }
+              teamSummarySlot={
+                incident.ics201CompletedAt
+                  ? <TeamSummaryPanel
+                      resources={incident.resources ?? []}
+                      agencies={incident.agencies ?? []}
+                      onOpenSection={setEocConsoleTab}
+                    />
+                  : null
+              }
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }
