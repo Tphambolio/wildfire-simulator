@@ -132,8 +132,6 @@ export default function IncidentPanel({
               {incidents.map((inc) => {
                 const isActive = inc.id === activeIncidentId;
                 const dayCount = inc.operationalPeriods.length;
-                const lastPeriod = inc.operationalPeriods[inc.operationalPeriods.length - 1];
-                const totalHa = lastPeriod?.frameSummaries.at(-1)?.areaHa;
                 return (
                   <div key={inc.id} className={`scenario-item${isActive ? " incident-item--active" : ""}`}>
                     <div className="scenario-item-header">
@@ -144,7 +142,6 @@ export default function IncidentPanel({
                     </div>
                     <div className="scenario-item-meta">
                       {dayCount} day{dayCount !== 1 ? "s" : ""}
-                      {totalHa != null && <> · {totalHa.toFixed(1)} ha</>}
                       {" · "}{formatDate(inc.updatedAt)}
                     </div>
                     <div className="scenario-item-actions">

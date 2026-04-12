@@ -1,6 +1,14 @@
 /** Incident session types for multi-day operational period tracking. */
 
-import type { WeatherParams, FWIOverrides } from "./simulation";
+// ── Weather (standalone — no longer depends on simulation types) ──────────────
+
+export interface WeatherParams {
+  wind_speed: number;
+  wind_direction: number;
+  temperature: number;
+  relative_humidity: number;
+  precipitation_24h: number;
+}
 
 // ── Annotation layer identifiers (distinct from ICS viewer form IDs) ──────────
 
@@ -31,7 +39,16 @@ export type ICSSymbolKey =
   // Universal drawing tools — available on every layer
   | "generic_point" | "freehand_path" | "text_label"
   // OSM-sourced community assets
-  | "pharmacy" | "fire_station" | "assembly_point" | "fuel_station" | "police_station";
+  | "pharmacy" | "fire_station" | "assembly_point" | "fuel_station" | "police_station"
+  // ── Flood symbols ──
+  | "flood_barrier" | "pumping_station" | "high_ground" | "water_level_gauge"
+  // ── HAZMAT symbols ──
+  | "hot_zone_marker" | "decon_station" | "wind_indicator" | "shelter_in_place"
+  // ── Mass Casualty symbols ──
+  | "triage_immediate" | "triage_delayed" | "triage_minor" | "triage_expectant"
+  | "casualty_collection" | "family_reunification" | "morgue_site"
+  // ── Wildfire/Smoke symbols ──
+  | "air_quality_monitor" | "smoke_shelter" | "resource_staging" | "observed_perimeter";
 
 export interface SymbolDef {
   key: ICSSymbolKey;
@@ -74,6 +91,29 @@ export const SYMBOL_DEFS: SymbolDef[] = [
   { key: "command_post",        label: "Command Post",       shortCode: "CP★", color: "#4caf50", layer: "situation", type: "point" },
   { key: "icp",                 label: "Incident Cmd Post",  shortCode: "ICP", color: "#4caf50", layer: "situation", type: "point" },
   { key: "police_station",      label: "Police Station",     shortCode: "PS",  color: "#3f51b5", layer: "situation", type: "point" },
+  // ── Flood ──
+  { key: "flood_barrier",       label: "Flood Barrier",      shortCode: "FB",  color: "#1565c0", layer: "situation", type: "path"  },
+  { key: "pumping_station",     label: "Pumping Station",    shortCode: "PMP", color: "#1565c0", layer: "situation", type: "point" },
+  { key: "high_ground",         label: "High Ground",        shortCode: "HG",  color: "#2196f3", layer: "situation", type: "point" },
+  { key: "water_level_gauge",   label: "Water Level Gauge",  shortCode: "WLG", color: "#1565c0", layer: "situation", type: "point" },
+  // ── HAZMAT ──
+  { key: "hot_zone_marker",     label: "Hot Zone",           shortCode: "HOT", color: "#f44336", layer: "situation", type: "point" },
+  { key: "decon_station",       label: "Decon Station",      shortCode: "DCN", color: "#fdd835", layer: "situation", type: "point" },
+  { key: "wind_indicator",      label: "Wind Indicator",     shortCode: "WND", color: "#fdd835", layer: "situation", type: "point" },
+  { key: "shelter_in_place",    label: "Shelter-in-Place",   shortCode: "SIP", color: "#ff9800", layer: "situation", type: "point" },
+  // ── Mass Casualty ──
+  { key: "triage_immediate",    label: "Triage: Immediate",  shortCode: "T-I", color: "#f44336", layer: "ics206",    type: "point" },
+  { key: "triage_delayed",      label: "Triage: Delayed",    shortCode: "T-D", color: "#ff9800", layer: "ics206",    type: "point" },
+  { key: "triage_minor",        label: "Triage: Minor",      shortCode: "T-M", color: "#4caf50", layer: "ics206",    type: "point" },
+  { key: "triage_expectant",    label: "Triage: Expectant",  shortCode: "T-E", color: "#607d8b", layer: "ics206",    type: "point" },
+  { key: "casualty_collection", label: "Casualty Collection",shortCode: "CCP", color: "#f44336", layer: "ics206",    type: "point" },
+  { key: "family_reunification",label: "Family Reunification",shortCode:"FRC", color: "#00bcd4", layer: "evac",      type: "point" },
+  { key: "morgue_site",         label: "Temporary Morgue",   shortCode: "MRG", color: "#607d8b", layer: "ics206",    type: "point" },
+  // ── Wildfire / Smoke ──
+  { key: "air_quality_monitor", label: "Air Quality Monitor",shortCode: "AQI", color: "#e64a19", layer: "situation", type: "point" },
+  { key: "smoke_shelter",       label: "Smoke Shelter",      shortCode: "SSh", color: "#e64a19", layer: "situation", type: "point" },
+  { key: "resource_staging",    label: "Resource Staging",   shortCode: "RST", color: "#e64a19", layer: "ics204",    type: "point" },
+  { key: "observed_perimeter",  label: "Observed Perimeter", shortCode: "OBP", color: "#e64a19", layer: "situation", type: "path"  },
 ];
 
 /** Universal drawing tools appended to every layer's palette. */
@@ -90,6 +130,55 @@ export const SYMBOLS_BY_LAYER: Record<AnnotationLayer, SymbolDef[]> = {
   ics206:    [...SYMBOL_DEFS.filter(s => s.layer === "ics206"),    ...DRAWING_TOOLS],
   evac:      [...SYMBOL_DEFS.filter(s => s.layer === "evac"),      ...DRAWING_TOOLS],
 };
+
+// ── Hazard types ──────────────────────────────────────────────────────────────
+
+export type HazardType =
+  | "flood"
+  | "hazmat"
+  | "mass_casualty"
+  | "wildfire_smoke"
+  | "severe_weather"
+  | "infrastructure"
+  | "evacuation"
+  | "other";
+
+export type ICSFormId =
+  | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics206"
+  | "ics207" | "ics208" | "ics213" | "ics215" | "ics215a" | "ics214"
+  | "full-iap";
+
+export interface HazardDef {
+  key: HazardType;
+  label: string;
+  icon: string;
+  color: string;
+  zoneNames: string[];
+  zoneColors: string[];
+  relevantForms: ICSFormId[];
+  defaultRadius: number; // km — for OSM fetch
+}
+
+export const HAZARD_DEFS: HazardDef[] = [
+  { key: "flood",          label: "Flood / Water",       icon: "🌊", color: "#1565c0", zoneNames: ["Evacuation Zone","Advisory Zone","Shelter Zone"],  zoneColors: ["#f44336","#ff9800","#2196f3"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics208","full-iap"],        defaultRadius: 30 },
+  { key: "hazmat",         label: "HAZMAT",              icon: "☣️", color: "#fdd835", zoneNames: ["Hot Zone","Warm Zone","Cold Zone"],                zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics208","ics215a","full-iap"], defaultRadius: 15 },
+  { key: "mass_casualty",  label: "Mass Casualty (MCI)", icon: "🚑", color: "#c62828", zoneNames: ["Scene Perimeter","Staging","Rehab Area"],          zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","full-iap"],                defaultRadius: 10 },
+  { key: "wildfire_smoke", label: "Wildfire / Smoke",    icon: "🔥", color: "#e64a19", zoneNames: ["Evacuation Order","Evacuation Alert","Advisory"],  zoneColors: ["#f44336","#ff9800","#ffeb3b"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics208","full-iap"],        defaultRadius: 50 },
+  { key: "severe_weather", label: "Severe Weather",      icon: "🌪️", color: "#6a1b9a", zoneNames: ["Impact Zone","Warning Area","Watch Area"],         zoneColors: ["#f44336","#ff9800","#9c27b0"], relevantForms: ["ics201","ics202","ics205","ics206","full-iap"],                         defaultRadius: 40 },
+  { key: "infrastructure", label: "Infrastructure",      icon: "⚡", color: "#37474f", zoneNames: ["Outage Zone","Affected Area","Restoration Zone"],   zoneColors: ["#607d8b","#90a4ae","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","full-iap"],                         defaultRadius: 20 },
+  { key: "evacuation",     label: "Mass Evacuation",     icon: "🚶", color: "#00838f", zoneNames: ["Mandatory Evac","Voluntary Evac","Shelter Area"],   zoneColors: ["#f44336","#ff9800","#00bcd4"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","full-iap"],                defaultRadius: 30 },
+  { key: "other",          label: "Other / General",     icon: "📋", color: "#546e7a", zoneNames: ["Zone A","Zone B","Zone C"],                        zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","full-iap"],                defaultRadius: 20 },
+];
+
+// ── Hazard zones (manually drawn on map) ─────────────────────────────────────
+
+export interface HazardZone {
+  id: string;
+  name: string;          // "Hot Zone", "Evacuation Order", etc.
+  color: string;         // from HAZARD_DEFS zoneColors
+  polygon: [number, number][]; // GeoJSON ring [lng, lat]
+  createdAt: string;
+}
 
 // ── Annotations ───────────────────────────────────────────────────────────────
 
@@ -112,19 +201,7 @@ export interface IncidentAnnotation {
 export interface EvacDecisionRecord {
   id: string;
   timestamp: string;
-  frameIndex: number;
-  timeHours: number;
   zones: { tier: "Order" | "Alert" | "Watch"; communities: string[]; areaHa: number }[];
-}
-
-export interface FrameSummary {
-  timeHours: number;
-  areaHa: number;
-  headRosMMin: number;
-  maxHfiKwM: number;
-  fireType: string;
-  flameLengthM: number;
-  day?: number;
 }
 
 export interface OperationalPeriod {
@@ -133,13 +210,8 @@ export interface OperationalPeriod {
   opPeriodStart: string;                // "08:00"
   opPeriodEnd: string;                  // "20:00"
   weather: WeatherParams;
-  fwi: FWIOverrides;
   ignitionPoint: { lat: number; lng: number } | null;
-  simulationId: string | null;
-  simulationStatus: string | null;
-  durationHours: number;
-  frameSummaries: FrameSummary[];       // metrics only, no burned_cells
-  finalPerimeter: [number, number][] | null;  // last frame perimeter — seeds Day N+1
+  hazardZones: HazardZone[];
   annotations: IncidentAnnotation[];
   evacuationDecisions: EvacDecisionRecord[];
   objectives: string[];                 // ICS-202 objectives for this period
@@ -153,21 +225,13 @@ export interface IncidentSession {
   name: string;
   incidentNumber: string;
   incidentCommanderName: string;
+  hazardType: HazardType;
+  incidentComplexity: 1 | 2 | 3 | 4 | 5;
   status: "active" | "closed";
   createdAt: string;
   updatedAt: string;
   activePeriodIndex: number;            // 0-based index into operationalPeriods
   operationalPeriods: OperationalPeriod[];
-  // Config shared across all operational periods
-  useEdmontonGrid: boolean;
-  fuelType: string;
-  enableSpotting: boolean;
-  spottingIntensity: number;
-  includeWater: boolean;
-  includeBuildings: boolean;
-  includeWUI: boolean;
-  includeDEM: boolean;
-  snapshotMinutes: number;
 }
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
@@ -178,14 +242,9 @@ export function makeOperationalPeriod(day: number, date: string): OperationalPer
     date,
     opPeriodStart: "08:00",
     opPeriodEnd: "20:00",
-    weather: { wind_speed: 20, wind_direction: 180, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
-    fwi: { ffmc: null, dmc: null, dc: null },
+    weather: { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation_24h: 0 },
     ignitionPoint: null,
-    simulationId: null,
-    simulationStatus: null,
-    durationHours: 12,
-    frameSummaries: [],
-    finalPerimeter: null,
+    hazardZones: [],
     annotations: [],
     evacuationDecisions: [],
     objectives: [],
@@ -200,19 +259,12 @@ export function makeIncident(name: string): IncidentSession {
     name,
     incidentNumber: "",
     incidentCommanderName: "",
+    hazardType: "other",
+    incidentComplexity: 3,
     status: "active",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     activePeriodIndex: 0,
     operationalPeriods: [makeOperationalPeriod(1, today)],
-    useEdmontonGrid: true,
-    fuelType: "C2",
-    enableSpotting: false,
-    spottingIntensity: 1.0,
-    includeWater: true,
-    includeBuildings: true,
-    includeWUI: true,
-    includeDEM: true,
-    snapshotMinutes: 30,
   };
 }

@@ -2,30 +2,14 @@
  * EOC Command Console — full-viewport tabbed incident management page.
  *
  * Layout:
- *   Left 45%  : read-only MapLibre map (same simulation state, no click-to-ignite)
+ *   Left 45%  : read-only MapLibre map with annotation overlay
  *   Right 55% : sub-tabbed content — Situation / ICS Forms / Map (full-width)
- *
- * Sub-tabs:
- *   Situation  → existing EOCSummary component (conditions, metrics, advisories, exports)
- *   ICS Forms  → ICS-201, 202, 203, 204, 205, 206, 209, Full IAP — rendered in iframe
- *   Map        → full-width map (hides data panel)
- *
- * Map snapshot: captured from MapLibre canvas (preserveDrawingBuffer: true) before
- * any print or ICS form render — embedded as base64 PNG in form HTML.
- *
- * Design: Stitch EOC Tactical Dark system — indigo-ember palette, no-line rule,
- * tonal layering. Reference: /tmp/stitch_export/stitch/stitch/eoc_tactical_dark/DESIGN.md
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
-import EOCSummary from "./EOCSummary";
 import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
-import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
-import type { RunParams } from "./WeatherPanel";
-import type { EvacZone } from "../utils/evacZones";
-import type { Isochrone } from "../utils/isochrones";
 import {
   buildICS201HTML,
   buildICS202HTML,
@@ -36,49 +20,24 @@ import {
   buildICS214HTML,
   buildFullIAPHTML,
 } from "../utils/icsForms";
-import { openICS209Report } from "../utils/ics209";
-import type { SuppressionAdvisory } from "./EOCSummary";
-import { buildSuppressionAdvisory } from "./EOCSummary";
 import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation } from "../types/incident";
 import { SYMBOL_DEFS } from "../types/incident";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface EOCConsoleProps {
-  // Simulation data
-  frames: SimulationFrame[];
-  currentFrameIndex: number;
-  burnProbabilityData?: BurnProbabilityResponse | null;
-  showBurnProbView?: boolean;
-  // Run context
-  runParams: RunParams | null;
-  ignitionPoint: { lat: number; lng: number } | null;
-  fuelTypeLabel?: string;
-  // Overlays
+  incidentLocation?: { lat: number; lng: number } | null;
   overlayRoads?: GeoJSON.FeatureCollection | null;
   overlayRoadsVisible?: boolean;
   overlayCommunities?: GeoJSON.FeatureCollection | null;
   overlayCommunitiesVisible?: boolean;
   overlayInfrastructure?: GeoJSON.FeatureCollection | null;
   overlayInfrastructureVisible?: boolean;
-  atRiskCounts?: { roads: number; communities: number; infrastructure: number };
-  // Evac zones
-  evacZones?: EvacZone[];
-  evacZonesVisible?: boolean;
-  // Isochrones
-  isochrones?: Isochrone[];
-  isochronesVisible?: boolean;
-  // Fuel grid
-  fuelGridImage?: { image: string; bounds: [number, number, number, number] } | null;
-  fuelGridVisible?: boolean;
-  // Incident annotation store (from useIncident)
   incidentAnnotations?: IncidentAnnotation[];
   onAddAnnotation?: (a: IncidentAnnotation) => void;
   onRemoveAnnotation?: (id: string) => void;
   onClearLayer?: (layer: AnnotationLayer) => void;
   onFetchFacilities?: () => Promise<number>;
-  /** Previous operational period's final perimeter — shown as ghost on Day 2+ */
-  ghostPerimeter?: [number, number][] | null;
   incidentName?: string;
   onIncidentNameChange?: (name: string) => void;
 }
@@ -87,7 +46,7 @@ type ConsoleTab = "situation" | "ics-forms" | "map";
 
 type ICSFormId =
   | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics206"
-  | "ics209" | "ics214" | "full-iap";
+  | "ics214" | "full-iap";
 
 const ICS_FORM_LABELS: Record<ICSFormId, string> = {
   ics201: "ICS-201 Briefing",
@@ -96,43 +55,27 @@ const ICS_FORM_LABELS: Record<ICSFormId, string> = {
   ics204: "ICS-204 Assignments",
   ics205: "ICS-205 Comms Plan",
   ics206: "ICS-206 Medical Plan",
-  ics209: "ICS-209 Status Summary",
   ics214: "ICS-214 Activity Log",
   "full-iap": "Full IAP Package",
 };
 
 export default function EOCConsole({
-  frames,
-  currentFrameIndex,
-  burnProbabilityData = null,
-  showBurnProbView = false,
-  runParams,
-  ignitionPoint,
-  fuelTypeLabel,
+  incidentLocation = null,
   overlayRoads = null,
   overlayRoadsVisible = true,
   overlayCommunities = null,
   overlayCommunitiesVisible = true,
   overlayInfrastructure = null,
   overlayInfrastructureVisible = true,
-  atRiskCounts,
-  evacZones = [],
-  evacZonesVisible = true,
-  isochrones = [],
-  isochronesVisible = false,
-  fuelGridImage = null,
-  fuelGridVisible = true,
   incidentAnnotations = [],
   onAddAnnotation,
   onRemoveAnnotation,
   onClearLayer,
   onFetchFacilities,
-  ghostPerimeter = null,
   incidentName: incidentNameProp,
   onIncidentNameChange,
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("situation");
-  // Use incident name from prop if provided (incident store), else local state
   const [localIncidentName, setLocalIncidentName] = useState("Untitled Incident");
   const incidentName = incidentNameProp ?? localIncidentName;
   const setIncidentName = (name: string) => {
@@ -150,23 +93,19 @@ export default function EOCConsole({
   const consoleMapRef = useRef<maplibregl.Map | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // ── Layer visibility ─────────────────────────────────────────────────────
-  const [spotFiresVisible, setSpotFiresVisible] = useState(true);
   const [isFetchingFacilities, setIsFetchingFacilities] = useState(false);
   const [fetchFacilitiesMsg, setFetchFacilitiesMsg] = useState<string | null>(null);
 
   // ── Map markup state ─────────────────────────────────────────────────────
-  // All markup is stored in geographic (LngLat) coordinates so it stays
-  // anchored to the map when panning or zooming.
   type MarkupTool = "pen" | "text" | null;
   type GeoPoint = { lng: number; lat: number };
 
   const [markupTool, setMarkupTool] = useState<MarkupTool>(null);
-  const [penPaths, setPenPaths] = useState<GeoPoint[][]>([]); // each path = array of LngLat
+  const [penPaths, setPenPaths] = useState<GeoPoint[][]>([]);
   const [currentPenPath, setCurrentPenPath] = useState<GeoPoint[]>([]);
   const [textMarkers, setTextMarkers] = useState<Array<{ geo: GeoPoint; text: string }>>([]);
   const [pendingTextPos, setPendingTextPos] = useState<{ x: number; y: number } | null>(null);
-  const [mapRenderKey, setMapRenderKey] = useState(0); // bumped on map move → forces geo→pixel recalc
+  const [mapRenderKey, setMapRenderKey] = useState(0);
   const isPenDownRef = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
@@ -178,7 +117,6 @@ export default function EOCConsole({
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }, []);
 
-  // Convert SVG pixel coords → geographic LngLat
   const pixelToGeo = useCallback((x: number, y: number): GeoPoint => {
     const map = consoleMapRef.current;
     if (!map) return { lng: 0, lat: 0 };
@@ -186,16 +124,14 @@ export default function EOCConsole({
     return { lng: ll.lng, lat: ll.lat };
   }, []);
 
-  // Convert geographic LngLat → SVG pixel coords (depends on mapRenderKey so it refreshes on move)
   const geoToPixel = useCallback((geo: GeoPoint): { x: number; y: number } => {
     const map = consoleMapRef.current;
     if (!map) return { x: 0, y: 0 };
     const p = map.project([geo.lng, geo.lat]);
     return { x: p.x, y: p.y };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapRenderKey]); // intentionally depends on render key so pixels refresh after map moves
+  }, [mapRenderKey]);
 
-  // Build an SVG path string from an array of geo points
   const geoPathToSvgD = useCallback((points: GeoPoint[]): string => {
     if (points.length === 0) return "";
     return points.map((geo, i) => {
@@ -211,10 +147,8 @@ export default function EOCConsole({
       const symDef = SYMBOL_DEFS.find(s => s.key === activeSymbolKey);
       const geo = pixelToGeo(x, y);
       if (activeSymbolKey === "text_label" || activeSymbolKey === "generic_point") {
-        // Show label prompt — committed in handleTextSubmit
         setPendingTextPos({ x, y });
       } else if (symDef?.type === "path") {
-        // Path symbols: drag to draw, committed in handleSvgMouseUp
         isPenDownRef.current = true;
         setCurrentPenPath([geo]);
       } else if (onAddAnnotation) {
@@ -252,7 +186,6 @@ export default function EOCConsole({
     setCurrentPenPath(prev => {
       if (prev.length > 0) {
         if (activeSymbolKey && onAddAnnotation) {
-          // Commit path-type symbol annotation
           const symDef = SYMBOL_DEFS.find(s => s.key === activeSymbolKey);
           const annotation: IncidentAnnotation = {
             id: crypto.randomUUID(),
@@ -281,7 +214,6 @@ export default function EOCConsole({
       if (text) {
         const geo = pixelToGeo(pendingTextPos.x, pendingTextPos.y);
         if (onAddAnnotation) {
-          // Commit as a layer-aware IncidentAnnotation
           const symKey = (activeSymbolKey === "generic_point") ? "generic_point" : "text_label";
           onAddAnnotation({
             id: crypto.randomUUID(),
@@ -296,7 +228,6 @@ export default function EOCConsole({
             createdAt: new Date().toISOString(),
           });
         } else {
-          // No incident active — fall back to session-only text marker
           setTextMarkers(prev => [...prev, { geo, text }]);
         }
       }
@@ -314,7 +245,6 @@ export default function EOCConsole({
 
   const handleMapRefCallback = useCallback((m: maplibregl.Map) => {
     consoleMapRef.current = m;
-    // Re-render markup SVG whenever the map view changes
     const bump = () => setMapRenderKey(k => k + 1);
     m.on("move", bump);
     m.on("zoom", bump);
@@ -322,8 +252,6 @@ export default function EOCConsole({
   }, []);
 
   // ── Map snapshot capture ──────────────────────────────────────────────────
-  // WebGL doesn't preserve the drawing buffer between frames, so we must
-  // trigger a repaint and capture inside the 'render' event callback.
 
   const captureMapSnapshot = useCallback((): Promise<string | undefined> => {
     const map = consoleMapRef.current;
@@ -343,19 +271,16 @@ export default function EOCConsole({
           const ctx = offscreen.getContext("2d");
           if (!ctx) { resolve(undefined); return; }
 
-          // Draw the WebGL map layer (scale from physical → CSS pixels)
           ctx.drawImage(glCanvas, 0, 0, w, h);
 
           const svg = svgRef.current;
           if (!svg || !svg.childElementCount) {
-            // No annotations — return map only
             const dataUrl = offscreen.toDataURL("image/png");
             setMapSnapshot(dataUrl);
             resolve(dataUrl);
             return;
           }
 
-          // Composite SVG annotation overlay on top
           const clone = svg.cloneNode(true) as SVGSVGElement;
           clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
           clone.setAttribute("width", String(w));
@@ -373,7 +298,6 @@ export default function EOCConsole({
           };
           img.onerror = () => {
             URL.revokeObjectURL(url);
-            // Annotation overlay failed — return map-only snapshot
             const dataUrl = offscreen.toDataURL("image/png");
             setMapSnapshot(dataUrl);
             resolve(dataUrl);
@@ -391,62 +315,15 @@ export default function EOCConsole({
 
   const buildFormOptions = useCallback((snapshot?: string) => ({
     incidentName,
-    frames,
-    runParams,
-    ignitionPoint,
-    fuelTypeLabel,
-    atRiskCounts,
-    evacZones,
+    incidentLocation,
     mapSnapshotDataUrl: snapshot ?? mapSnapshot,
     annotations: incidentAnnotations,
-  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, evacZones, mapSnapshot, incidentAnnotations]);
-
-  // ── Suppression advisory for ICS-209 ─────────────────────────────────────
-
-  const getSuppressionAdvisory = useCallback((): SuppressionAdvisory | null => {
-    if (frames.length === 0) return null;
-    const final = frames[frames.length - 1];
-    const perimeterLengthKm = (perim: number[][]): number => {
-      let t = 0;
-      for (let i = 0; i < perim.length; i++) {
-        const a = perim[i], b = perim[(i + 1) % perim.length];
-        const dLat = ((b[0] - a[0]) * Math.PI) / 180;
-        const dLng = ((b[1] - a[1]) * Math.PI) / 180;
-        const x = Math.sin(dLat / 2) ** 2 +
-          Math.cos((a[0] * Math.PI) / 180) * Math.cos((b[0] * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-        t += 6371 * 2 * Math.asin(Math.sqrt(x));
-      }
-      return t;
-    };
-    let peakRos = 0, peakHfi = 0, maxSpotDist = 0, spotCount = 0;
-    for (const f of frames) {
-      if (f.head_ros_m_min > peakRos) peakRos = f.head_ros_m_min;
-      if (f.max_hfi_kw_m > peakHfi) peakHfi = f.max_hfi_kw_m;
-      for (const s of f.spot_fires ?? []) {
-        if (s.distance_m > maxSpotDist) maxSpotDist = s.distance_m;
-        spotCount++;
-      }
-    }
-    return buildSuppressionAdvisory({
-      peakRosMMmin: peakRos,
-      peakHfiKwM: peakHfi,
-      finalAreaHa: final.area_ha,
-      perimeterKm: perimeterLengthKm(final.perimeter ?? []),
-      maxSpotDistM: maxSpotDist,
-      spotCount,
-      fireType: final.fire_type,
-      flameLengthM: final.flame_length_m,
-    });
-  }, [frames]);
+  }), [incidentName, incidentLocation, mapSnapshot, incidentAnnotations]);
 
   // ── Form rendering ────────────────────────────────────────────────────────
 
   const renderForm = useCallback((formId: ICSFormId, snapshot?: string) => {
     const opts = buildFormOptions(snapshot);
-    if (formId === "ics209") {
-      openICS209Report({ frames, burnProbData: burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, evacZones, suppAdvisory: getSuppressionAdvisory() });
-      return; // ICS-209 opens in new window, not iframe
-    }
     let html = "";
     if (formId === "ics201") html = buildICS201HTML(opts);
     else if (formId === "ics202") html = buildICS202HTML(opts);
@@ -458,14 +335,10 @@ export default function EOCConsole({
     else if (formId === "full-iap") html = buildFullIAPHTML(opts);
     setFormHtml(html);
     setSelectedForm(formId);
-  }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, overlayRoads, overlayCommunities, overlayInfrastructure, evacZones, getSuppressionAdvisory]);
+  }, [buildFormOptions]);
 
   const handleFormSelect = useCallback(async (formId: ICSFormId) => {
     const snap = await captureMapSnapshot();
-    if (formId === "ics209") {
-      renderForm(formId, snap);
-      return;
-    }
     setConsoleTab("ics-forms");
     renderForm(formId, snap);
   }, [captureMapSnapshot, renderForm]);
@@ -483,6 +356,12 @@ export default function EOCConsole({
   // ── Render ────────────────────────────────────────────────────────────────
 
   const isMapFullWidth = consoleTab === "map";
+
+  // Count of annotations by layer for the situation panel
+  const annotationsByLayer = incidentAnnotations.reduce((acc, a) => {
+    acc[a.layer] = (acc[a.layer] ?? 0) + 1;
+    return acc;
+  }, {} as Record<AnnotationLayer, number>);
 
   return (
     <div className="eoc-console">
@@ -504,14 +383,10 @@ export default function EOCConsole({
               <span className="eoc-edit-icon">✎</span>
             </button>
           )}
-          {frames.length > 0 && <span className="eoc-status-badge">● ACTIVE</span>}
         </div>
         <div className="eoc-header-right">
-          <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Print EOC Console">
+          <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Capture map snapshot">
             🖨 Print
-          </button>
-          <button className="eoc-action-btn" onClick={() => handleFormSelect("ics209")} title="Open ICS-209">
-            ICS-209
           </button>
           <button className="eoc-action-btn" onClick={() => handleFormSelect("full-iap")} title="Generate Full IAP Package">
             Full IAP
@@ -538,27 +413,16 @@ export default function EOCConsole({
         {/* Left: read-only map + markup overlay */}
         <div className={`eoc-map-panel${isMapFullWidth ? " eoc-map-panel--full" : ""}`}>
           <MapView
-            frames={frames}
-            currentFrameIndex={currentFrameIndex}
             onMapClick={() => {}}
-            ignitionPoint={ignitionPoint}
-            burnProbabilityData={burnProbabilityData}
-            showBurnProbView={showBurnProbView}
+            ignitionPoint={incidentLocation}
             overlayRoads={overlayRoads}
             overlayRoadsVisible={overlayRoadsVisible}
             overlayCommunities={overlayCommunities}
             overlayCommunitiesVisible={overlayCommunitiesVisible}
             overlayInfrastructure={overlayInfrastructure}
             overlayInfrastructureVisible={overlayInfrastructureVisible}
-            evacZones={evacZones}
-            evacZonesVisible={evacZonesVisible}
-            isochrones={isochrones}
-            isochronesVisible={isochronesVisible}
-            fuelGridImage={fuelGridImage}
-            fuelGridVisible={fuelGridVisible}
             readOnly
             mapRefCallback={handleMapRefCallback}
-            spotFiresVisible={spotFiresVisible}
           />
 
           {/* SVG markup overlay */}
@@ -570,23 +434,12 @@ export default function EOCConsole({
             onMouseUp={handleSvgMouseUp}
             onMouseLeave={handleSvgMouseUp}
           >
-            {/* Ghost perimeter from previous operational period */}
-            {ghostPerimeter && ghostPerimeter.length > 0 && (() => {
-              const d = ghostPerimeter.map(([lng, lat], i) => {
-                const { x, y } = geoToPixel({ lng, lat });
-                return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
-              }).join(" ") + " Z";
-              return <path d={d} className="eoc-ghost-perimeter" />;
-            })()}
-
             {/* Incident annotations — dimmed if not on active layer */}
             {incidentAnnotations.map((ann) => {
               const isActive = ann.layer === activeLayer;
               const opacity = isActive ? 1 : 0.3;
               const symDef = SYMBOL_DEFS.find(s => s.key === ann.symbolKey);
               const color = ann.color ?? symDef?.color ?? "#ffffff";
-              // OSM-fetched annotations render as small reference dots — no label clutter.
-              // Their data appears in ICS form tables; the map stays tactically readable.
               const isOsm = ann.properties.source === "osm";
 
               if (ann.type === "path" && ann.coordinates.length > 1) {
@@ -609,7 +462,6 @@ export default function EOCConsole({
                     style={{ cursor: isActive ? "pointer" : "default" }}
                     onClick={() => isActive && onRemoveAnnotation?.(ann.id)}
                   >
-                    {/* Outline stroke for legibility */}
                     <text x={x} y={y} fill="none" stroke="#000" strokeWidth={3}
                       strokeLinejoin="round" fontSize={13} fontWeight="600"
                       style={{ userSelect: "none", pointerEvents: "none" }}
@@ -625,7 +477,6 @@ export default function EOCConsole({
                 const [lng, lat] = ann.coordinates[0];
                 const { x, y } = geoToPixel({ lng, lat });
 
-                // OSM reference dot — small, no label, shows category color
                 if (isOsm) {
                   return (
                     <circle key={ann.id} cx={x} cy={y} r={3} fill={color}
@@ -712,22 +563,8 @@ export default function EOCConsole({
 
           {/* Markup toolbar */}
           <div className="eoc-markup-toolbar">
-            <button
-              className="eoc-markup-tool"
-              onClick={() => consoleMapRef.current?.zoomIn()}
-              title="Zoom in"
-            >+</button>
-            <button
-              className="eoc-markup-tool"
-              onClick={() => consoleMapRef.current?.zoomOut()}
-              title="Zoom out"
-            >−</button>
-            <div className="eoc-markup-divider" />
-            <button
-              className={`eoc-markup-tool${spotFiresVisible ? " active" : ""}`}
-              onClick={() => setSpotFiresVisible(v => !v)}
-              title={spotFiresVisible ? "Spot fires ON — click to hide" : "Spot fires OFF — click to show"}
-            >✦</button>
+            <button className="eoc-markup-tool" onClick={() => consoleMapRef.current?.zoomIn()} title="Zoom in">+</button>
+            <button className="eoc-markup-tool" onClick={() => consoleMapRef.current?.zoomOut()} title="Zoom out">−</button>
             <div className="eoc-markup-divider" />
             <span className="eoc-markup-label">MARK</span>
             <button
@@ -737,8 +574,8 @@ export default function EOCConsole({
             >⊕</button>
             <button
               className={`eoc-markup-tool${isFetchingFacilities ? " active" : ""}`}
-              title={!ignitionPoint ? "Set an ignition point first to fetch nearby resources" : "Fetch nearby emergency facilities from OpenStreetMap"}
-              disabled={isFetchingFacilities || !ignitionPoint || !onFetchFacilities}
+              title={!incidentLocation ? "Set an incident location first to fetch nearby resources" : "Fetch nearby emergency facilities from OpenStreetMap"}
+              disabled={isFetchingFacilities || !incidentLocation || !onFetchFacilities}
               onClick={async () => {
                 if (!onFetchFacilities) return;
                 setIsFetchingFacilities(true);
@@ -757,12 +594,12 @@ export default function EOCConsole({
             <button
               className={`eoc-markup-tool${activeSymbolKey === "freehand_path" ? " active" : ""}`}
               onClick={() => setActiveSymbolKey(k => k === "freehand_path" ? null : "freehand_path")}
-              title="Freehand draw on active layer (click active to pan)"
+              title="Freehand draw on active layer"
             >✏</button>
             <button
               className={`eoc-markup-tool${activeSymbolKey === "text_label" ? " active" : ""}`}
               onClick={() => setActiveSymbolKey(k => k === "text_label" ? null : "text_label")}
-              title="Place text label on active layer (click active to pan)"
+              title="Place text label on active layer"
             >T</button>
             <button
               className="eoc-markup-tool"
@@ -772,12 +609,10 @@ export default function EOCConsole({
             >⌫</button>
           </div>
 
-          {/* OSM fetch status chip */}
           {fetchFacilitiesMsg && (
             <div className="eoc-fetch-msg">{fetchFacilitiesMsg}</div>
           )}
 
-          {/* Print-only map snapshot */}
           {mapSnapshot && (
             <img className="eoc-print-map" src={mapSnapshot} alt="Map snapshot" />
           )}
@@ -789,18 +624,37 @@ export default function EOCConsole({
 
             {/* ── Situation tab ───────────────────────────── */}
             {consoleTab === "situation" && (
-              <EOCSummary
-                frames={frames}
-                burnProbData={burnProbabilityData}
-                runParams={runParams}
-                ignitionPoint={ignitionPoint}
-                fuelTypeLabel={fuelTypeLabel}
-                atRiskCounts={atRiskCounts}
-                overlayRoads={overlayRoads}
-                overlayCommunities={overlayCommunities}
-                overlayInfrastructure={overlayInfrastructure}
-                evacZones={evacZones}
-              />
+              <div className="eoc-situation-panel">
+                <div className="eoc-section-header">Incident Status</div>
+                <div className="eoc-kpi-grid">
+                  <div className="eoc-kpi">
+                    <span className="eoc-kpi-label">Incident</span>
+                    <span className="eoc-kpi-value">{incidentName}</span>
+                  </div>
+                  <div className="eoc-kpi">
+                    <span className="eoc-kpi-label">Location</span>
+                    <span className="eoc-kpi-value">
+                      {incidentLocation
+                        ? `${incidentLocation.lat.toFixed(4)}, ${incidentLocation.lng.toFixed(4)}`
+                        : "Not set — click map"}
+                    </span>
+                  </div>
+                  <div className="eoc-kpi">
+                    <span className="eoc-kpi-label">Annotations</span>
+                    <span className="eoc-kpi-value">{incidentAnnotations.length}</span>
+                  </div>
+                  {Object.entries(annotationsByLayer).map(([layer, count]) => (
+                    <div key={layer} className="eoc-kpi">
+                      <span className="eoc-kpi-label">{layer}</span>
+                      <span className="eoc-kpi-value">{count} markers</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="eoc-section-header" style={{ marginTop: 16 }}>Map Controls</div>
+                <div style={{ padding: "8px 0", fontSize: 12, color: "#a0b0c0" }}>
+                  Click map to set incident location. Use the ⊕ button to annotate with ICS symbols. Use 📡 to auto-fetch nearby emergency facilities.
+                </div>
+              </div>
             )}
 
             {/* ── ICS Forms tab ───────────────────────────── */}
@@ -811,7 +665,6 @@ export default function EOCConsole({
                   <span className="eoc-forms-subtitle">NIMS Incident Action Plan</span>
                 </div>
 
-                {/* Initial forms */}
                 <div className="eoc-form-group">
                   <span className="eoc-form-group-label">Initial Briefing</span>
                   <div className="eoc-form-btns">
@@ -827,7 +680,6 @@ export default function EOCConsole({
                   </div>
                 </div>
 
-                {/* IAP package */}
                 <div className="eoc-form-group">
                   <span className="eoc-form-group-label">IAP Package</span>
                   <div className="eoc-form-btns">
@@ -843,11 +695,10 @@ export default function EOCConsole({
                   </div>
                 </div>
 
-                {/* Status & logs */}
                 <div className="eoc-form-group">
-                  <span className="eoc-form-group-label">Status & Logs</span>
+                  <span className="eoc-form-group-label">Activity</span>
                   <div className="eoc-form-btns">
-                    {(["ics209", "ics214"] as ICSFormId[]).map((id) => (
+                    {(["ics214"] as ICSFormId[]).map((id) => (
                       <button
                         key={id}
                         className={`eoc-form-btn${selectedForm === id ? " active" : ""}`}
@@ -859,7 +710,6 @@ export default function EOCConsole({
                   </div>
                 </div>
 
-                {/* Full IAP */}
                 <div className="eoc-form-group">
                   <div className="eoc-form-btns">
                     <button
@@ -871,30 +721,19 @@ export default function EOCConsole({
                   </div>
                 </div>
 
-                {/* Form viewer */}
                 {formHtml && (
                   <div className="eoc-form-viewer">
                     <div className="eoc-form-viewer-toolbar">
                       <span className="eoc-form-viewer-name">{ICS_FORM_LABELS[selectedForm]}</span>
-                      <div className="eoc-form-viewer-actions">
-                        <button className="eoc-action-btn" onClick={handlePrintForm}>🖨 Print</button>
-                        <button className="eoc-action-btn" onClick={handleOpenInNewWindow}>↗ New Window</button>
-                      </div>
+                      <button className="eoc-form-action" onClick={handlePrintForm} title="Print this form">🖨 Print</button>
+                      <button className="eoc-form-action" onClick={handleOpenInNewWindow} title="Open in new window">↗ New window</button>
                     </div>
                     <iframe
                       ref={iframeRef}
-                      srcDoc={formHtml}
                       className="eoc-form-iframe"
+                      srcDoc={formHtml}
                       title={ICS_FORM_LABELS[selectedForm]}
-                      sandbox="allow-same-origin allow-scripts allow-modals"
                     />
-                  </div>
-                )}
-
-                {!formHtml && (
-                  <div className="eoc-forms-empty">
-                    Select a form above to generate and preview it.<br />
-                    The current map state will be captured as a snapshot for embedded maps.
                   </div>
                 )}
               </div>

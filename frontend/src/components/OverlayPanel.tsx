@@ -199,7 +199,7 @@ export interface OverlayLayers {
 
 interface OverlayPanelProps {
   layers: OverlayLayers;
-  atRiskCounts: { roads: number; communities: number; infrastructure: number };
+  atRiskCounts?: { roads: number; communities: number; infrastructure: number };
   onLayerLoad: (type: LayerType, data: GeoJSON.FeatureCollection) => void;
   onLayerToggle: (type: LayerType, visible: boolean) => void;
   onLayerClear: (type: LayerType) => void;
@@ -207,7 +207,7 @@ interface OverlayPanelProps {
 
 export default function OverlayPanel({
   layers,
-  atRiskCounts,
+  atRiskCounts = { roads: 0, communities: 0, infrastructure: 0 },
   onLayerLoad,
   onLayerToggle,
   onLayerClear,

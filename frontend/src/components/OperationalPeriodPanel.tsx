@@ -69,7 +69,7 @@ export default function OperationalPeriodPanel({
           >
             Day {p.day}
             <span className="op-period-day-date">{p.date.slice(5)}</span>
-            {p.simulationStatus === "completed" && <span className="op-period-day-done">✓</span>}
+            {p.annotations.length > 0 && <span className="op-period-day-done">✓</span>}
           </button>
         ))}
 
@@ -104,9 +104,9 @@ export default function OperationalPeriodPanel({
       {activePeriod && (
         <div className="op-period-info">
           <span>Day {activePeriod.day} · {activePeriod.date} · {activePeriod.opPeriodStart}–{activePeriod.opPeriodEnd}</span>
-          {activePeriod.frameSummaries.length > 0 && (
+          {activePeriod.annotations.length > 0 && (
             <span className="op-period-stats">
-              {activePeriod.frameSummaries[activePeriod.frameSummaries.length - 1].areaHa.toFixed(1)} ha burned
+              {activePeriod.annotations.length} annotation{activePeriod.annotations.length !== 1 ? "s" : ""}
             </span>
           )}
         </div>

@@ -2,17 +2,16 @@
 
 import { useState, useCallback } from "react";
 import { fetchNearbyFacilities } from "../services/overpass";
-import type { SimulationFrame } from "../types/simulation";
 import type {
   IncidentSession,
   OperationalPeriod,
   IncidentAnnotation,
   EvacDecisionRecord,
-  FrameSummary,
+  HazardZone,
 } from "../types/incident";
 import { makeIncident, makeOperationalPeriod } from "../types/incident";
 
-const STORAGE_KEY = "firesim-v3-incidents";
+const STORAGE_KEY = "aims-console-incidents";
 const MAX_INCIDENTS = 20;
 
 function loadFromStorage(): IncidentSession[] {
@@ -31,18 +30,6 @@ function saveToStorage(incidents: IncidentSession[]): void {
   } catch {
     // quota exceeded — silently fail
   }
-}
-
-function framestoSummaries(frames: SimulationFrame[]): FrameSummary[] {
-  return frames.map((f) => ({
-    timeHours: f.time_hours,
-    areaHa: f.area_ha,
-    headRosMMin: f.head_ros_m_min,
-    maxHfiKwM: f.max_hfi_kw_m,
-    fireType: typeof f.fire_type === "string" ? f.fire_type : String(f.fire_type),
-    flameLengthM: f.flame_length_m,
-    day: f.day ?? undefined,
-  }));
 }
 
 export function useIncident() {
@@ -129,6 +116,13 @@ export function useIncident() {
     [updateActiveIncident]
   );
 
+  const updatePeriodField = useCallback(
+    <K extends keyof OperationalPeriod>(key: K, value: OperationalPeriod[K]) => {
+      updateActivePeriod((p) => ({ ...p, [key]: value }));
+    },
+    [updateActivePeriod]
+  );
+
   // ── Annotations ──────────────────────────────────────────────────────────
 
   const addAnnotation = useCallback(
@@ -208,39 +202,31 @@ export function useIncident() {
     [updateActivePeriod]
   );
 
-  // ── Frame data ────────────────────────────────────────────────────────────
+  // ── Hazard zones ──────────────────────────────────────────────────────────
 
-  const saveFrameData = useCallback(
-    (frames: SimulationFrame[], simulationId: string) => {
-      const summaries = framestoSummaries(frames);
-      const lastFrame = frames[frames.length - 1];
-      const finalPerimeter: [number, number][] | null = lastFrame?.perimeter
-        ? (lastFrame.perimeter as [number, number][])
-        : null;
+  const addHazardZone = useCallback(
+    (zone: HazardZone) => {
       updateActivePeriod((p) => ({
         ...p,
-        simulationId,
-        simulationStatus: "completed",
-        frameSummaries: summaries,
-        finalPerimeter,
+        hazardZones: [...p.hazardZones, zone],
       }));
     },
     [updateActivePeriod]
   );
 
-  const setSimulationId = useCallback(
-    (simulationId: string, status: string) => {
-      updateActivePeriod((p) => ({ ...p, simulationId, simulationStatus: status }));
+  const removeHazardZone = useCallback(
+    (id: string) => {
+      updateActivePeriod((p) => ({
+        ...p,
+        hazardZones: p.hazardZones.filter((z) => z.id !== id),
+      }));
     },
     [updateActivePeriod]
   );
 
-  const updatePeriodField = useCallback(
-    <K extends keyof OperationalPeriod>(key: K, value: OperationalPeriod[K]) => {
-      updateActivePeriod((p) => ({ ...p, [key]: value }));
-    },
-    [updateActivePeriod]
-  );
+  const clearHazardZones = useCallback(() => {
+    updateActivePeriod((p) => ({ ...p, hazardZones: [] }));
+  }, [updateActivePeriod]);
 
   // ── Multi-day: advance to next operational period ─────────────────────────
 
@@ -250,7 +236,6 @@ export function useIncident() {
       opPeriodStart?: string;
       opPeriodEnd?: string;
       weather?: OperationalPeriod["weather"];
-      fwi?: OperationalPeriod["fwi"];
     }) => {
       updateActiveIncident((incident) => {
         const currentPeriod = incident.operationalPeriods[incident.activePeriodIndex];
@@ -258,12 +243,9 @@ export function useIncident() {
         const newPeriod: OperationalPeriod = {
           ...makeOperationalPeriod(nextDay, opts.date),
           weather: opts.weather ?? currentPeriod.weather,
-          fwi: opts.fwi ?? currentPeriod.fwi,
           opPeriodStart: opts.opPeriodStart ?? "08:00",
           opPeriodEnd: opts.opPeriodEnd ?? "20:00",
-          // Carry forward ignition point
           ignitionPoint: currentPeriod.ignitionPoint,
-          // Day 1 annotations carry forward (each annotation has operationalDay tag)
         };
         return {
           ...incident,
@@ -293,7 +275,7 @@ export function useIncident() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `firesim-incident-${incident.name.replace(/\s+/g, "-").toLowerCase()}.json`;
+      a.download = `aims-incident-${incident.name.replace(/\s+/g, "-").toLowerCase()}.json`;
       a.click();
       URL.revokeObjectURL(url);
     },
@@ -352,9 +334,10 @@ export function useIncident() {
     fetchAndPlaceFacilities,
     // Evac
     commitEvacDecision,
-    // Frames
-    saveFrameData,
-    setSimulationId,
+    // Hazard zones
+    addHazardZone,
+    removeHazardZone,
+    clearHazardZones,
     // Multi-day
     advancePeriod,
     setActivePeriodIndex,
