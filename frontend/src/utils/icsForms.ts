@@ -185,7 +185,7 @@ export function buildICS201HTML(opts: ICSFormOptions): string {
     ["Wind Speed / Direction", `${w.wind_speed} km/h ${windDirLabel(w.wind_direction)} (${w.wind_direction}°)`],
     ["Temperature", `${w.temperature}°C`],
     ["Relative Humidity", `${w.relative_humidity}%`],
-    ["Precipitation (24h)", `${w.precipitation_24h} mm`],
+    ["Precipitation (24h)", `${w.precipitation} mm`],
   ] : [["Status", "Weather parameters not yet entered."]];
 
   return wrapForm("ICS 201 – Incident Briefing", [
@@ -239,7 +239,7 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
   const weatherRows: Array<[string, string]> = w ? [
     ["Wind", `${w.wind_speed} km/h ${windDirLabel(w.wind_direction)}`],
     ["Temp / RH", `${w.temperature}°C / ${w.relative_humidity}%`],
-    ["Precipitation (24h)", `${w.precipitation_24h} mm`],
+    ["Precipitation (24h)", `${w.precipitation} mm`],
   ] : [["Status", "Weather not yet entered."]];
 
   return wrapForm("ICS 202 – Incident Objectives", [

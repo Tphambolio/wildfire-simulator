@@ -7,7 +7,13 @@ import type { OverlayLayers, LayerType } from "./components/OverlayPanel";
 import EOCConsole from "./components/EOCConsole";
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IncidentPanel from "./components/IncidentPanel";
+import IncidentSetupPanel from "./components/IncidentSetupPanel";
+import ResourcePanel from "./components/ResourcePanel";
+import type { Resource } from "./components/ResourcePanel";
+import AgencyPanel from "./components/AgencyPanel";
+import type { Agency } from "./components/AgencyPanel";
 import { useIncident } from "./hooks/useIncident";
+import type { HazardType } from "./types/incident";
 
 // ── EOC start screen — shown when no incident is active ──────────────────────
 
@@ -77,6 +83,7 @@ export default function App() {
     clearLayerAnnotations,
     fetchAndPlaceFacilities,
     updateIncidentField,
+    updatePeriodField,
     exportIncident,
     importIncident,
   } = useIncident();
@@ -110,12 +117,6 @@ export default function App() {
           <span className="sidebar-subtitle">All-Hazards Incident Management</span>
         </div>
         <div className="sidebar-content">
-          <OverlayPanel
-            layers={overlayLayers}
-            onLayerLoad={handleOverlayLoad}
-            onLayerToggle={handleOverlayToggle}
-            onLayerClear={handleOverlayClear}
-          />
           <IncidentPanel
             incidents={incidents}
             activeIncidentId={activeIncidentId}
@@ -126,6 +127,38 @@ export default function App() {
             onExport={exportIncident}
             onImport={importIncident}
           />
+          {incident && (
+            <IncidentSetupPanel
+              hazardType={incident.hazardType}
+              onHazardTypeChange={(h: HazardType) => updateIncidentField("hazardType", h)}
+              incidentComplexity={incident.incidentComplexity}
+              onComplexityChange={(c) => updateIncidentField("incidentComplexity", c)}
+              weather={activePeriod?.weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
+              onWeatherChange={(w) => updatePeriodField("weather", w)}
+              incidentLocation={incidentLocation}
+              onFetchFacilities={incidentLocation
+                ? async () => fetchAndPlaceFacilities(incidentLocation.lat, incidentLocation.lng)
+                : undefined}
+            />
+          )}
+          <OverlayPanel
+            layers={overlayLayers}
+            onLayerLoad={handleOverlayLoad}
+            onLayerToggle={handleOverlayToggle}
+            onLayerClear={handleOverlayClear}
+          />
+          {incident && (
+            <>
+              <ResourcePanel
+                resources={(incident.resources ?? []) as Resource[]}
+                onChange={(r) => updateIncidentField("resources", r as typeof incident.resources)}
+              />
+              <AgencyPanel
+                agencies={(incident.agencies ?? []) as Agency[]}
+                onChange={(a) => updateIncidentField("agencies", a as typeof incident.agencies)}
+              />
+            </>
+          )}
         </div>
         <footer className="sidebar-footer">
           <button className="sidebar-footer-btn">⚙ Settings</button>

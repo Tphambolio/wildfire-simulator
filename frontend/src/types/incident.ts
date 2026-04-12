@@ -7,7 +7,8 @@ export interface WeatherParams {
   wind_direction: number;
   temperature: number;
   relative_humidity: number;
-  precipitation_24h: number;
+  precipitation: number;
+  visibility_km?: number;
 }
 
 // ── Annotation layer identifiers (distinct from ICS viewer form IDs) ──────────
@@ -220,6 +221,28 @@ export interface OperationalPeriod {
 
 // ── Incident session ──────────────────────────────────────────────────────────
 
+// Inline types for Resource and Agency (avoids circular imports from components)
+export interface IncidentResource {
+  id: string;
+  kind: "person" | "equipment" | "vehicle";
+  name: string;
+  role?: string;
+  agency: string;
+  typeRating?: "T1" | "T2" | "T3" | "T4" | "T5";
+  status: "available" | "assigned" | "released" | "oos";
+  assignedDivision?: string;
+  notes?: string;
+}
+
+export interface IncidentAgency {
+  id: string;
+  name: string;
+  role: string;
+  liaison: string;
+  phone: string;
+  isUnifiedCommand: boolean;
+}
+
 export interface IncidentSession {
   id: string;
   name: string;
@@ -232,6 +255,8 @@ export interface IncidentSession {
   updatedAt: string;
   activePeriodIndex: number;            // 0-based index into operationalPeriods
   operationalPeriods: OperationalPeriod[];
+  resources: IncidentResource[];
+  agencies: IncidentAgency[];
 }
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
@@ -242,7 +267,7 @@ export function makeOperationalPeriod(day: number, date: string): OperationalPer
     date,
     opPeriodStart: "08:00",
     opPeriodEnd: "20:00",
-    weather: { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation_24h: 0 },
+    weather: { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 },
     ignitionPoint: null,
     hazardZones: [],
     annotations: [],
@@ -266,5 +291,7 @@ export function makeIncident(name: string): IncidentSession {
     updatedAt: new Date().toISOString(),
     activePeriodIndex: 0,
     operationalPeriods: [makeOperationalPeriod(1, today)],
+    resources: [],
+    agencies: [],
   };
 }
