@@ -667,12 +667,36 @@ export default function EOCConsole({
                     <span className="eoc-kpi-value">{incidentName}</span>
                   </div>
                   <div className="eoc-kpi">
+                    <span className="eoc-kpi-label">Hazard Type</span>
+                    <span className="eoc-kpi-value" style={{ textTransform: "capitalize" }}>
+                      {hazardType ? hazardType.replace("_", " ") : "Not set"}
+                    </span>
+                  </div>
+                  <div className="eoc-kpi">
+                    <span className="eoc-kpi-label">Complexity</span>
+                    <span className="eoc-kpi-value">
+                      {incidentComplexity ? `Type ${incidentComplexity}` : "—"}
+                    </span>
+                  </div>
+                  <div className="eoc-kpi">
                     <span className="eoc-kpi-label">Location</span>
                     <span className="eoc-kpi-value">
                       {incidentLocation
                         ? `${incidentLocation.lat.toFixed(4)}, ${incidentLocation.lng.toFixed(4)}`
                         : "Not set — click map"}
                     </span>
+                  </div>
+                  <div className="eoc-kpi">
+                    <span className="eoc-kpi-label">Hazard Zones</span>
+                    <span className="eoc-kpi-value">{hazardZones?.length ?? 0}</span>
+                  </div>
+                  <div className="eoc-kpi">
+                    <span className="eoc-kpi-label">Resources</span>
+                    <span className="eoc-kpi-value">{resources?.length ?? 0}</span>
+                  </div>
+                  <div className="eoc-kpi">
+                    <span className="eoc-kpi-label">Agencies</span>
+                    <span className="eoc-kpi-value">{agencies?.length ?? 0}</span>
                   </div>
                   <div className="eoc-kpi">
                     <span className="eoc-kpi-label">Annotations</span>
@@ -731,9 +755,24 @@ export default function EOCConsole({
                 </div>
 
                 <div className="eoc-form-group">
-                  <span className="eoc-form-group-label">Activity</span>
+                  <span className="eoc-form-group-label">Safety &amp; Org</span>
                   <div className="eoc-form-btns">
-                    {(["ics214"] as ICSFormId[]).map((id) => (
+                    {(["ics207", "ics208", "ics215a"] as ICSFormId[]).map((id) => (
+                      <button
+                        key={id}
+                        className={`eoc-form-btn${selectedForm === id ? " active" : ""}`}
+                        onClick={() => handleFormSelect(id)}
+                      >
+                        {ICS_FORM_LABELS[id]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="eoc-form-group">
+                  <span className="eoc-form-group-label">Resources &amp; Messages</span>
+                  <div className="eoc-form-btns">
+                    {(["ics215", "ics213", "ics214"] as ICSFormId[]).map((id) => (
                       <button
                         key={id}
                         className={`eoc-form-btn${selectedForm === id ? " active" : ""}`}
@@ -751,7 +790,7 @@ export default function EOCConsole({
                       className={`eoc-form-btn eoc-form-btn--primary${selectedForm === "full-iap" ? " active" : ""}`}
                       onClick={() => handleFormSelect("full-iap")}
                     >
-                      ⬇ Generate Full IAP (201–206)
+                      ⬇ Generate Full IAP (201–215A)
                     </button>
                   </div>
                 </div>
