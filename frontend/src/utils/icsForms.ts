@@ -49,6 +49,8 @@ export interface ICSFormOptions {
   incidentCommanderName?: string;
   situationNarrative?: string;
   jurisdiction?: string;
+  /** True when this form is being rendered as part of a full IAP package (enables "attached" references) */
+  isPartOfFullIAP?: boolean;
 }
 
 // ── Wind direction label ──────────────────────────────────────────────────────
@@ -326,12 +328,18 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
       "Evacuation triggers: per local authority order.",
       "Debrief at end of each operational period.",
     ])),
-    icsBlock("8", "Attachments / References", renderList([
-      "ICS-203 Organization Assignment List (attached)",
-      "ICS-204 Assignment List per division (attached)",
-      "ICS-205 Communications Plan (attached)",
-      "ICS-206 Medical Plan (attached)",
-    ])),
+    icsBlock("8", "Attachments / References", opts.isPartOfFullIAP
+      ? renderList([
+          "ICS-203 Organization Assignment List (attached)",
+          "ICS-204 Assignment List per division (attached)",
+          "ICS-205 Communications Plan (attached)",
+          "ICS-206 Medical Plan (attached)",
+        ])
+      : `<p style="color:#666;font-size:12px;margin:4px 0;">
+           Attachments are included when printing the Full IAP package.<br>
+           Use <strong>Full IAP</strong> in the EOC Console to generate all forms together.
+         </p>`
+    ),
     icsBlock("9", "Operational Map", renderMapSnapshot(opts.mapSnapshotDataUrl, "Operational Map")),
   ], opts, "portrait", "ics202");
 }
@@ -835,18 +843,19 @@ export function buildICS215aHTML(opts: ICSFormOptions): string {
 // ── Full IAP package ──────────────────────────────────────────────────────────
 
 export function buildFullIAPHTML(opts: ICSFormOptions): string {
+  const fullOpts = { ...opts, isPartOfFullIAP: true };
   const forms = [
-    buildICS201HTML(opts),
-    buildICS202HTML(opts),
-    buildICS203HTML(opts),
-    buildICS204HTML(opts),
-    buildICS205HTML(opts),
-    buildICS206HTML(opts),
-    buildICS207HTML(opts),
-    buildICS208HTML(opts),
-    buildICS213HTML(opts),
-    buildICS215HTML(opts),
-    buildICS215aHTML(opts),
+    buildICS201HTML(fullOpts),
+    buildICS202HTML(fullOpts),
+    buildICS203HTML(fullOpts),
+    buildICS204HTML(fullOpts),
+    buildICS205HTML(fullOpts),
+    buildICS206HTML(fullOpts),
+    buildICS207HTML(fullOpts),
+    buildICS208HTML(fullOpts),
+    buildICS213HTML(fullOpts),
+    buildICS215HTML(fullOpts),
+    buildICS215aHTML(fullOpts),
   ];
 
   const FORM_CODES = ["ICS 201", "ICS 202", "ICS 203", "ICS 204", "ICS 205", "ICS 206", "ICS 207", "ICS 208", "ICS 213", "ICS 215", "ICS 215A"];
