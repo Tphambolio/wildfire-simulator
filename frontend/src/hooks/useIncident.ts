@@ -8,17 +8,24 @@ import type {
   IncidentAnnotation,
   EvacDecisionRecord,
   HazardZone,
+  IncidentResource,
 } from "../types/incident";
 import { makeIncident, makeOperationalPeriod } from "../types/incident";
 
 const STORAGE_KEY = "aims-console-incidents";
 const MAX_INCIDENTS = 20;
 
+/** Migrate resources saved before icsSection field was added. */
+function normalizeResources(resources: IncidentResource[]): IncidentResource[] {
+  return resources.map((r) => (r.icsSection ? r : { ...r, icsSection: "other" as const }));
+}
+
 function loadFromStorage(): IncidentSession[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as IncidentSession[];
+    const sessions = JSON.parse(raw) as IncidentSession[];
+    return sessions.map((s) => ({ ...s, resources: normalizeResources(s.resources ?? []) }));
   } catch {
     return [];
   }
@@ -297,6 +304,7 @@ export function useIncident() {
             id: crypto.randomUUID(),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
+            resources: normalizeResources(parsed.resources ?? []),
           };
           setIncidents((prev) => {
             const updated = [next, ...prev].slice(0, MAX_INCIDENTS);

@@ -25,7 +25,9 @@ import type {
   IncidentResource,
   IncidentAgency,
   OperationalPeriod,
+  ICSSection,
 } from "../types/incident";
+import { ICS_POSITIONS_BY_SECTION } from "../types/incident";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -289,47 +291,51 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
 // ── ICS-203: Organization Assignment List ─────────────────────────────────────
 
 export function buildICS203HTML(opts: ICSFormOptions): string {
-  const commandStaffRows = `
-<table class="kv">
+  const resources = opts.resources ?? [];
+  const agencies = opts.agencies ?? [];
+
+  function staffRow(section: ICSSection, position: string): string {
+    const r = resources.find(
+      (res) => res.icsSection === section && res.icsPosition === position && res.kind === "person"
+    ) ?? resources.find(
+      (res) => res.icsSection === section && res.role === position && res.kind === "person"
+    );
+    return `<tr><td>${esc(position)}</td><td contenteditable="true">${esc(r?.name ?? "")}</td><td contenteditable="true">${esc(r?.agency ?? "")}</td><td contenteditable="true">&nbsp;</td></tr>`;
+  }
+
+  const commandStaffRows = `<table class="kv">
   <tr><th>Position</th><th>Name</th><th>Agency</th><th>Contact</th></tr>
-  <tr><td>Incident Commander (IC)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Safety Officer</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Liaison Officer</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Public Information Officer (PIO)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  ${ICS_POSITIONS_BY_SECTION.command.map((pos) => staffRow("command", pos)).join("")}
 </table>`;
 
-  const generalStaffRows = `
-<table class="kv">
-  <tr><th>Section</th><th>Chief</th><th>Name</th><th>Agency</th><th>Contact</th></tr>
-  <tr><td>Operations Section Chief</td><td>Ops Chief</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Planning Section Chief</td><td>Plan Chief</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Logistics Section Chief</td><td>Log Chief</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Finance / Admin Section Chief</td><td>Fin Chief</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Operations — Division A</td><td>Division Supervisor</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Operations — Division B</td><td>Division Supervisor</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Medical Unit Leader</td><td>MedUL</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Communications Unit Leader</td><td>ComL</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Resources Unit Leader</td><td>RESL</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-  <tr><td>Situation Unit Leader</td><td>SITL</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  const chiefPositions: [ICSSection, string][] = [
+    ["operations", "Operations Section Chief"],
+    ["planning", "Planning Section Chief"],
+    ["logistics", "Logistics Section Chief"],
+    ["finance", "Finance/Admin Section Chief"],
+  ];
+  const generalStaffRows = `<table class="kv">
+  <tr><th>Section Chief</th><th>Name</th><th>Agency</th><th>Contact</th></tr>
+  ${chiefPositions.map(([sec, pos]) => staffRow(sec, pos)).join("")}
 </table>`;
+
+  const agencyRows = agencies.length > 0
+    ? agencies.map((a) => `<tr><td>${esc(a.name)}</td><td>${esc(a.liaison)}</td><td contenteditable="true">&nbsp;</td><td>${esc(a.role)}</td></tr>`).join("")
+    : `<tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>`.repeat(4);
 
   return wrapForm("ICS 203 – Organization Assignment List", [
     icsBlock("1", "Incident Information", incidentInfoBlock(opts)),
     icsBlock("2", "Command Staff", commandStaffRows),
-    icsBlock("3", "General Staff & Branch Assignments", generalStaffRows),
+    icsBlock("3", "General Staff — Section Chiefs", generalStaffRows),
     icsBlock("4", "Agency Representatives", `<table class="kv">
       <tr><th>Agency</th><th>Representative</th><th>Contact</th><th>Role</th></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>Fire / Rescue</td></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>Police / Security</td></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>Emergency Medical</td></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>Public Works</td></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>Emergency Management</td></tr>
+      ${agencyRows}
     </table>`),
     icsBlock("5", "Technical Specialists", `<table class="kv">
       <tr><th>Specialty</th><th>Name</th><th>Agency</th><th>Contact</th></tr>
-      <tr><td>RPAS / Drone Coordinator</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-      <tr><td>Hazard Specialist</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-      <tr><td>Situation Unit Leader (SITL)</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      ${resources.filter((r) => r.icsPosition === "Technical Specialist").map((r) =>
+        `<tr><td>${esc(r.role ?? "Technical Specialist")}</td><td>${esc(r.name)}</td><td>${esc(r.agency)}</td><td contenteditable="true">&nbsp;</td></tr>`
+      ).join("") || `<tr><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td></tr>`.repeat(3)}
     </table>`),
   ], opts, "portrait");
 }
@@ -566,19 +572,21 @@ export function buildICS214HTML(opts: ICSFormOptions): string {
 export function buildICS207HTML(opts: ICSFormOptions): string {
   const resources = opts.resources ?? [];
 
-  const COMMAND_POSITIONS = ["Incident Commander", "Deputy IC", "Safety Officer", "Public Information Officer", "Liaison Officer"];
-  const OPS_POSITIONS = ["Operations Chief", "Division Supervisor", "Branch Director", "Air Operations Branch Director", "Air Tactical Group Supervisor"];
-  const PLANNING_POSITIONS = ["Planning Chief", "Resources Unit Leader", "Situation Unit Leader", "Documentation Unit Leader", "Demobilization Unit Leader"];
-  const LOGISTICS_POSITIONS = ["Logistics Chief", "Service Branch Director", "Communications Unit Leader", "Medical Unit Leader", "Food Unit Leader", "Support Branch Director", "Facilities Unit Leader", "Ground Support Unit Leader", "Supply Unit Leader"];
-  const FINANCE_POSITIONS = ["Finance/Admin Chief", "Time Unit Leader", "Procurement Unit Leader", "Compensation/Claims Unit Leader", "Cost Unit Leader"];
+  /** Exact match: icsSection + icsPosition field. Falls back to role substring for legacy data. */
+  function getAssignee(section: ICSSection, position: string): IncidentResource | undefined {
+    return (
+      resources.find((r) => r.icsSection === section && r.icsPosition === position && r.kind === "person") ??
+      resources.find((r) => r.icsSection === section && r.role === position && r.kind === "person")
+    );
+  }
 
-  function orgSection(sectionTitle: string, positions: string[]): string {
-    const relevant = resources.filter((r) => positions.some((p) => r.role?.toLowerCase().includes(p.toLowerCase())));
+  function orgSection(section: ICSSection): string {
+    const positions = ICS_POSITIONS_BY_SECTION[section];
     const rows = positions.map((pos) => {
-      const match = relevant.find((r) => r.role?.toLowerCase().includes(pos.toLowerCase()));
+      const match = getAssignee(section, pos);
       return `<tr><th style="width:45%;font-weight:600">${esc(pos)}</th><td>${esc(match?.name ?? "")}</td><td style="width:25%">${esc(match?.agency ?? "")}</td></tr>`;
     }).join("");
-    return `<h4>${esc(sectionTitle)}</h4><table class="kv"><tr><th>Position</th><th>Name</th><th>Agency</th></tr>${rows}</table>`;
+    return `<table class="kv"><tr><th>Position</th><th>Name</th><th>Agency</th></tr>${rows}</table>`;
   }
 
   const ucAgencies = (opts.agencies ?? []).filter((a) => a.isUnifiedCommand);
@@ -588,11 +596,11 @@ export function buildICS207HTML(opts: ICSFormOptions): string {
 
   return wrapForm("ICS 207 – Organizational Assignment Chart", [
     icsBlock("1", "Incident Information", incidentInfoBlock(opts)),
-    icsBlock("2", "Command / Command Staff", ucBlock + orgSection("", COMMAND_POSITIONS)),
-    icsBlock("3", "Operations Section", orgSection("Operations Section", OPS_POSITIONS)),
-    icsBlock("4", "Planning Section", orgSection("Planning Section", PLANNING_POSITIONS)),
-    icsBlock("5", "Logistics Section", orgSection("Logistics Section", LOGISTICS_POSITIONS)),
-    icsBlock("6", "Finance / Administration Section", orgSection("Finance Section", FINANCE_POSITIONS)),
+    icsBlock("2", "Command / Command Staff", ucBlock + orgSection("command")),
+    icsBlock("3", "Operations Section", orgSection("operations")),
+    icsBlock("4", "Planning Section", orgSection("planning")),
+    icsBlock("5", "Logistics Section", orgSection("logistics")),
+    icsBlock("6", "Finance / Administration Section", orgSection("finance")),
   ], opts, "portrait");
 }
 

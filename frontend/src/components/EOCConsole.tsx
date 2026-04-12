@@ -10,6 +10,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
 import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
+import SectionWorkspace from "./SectionWorkspace";
 import {
   buildICS201HTML,
   buildICS202HTML,
@@ -51,11 +52,15 @@ interface EOCConsoleProps {
   resources?: IncidentResource[];
   agencies?: IncidentAgency[];
   activePeriod?: OperationalPeriod;
+  onResourcesChange?: (r: IncidentResource[]) => void;
+  onAgenciesChange?: (a: IncidentAgency[]) => void;
+  initialConsoleTab?: ConsoleTab;
+  onConsoleTabChange?: (tab: ConsoleTab) => void;
 }
 
-type ConsoleTab = "situation" | "ics-forms" | "map";
+export type ConsoleTab = "situation" | "command" | "operations" | "planning" | "logistics" | "finance" | "iap" | "map";
 
-type ICSFormId =
+export type ICSFormId =
   | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics206"
   | "ics207" | "ics208" | "ics213" | "ics214" | "ics215" | "ics215a"
   | "full-iap";
@@ -97,8 +102,16 @@ export default function EOCConsole({
   resources,
   agencies,
   activePeriod,
+  onResourcesChange,
+  onAgenciesChange,
+  initialConsoleTab,
+  onConsoleTabChange,
 }: EOCConsoleProps) {
-  const [consoleTab, setConsoleTab] = useState<ConsoleTab>("situation");
+  const [consoleTab, setConsoleTabState] = useState<ConsoleTab>(initialConsoleTab ?? "situation");
+  const setConsoleTab = useCallback((tab: ConsoleTab) => {
+    setConsoleTabState(tab);
+    onConsoleTabChange?.(tab);
+  }, [onConsoleTabChange]);
   const [localIncidentName, setLocalIncidentName] = useState("Untitled Incident");
   const incidentName = incidentNameProp ?? localIncidentName;
   const setIncidentName = (name: string) => {
@@ -374,7 +387,7 @@ export default function EOCConsole({
 
   const handleFormSelect = useCallback(async (formId: ICSFormId) => {
     const snap = await captureMapSnapshot();
-    setConsoleTab("ics-forms");
+    setConsoleTab("iap");
     renderForm(formId, snap);
   }, [captureMapSnapshot, renderForm]);
 
@@ -431,13 +444,20 @@ export default function EOCConsole({
 
       {/* ── Sub-tabs ───────────────────────────────────────────────── */}
       <div className="eoc-subtabs">
-        {(["situation", "ics-forms", "map"] as ConsoleTab[]).map((tab) => (
+        {(["situation", "command", "operations", "planning", "logistics", "finance", "iap", "map"] as ConsoleTab[]).map((tab) => (
           <button
             key={tab}
             className={`eoc-subtab${consoleTab === tab ? " active" : ""}`}
             onClick={() => setConsoleTab(tab)}
           >
-            {tab === "situation" ? "Situation" : tab === "ics-forms" ? "ICS Forms" : "Map"}
+            {tab === "situation" ? "Situation"
+              : tab === "command" ? "Command"
+              : tab === "operations" ? "Ops"
+              : tab === "planning" ? "Plans"
+              : tab === "logistics" ? "Logs"
+              : tab === "finance" ? "Finance"
+              : tab === "iap" ? "IAP Forms"
+              : "Map"}
           </button>
         ))}
       </div>
@@ -716,11 +736,30 @@ export default function EOCConsole({
               </div>
             )}
 
-            {/* ── ICS Forms tab ───────────────────────────── */}
-            {consoleTab === "ics-forms" && (
+            {/* ── Section workspace tabs ──────────────────── */}
+            {(["command", "operations", "planning", "logistics", "finance"] as const).map((section) =>
+              consoleTab === section ? (
+                <div key={section} className="eoc-section-workspace">
+                  <SectionWorkspace
+                    section={section}
+                    resources={resources ?? []}
+                    agencies={agencies ?? []}
+                    onResourcesChange={onResourcesChange ?? (() => {})}
+                    onAgenciesChange={onAgenciesChange ?? (() => {})}
+                    onGenerateForm={(formId) => {
+                      setConsoleTab("iap");
+                      handleFormSelect(formId);
+                    }}
+                  />
+                </div>
+              ) : null
+            )}
+
+            {/* ── IAP Forms tab ───────────────────────────── */}
+            {consoleTab === "iap" && (
               <div className="eoc-forms-panel">
                 <div className="eoc-forms-header">
-                  <span className="eoc-forms-title">ICS FORMS</span>
+                  <span className="eoc-forms-title">IAP FORMS</span>
                   <span className="eoc-forms-subtitle">NIMS Incident Action Plan</span>
                 </div>
 

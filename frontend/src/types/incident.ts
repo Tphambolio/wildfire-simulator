@@ -219,6 +219,72 @@ export interface OperationalPeriod {
   situationNarrative: string;
 }
 
+// ── ICS Section model ─────────────────────────────────────────────────────────
+
+export type ICSSection =
+  | "command"     // IC + Command Staff (Safety, PIO, Liaison)
+  | "operations"  // Operations Section
+  | "planning"    // Planning Section
+  | "logistics"   // Logistics Section
+  | "finance"     // Finance/Admin Section
+  | "other";      // Unassigned pool
+
+export const ICS_SECTION_META: Record<ICSSection, { label: string; abbrev: string; color: string }> = {
+  command:    { label: "Command Staff",         abbrev: "CMD",  color: "#ffd54f" },
+  operations: { label: "Operations Section",    abbrev: "OPS",  color: "#ef5350" },
+  planning:   { label: "Planning Section",      abbrev: "PLAN", color: "#42a5f5" },
+  logistics:  { label: "Logistics Section",     abbrev: "LOG",  color: "#66bb6a" },
+  finance:    { label: "Finance/Admin Section", abbrev: "FIN",  color: "#ab47bc" },
+  other:      { label: "Unassigned",            abbrev: "—",    color: "#607d8b" },
+};
+
+export const ICS_POSITIONS_BY_SECTION: Record<ICSSection, string[]> = {
+  command: [
+    "Incident Commander",
+    "Deputy Incident Commander",
+    "Safety Officer",
+    "Public Information Officer",
+    "Liaison Officer",
+  ],
+  operations: [
+    "Operations Section Chief",
+    "Deputy Operations Section Chief",
+    "Branch Director",
+    "Division Supervisor",
+    "Group Supervisor",
+    "Air Operations Branch Director",
+    "Air Tactical Group Supervisor",
+    "Staging Area Manager",
+  ],
+  planning: [
+    "Planning Section Chief",
+    "Resources Unit Leader",
+    "Situation Unit Leader",
+    "Documentation Unit Leader",
+    "Demobilization Unit Leader",
+    "Technical Specialist",
+  ],
+  logistics: [
+    "Logistics Section Chief",
+    "Service Branch Director",
+    "Communications Unit Leader",
+    "Medical Unit Leader",
+    "Food Unit Leader",
+    "Support Branch Director",
+    "Facilities Unit Leader",
+    "Ground Support Unit Leader",
+    "Supply Unit Leader",
+  ],
+  finance: [
+    "Finance/Admin Section Chief",
+    "Time Unit Leader",
+    "Procurement Unit Leader",
+    "Compensation/Claims Unit Leader",
+    "Cost Unit Leader",
+  ],
+  other: [],
+};
+
 // ── Incident session ──────────────────────────────────────────────────────────
 
 // Inline types for Resource and Agency (avoids circular imports from components)
@@ -226,7 +292,9 @@ export interface IncidentResource {
   id: string;
   kind: "person" | "equipment" | "vehicle";
   name: string;
-  role?: string;
+  icsSection: ICSSection;      // explicit section assignment
+  icsPosition?: string;        // canonical position from ICS_POSITIONS_BY_SECTION
+  role?: string;               // freeform supplemental title
   agency: string;
   typeRating?: "T1" | "T2" | "T3" | "T4" | "T5";
   status: "available" | "assigned" | "released" | "oos";

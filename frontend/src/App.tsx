@@ -9,12 +9,10 @@ import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IncidentPanel from "./components/IncidentPanel";
 import IncidentSetupPanel from "./components/IncidentSetupPanel";
 import HazardZonePanel from "./components/HazardZonePanel";
-import ResourcePanel from "./components/ResourcePanel";
-import type { Resource } from "./components/ResourcePanel";
-import AgencyPanel from "./components/AgencyPanel";
-import type { Agency } from "./components/AgencyPanel";
+import TeamSummaryPanel from "./components/TeamSummaryPanel";
 import { useIncident } from "./hooks/useIncident";
 import type { HazardType, HazardZone } from "./types/incident";
+import type { ConsoleTab } from "./components/EOCConsole";
 
 // ── EOC start screen — shown when no incident is active ──────────────────────
 
@@ -66,6 +64,12 @@ export default function App() {
   const [incidentLocation, setIncidentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [overlayLayers, setOverlayLayers] = useState<OverlayLayers>(DEFAULT_OVERLAY_LAYERS);
   const [activeTab, setActiveTab] = useState<"map" | "eoc">("map");
+  const [eocConsoleTab, setEocConsoleTab] = useState<ConsoleTab>("situation");
+
+  const handleOpenSection = useCallback((section: "command" | "operations" | "planning" | "logistics" | "finance") => {
+    setActiveTab("eoc");
+    setEocConsoleTab(section);
+  }, []);
 
   // Zone drawing state
   const [drawingZone, setDrawingZone] = useState(false);
@@ -203,13 +207,10 @@ export default function App() {
                 onRemoveZone={removeHazardZone}
                 onClearAll={clearHazardZones}
               />
-              <ResourcePanel
-                resources={(incident.resources ?? []) as Resource[]}
-                onChange={(r) => updateIncidentField("resources", r as typeof incident.resources)}
-              />
-              <AgencyPanel
-                agencies={(incident.agencies ?? []) as Agency[]}
-                onChange={(a) => updateIncidentField("agencies", a as typeof incident.agencies)}
+              <TeamSummaryPanel
+                resources={incident.resources ?? []}
+                agencies={incident.agencies ?? []}
+                onOpenSection={handleOpenSection}
               />
             </>
           )}
@@ -272,6 +273,10 @@ export default function App() {
             resources={incident?.resources}
             agencies={incident?.agencies}
             activePeriod={activePeriod ?? undefined}
+            onResourcesChange={(r) => updateIncidentField("resources", r)}
+            onAgenciesChange={(a) => updateIncidentField("agencies", a)}
+            initialConsoleTab={eocConsoleTab}
+            onConsoleTabChange={setEocConsoleTab}
           />
         </div>
       )}
