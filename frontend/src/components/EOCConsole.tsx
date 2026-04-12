@@ -879,7 +879,10 @@ export default function EOCConsole({
               <div className="eoc-setup-tab">
                 <IncidentSetupPanel
                   hazardType={hazardType ?? "other"}
-                  onHazardTypeChange={onHazardTypeChange ?? (() => {})}
+                  onHazardTypeChange={(h) => {
+                    (onHazardTypeChange ?? (() => {}))(h);
+                    setConsoleTab("map");
+                  }}
                   incidentComplexity={incidentComplexity}
                   onComplexityChange={onComplexityChange ?? (() => {})}
                   weather={weather ?? { wind_speed: 20, wind_direction: 180, temperature: 15, relative_humidity: 50, precipitation: 0 }}
@@ -914,6 +917,11 @@ export default function EOCConsole({
                   onRemoveZone={onRemoveHazardZone ?? (() => {})}
                   onClearAll={onClearHazardZones ?? (() => {})}
                 />
+                <div className="eoc-tab-continue">
+                  <button className="eoc-tab-continue-btn" onClick={() => setConsoleTab("briefing")}>
+                    Continue to Briefing →
+                  </button>
+                </div>
               </div>
             )}
 

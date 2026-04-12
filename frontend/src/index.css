@@ -4906,6 +4906,31 @@ select {
   flex: 1;
 }
 
+.eoc-tab-continue {
+  padding: 16px;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.eoc-tab-continue-btn {
+  width: 100%;
+  padding: 12px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.eoc-tab-continue-btn:hover {
+  opacity: 0.85;
+}
+
 /* ── EOC Split-pane resize ──────────────────────────────────────────── */
 
 /* Drag handle between map and forms panels */
