@@ -12,8 +12,9 @@ import HazardZonePanel from "./components/HazardZonePanel";
 import TeamSummaryPanel from "./components/TeamSummaryPanel";
 import NextStepCard from "./components/NextStepCard";
 import { useIncident } from "./hooks/useIncident";
-import type { HazardType, HazardZone } from "./types/incident";
+import type { HazardType, HazardZone, IncidentResource } from "./types/incident";
 import type { ConsoleTab } from "./components/EOCConsole";
+import type { BriefingData } from "./components/InitBriefingPanel";
 
 // ── Cloud Sync Panel (inline — shows share code or share button) ─────────────
 
@@ -262,7 +263,31 @@ export default function App() {
     importIncident,
     shareIncident,
     joinIncident,
+    addResource,
   } = useIncident();
+
+  const handleBriefingComplete = useCallback((data: BriefingData) => {
+    // Persist IC name, jurisdiction, and completion timestamp on the incident
+    updateIncidentField("incidentCommanderName", data.icName);
+    updateIncidentField("ics201CompletedAt", new Date().toISOString());
+    if (data.jurisdiction) updateIncidentField("jurisdiction", data.jurisdiction);
+    // Persist situation narrative and objectives on the active period
+    updatePeriodField("situationNarrative", data.narrative);
+    if (data.objectives.length > 0) updatePeriodField("objectives", data.objectives);
+    // Auto-add IC as a Command resource so ICS-207 / section workspaces see them
+    if (data.icName) {
+      const icResource: IncidentResource = {
+        id: crypto.randomUUID(),
+        kind: "person",
+        name: data.icName,
+        icsSection: "command",
+        icsPosition: "Incident Commander",
+        agency: data.jurisdiction || "",
+        status: "assigned",
+      };
+      addResource(icResource);
+    }
+  }, [updateIncidentField, updatePeriodField, addResource]);
 
   // ── Join incident from URL param on mount ─────────────────
   useEffect(() => {
@@ -462,6 +487,8 @@ export default function App() {
             onAgenciesChange={(a) => updateIncidentField("agencies", a)}
             initialConsoleTab={eocConsoleTab}
             onConsoleTabChange={setEocConsoleTab}
+            ics201CompletedAt={incident?.ics201CompletedAt}
+            onBriefingComplete={handleBriefingComplete}
           />
         </div>
       )}

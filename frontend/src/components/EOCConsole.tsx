@@ -11,6 +11,7 @@ import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
 import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
 import SectionWorkspace from "./SectionWorkspace";
+import InitBriefingPanel, { type BriefingData } from "./InitBriefingPanel";
 import {
   buildICS201HTML,
   buildICS202HTML,
@@ -56,6 +57,9 @@ interface EOCConsoleProps {
   onAgenciesChange?: (a: IncidentAgency[]) => void;
   initialConsoleTab?: ConsoleTab;
   onConsoleTabChange?: (tab: ConsoleTab) => void;
+  /** Undefined = briefing not yet done; set = ISO timestamp of completion */
+  ics201CompletedAt?: string;
+  onBriefingComplete?: (data: BriefingData) => void;
 }
 
 export type ConsoleTab = "situation" | "command" | "operations" | "planning" | "logistics" | "finance" | "iap" | "map";
@@ -106,6 +110,8 @@ export default function EOCConsole({
   onAgenciesChange,
   initialConsoleTab,
   onConsoleTabChange,
+  ics201CompletedAt,
+  onBriefingComplete,
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTabState] = useState<ConsoleTab>(initialConsoleTab ?? "situation");
   const setConsoleTab = useCallback((tab: ConsoleTab) => {
@@ -373,7 +379,31 @@ export default function EOCConsole({
     resources,
     agencies,
     period: activePeriod,
+    // Initial briefing fields — threaded through from App via props
+    incidentCommanderName: (resources ?? []).find(
+      (r) => r.icsSection === "command" && r.icsPosition === "Incident Commander"
+    )?.name ?? "",
+    situationNarrative: activePeriod?.situationNarrative ?? "",
+    jurisdiction: undefined as string | undefined,
   }), [incidentName, incidentLocation, mapSnapshot, incidentAnnotations, activePeriod, hazardType, incidentComplexity, hazardZones, resources, agencies]);
+
+  // ── Handle initial briefing completion ────────────────────────────────────
+
+  const handleBriefingComplete = useCallback(async (data: BriefingData) => {
+    onBriefingComplete?.(data);
+    // Generate and cache ICS-201 immediately with the briefing data
+    const snap = await captureMapSnapshot();
+    const opts = buildFormOptions(snap);
+    const html = buildICS201HTML({
+      ...opts,
+      incidentCommanderName: data.icName,
+      situationNarrative: data.narrative,
+      jurisdiction: data.jurisdiction,
+      period: opts.period ? { ...opts.period, objectives: data.objectives } : opts.period,
+    });
+    setSavedFormEdits((prev) => ({ ...prev, ics201: html }));
+    setConsoleTab("command");
+  }, [onBriefingComplete, captureMapSnapshot, buildFormOptions, setConsoleTab]);
 
   // ── Form rendering ────────────────────────────────────────────────────────
 
@@ -702,7 +732,13 @@ export default function EOCConsole({
           <div className="eoc-data-panels">
 
             {/* ── Situation tab ───────────────────────────── */}
-            {consoleTab === "situation" && (
+            {consoleTab === "situation" && !ics201CompletedAt && (
+              <InitBriefingPanel
+                incidentName={incidentName}
+                onComplete={handleBriefingComplete}
+              />
+            )}
+            {consoleTab === "situation" && ics201CompletedAt && (
               <div className="eoc-situation-panel">
                 <div className="eoc-section-header">Incident Status</div>
                 <div className="eoc-kpi-grid">

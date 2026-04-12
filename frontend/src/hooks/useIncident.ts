@@ -199,6 +199,18 @@ export function useIncident() {
     [activePeriod, addAnnotation]
   );
 
+  // ── Resources ─────────────────────────────────────────────────────────────
+
+  const addResource = useCallback(
+    (resource: IncidentResource) => {
+      updateActiveIncident((i) => ({
+        ...i,
+        resources: [...(i.resources ?? []), resource],
+      }));
+    },
+    [updateActiveIncident]
+  );
+
   // ── Evac decisions ────────────────────────────────────────────────────────
 
   const commitEvacDecision = useCallback(
@@ -423,6 +435,8 @@ export function useIncident() {
     removeAnnotation,
     clearLayerAnnotations,
     fetchAndPlaceFacilities,
+    // Resources
+    addResource,
     // Evac
     commitEvacDecision,
     // Hazard zones

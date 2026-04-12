@@ -13,7 +13,7 @@ interface ICSStep {
   id: string;
   label: string;
   hint: string;
-  phase: 1 | 2 | 3;
+  phase: 0 | 1 | 2 | 3;
   phaseName: string;
   /** Returns true when this step is complete */
   isComplete: (incident: IncidentSession) => boolean;
@@ -21,13 +21,23 @@ interface ICSStep {
   eocTab: ConsoleTab;
 }
 
-const PHASE_LABELS: Record<1 | 2 | 3, string> = {
+const PHASE_LABELS: Record<0 | 1 | 2 | 3, string> = {
+  0: "Initial Briefing",
   1: "Initial Response",
   2: "Unified Command",
   3: "IAP Ready",
 };
 
 const STEPS: ICSStep[] = [
+  {
+    id: "initial-briefing",
+    label: "Complete Initial Briefing",
+    hint: "Set the IC, situation summary, and initial objectives. This generates your ICS-201.",
+    phase: 0,
+    phaseName: PHASE_LABELS[0],
+    isComplete: (i) => !!i.ics201CompletedAt,
+    eocTab: "situation",
+  },
   {
     id: "assign-ic",
     label: "Assign Incident Commander",
@@ -127,6 +137,7 @@ export default function NextStepCard({ incident, onNavigate }: NextStepCardProps
 
   const phase = currentStep?.phase ?? 3;
   const phaseName = currentStep?.phaseName ?? PHASE_LABELS[3];
+  const phaseClass = phase === 0 ? "ns-phase-0" : phase === 1 ? "ns-phase-1" : phase === 2 ? "ns-phase-2" : "ns-phase-3";
 
   return (
     <div className="next-step-panel sidebar-panel">
@@ -142,7 +153,7 @@ export default function NextStepCard({ incident, onNavigate }: NextStepCardProps
       {open && (
         <div className="panel-body">
           {/* Phase pill */}
-          <div className={`ns-phase-pill ns-phase-${phase}`}>
+          <div className={`ns-phase-pill ${phaseClass}`}>
             Phase {phase} — {phaseName}
           </div>
 

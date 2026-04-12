@@ -45,6 +45,10 @@ export interface ICSFormOptions {
   resources?: IncidentResource[];
   agencies?: IncidentAgency[];
   period?: OperationalPeriod;
+  /** Initial briefing fields — populated from InitBriefingPanel */
+  incidentCommanderName?: string;
+  situationNarrative?: string;
+  jurisdiction?: string;
 }
 
 // ── Wind direction label ──────────────────────────────────────────────────────
@@ -217,11 +221,27 @@ function incidentInfoBlock(opts: ICSFormOptions, extra?: Array<[string, string]>
 export function buildICS201HTML(opts: ICSFormOptions): string {
   const w = opts.weather;
 
-  const situationItems: string[] = [
-    "Describe current incident situation here.",
-    "Include nature of hazard, affected area, and population at risk.",
-    "Update objectives and resources as situation develops.",
-  ];
+  // Section B — use real narrative if provided, else placeholder
+  const situationItems: string[] = opts.situationNarrative
+    ? [opts.situationNarrative]
+    : [
+        "Describe current incident situation here.",
+        "Include nature of hazard, affected area, and population at risk.",
+        "Update objectives and resources as situation develops.",
+      ];
+
+  // Section D — use real objectives from the period if populated, else defaults
+  const objectiveItems: string[] = (opts.period?.objectives?.length)
+    ? opts.period.objectives
+    : [
+        "Ensure life safety of all responders and public.",
+        "Establish unified command with all responding agencies.",
+        "Confirm scene perimeter and access control.",
+        "Coordinate evacuation / shelter-in-place as required.",
+      ];
+
+  // Section F — IC name from initial briefing
+  const icName = opts.incidentCommanderName || "";
 
   const weatherRows: Array<[string, string]> = w ? [
     ["Wind Speed / Direction", `${w.wind_speed} km/h ${windDirLabel(w.wind_direction)} (${w.wind_direction}°)`],
@@ -230,19 +250,19 @@ export function buildICS201HTML(opts: ICSFormOptions): string {
     ["Precipitation (24h)", `${w.precipitation} mm`],
   ] : [["Status", "Weather parameters not yet entered."]];
 
+  // Section A — extend with jurisdiction if provided
+  const infoBlock = opts.jurisdiction
+    ? incidentInfoBlock(opts) + kvTable([["Jurisdiction / Authority", opts.jurisdiction]])
+    : incidentInfoBlock(opts);
+
   return wrapForm("ICS 201 – Incident Briefing", [
-    icsBlock("A", "Incident Information", incidentInfoBlock(opts)),
+    icsBlock("A", "Incident Information", infoBlock),
     icsBlock("B", "Current Situation Summary", renderList(situationItems)),
     icsBlock("C", "Weather Outlook", kvTable(weatherRows)),
-    icsBlock("D", "Incident Objectives", renderList([
-      "Ensure life safety of all responders and public.",
-      "Establish unified command with all responding agencies.",
-      "Confirm scene perimeter and access control.",
-      "Coordinate evacuation / shelter-in-place as required.",
-    ])),
+    icsBlock("D", "Incident Objectives", renderList(objectiveItems)),
     icsBlock("E", "Operational Map", renderMapSnapshot(opts.mapSnapshotDataUrl, "Incident Map Overview")),
     icsBlock("F", "Resource Summary", kvTable([
-      ["Incident Command", ""],
+      ["Incident Commander", icName],
       ["Operations", ""],
       ["Fire / Rescue", ""],
       ["Police / Security", ""],
@@ -263,13 +283,15 @@ export function buildICS201HTML(opts: ICSFormOptions): string {
 export function buildICS202HTML(opts: ICSFormOptions): string {
   const w = opts.weather;
 
-  const objectiveItems = [
-    "Ensure life safety of all responders and public.",
-    "Establish and maintain incident command structure.",
-    "Contain and mitigate hazard to prevent expansion.",
-    "Coordinate with all response agencies through unified command.",
-    "Provide accurate and timely public information.",
-  ];
+  const objectiveItems = (opts.period?.objectives?.length)
+    ? opts.period.objectives
+    : [
+        "Ensure life safety of all responders and public.",
+        "Establish and maintain incident command structure.",
+        "Contain and mitigate hazard to prevent expansion.",
+        "Coordinate with all response agencies through unified command.",
+        "Provide accurate and timely public information.",
+      ];
 
   const safetyItems = [
     "Maintain LACES: Lookouts, Anchor points, Communications, Escape routes, Safety zones",

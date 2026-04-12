@@ -325,8 +325,10 @@ export interface IncidentSession {
   operationalPeriods: OperationalPeriod[];
   resources: IncidentResource[];
   agencies: IncidentAgency[];
-  shareCode?: string;   // Set when incident is uploaded to cloud sync
-  syncedAt?: string;    // ISO timestamp of last successful cloud sync
+  shareCode?: string;        // Set when incident is uploaded to cloud sync
+  syncedAt?: string;         // ISO timestamp of last successful cloud sync
+  ics201CompletedAt?: string; // Set when initial briefing is completed
+  jurisdiction?: string;     // Reporting authority / jurisdiction
 }
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
