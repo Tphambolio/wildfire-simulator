@@ -2793,7 +2793,8 @@ select {
   flex-direction: column;
   overflow-y: auto;
   background: var(--surface-low);
-  border-left: 1px solid var(--border-dim);
+  border-left: 2px solid var(--border);
+  margin-left: 2px;
   min-width: 0;
 }
 
