@@ -547,41 +547,37 @@ export default function App() {
         </footer>
       </aside>
 
-      {/* ── Fixed top bar ───────────────────────────────────── */}
-      <header className="top-bar">
-        <div className="top-bar-left">
-          {/* Hamburger only shown after EOC is unlocked — no distraction during map setup */}
-          {incident && incidentLocation && (
-            <button className="mobile-menu-btn" onClick={() => setSidebarOpen(v => !v)} aria-label="Toggle sidebar">
-              ☰
-            </button>
-          )}
-          <span className="top-bar-title">AIMS Console</span>
-          <nav className="top-bar-nav">
-            <button
-              className={`nav-link${activeTab === "map" ? " active" : ""}`}
-              onClick={() => setActiveTab("map")}
-            >
-              Map
-            </button>
-            <button
-              className={`nav-link${activeTab === "eoc" ? " active" : ""}${incident && !incidentLocation ? " nav-link--locked" : ""}`}
-              onClick={() => incidentLocation || !incident ? setActiveTab("eoc") : undefined}
-              title={incident && !incidentLocation ? "Set incident location on the map first" : undefined}
-            >
-              <span className="nav-label-full">EOC Console</span>
-              <span className="nav-label-short">EOC</span>
-              {incident && !incidentLocation && <span className="nav-lock-icon">🔒</span>}
-            </button>
-          </nav>
-        </div>
-        <div className="top-bar-right">
-          <button className="btn-emergency">
-            <span className="btn-emergency-full">Emergency Alert</span>
-            <span className="btn-emergency-short">⚠ Alert</span>
-          </button>
-        </div>
-      </header>
+      {/* ── Fixed top bar — only shown when an incident is active ── */}
+      {incident && (
+        <header className="top-bar">
+          <div className="top-bar-left">
+            {/* Hamburger only shown after location is set */}
+            {incidentLocation && (
+              <button className="mobile-menu-btn" onClick={() => setSidebarOpen(v => !v)} aria-label="Toggle sidebar">
+                ☰
+              </button>
+            )}
+            <span className="top-bar-title">AIMS Console</span>
+            <nav className="top-bar-nav">
+              <button
+                className={`nav-link${activeTab === "map" ? " active" : ""}`}
+                onClick={() => setActiveTab("map")}
+              >
+                Map
+              </button>
+              <button
+                className={`nav-link${activeTab === "eoc" ? " active" : ""}${!incidentLocation ? " nav-link--locked" : ""}`}
+                onClick={() => incidentLocation ? setActiveTab("eoc") : undefined}
+                title={!incidentLocation ? "Set incident location on the map first" : undefined}
+              >
+                <span className="nav-label-full">EOC Console</span>
+                <span className="nav-label-short">EOC</span>
+                {!incidentLocation && <span className="nav-lock-icon">🔒</span>}
+              </button>
+            </nav>
+          </div>
+        </header>
+      )}
 
       {/* ── EOC Console tab ─────── */}
       {activeTab === "eoc" && !incident && (

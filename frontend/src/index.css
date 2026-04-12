@@ -2469,6 +2469,12 @@ select {
   z-index: 5;
 }
 
+/* No incident = no top bar, no sidebar — EocStartScreen fills entire viewport */
+.app--no-sidebar .eoc-tab-wrapper {
+  top: 0;
+  left: 0;
+}
+
 /* EOC start screen */
 .eoc-start-screen {
   flex: 1;
