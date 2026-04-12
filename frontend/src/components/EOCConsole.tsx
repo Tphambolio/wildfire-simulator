@@ -647,29 +647,6 @@ export default function EOCConsole({
             />
           )}
 
-          {/* Symbol picker flyout */}
-          {showSymbolPicker && (
-            <div className="eoc-symbol-picker-flyout">
-              <AnnotationSymbolPicker
-                activeLayer={activeLayer}
-                activeSymbol={activeSymbolKey}
-                onLayerChange={(layer) => { setActiveLayer(layer); setActiveSymbolKey(null); setMarkupTool(null); }}
-                onSymbolSelect={(key) => { setActiveSymbolKey(prev => prev === key ? null : key); setMarkupTool(null); }}
-                activeColor={activeColor}
-                onColorChange={setActiveColor}
-              />
-              {incidentAnnotations.filter(a => a.layer === activeLayer).length > 0 && (
-                <button
-                  className="eoc-clear-layer-btn"
-                  onClick={() => onClearLayer?.(activeLayer)}
-                  title={`Clear all ${activeLayer} layer annotations`}
-                >
-                  Clear layer
-                </button>
-              )}
-            </div>
-          )}
-
           {/* Markup toolbar */}
           <div className="eoc-markup-toolbar">
             <button className="eoc-markup-tool" onClick={() => consoleMapRef.current?.zoomIn()} title="Zoom in">+</button>
@@ -726,6 +703,29 @@ export default function EOCConsole({
             <img className="eoc-print-map" src={mapSnapshot} alt="Map snapshot" />
           )}
         </div>
+
+        {/* Symbol picker flyout — desktop: floats over map; mobile: between map and panels */}
+        {showSymbolPicker && (
+          <div className="eoc-symbol-picker-flyout">
+            <AnnotationSymbolPicker
+              activeLayer={activeLayer}
+              activeSymbol={activeSymbolKey}
+              onLayerChange={(layer) => { setActiveLayer(layer); setActiveSymbolKey(null); setMarkupTool(null); }}
+              onSymbolSelect={(key) => { setActiveSymbolKey(prev => prev === key ? null : key); setMarkupTool(null); }}
+              activeColor={activeColor}
+              onColorChange={setActiveColor}
+            />
+            {incidentAnnotations.filter(a => a.layer === activeLayer).length > 0 && (
+              <button
+                className="eoc-clear-layer-btn"
+                onClick={() => onClearLayer?.(activeLayer)}
+                title={`Clear all ${activeLayer} layer annotations`}
+              >
+                Clear layer
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Right: content panel (hidden in full-map mode) */}
         {!isMapFullWidth && (

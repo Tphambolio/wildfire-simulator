@@ -260,7 +260,7 @@ function EocStartScreen({ incidents, onCreate, onLoad, onImport }: EocStartScree
               maxLength={60}
             />
             <button className="eoc-start-btn" onClick={submit} disabled={!name.trim()}>
-              Open EOC Console
+              Set Location on Map →
             </button>
             <button className="eoc-start-import-btn" onClick={() => { setMode("choose"); setName(""); }}>
               ← Back
@@ -506,12 +506,28 @@ export default function App() {
           )}
           <span className="top-bar-title">AIMS Console</span>
           <nav className="top-bar-nav">
-            <button className={`nav-link${activeTab === "map" ? " active" : ""}`} onClick={() => setActiveTab("map")}>Map</button>
-            <button className={`nav-link${activeTab === "eoc" ? " active" : ""}`} onClick={() => setActiveTab("eoc")}>EOC Console</button>
+            <button
+              className={`nav-link${activeTab === "map" ? " active" : ""}`}
+              onClick={() => setActiveTab("map")}
+            >
+              Map
+            </button>
+            <button
+              className={`nav-link${activeTab === "eoc" ? " active" : ""}${incident && !incidentLocation ? " nav-link--locked" : ""}`}
+              onClick={() => incidentLocation || !incident ? setActiveTab("eoc") : undefined}
+              title={incident && !incidentLocation ? "Set incident location on the map first" : undefined}
+            >
+              <span className="nav-label-full">EOC Console</span>
+              <span className="nav-label-short">EOC</span>
+              {incident && !incidentLocation && <span className="nav-lock-icon">🔒</span>}
+            </button>
           </nav>
         </div>
         <div className="top-bar-right">
-          <button className="btn-emergency">Emergency Alert</button>
+          <button className="btn-emergency">
+            <span className="btn-emergency-full">Emergency Alert</span>
+            <span className="btn-emergency-short">⚠ Alert</span>
+          </button>
         </div>
       </header>
 
@@ -520,7 +536,7 @@ export default function App() {
         <div className="eoc-tab-wrapper">
           <EocStartScreen
             incidents={incidents}
-            onCreate={(name) => { createIncident(name); setActiveTab("eoc"); }}
+            onCreate={(name) => { createIncident(name); setActiveTab("map"); }}
             onLoad={(id) => { loadIncident(id); setActiveTab("eoc"); }}
             onImport={importIncident}
           />
@@ -570,6 +586,14 @@ export default function App() {
 
       {/* ── Map area — always mounted so MapLibre doesn't reinitialize on tab switch ─── */}
       <main className="map-area" style={activeTab === "eoc" ? { display: "none" } : {}}>
+        {/* Location prompt — shown when incident active but no location set yet */}
+        {incident && !incidentLocation && (
+          <div className="map-location-prompt">
+            <span className="map-location-prompt-icon">📍</span>
+            <span>Tap the map or use <strong>⊕</strong> to set the incident location</span>
+            <span className="map-location-prompt-sub">Required before opening the EOC Console</span>
+          </div>
+        )}
         <MapView
           onMapClick={handleMapClick}
           onClearIgnition={handleClearLocation}

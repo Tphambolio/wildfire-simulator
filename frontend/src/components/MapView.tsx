@@ -29,10 +29,12 @@ function MapToast({ message, onDone }: { message: string; onDone: () => void }) 
 }
 
 function LocationSearch({ onSelect }: { onSelect: (lat: number, lng: number, name: string) => void }) {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Array<{ display_name: string; lat: string; lon: string }>>([]);
   const [loading, setLoading] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const search = (q: string) => {
     if (q.length < 3) { setResults([]); return; }
@@ -49,37 +51,44 @@ function LocationSearch({ onSelect }: { onSelect: (lat: number, lng: number, nam
     timeoutRef.current = setTimeout(() => search(value), 400);
   };
 
+  const handleClose = () => { setOpen(false); setQuery(""); setResults([]); };
+
+  if (!open) {
+    return (
+      <button
+        className="map-search-toggle"
+        onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50); }}
+        title="Search location"
+        aria-label="Search location"
+      >
+        🔍
+      </button>
+    );
+  }
+
   return (
-    <div className="location-search" style={{
-      position: "absolute", top: 10, left: 10, zIndex: 10,
-      background: "rgba(20, 30, 50, 0.92)", borderRadius: 6, padding: "6px",
-      minWidth: 260, maxWidth: 320,
-    }}>
-      <input
-        type="text"
-        placeholder="Search location..."
-        value={query}
-        onChange={e => handleInput(e.target.value)}
-        style={{
-          width: "100%", padding: "6px 10px", border: "1px solid #445",
-          borderRadius: 4, background: "#1a2540", color: "#e0e0e0",
-          fontSize: 13, outline: "none", boxSizing: "border-box",
-        }}
-      />
-      {loading && <div style={{ color: "#888", fontSize: 12, padding: "4px 6px" }}>Searching...</div>}
+    <div className="location-search">
+      <div className="location-search-row">
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Search location..."
+          value={query}
+          onChange={e => handleInput(e.target.value)}
+          onKeyDown={e => e.key === "Escape" && handleClose()}
+          className="location-search-input"
+        />
+        <button className="location-search-close" onClick={handleClose} aria-label="Close search">✕</button>
+      </div>
+      {loading && <div className="location-search-status">Searching…</div>}
       {results.length > 0 && (
-        <div style={{ maxHeight: 180, overflowY: "auto" }}>
+        <div className="location-search-results">
           {results.map((r, i) => (
-            <div key={i} onClick={() => {
+            <div key={i} className="location-search-result" onClick={() => {
               onSelect(parseFloat(r.lat), parseFloat(r.lon), r.display_name);
               setResults([]); setQuery(r.display_name.split(",")[0]);
-            }} style={{
-              padding: "5px 8px", cursor: "pointer", fontSize: 12,
-              color: "#ccc", borderTop: "1px solid #334",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = "#2a3a5a")}
-            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            >
+              handleClose();
+            }}>
               {r.display_name}
             </div>
           ))}

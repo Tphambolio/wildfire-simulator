@@ -125,6 +125,31 @@ body {
   color: white;
 }
 
+/* Locked nav tab (EOC Console before location is set) */
+.nav-link--locked {
+  opacity: 0.4;
+  cursor: default;
+}
+.nav-link--locked:hover {
+  color: var(--text-primary);
+}
+
+.nav-lock-icon {
+  font-size: 9px;
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+/* Short label variants — hidden by default, shown on mobile */
+.nav-label-short,
+.btn-emergency-short {
+  display: none;
+}
+.nav-label-full,
+.btn-emergency-full {
+  display: inline;
+}
+
 .top-bar-right {
   display: flex;
   align-items: center;
@@ -323,6 +348,39 @@ body {
   right: 0;
   bottom: var(--bottombar-height);
   overflow: hidden;
+}
+
+/* Map location prompt — shown when incident active but no location set */
+.map-location-prompt {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: rgba(11, 17, 32, 0.92);
+  border: 1px solid rgba(255, 107, 53, 0.6);
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 13px;
+  color: #e0e0e0;
+  text-align: center;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+}
+.map-location-prompt-icon {
+  font-size: 22px;
+  margin-bottom: 2px;
+}
+.map-location-prompt-sub {
+  font-size: 11px;
+  color: rgba(255, 107, 53, 0.8);
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 /* Bottom timeline bar */
@@ -2676,6 +2734,7 @@ select {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .eoc-body--map-full .eoc-map-panel {
@@ -2851,6 +2910,7 @@ select {
 /* ── Symbol picker flyout ──────────────────────────────────── */
 
 .eoc-symbol-picker-flyout {
+  /* Desktop: float over bottom-left of map panel */
   position: absolute;
   bottom: 92px;
   left: 12px;
@@ -4363,6 +4423,102 @@ select {
 .sync-btn:hover { background: rgba(61, 90, 128, 0.25); }
 .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ── Location search (collapsed toggle → expanded panel) ────────────── */
+
+.map-search-toggle {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  width: 36px;
+  height: 36px;
+  background: rgba(20, 30, 50, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s, border-color 0.15s;
+}
+.map-search-toggle:hover {
+  background: rgba(40, 60, 90, 0.95);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.location-search {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  background: rgba(20, 30, 50, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 6px;
+  min-width: 260px;
+  max-width: 320px;
+  backdrop-filter: blur(6px);
+}
+
+.location-search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.location-search-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #445;
+  border-radius: 4px;
+  background: #1a2540;
+  color: #e0e0e0;
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+}
+
+.location-search-close {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.location-search-close:hover { color: #fff; border-color: rgba(255,255,255,0.4); }
+
+.location-search-status {
+  color: #888;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.location-search-results {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.location-search-result {
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #ccc;
+  border-top: 1px solid #334;
+  border-radius: 3px;
+}
+.location-search-result:hover { background: #2a3a5a; }
+
 /* ── Mobile EOC overrides (must come after component base styles) ─────── */
 @media (max-width: 768px) {
   .eoc-body {
@@ -4412,5 +4568,46 @@ select {
 
   .section-workspace {
     padding: 12px;
+  }
+
+  /* Symbol picker: flow below map instead of floating over it */
+  .eoc-symbol-picker-flyout {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    min-width: unset;
+    border-radius: 0;
+    border-top: 2px solid rgba(255, 107, 53, 0.5);
+    border-left: none;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 107, 53, 0.2);
+    max-height: 45vh;
+    overflow-y: auto;
+    backdrop-filter: none;
+  }
+
+  /* Search: full width when expanded on mobile */
+  .location-search {
+    min-width: unset;
+    max-width: calc(100% - 80px); /* leave room for map controls on right */
+  }
+
+  /* Top bar: show short labels on mobile to prevent overflow */
+  .nav-label-full,
+  .btn-emergency-full {
+    display: none;
+  }
+  .nav-label-short,
+  .btn-emergency-short {
+    display: inline;
+  }
+
+  /* Location prompt: full-width pill at top of map on mobile */
+  .map-location-prompt {
+    white-space: normal;
+    width: calc(100% - 40px);
+    left: 20px;
+    transform: none;
+    font-size: 12px;
   }
 }
