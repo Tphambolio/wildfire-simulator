@@ -3431,6 +3431,11 @@ select {
   line-height: 1.8;
 }
 
+/* Back-to-list button — hidden on desktop (not needed), shown on mobile */
+.eoc-forms-back-btn {
+  display: none;
+}
+
 /* ── IncidentSetupPanel ─────────────────────────────────────── */
 
 .hazard-type-grid {
@@ -4701,5 +4706,44 @@ select {
     text-align: center;
     width: calc(100% - 80px);
     bottom: 56px;
+  }
+
+  /* ── IAP Forms — mobile viewer mode ─────────────────────────
+     When a form is selected, hide the picker list and let the
+     iframe fill the available height. "← Forms" back button
+     is shown so user can return to the form list.
+  ─────────────────────────────────────────────────────────── */
+  .eoc-forms-back-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: 1px solid var(--border-mid);
+    border-radius: 6px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    cursor: pointer;
+    letter-spacing: 0.03em;
+    align-self: flex-start;
+  }
+
+  /* When a form is open on mobile: hide the selector groups */
+  .eoc-forms-panel--viewing .eoc-forms-header,
+  .eoc-forms-panel--viewing .eoc-form-group {
+    display: none;
+  }
+
+  /* Form viewer gets an explicit height on mobile so iframe is visible */
+  .eoc-forms-panel--viewing .eoc-form-viewer {
+    flex: none;
+    min-height: 72vh;
+    height: 72vh;
+  }
+
+  .eoc-forms-panel--viewing .eoc-form-iframe {
+    height: calc(72vh - 44px); /* subtract toolbar row */
+    min-height: 0;
   }
 }

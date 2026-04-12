@@ -799,7 +799,13 @@ export default function EOCConsole({
 
             {/* ── IAP Forms tab ───────────────────────────── */}
             {consoleTab === "iap" && (
-              <div className="eoc-forms-panel">
+              <div className={`eoc-forms-panel${formHtml ? " eoc-forms-panel--viewing" : ""}`}>
+                {/* Mobile: back-to-list button shown when a form is open */}
+                {formHtml && (
+                  <button className="eoc-forms-back-btn" onClick={() => setFormHtml("")}>
+                    ← Forms
+                  </button>
+                )}
                 <div className="eoc-forms-header">
                   <span className="eoc-forms-title">IAP FORMS</span>
                   <span className="eoc-forms-subtitle">NIMS Incident Action Plan</span>
