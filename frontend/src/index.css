@@ -233,6 +233,11 @@ body {
   color: var(--text-secondary);
 }
 
+/* No-sidebar layout — collapses all sidebar offsets */
+.app--no-sidebar {
+  --sidebar-width: 0px;
+}
+
 /* Fixed sidebar */
 .sidebar {
   position: fixed;

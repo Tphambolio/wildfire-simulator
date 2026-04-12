@@ -418,9 +418,9 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className={`app${!incident ? " app--no-sidebar" : ""}`}>
       {/* ── Fixed sidebar ───────────────────────────────────── */}
-      <aside className="sidebar">
+      <aside className="sidebar" style={!incident ? { display: "none" } : {}}>
         <div className="sidebar-brand">
           <h1>AIMS CONSOLE</h1>
           <span className="sidebar-subtitle">All-Hazards Incident Management</span>
