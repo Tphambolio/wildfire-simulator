@@ -308,6 +308,30 @@ export function useIncident() {
 
   // ── Cloud sync ────────────────────────────────────────────────────────────
 
+  // Reconnect catch-up: when browser goes online, push any incidents missing a shareCode
+  useEffect(() => {
+    if (!isCloudSyncAvailable()) return;
+    const handleOnline = () => {
+      const unsynced = incidentsRef.current.filter((i) => !i.shareCode);
+      for (const incident of unsynced) {
+        createCloudIncident(incident).then((code) => {
+          if (!code) return;
+          setIncidents((prev) => {
+            const next = prev.map((i) =>
+              i.id === incident.id
+                ? { ...i, shareCode: code, syncedAt: new Date().toISOString() }
+                : i
+            );
+            saveToStorage(next);
+            return next;
+          });
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, []);
+
   // Outbound sync: debounced 2s — push to cloud when active incident has shareCode
   useEffect(() => {
     if (!activeIncidentId) return;

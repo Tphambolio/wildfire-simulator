@@ -285,6 +285,7 @@ export default function App() {
   const [overlayLayers, setOverlayLayers] = useState<OverlayLayers>(DEFAULT_OVERLAY_LAYERS);
   const [activeTab, setActiveTab] = useState<"map" | "eoc">("eoc");
   const [eocConsoleTab, setEocConsoleTab] = useState<ConsoleTab>("situation");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleOpenSection = useCallback((section: "command" | "operations" | "planning" | "logistics" | "finance") => {
     setActiveTab("eoc");
@@ -420,7 +421,7 @@ export default function App() {
   return (
     <div className={`app${!incident ? " app--no-sidebar" : ""}`}>
       {/* ── Fixed sidebar ───────────────────────────────────── */}
-      <aside className="sidebar" style={!incident ? { display: "none" } : {}}>
+      <aside className={`sidebar${sidebarOpen ? " sidebar--open" : ""}`} style={!incident ? { display: "none" } : {}}>
         <div className="sidebar-brand">
           <h1>AIMS CONSOLE</h1>
           <span className="sidebar-subtitle">All-Hazards Incident Management</span>
@@ -498,6 +499,11 @@ export default function App() {
       {/* ── Fixed top bar ───────────────────────────────────── */}
       <header className="top-bar">
         <div className="top-bar-left">
+          {incident && (
+            <button className="mobile-menu-btn" onClick={() => setSidebarOpen(v => !v)} aria-label="Toggle sidebar">
+              ☰
+            </button>
+          )}
           <span className="top-bar-title">AIMS Console</span>
           <nav className="top-bar-nav">
             <button className={`nav-link${activeTab === "map" ? " active" : ""}`} onClick={() => setActiveTab("map")}>Map</button>

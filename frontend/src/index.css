@@ -1065,34 +1065,123 @@ select {
   line-height: 1;
 }
 
-/* Responsive layout */
+/* Mobile menu toggle — hidden on desktop */
+.mobile-menu-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+/* ── Mobile layout ──────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .app-header .subtitle {
-    display: none;
-  }
-
-  .sidebar-toggle {
-    display: block;
-  }
-
-  .app-content {
-    flex-direction: column;
+  /* Collapse sidebar to full-width drawer on mobile */
+  :root {
+    --sidebar-width: 0px;
   }
 
   .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 85vw;
+    max-width: 320px;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 200;
+  }
+
+  .sidebar.sidebar--open {
+    transform: translateX(0);
+  }
+
+  /* Show mobile menu button */
+  .mobile-menu-btn {
+    display: block;
+  }
+
+  /* Top bar full width on mobile */
+  .top-bar {
+    left: 0;
+  }
+
+  /* Map and EOC wrapper full width */
+  .map-area,
+  .eoc-tab-wrapper {
+    left: 0;
+  }
+
+  /* Start card: full width with padding */
+  .eoc-start-card {
+    max-width: 100%;
+    width: calc(100vw - 32px);
+    padding: 28px 20px;
+    margin: 0 16px;
+  }
+
+  /* Start list scrollable on small screens */
+  .eoc-start-list {
+    max-height: 160px;
+  }
+
+  /* Init briefing panel: full width */
+  .init-briefing-panel {
+    padding: 16px;
+  }
+
+  /* EOC console: stack map and data panels vertically */
+  .eoc-body {
+    flex-direction: column;
+  }
+
+  .eoc-map-panel {
+    height: 35vh;
+    min-height: 200px;
+    flex: none;
+  }
+
+  .eoc-data-panels {
+    flex: 1;
     width: 100%;
     min-width: unset;
-    max-height: 50vh;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+    max-width: unset;
   }
 
-  .sidebar.collapsed {
-    display: none;
+  /* Subtabs: scroll horizontally */
+  .eoc-subtabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
   }
 
-  .map-area {
-    min-height: 300px;
+  .eoc-subtab {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Section workspace: full width */
+  .section-workspace {
+    padding: 12px;
+  }
+
+  /* Nav links: smaller on mobile */
+  .top-bar-nav {
+    gap: 12px;
+  }
+
+  .nav-link {
+    font-size: 12px;
+  }
+
+  /* Hide "AIMS Console" title text on very small screens */
+  .top-bar-title {
+    font-size: 12px;
   }
 }
 
