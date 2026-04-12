@@ -278,26 +278,42 @@ export default function EOCConsole({
       if (prev.length > 0) {
         if (activeSymbolKey && onAddAnnotation) {
           const symDef = SYMBOL_DEFS.find(s => s.key === activeSymbolKey);
-          const annotation: IncidentAnnotation = {
-            id: crypto.randomUUID(),
-            layer: activeLayer,
-            type: "path",
-            symbolKey: activeSymbolKey,
-            coordinates: prev.map(g => [g.lng, g.lat]),
-            label: symDef?.label ?? activeSymbolKey,
-            color: activeColor ?? undefined,
-            properties: {},
-            operationalDay: 1,
-            createdAt: new Date().toISOString(),
-          };
-          onAddAnnotation(annotation);
+          // Single click on a path-type symbol → place it as a point marker
+          // (paths need ≥2 coords; a single click means the user didn't drag)
+          if (prev.length === 1) {
+            onAddAnnotation({
+              id: crypto.randomUUID(),
+              layer: activeLayer,
+              type: "symbol",
+              symbolKey: activeSymbolKey,
+              coordinates: [[prev[0].lng, prev[0].lat]],
+              label: symDef?.label ?? activeSymbolKey,
+              color: activeColor ?? undefined,
+              properties: {},
+              operationalDay: 1,
+              createdAt: new Date().toISOString(),
+            });
+          } else {
+            onAddAnnotation({
+              id: crypto.randomUUID(),
+              layer: activeLayer,
+              type: "path",
+              symbolKey: activeSymbolKey,
+              coordinates: prev.map(g => [g.lng, g.lat]),
+              label: symDef?.label ?? activeSymbolKey,
+              color: activeColor ?? undefined,
+              properties: {},
+              operationalDay: 1,
+              createdAt: new Date().toISOString(),
+            });
+          }
         } else if (markupTool === "pen") {
-          setPenPaths(paths => [...paths, prev]);
+          if (prev.length > 1) setPenPaths(paths => [...paths, prev]);
         }
       }
       return [];
     });
-  }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool]);
+  }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool, activeColor]);
 
   const handleTextSubmit = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && pendingTextPos) {
@@ -742,6 +758,11 @@ export default function EOCConsole({
               disabled={penPaths.length === 0 && textMarkers.length === 0 && currentPenPath.length === 0}
             >⌫</button>
           </div>
+
+          {/* Hint when a path-type symbol is selected */}
+          {activeSymbolKey && SYMBOL_DEFS.find(s => s.key === activeSymbolKey)?.type === "path" && (
+            <div className="eoc-draw-hint">Click to place · Drag to draw line</div>
+          )}
 
           {fetchFacilitiesMsg && (
             <div className="eoc-fetch-msg">{fetchFacilitiesMsg}</div>
