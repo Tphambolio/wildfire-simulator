@@ -17,10 +17,15 @@ import {
   buildICS204HTML,
   buildICS205HTML,
   buildICS206HTML,
+  buildICS207HTML,
+  buildICS208HTML,
+  buildICS213HTML,
   buildICS214HTML,
+  buildICS215HTML,
+  buildICS215aHTML,
   buildFullIAPHTML,
 } from "../utils/icsForms";
-import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation } from "../types/incident";
+import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation, HazardType, HazardZone, IncidentResource, IncidentAgency, OperationalPeriod } from "../types/incident";
 import { SYMBOL_DEFS } from "../types/incident";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -40,13 +45,20 @@ interface EOCConsoleProps {
   onFetchFacilities?: () => Promise<number>;
   incidentName?: string;
   onIncidentNameChange?: (name: string) => void;
+  hazardType?: HazardType;
+  incidentComplexity?: 1 | 2 | 3 | 4 | 5;
+  hazardZones?: HazardZone[];
+  resources?: IncidentResource[];
+  agencies?: IncidentAgency[];
+  activePeriod?: OperationalPeriod;
 }
 
 type ConsoleTab = "situation" | "ics-forms" | "map";
 
 type ICSFormId =
   | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics206"
-  | "ics214" | "full-iap";
+  | "ics207" | "ics208" | "ics213" | "ics214" | "ics215" | "ics215a"
+  | "full-iap";
 
 const ICS_FORM_LABELS: Record<ICSFormId, string> = {
   ics201: "ICS-201 Briefing",
@@ -55,7 +67,12 @@ const ICS_FORM_LABELS: Record<ICSFormId, string> = {
   ics204: "ICS-204 Assignments",
   ics205: "ICS-205 Comms Plan",
   ics206: "ICS-206 Medical Plan",
+  ics207: "ICS-207 Org Chart",
+  ics208: "ICS-208 Safety Plan",
+  ics213: "ICS-213 General Message",
   ics214: "ICS-214 Activity Log",
+  ics215: "ICS-215 Resource Needs",
+  ics215a: "ICS-215A Safety Analysis",
   "full-iap": "Full IAP Package",
 };
 
@@ -74,6 +91,12 @@ export default function EOCConsole({
   onFetchFacilities,
   incidentName: incidentNameProp,
   onIncidentNameChange,
+  hazardType,
+  incidentComplexity,
+  hazardZones,
+  resources,
+  agencies,
+  activePeriod,
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("situation");
   const [localIncidentName, setLocalIncidentName] = useState("Untitled Incident");
@@ -318,7 +341,14 @@ export default function EOCConsole({
     incidentLocation,
     mapSnapshotDataUrl: snapshot ?? mapSnapshot,
     annotations: incidentAnnotations,
-  }), [incidentName, incidentLocation, mapSnapshot, incidentAnnotations]);
+    weather: activePeriod?.weather,
+    hazardType,
+    incidentComplexity,
+    hazardZones,
+    resources,
+    agencies,
+    period: activePeriod,
+  }), [incidentName, incidentLocation, mapSnapshot, incidentAnnotations, activePeriod, hazardType, incidentComplexity, hazardZones, resources, agencies]);
 
   // ── Form rendering ────────────────────────────────────────────────────────
 
@@ -331,7 +361,12 @@ export default function EOCConsole({
     else if (formId === "ics204") html = buildICS204HTML(opts);
     else if (formId === "ics205") html = buildICS205HTML(opts);
     else if (formId === "ics206") html = buildICS206HTML(opts);
+    else if (formId === "ics207") html = buildICS207HTML(opts);
+    else if (formId === "ics208") html = buildICS208HTML(opts);
+    else if (formId === "ics213") html = buildICS213HTML(opts);
     else if (formId === "ics214") html = buildICS214HTML(opts);
+    else if (formId === "ics215") html = buildICS215HTML(opts);
+    else if (formId === "ics215a") html = buildICS215aHTML(opts);
     else if (formId === "full-iap") html = buildFullIAPHTML(opts);
     setFormHtml(html);
     setSelectedForm(formId);

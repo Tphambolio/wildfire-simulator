@@ -266,6 +266,12 @@ export default function App() {
               : undefined}
             incidentName={incident?.name}
             onIncidentNameChange={(name) => updateIncidentField("name", name)}
+            hazardType={incident?.hazardType}
+            incidentComplexity={incident?.incidentComplexity}
+            hazardZones={activePeriod?.hazardZones}
+            resources={incident?.resources}
+            agencies={incident?.agencies}
+            activePeriod={activePeriod ?? undefined}
           />
         </div>
       )}

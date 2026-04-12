@@ -17,7 +17,15 @@
  *   NIMS ICS-201 through ICS-209 (FEMA/NWCG 2021 revisions)
  */
 
-import type { WeatherParams, IncidentAnnotation } from "../types/incident";
+import type {
+  WeatherParams,
+  IncidentAnnotation,
+  HazardType,
+  HazardZone,
+  IncidentResource,
+  IncidentAgency,
+  OperationalPeriod,
+} from "../types/incident";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,6 +37,12 @@ export interface ICSFormOptions {
   mapSnapshotDataUrl?: string;
   /** ICS map annotations from the incident store — used to populate form tables */
   annotations?: IncidentAnnotation[];
+  hazardType?: HazardType;
+  incidentComplexity?: 1 | 2 | 3 | 4 | 5;
+  hazardZones?: HazardZone[];
+  resources?: IncidentResource[];
+  agencies?: IncidentAgency[];
+  period?: OperationalPeriod;
 }
 
 // ── Wind direction label ──────────────────────────────────────────────────────
@@ -547,6 +561,221 @@ export function buildICS214HTML(opts: ICSFormOptions): string {
   ], opts, "portrait");
 }
 
+// ── ICS-207: Organizational Chart ────────────────────────────────────────────
+
+export function buildICS207HTML(opts: ICSFormOptions): string {
+  const resources = opts.resources ?? [];
+
+  const COMMAND_POSITIONS = ["Incident Commander", "Deputy IC", "Safety Officer", "Public Information Officer", "Liaison Officer"];
+  const OPS_POSITIONS = ["Operations Chief", "Division Supervisor", "Branch Director", "Air Operations Branch Director", "Air Tactical Group Supervisor"];
+  const PLANNING_POSITIONS = ["Planning Chief", "Resources Unit Leader", "Situation Unit Leader", "Documentation Unit Leader", "Demobilization Unit Leader"];
+  const LOGISTICS_POSITIONS = ["Logistics Chief", "Service Branch Director", "Communications Unit Leader", "Medical Unit Leader", "Food Unit Leader", "Support Branch Director", "Facilities Unit Leader", "Ground Support Unit Leader", "Supply Unit Leader"];
+  const FINANCE_POSITIONS = ["Finance/Admin Chief", "Time Unit Leader", "Procurement Unit Leader", "Compensation/Claims Unit Leader", "Cost Unit Leader"];
+
+  function orgSection(sectionTitle: string, positions: string[]): string {
+    const relevant = resources.filter((r) => positions.some((p) => r.role?.toLowerCase().includes(p.toLowerCase())));
+    const rows = positions.map((pos) => {
+      const match = relevant.find((r) => r.role?.toLowerCase().includes(pos.toLowerCase()));
+      return `<tr><th style="width:45%;font-weight:600">${esc(pos)}</th><td>${esc(match?.name ?? "")}</td><td style="width:25%">${esc(match?.agency ?? "")}</td></tr>`;
+    }).join("");
+    return `<h4>${esc(sectionTitle)}</h4><table class="kv"><tr><th>Position</th><th>Name</th><th>Agency</th></tr>${rows}</table>`;
+  }
+
+  const ucAgencies = (opts.agencies ?? []).filter((a) => a.isUnifiedCommand);
+  const ucBlock = ucAgencies.length > 0
+    ? `<h4>Unified Command</h4><p>${ucAgencies.map((a) => `${esc(a.name)} — ${esc(a.liaison)}`).join(" / ")}</p>`
+    : "";
+
+  return wrapForm("ICS 207 – Organizational Assignment Chart", [
+    icsBlock("1", "Incident Information", incidentInfoBlock(opts)),
+    icsBlock("2", "Command / Command Staff", ucBlock + orgSection("", COMMAND_POSITIONS)),
+    icsBlock("3", "Operations Section", orgSection("Operations Section", OPS_POSITIONS)),
+    icsBlock("4", "Planning Section", orgSection("Planning Section", PLANNING_POSITIONS)),
+    icsBlock("5", "Logistics Section", orgSection("Logistics Section", LOGISTICS_POSITIONS)),
+    icsBlock("6", "Finance / Administration Section", orgSection("Finance Section", FINANCE_POSITIONS)),
+  ], opts, "portrait");
+}
+
+// ── ICS-208: Safety Message / Plan ───────────────────────────────────────────
+
+const HAZARD_SAFETY: Record<string, { concerns: string[]; ppe: string[]; medical: string[] }> = {
+  flood: {
+    concerns: ["Swift water and drowning hazard", "Electrical hazards from submerged infrastructure", "Contaminated floodwater (sewage, chemicals)", "Structural instability of flood-damaged buildings", "Hypothermia risk in cold water operations", "Vehicle entrapment in moving water"],
+    ppe: ["PFD (personal flotation device) for all water-adjacent operations", "Rubber boots / waterproof waders", "High-visibility vest", "Gloves (nitrile for contaminated water)", "Eye protection"],
+    medical: ["Establish warm/dry rehab area away from flood zone", "Monitor for hypothermia and wet foot injuries", "Water sampling before any direct contact operations", "AED and first aid kits at all sector staging areas"],
+  },
+  hazmat: {
+    concerns: ["Chemical exposure from unknown or known hazardous materials", "Secondary contamination of responders and equipment", "Wind shift changing plume direction rapidly", "Detonation or fire risk if flammable materials involved", "Shelter-in-place failure if seal inadequate"],
+    ppe: ["PPE level determined by Hazmat Branch Director (A/B/C/D)", "Buddy system mandatory in hot and warm zones", "Full decon required before crossing out of warm zone", "Continuous air monitoring in hot zone"],
+    medical: ["Medical monitoring at decon line — vitals before entry and after exit", "Decon station established at warm/cold zone boundary", "Antidote kits staged for known chemical hazard types", "All personnel briefed on exposure symptoms and self-reporting"],
+  },
+  mass_casualty: {
+    concerns: ["Secondary device protocol — scene not safe until cleared", "Infectious disease precautions for blood-borne pathogens", "Responder mental health — critical incident stress", "Resource surge overwhelming triage capacity", "Family reunification pressure on responders"],
+    ppe: ["Nitrile gloves for all patient contact", "Eye protection and mask for aerosol-generating procedures", "High-visibility vest for ICS role identification", "Body substance isolation (BSI) equipment at all triage areas"],
+    medical: ["Rehab sector mandatory for all responders after 1 hour on-scene", "Critical Incident Stress Debriefing (CISD) arranged for all crews", "EMS supervisor monitors responder welfare throughout operation", "Mass decon capability standing by"],
+  },
+  wildfire_smoke: {
+    concerns: ["Poor air quality — AQI may exceed health thresholds", "Reduced visibility for vehicle and aircraft operations", "Ember transport and spot fire ignition", "Rapid fire behavior change with wind shift", "Carbon monoxide buildup in structures"],
+    ppe: ["N95 or P100 respirator for smoke operations (NIOSH approved)", "Eye protection in heavy smoke", "Structural PPE for direct suppression", "Hearing protection near equipment", "Nomex / fire-resistant clothing"],
+    medical: ["AQI monitoring at command post — suspend operations above index 200 unless life safety", "Rehab sector with clean air / air-conditioned space", "Hydration monitoring — 1L/hour for active suppression", "Carbon monoxide detectors in all occupied structures"],
+  },
+  severe_weather: {
+    concerns: ["Lightning strike risk for personnel and vehicles in open terrain", "High winds creating projectile hazards", "Flash flooding in low-lying areas", "Downed power lines from wind damage", "Hypothermia in wet/cold conditions"],
+    ppe: ["High-visibility vest in low-visibility conditions", "Hard hat for wind debris areas", "Waterproof outer layer", "Steel-toed boots in debris areas"],
+    medical: ["Lightning safety: 30-30 rule (30 second flash-to-bang = seek shelter; wait 30 min after last thunder)", "Warm/dry rehab for hypothermia risk", "AED deployed at all sector staging areas", "Wind speed monitoring — suspend aerial ops above 50 km/h"],
+  },
+  infrastructure: {
+    concerns: ["Downed power lines — assume energized until utility confirms de-energized", "Structural collapse risk in damaged buildings", "Underground utility hazards (gas, water, electrical)", "Equipment movement in constrained work zones", "Traffic management for road-adjacent work"],
+    ppe: ["Arc-flash / electrical PPE as required", "Hard hat mandatory in work zones", "Hi-viz vest for all road-adjacent operations", "Steel-toed boots", "Cut-resistant gloves for debris handling"],
+    medical: ["Electrical burns treated as trauma — internal injury possible without external signs", "Crush injury protocol for structural collapse operations", "Rest and hydration schedule for extended utility work", "First aid stations at each sector boundary"],
+  },
+  evacuation: {
+    concerns: ["Crowd management and traffic control during mass movement", "Medical emergencies during evacuation (cardiac, mobility-impaired)", "Civil unrest or non-compliance with evacuation orders", "Route blockage from accidents or incidents", "Vulnerable population tracking (hospitals, care homes, schools)"],
+    ppe: ["Hi-vis vest mandatory for all traffic and crowd control", "Communications headset for coordination in noisy environments", "Body armour for law enforcement elements if civil unrest risk"],
+    medical: ["Ambulatory triage at evacuation points for individuals in distress", "Registry of vulnerable populations and medical transport needs", "Mental health support at reception centres", "AED and first aid at all evacuation collection points"],
+  },
+  other: {
+    concerns: ["Hazards to be identified by Safety Officer prior to operations", "Conduct site-specific Job Hazard Analysis (JHA) for all tasks", "Maintain situational awareness of evolving hazard conditions"],
+    ppe: ["PPE to be determined by Safety Officer based on site hazard assessment", "All personnel briefed before deployment"],
+    medical: ["Medical plan developed by Medical Unit Leader", "AED and first aid staged at Command Post", "Nearest medical facility identified and route confirmed"],
+  },
+};
+
+export function buildICS208HTML(opts: ICSFormOptions): string {
+  const hazardKey = opts.hazardType ?? "other";
+  const safety = HAZARD_SAFETY[hazardKey] ?? HAZARD_SAFETY["other"];
+
+  const concernsList = renderList(safety.concerns);
+  const ppeList = renderList(safety.ppe);
+  const medicalList = renderList(safety.medical);
+
+  const zones = opts.hazardZones ?? [];
+  const zoneRows = zones.length > 0
+    ? zones.map((z) => `<tr><td>${esc(z.name)}</td><td contenteditable="true">—</td><td contenteditable="true">—</td></tr>`).join("")
+    : `<tr><td colspan="3" class="muted">No hazard zones defined</td></tr>`;
+
+  return wrapForm("ICS 208 – Safety Message / Plan", [
+    icsBlock("1", "Incident Information", incidentInfoBlock(opts)),
+    icsBlock("2", "Hazard-Specific Safety Concerns", `<p><strong>Hazard type: ${esc(hazardKey.replace("_", " ").toUpperCase())}</strong></p>${concernsList}`),
+    icsBlock("3", "PPE Requirements", ppeList),
+    icsBlock("4", "Medical Monitoring Plan", medicalList),
+    icsBlock("5", "Hazard Zone Safety by Zone", `<table class="kv"><tr><th>Zone</th><th>Entry Restrictions</th><th>Emergency Action</th></tr>${zoneRows}</table>`),
+    icsBlock("6", "Emergency Action Plan (EAP)", `<table class="kv">${[
+      ["Emergency signal / evacuation tone", "Air horn: 3 blasts"],
+      ["Emergency rally point", ""],
+      ["Nearest medical facility", ""],
+      ["Emergency contact (Incident Safety Officer)", ""],
+      ["Emergency contact (Incident Commander)", ""],
+    ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table>`),
+  ], opts, "portrait");
+}
+
+// ── ICS-213: General Message ──────────────────────────────────────────────────
+
+export function buildICS213HTML(opts: ICSFormOptions): string {
+  return wrapForm("ICS 213 – General Message", [
+    icsBlock("1", "Message Header", `<table class="kv">${[
+      ["To (Name and Position)", ""],
+      ["From (Name and Position)", ""],
+      ["Subject", ""],
+      ["Date / Time", new Date().toISOString().slice(0, 16).replace("T", "  ")],
+      ["Incident Name", opts.incidentName],
+    ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table>`),
+    icsBlock("2", "Message", `<div style="min-height:180px;border:1px dashed #9ca3af;padding:10px;border-radius:4px" contenteditable="true"><span class="muted">Enter message text here…</span></div>`),
+    icsBlock("3", "Reply", `<div style="min-height:100px;border:1px dashed #9ca3af;padding:10px;border-radius:4px" contenteditable="true"><span class="muted">Reply / response here…</span></div>`),
+    icsBlock("4", "Signature", `<table class="kv">${[
+      ["Sender Signature", ""],
+      ["Date / Time", ""],
+      ["Reply Signature", ""],
+      ["Date / Time", ""],
+    ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table>`),
+  ], opts, "portrait");
+}
+
+// ── ICS-215: Operational Planning Worksheet ───────────────────────────────────
+
+export function buildICS215HTML(opts: ICSFormOptions): string {
+  const resources = opts.resources ?? [];
+  const assigned = resources.filter((r) => r.status === "assigned");
+
+  const rows = assigned.length > 0
+    ? assigned.map((r) => `<tr>
+        <td>${esc(r.kind === "person" ? "Personnel" : r.kind === "equipment" ? "Equipment" : "Vehicle")}</td>
+        <td>${esc(r.name)}</td>
+        <td>${esc(r.role ?? "")}</td>
+        <td>${esc(r.typeRating ?? "")}</td>
+        <td>${esc(r.assignedDivision ?? "")}</td>
+        <td>${esc(r.agency)}</td>
+        <td contenteditable="true">&nbsp;</td>
+      </tr>`).join("")
+    : `<tr><td colspan="7" class="muted">No assigned resources. Add resources in the Resources panel and set status to "Assigned".</td></tr>`;
+
+  const unassignedCount = resources.filter((r) => r.status === "available").length;
+
+  return wrapForm("ICS 215 – Operational Planning Worksheet", [
+    icsBlock("1", "Incident Information", incidentInfoBlock(opts, [
+      ["Operational Period", opts.period?.date ?? ""],
+      ["Total Assigned Resources", String(assigned.length)],
+      ["Available Resources", String(unassignedCount)],
+    ])),
+    icsBlock("2", "Resource Assignments", `
+      <table class="kv" style="font-size:12px">
+        <tr>
+          <th style="width:10%">Kind</th>
+          <th style="width:18%">Name / Description</th>
+          <th style="width:18%">Role</th>
+          <th style="width:8%">Type</th>
+          <th style="width:12%">Division</th>
+          <th style="width:14%">Agency</th>
+          <th style="width:20%">Special Instructions</th>
+        </tr>
+        ${rows}
+      </table>`),
+    icsBlock("3", "Resource Needs / Requests", `<table class="kv">
+      <tr><th style="width:25%">Resource Type</th><th>Description</th><th style="width:15%">Quantity</th><th style="width:20%">Needed By</th></tr>
+      ${Array.from({ length: 5 }, () => `<tr><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td></tr>`).join("")}
+    </table>`),
+  ], opts, "portrait");
+}
+
+// ── ICS-215A: Incident Action Plan Safety Analysis ────────────────────────────
+
+export function buildICS215aHTML(opts: ICSFormOptions): string {
+  const hazardKey = opts.hazardType ?? "other";
+  const safety = HAZARD_SAFETY[hazardKey] ?? HAZARD_SAFETY["other"];
+
+  const hazardRows = safety.concerns.map((concern) =>
+    `<tr><td>${esc(concern)}</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td></tr>`
+  ).join("");
+
+  return wrapForm("ICS 215A – Incident Action Plan Safety Analysis", [
+    icsBlock("1", "Incident Information", incidentInfoBlock(opts, [
+      ["Operational Period", opts.period?.date ?? ""],
+      ["Incident Safety Officer", ""],
+    ])),
+    icsBlock("2", "Safety Analysis — Hazard Identification and Mitigation", `
+      <p style="margin-bottom:8px"><strong>Hazard Type: ${esc(hazardKey.replace("_", " ").toUpperCase())}</strong></p>
+      <table class="kv" style="font-size:12px">
+        <tr>
+          <th style="width:35%">Identified Hazard</th>
+          <th style="width:20%">Affected Operations</th>
+          <th style="width:25%">Mitigation Measures</th>
+          <th style="width:20%">Residual Risk (H/M/L)</th>
+        </tr>
+        ${hazardRows}
+        ${Array.from({ length: 3 }, () => `<tr><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td></tr>`).join("")}
+      </table>`),
+    icsBlock("3", "PPE Requirements by Work Area", `<table class="kv">
+      <tr><th style="width:30%">Work Area / Zone</th><th>Required PPE</th><th style="width:25%">Approval Required</th></tr>
+      ${Array.from({ length: 5 }, () => `<tr><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td></tr>`).join("")}
+    </table>`),
+    icsBlock("4", "Acknowledgements", `<p class="muted">Incident Safety Officer signature and date. Each Operations Section Branch / Division Supervisor acknowledges this safety analysis before beginning operations.</p>
+      <table class="kv"><tr><th style="width:40%">Name / Position</th><th>Signature</th><th style="width:25%">Date / Time</th></tr>
+      ${Array.from({ length: 6 }, () => `<tr><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td><td contenteditable="true">&nbsp;</td></tr>`).join("")}
+      </table>`),
+  ], opts, "portrait");
+}
+
 // ── Full IAP package ──────────────────────────────────────────────────────────
 
 export function buildFullIAPHTML(opts: ICSFormOptions): string {
@@ -557,9 +786,14 @@ export function buildFullIAPHTML(opts: ICSFormOptions): string {
     buildICS204HTML(opts),
     buildICS205HTML(opts),
     buildICS206HTML(opts),
+    buildICS207HTML(opts),
+    buildICS208HTML(opts),
+    buildICS213HTML(opts),
+    buildICS215HTML(opts),
+    buildICS215aHTML(opts),
   ];
 
-  const FORM_CODES = ["ICS 201", "ICS 202", "ICS 203", "ICS 204", "ICS 205", "ICS 206"];
+  const FORM_CODES = ["ICS 201", "ICS 202", "ICS 203", "ICS 204", "ICS 205", "ICS 206", "ICS 207", "ICS 208", "ICS 213", "ICS 215", "ICS 215A"];
   const totalForms = forms.length;
 
   const CONTAINER_OPEN = '<div class="ics-container">';
@@ -639,7 +873,7 @@ export function buildFullIAPHTML(opts: ICSFormOptions): string {
     <h1>Incident Action Plan</h1>
     <p class="iap-meta">${esc(opts.incidentName)} &nbsp;•&nbsp; ${dateStr}</p>
     <p class="iap-meta">Generated by AIMS Console — All-Hazards Incident Management System</p>
-    <p class="iap-meta" style="margin-top:24px">${totalForms} forms &nbsp;|&nbsp; ICS 201–206</p>
+    <p class="iap-meta" style="margin-top:24px">${totalForms} forms &nbsp;|&nbsp; ICS 201–215A</p>
   </div>
   ${bodiesWithPagination.map((body, i) => `
   <div class="iap-page${i > 0 ? " page-break" : ""}">
