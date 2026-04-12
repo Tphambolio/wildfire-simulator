@@ -172,37 +172,101 @@ function NoIncidentPanel({ incidents, onCreate, onLoad, onImport }: NoIncidentPa
 
 // ── EOC start screen — shown when no incident is active ──────────────────────
 
-function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
+interface EocStartScreenProps {
+  incidents: import("./types/incident").IncidentSession[];
+  onCreate: (name: string) => void;
+  onLoad: (id: string) => void;
+  onImport: (file: File) => Promise<import("./types/incident").IncidentSession>;
+}
+
+function EocStartScreen({ incidents, onCreate, onLoad, onImport }: EocStartScreenProps) {
+  const [mode, setMode] = useState<"choose" | "new">("choose");
   const [name, setName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const submit = () => {
     const n = name.trim();
     if (n) { onCreate(n); setName(""); }
   };
+
+  function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString("en-CA", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
   return (
     <div className="eoc-start-screen">
       <div className="eoc-start-card">
         <div className="eoc-start-icon">🚨</div>
-        <h2 className="eoc-start-title">Start a New Incident</h2>
-        <p className="eoc-start-hint">
-          Name the incident before opening the EOC Console.<br />
-          You can rename it at any time from the period strip.
-        </p>
-        <input
-          className="eoc-start-input"
-          type="text"
-          placeholder="e.g. River Valley Flood 2026"
-          value={name}
-          autoFocus
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-          maxLength={60}
-        />
-        <button className="eoc-start-btn" onClick={submit} disabled={!name.trim()}>
-          Open EOC Console
-        </button>
-        <p className="eoc-start-hint" style={{ marginTop: 8 }}>
-          Or resume an existing incident from the <strong>Incidents</strong> panel in the sidebar.
-        </p>
+        <h2 className="eoc-start-title">AIMS Console</h2>
+        <p className="eoc-start-hint">All-Hazards Incident Management</p>
+
+        {mode === "choose" && (
+          <>
+            <button className="eoc-start-btn" onClick={() => setMode("new")}>
+              + New Incident
+            </button>
+
+            {incidents.length > 0 && (
+              <>
+                <div className="eoc-start-divider">or resume</div>
+                <div className="eoc-start-list">
+                  {incidents.slice(0, 6).map((inc) => (
+                    <button
+                      key={inc.id}
+                      className="eoc-start-list-item"
+                      onClick={() => onLoad(inc.id)}
+                    >
+                      <span className="eoc-start-list-name">{inc.name}</span>
+                      <span className="eoc-start-list-meta">
+                        {inc.operationalPeriods.length} day{inc.operationalPeriods.length !== 1 ? "s" : ""}
+                        {" · "}{formatDate(inc.updatedAt)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <button
+              className="eoc-start-import-btn"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Import from JSON
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              style={{ display: "none" }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (file) await onImport(file).catch(() => {});
+                e.target.value = "";
+              }}
+            />
+          </>
+        )}
+
+        {mode === "new" && (
+          <>
+            <input
+              className="eoc-start-input"
+              type="text"
+              placeholder="e.g. River Valley Flood 2026"
+              value={name}
+              autoFocus
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              maxLength={60}
+            />
+            <button className="eoc-start-btn" onClick={submit} disabled={!name.trim()}>
+              Open EOC Console
+            </button>
+            <button className="eoc-start-import-btn" onClick={() => { setMode("choose"); setName(""); }}>
+              ← Back
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -219,7 +283,7 @@ const DEFAULT_OVERLAY_LAYERS: OverlayLayers = {
 export default function App() {
   const [incidentLocation, setIncidentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [overlayLayers, setOverlayLayers] = useState<OverlayLayers>(DEFAULT_OVERLAY_LAYERS);
-  const [activeTab, setActiveTab] = useState<"map" | "eoc">("map");
+  const [activeTab, setActiveTab] = useState<"map" | "eoc">("eoc");
   const [eocConsoleTab, setEocConsoleTab] = useState<ConsoleTab>("situation");
 
   const handleOpenSection = useCallback((section: "command" | "operations" | "planning" | "logistics" | "finance") => {
@@ -448,7 +512,12 @@ export default function App() {
       {/* ── EOC Console tab ─────── */}
       {activeTab === "eoc" && !incident && (
         <div className="eoc-tab-wrapper">
-          <EocStartScreen onCreate={createIncident} />
+          <EocStartScreen
+            incidents={incidents}
+            onCreate={(name) => { createIncident(name); setActiveTab("eoc"); }}
+            onLoad={(id) => { loadIncident(id); setActiveTab("eoc"); }}
+            onImport={importIncident}
+          />
         </div>
       )}
       {activeTab === "eoc" && incident && (

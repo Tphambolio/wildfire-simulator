@@ -2360,6 +2360,61 @@ select {
 .eoc-start-btn:hover:not(:disabled) { background: rgba(255, 107, 53, 0.42); }
 .eoc-start-btn:disabled { opacity: 0.35; cursor: default; }
 
+.eoc-start-divider {
+  font-size: 0.75em;
+  color: #4a5a6a;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 4px 0 2px;
+}
+
+.eoc-start-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.eoc-start-list-item {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px;
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.eoc-start-list-item:hover {
+  background: rgba(255,107,53,0.1);
+  border-color: rgba(255,107,53,0.3);
+}
+.eoc-start-list-name {
+  color: #c8d8e8;
+  font-size: 0.88em;
+  font-weight: 600;
+}
+.eoc-start-list-meta {
+  color: #4a5a6a;
+  font-size: 0.76em;
+}
+
+.eoc-start-import-btn {
+  background: transparent;
+  border: none;
+  color: #4a5a6a;
+  font-size: 0.78em;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.15s;
+}
+.eoc-start-import-btn:hover { color: #8a9aaa; }
+
 /* Incident panel item styles */
 .incident-item--active {
   border-color: rgba(255, 107, 53, 0.45) !important;
