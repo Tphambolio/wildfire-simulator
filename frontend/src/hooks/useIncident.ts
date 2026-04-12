@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { fetchNearbyFacilities } from "../services/overpass";
-import { createCloudIncident, getCloudIncident, putCloudIncident } from "../services/cloudSync";
+import { createCloudIncident, getCloudIncident, putCloudIncident, isCloudSyncAvailable } from "../services/cloudSync";
 import type {
   IncidentSession,
   OperationalPeriod,
@@ -96,6 +96,23 @@ export function useIncident() {
         return next;
       });
       setActiveIncidentId(incident.id);
+
+      // Auto-cloud: fire-and-forget — store share code when ready
+      if (isCloudSyncAvailable()) {
+        createCloudIncident(incident).then((code) => {
+          if (!code) return;
+          setIncidents((prev) => {
+            const next = prev.map((i) =>
+              i.id === incident.id
+                ? { ...i, shareCode: code, syncedAt: new Date().toISOString() }
+                : i
+            );
+            saveToStorage(next);
+            return next;
+          });
+        }).catch(() => {/* offline — local-only until next sync */});
+      }
+
       return incident;
     },
     []
@@ -403,6 +420,22 @@ export function useIncident() {
             return updated;
           });
           setActiveIncidentId(next.id);
+          // Auto-cloud imported incidents too (strip any old shareCode — get a fresh one)
+          if (isCloudSyncAvailable()) {
+            const toSync = { ...next, shareCode: undefined };
+            createCloudIncident(toSync).then((code) => {
+              if (!code) return;
+              setIncidents((prev) => {
+                const updated = prev.map((i) =>
+                  i.id === next.id
+                    ? { ...i, shareCode: code, syncedAt: new Date().toISOString() }
+                    : i
+                );
+                saveToStorage(updated);
+                return updated;
+              });
+            }).catch(() => {});
+          }
           resolve(next);
         } catch {
           reject(new Error("Could not parse incident file"));
