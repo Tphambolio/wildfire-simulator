@@ -378,8 +378,13 @@ export default function App() {
   }, []);
 
   const handleMapClick = useCallback((lat: number, lng: number) => {
+    const isFirstLocation = !incidentLocation;
     setIncidentLocation({ lat, lng });
-  }, []);
+    // Auto-advance to EOC Console the first time a location is set
+    if (isFirstLocation) {
+      setActiveTab("eoc");
+    }
+  }, [incidentLocation]);
 
   const handleClearLocation = useCallback(() => {
     setIncidentLocation(null);
@@ -420,8 +425,21 @@ export default function App() {
 
   return (
     <div className={`app${!incident ? " app--no-sidebar" : ""}`}>
+      {/* ── Sidebar backdrop — tap outside to close on mobile ── */}
+      {sidebarOpen && (
+        <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
+      )}
+
       {/* ── Fixed sidebar ───────────────────────────────────── */}
       <aside className={`sidebar${sidebarOpen ? " sidebar--open" : ""}`} style={!incident ? { display: "none" } : {}}>
+        {/* Mobile close button — only visible when drawer is open */}
+        <button
+          className="sidebar-close-btn"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close sidebar"
+        >
+          ✕
+        </button>
         <div className="sidebar-brand">
           <h1>AIMS CONSOLE</h1>
           <span className="sidebar-subtitle">All-Hazards Incident Management</span>
@@ -499,7 +517,8 @@ export default function App() {
       {/* ── Fixed top bar ───────────────────────────────────── */}
       <header className="top-bar">
         <div className="top-bar-left">
-          {incident && (
+          {/* Hamburger only shown after EOC is unlocked — no distraction during map setup */}
+          {incident && incidentLocation && (
             <button className="mobile-menu-btn" onClick={() => setSidebarOpen(v => !v)} aria-label="Toggle sidebar">
               ☰
             </button>

@@ -1135,6 +1135,34 @@ select {
   line-height: 1;
 }
 
+/* Sidebar tap-outside backdrop — mobile only */
+.sidebar-backdrop {
+  display: none;
+}
+
+/* Sidebar close button — mobile only, hidden on desktop */
+.sidebar-close-btn {
+  display: none;
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-close-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
 /* ── Mobile layout ──────────────────────────────────────────── */
 @media (max-width: 768px) {
   /* Collapse sidebar to full-width drawer on mobile */
@@ -1161,6 +1189,22 @@ select {
   /* Show mobile menu button */
   .mobile-menu-btn {
     display: block;
+  }
+
+  /* Show sidebar close button on mobile */
+  .sidebar-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Tap-outside backdrop */
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 199; /* just below sidebar z-index 200 */
+    background: rgba(0, 0, 0, 0.45);
   }
 
   /* Top bar full width on mobile */
@@ -4422,6 +4466,66 @@ select {
 
 .sync-btn:hover { background: rgba(61, 90, 128, 0.25); }
 .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Situation tab KPI grid ─────────────────────────────────────────── */
+
+.eoc-situation-panel {
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.eoc-section-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 107, 53, 0.7);
+  margin-bottom: 10px;
+}
+
+.eoc-kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.eoc-kpi {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.eoc-kpi-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.eoc-kpi-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0e8f0;
+  line-height: 1.2;
+}
+
+/* Shrink MapLibre attribution to just the ⓘ icon by default */
+.maplibregl-ctrl-attrib {
+  font-size: 10px !important;
+  opacity: 0.6;
+}
+.maplibregl-ctrl-attrib:not(.maplibregl-compact-show) .maplibregl-ctrl-attrib-inner {
+  display: none;
+}
+.maplibregl-ctrl-attrib-button {
+  width: 18px !important;
+  height: 18px !important;
+}
 
 /* ── Location search (collapsed toggle → expanded panel) ────────────── */
 

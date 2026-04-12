@@ -647,20 +647,16 @@ export default function EOCConsole({
             />
           )}
 
-          {/* Markup toolbar */}
+          {/* Markup toolbar — ⊕ opens full symbol/draw picker; 📡 fetches OSM; ⌫ clears */}
           <div className="eoc-markup-toolbar">
-            <button className="eoc-markup-tool" onClick={() => consoleMapRef.current?.zoomIn()} title="Zoom in">+</button>
-            <button className="eoc-markup-tool" onClick={() => consoleMapRef.current?.zoomOut()} title="Zoom out">−</button>
-            <div className="eoc-markup-divider" />
-            <span className="eoc-markup-label">MARK</span>
             <button
               className={`eoc-markup-tool${showSymbolPicker ? " active" : ""}`}
               onClick={() => setShowSymbolPicker(v => !v)}
-              title="ICS symbol palette"
+              title="ICS symbols, layers, draw tools"
             >⊕</button>
             <button
               className={`eoc-markup-tool${isFetchingFacilities ? " active" : ""}`}
-              title={!incidentLocation ? "Set an incident location first to fetch nearby resources" : "Fetch nearby emergency facilities from OpenStreetMap"}
+              title={!incidentLocation ? "Set incident location first" : "Fetch nearby facilities (OSM)"}
               disabled={isFetchingFacilities || !incidentLocation || !onFetchFacilities}
               onClick={async () => {
                 if (!onFetchFacilities) return;
@@ -678,19 +674,9 @@ export default function EOCConsole({
               }}
             >{isFetchingFacilities ? "…" : "📡"}</button>
             <button
-              className={`eoc-markup-tool${activeSymbolKey === "freehand_path" ? " active" : ""}`}
-              onClick={() => setActiveSymbolKey(k => k === "freehand_path" ? null : "freehand_path")}
-              title="Freehand draw on active layer"
-            >✏</button>
-            <button
-              className={`eoc-markup-tool${activeSymbolKey === "text_label" ? " active" : ""}`}
-              onClick={() => setActiveSymbolKey(k => k === "text_label" ? null : "text_label")}
-              title="Place text label on active layer"
-            >T</button>
-            <button
               className="eoc-markup-tool"
               onClick={clearMarkup}
-              title="Clear freehand markup"
+              title="Clear all markup"
               disabled={penPaths.length === 0 && textMarkers.length === 0 && currentPenPath.length === 0}
             >⌫</button>
           </div>
@@ -788,10 +774,6 @@ export default function EOCConsole({
                       <span className="eoc-kpi-value">{count} markers</span>
                     </div>
                   ))}
-                </div>
-                <div className="eoc-section-header" style={{ marginTop: 16 }}>Map Controls</div>
-                <div style={{ padding: "8px 0", fontSize: 12, color: "#a0b0c0" }}>
-                  Click map to set incident location. Use the ⊕ button to annotate with ICS symbols. Use 📡 to auto-fetch nearby emergency facilities.
                 </div>
               </div>
             )}
