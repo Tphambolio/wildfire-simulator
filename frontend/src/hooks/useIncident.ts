@@ -1,7 +1,8 @@
 /** Persist incident sessions (multi-day operational periods) to localStorage. */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { fetchNearbyFacilities } from "../services/overpass";
+import { createCloudIncident, getCloudIncident, putCloudIncident } from "../services/cloudSync";
 import type {
   IncidentSession,
   OperationalPeriod,
@@ -52,6 +53,12 @@ export function useIncident() {
   const activePeriod = activeIncident
     ? activeIncident.operationalPeriods[activeIncident.activePeriodIndex] ?? null
     : null;
+
+  // ── Ref kept in sync with incidents state (avoids stale closures in intervals) ─
+  const incidentsRef = useRef<IncidentSession[]>(incidents);
+  useEffect(() => {
+    incidentsRef.current = incidents;
+  }, [incidents]);
 
   // ── Persist helpers ────────────────────────────────────────────────────────
 
@@ -274,6 +281,82 @@ export function useIncident() {
     [updateActiveIncident]
   );
 
+  // ── Cloud sync ────────────────────────────────────────────────────────────
+
+  // Outbound sync: debounced 2s — push to cloud when active incident has shareCode
+  useEffect(() => {
+    if (!activeIncidentId) return;
+    const timer = setTimeout(() => {
+      const current = incidentsRef.current.find((i) => i.id === activeIncidentId);
+      if (current?.shareCode) {
+        putCloudIncident(current.shareCode, current).catch(() => {/* silent */});
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [incidents, activeIncidentId]);
+
+  // Inbound poll: every 10s — if cloud is newer than local, replace local
+  useEffect(() => {
+    if (!activeIncidentId) return;
+    const interval = setInterval(async () => {
+      const current = incidentsRef.current.find((i) => i.id === activeIncidentId);
+      if (!current?.shareCode) return;
+      try {
+        const remote = await getCloudIncident(current.shareCode);
+        if (!remote) return;
+        if (remote.updatedAt > current.updatedAt) {
+          setIncidents((prev) => {
+            const next = prev.map((i) =>
+              i.id === activeIncidentId ? { ...remote, id: i.id } : i
+            );
+            saveToStorage(next);
+            return next;
+          });
+        }
+      } catch {
+        // silent
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [activeIncidentId]);
+
+  /** Upload incident to cloud sync and store the returned share code. */
+  const shareIncident = useCallback(async (): Promise<string> => {
+    const current = incidentsRef.current.find((i) => i.id === activeIncidentId);
+    if (!current) return "";
+    if (current.shareCode) return current.shareCode;
+    const code = await createCloudIncident(current);
+    if (!code) return "";
+    setIncidents((prev) => {
+      const next = prev.map((i) =>
+        i.id === activeIncidentId
+          ? { ...i, shareCode: code, syncedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+          : i
+      );
+      saveToStorage(next);
+      return next;
+    });
+    return code;
+  }, [activeIncidentId]);
+
+  /** Join an existing cloud incident by share code, create local copy and activate it. */
+  const joinIncident = useCallback(async (shareCode: string): Promise<IncidentSession | null> => {
+    const remote = await getCloudIncident(shareCode);
+    if (!remote) return null;
+    const localCopy: IncidentSession = {
+      ...remote,
+      id: crypto.randomUUID(),
+      shareCode,
+    };
+    setIncidents((prev) => {
+      const next = [localCopy, ...prev].slice(0, MAX_INCIDENTS);
+      saveToStorage(next);
+      return next;
+    });
+    setActiveIncidentId(localCopy.id);
+    return localCopy;
+  }, []);
+
   // ── Export / Import ───────────────────────────────────────────────────────
 
   const exportIncident = useCallback(
@@ -352,5 +435,8 @@ export function useIncident() {
     // Export
     exportIncident,
     importIncident,
+    // Cloud sync
+    shareIncident,
+    joinIncident,
   };
 }

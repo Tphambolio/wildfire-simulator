@@ -1,6 +1,6 @@
 /** AIMS Console — All-Hazards Incident Management System */
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import MapView from "./components/MapView";
 import OverlayPanel from "./components/OverlayPanel";
 import type { OverlayLayers, LayerType } from "./components/OverlayPanel";
@@ -10,9 +10,61 @@ import IncidentPanel from "./components/IncidentPanel";
 import IncidentSetupPanel from "./components/IncidentSetupPanel";
 import HazardZonePanel from "./components/HazardZonePanel";
 import TeamSummaryPanel from "./components/TeamSummaryPanel";
+import NextStepCard from "./components/NextStepCard";
 import { useIncident } from "./hooks/useIncident";
 import type { HazardType, HazardZone } from "./types/incident";
 import type { ConsoleTab } from "./components/EOCConsole";
+
+// ── Cloud Sync Panel (inline — shows share code or share button) ─────────────
+
+interface SyncPanelProps {
+  shareCode?: string;
+  onShare: () => Promise<string>;
+}
+
+function SyncPanel({ shareCode, onShare }: SyncPanelProps) {
+  const [syncing, setSyncing] = useState(false);
+  const [localCode, setLocalCode] = useState(shareCode ?? "");
+
+  const handleShare = async () => {
+    setSyncing(true);
+    try {
+      const code = await onShare();
+      if (code) {
+        setLocalCode(code);
+        const url = `${window.location.origin}?incident=${code}`;
+        await navigator.clipboard.writeText(url).catch(() => {/* silent */});
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    const code = localCode || shareCode;
+    if (!code) return;
+    const url = `${window.location.origin}?incident=${code}`;
+    await navigator.clipboard.writeText(url).catch(() => {/* silent */});
+  };
+
+  const effectiveCode = localCode || shareCode;
+
+  return (
+    <div className="sync-panel">
+      {!effectiveCode ? (
+        <button className="sync-btn" onClick={handleShare} disabled={syncing}>
+          {syncing ? "Uploading…" : "☁ Share Incident"}
+        </button>
+      ) : (
+        <div className="sync-active">
+          <span className="sync-code">🔗 {effectiveCode}</span>
+          <button className="sync-btn" onClick={handleCopyLink}>Copy Link</button>
+          <span className="sync-indicator">Syncing</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── EOC start screen — shown when no incident is active ──────────────────────
 
@@ -71,6 +123,11 @@ export default function App() {
     setEocConsoleTab(section);
   }, []);
 
+  const handleNavigate = useCallback((tab: "map" | "eoc", eocTab?: ConsoleTab) => {
+    setActiveTab(tab);
+    if (eocTab) setEocConsoleTab(eocTab);
+  }, []);
+
   // Zone drawing state
   const [drawingZone, setDrawingZone] = useState(false);
   const [drawingZonePoints, setDrawingZonePoints] = useState<[number, number][]>([]);
@@ -100,7 +157,20 @@ export default function App() {
     clearHazardZones,
     exportIncident,
     importIncident,
+    shareIncident,
+    joinIncident,
   } = useIncident();
+
+  // ── Join incident from URL param on mount ─────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("incident");
+    if (code && !activeIncidentId) {
+      joinIncident(code).catch(() => {/* silent */});
+    }
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOverlayLoad = useCallback((type: LayerType, data: GeoJSON.FeatureCollection) => {
     setOverlayLayers((prev) => ({ ...prev, [type]: { ...prev[type], data } }));
@@ -163,6 +233,12 @@ export default function App() {
           <h1>AIMS CONSOLE</h1>
           <span className="sidebar-subtitle">All-Hazards Incident Management</span>
         </div>
+        {incident && (
+          <SyncPanel
+            shareCode={incident.shareCode}
+            onShare={shareIncident}
+          />
+        )}
         <div className="sidebar-content">
           <IncidentPanel
             incidents={incidents}
@@ -207,6 +283,7 @@ export default function App() {
                 onRemoveZone={removeHazardZone}
                 onClearAll={clearHazardZones}
               />
+              <NextStepCard incident={incident} onNavigate={handleNavigate} />
               <TeamSummaryPanel
                 resources={incident.resources ?? []}
                 agencies={incident.agencies ?? []}
