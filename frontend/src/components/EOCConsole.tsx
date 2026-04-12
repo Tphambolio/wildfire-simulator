@@ -165,6 +165,10 @@ export default function EOCConsole({
     setConsoleTabState(tab);
     onConsoleTabChange?.(tab);
   }, [onConsoleTabChange]);
+  // Sync tab when driven externally (e.g. NextStepCard → onNavigate → App state)
+  useEffect(() => {
+    if (initialConsoleTab !== undefined) setConsoleTabState(initialConsoleTab);
+  }, [initialConsoleTab]);
   const [localIncidentName, setLocalIncidentName] = useState("Untitled Incident");
   const incidentName = incidentNameProp ?? localIncidentName;
   const setIncidentName = (name: string) => {
