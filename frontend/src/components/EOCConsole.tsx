@@ -398,7 +398,7 @@ export default function EOCConsole({
   const handleOpenInNewWindow = useCallback(() => {
     if (!formHtml) return;
     const w = window.open("", "_blank");
-    if (w) { w.document.write(formHtml); w.document.close(); w.print(); }
+    if (w) { w.document.write(formHtml); w.document.close(); }
   }, [formHtml]);
 
   // ── Render ────────────────────────────────────────────────────────────────
