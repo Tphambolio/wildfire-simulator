@@ -102,6 +102,56 @@ const SECTION_DEFS: Record<Exclude<ICSSection, "other">, SectionDef> = {
   },
 };
 
+// ── Additional role options per section ───────────────────────────────────────
+
+const ADDITIONAL_ROLES_BY_SECTION: Record<ICSSection, string[]> = {
+  command: [
+    "Acting Incident Commander",
+    "IC Trainee",
+    "Senior Advisor",
+    "Agency Representative",
+    "Intelligence / Investigations Officer",
+    "Recovery Coordinator",
+  ],
+  operations: [
+    "Deputy Operations Section Chief",
+    "Strike Team Leader",
+    "Task Force Leader",
+    "Single Resource Boss",
+    "Entry Team Leader",
+    "Rescue Group Supervisor",
+    "Evacuation Group Supervisor",
+    "Air Tactical Group Supervisor",
+    "Helicopter Coordinator",
+    "Dozer Group Supervisor",
+  ],
+  planning: [
+    "Deputy Planning Section Chief",
+    "GIS / Mapping Specialist",
+    "Intelligence Officer",
+    "Fire Behaviour Analyst",
+    "Environmental Unit Leader",
+    "Technical Specialist – Hazmat",
+    "Technical Specialist – Structure",
+    "Technical Specialist – Medical",
+    "Technical Specialist – Water",
+  ],
+  logistics: [
+    "Deputy Logistics Section Chief",
+    "Radio Operator / COML",
+    "Information Technology Specialist",
+    "Incident Dispatcher",
+    "Temporary Flight Restriction Coordinator",
+    "Fuel Unit Leader",
+  ],
+  finance: [
+    "Deputy Finance/Admin Section Chief",
+    "Claims Specialist",
+    "Property Management Officer",
+  ],
+  other: [],
+};
+
 // ── Inline resource form ──────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<IncidentResource["status"], string> = {
@@ -122,7 +172,12 @@ interface ResourceFormProps {
 function InlineResourceForm({ draft, section, onChange, onSave, onCancel }: ResourceFormProps) {
   const set = (partial: Partial<IncidentResource>) => onChange({ ...draft, ...partial });
   const positions = ICS_POSITIONS_BY_SECTION[section];
+  const additionalRoles = ADDITIONAL_ROLES_BY_SECTION[section];
   const isPerson = (draft.kind ?? "person") === "person";
+
+  // Track whether the role field is in "other" (free text) mode
+  const isOtherRole = !!draft.role && !additionalRoles.includes(draft.role);
+  const [showRoleInput, setShowRoleInput] = useState(isOtherRole);
 
   return (
     <div className="sw-inline-form">
@@ -157,10 +212,30 @@ function InlineResourceForm({ draft, section, onChange, onSave, onCancel }: Reso
           </select>
         </label>
       )}
-      {isPerson && (
-        <label>Additional title (optional)
+      {isPerson && additionalRoles.length > 0 && (
+        <label>Additional Role (optional)
+          <select
+            value={showRoleInput ? "__other__" : (draft.role ?? "")}
+            onChange={(e) => {
+              if (e.target.value === "__other__") {
+                setShowRoleInput(true);
+                set({ role: undefined });
+              } else {
+                setShowRoleInput(false);
+                set({ role: e.target.value || undefined });
+              }
+            }}
+          >
+            <option value="">— None —</option>
+            {additionalRoles.map((r) => <option key={r} value={r}>{r}</option>)}
+            <option value="__other__">Other (type below)…</option>
+          </select>
+        </label>
+      )}
+      {isPerson && showRoleInput && (
+        <label>Specify Role
           <input type="text" value={draft.role ?? ""} onChange={(e) => set({ role: e.target.value || undefined })}
-            placeholder="e.g. Deputy OSC, Air Branch Director" maxLength={60} />
+            placeholder="Free-text title" maxLength={60} autoFocus />
         </label>
       )}
       {!isPerson && (
