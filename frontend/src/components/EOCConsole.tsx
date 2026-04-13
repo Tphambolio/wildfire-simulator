@@ -936,10 +936,6 @@ export default function EOCConsole({
                 <div className="eoc-section-header">Incident Status</div>
                 <div className="eoc-kpi-grid">
                   <div className="eoc-kpi">
-                    <span className="eoc-kpi-label">Incident</span>
-                    <span className="eoc-kpi-value">{incidentName}</span>
-                  </div>
-                  <div className="eoc-kpi">
                     <span className="eoc-kpi-label">Hazard Type</span>
                     <span className="eoc-kpi-value" style={{ textTransform: "capitalize" }}>
                       {hazardType ? hazardType.replace("_", " ") : "Not set"}
