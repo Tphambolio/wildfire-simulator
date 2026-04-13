@@ -1508,6 +1508,19 @@ select {
   border-color: #f44336;
 }
 
+.ov-load-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  font-size: 9px;
+  padding: 1px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ov-load-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
 .ov-drop {
   border: 1px dashed var(--border);
   border-radius: 4px;

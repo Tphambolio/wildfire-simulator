@@ -61,6 +61,7 @@ function LayerPanel({ type, data, visible, atRiskCount, onLoad, onToggle, onClea
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const cfg = LAYER_CONFIG[type];
 
@@ -137,12 +138,21 @@ function LayerPanel({ type, data, visible, atRiskCount, onLoad, onToggle, onClea
             </button>
           </>
         ) : (
-          <span className="ov-empty-hint">{cfg.hint}</span>
+          <>
+            <span className="ov-empty-hint">{cfg.hint}</span>
+            <button
+              className="ov-load-toggle"
+              onClick={() => setExpanded(e => !e)}
+              title={expanded ? "Collapse" : "Load custom GeoJSON"}
+            >
+              {expanded ? "▴" : "▾ Load"}
+            </button>
+          </>
         )}
       </div>
 
-      {/* Drop zone (only when no data) */}
-      {!data && (
+      {/* Drop zone (collapsed by default when no data) */}
+      {!data && expanded && (
         <>
           <div
             className={`ov-drop${dragging ? " dragging" : ""}`}
