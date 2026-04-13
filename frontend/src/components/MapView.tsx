@@ -411,7 +411,7 @@ export default function MapView({
       container: mapContainer.current,
       style: BASEMAPS.osm.style(),
       center: [-113.49, 53.55],
-      zoom: 11,
+      zoom: 9,
       // @ts-expect-error: preserveDrawingBuffer is a valid WebGL option not yet in MapLibre v5 type definitions
       preserveDrawingBuffer: true,
     });
