@@ -214,6 +214,12 @@ export default function App() {
     addResource,
   } = useIncident();
 
+  // Restore incidentLocation from the period's persisted ignitionPoint when loading an incident
+  useEffect(() => {
+    const pt = activePeriod?.ignitionPoint;
+    setIncidentLocation(pt ?? null);
+  }, [activeIncidentId]);
+
   const handleBriefingComplete = useCallback((data: BriefingData) => {
     // Persist IC name, jurisdiction, and completion timestamp on the incident
     updateIncidentField("incidentCommanderName", data.icName);
@@ -262,7 +268,9 @@ export default function App() {
 
   const handleMapClick = useCallback((lat: number, lng: number) => {
     setIncidentLocation({ lat, lng });
-  }, []);
+    // Persist so it survives page reload
+    updatePeriodField("ignitionPoint", { lat, lng });
+  }, [updatePeriodField]);
 
   const handleZoneDrawStart = useCallback((name: string, color: string) => {
     setDrawingZoneName(name);

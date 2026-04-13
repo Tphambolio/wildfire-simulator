@@ -43,8 +43,8 @@ export default function HazardZonePanel({
   onRemoveZone,
   onClearAll,
 }: HazardZonePanelProps) {
-  const [open, setOpen] = useState(true);
   const [selectedZoneIndex, setSelectedZoneIndex] = useState(0);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const def = HAZARD_DEFS.find((d) => d.key === hazardType) ?? HAZARD_DEFS[0];
   const zoneNames = def.zoneNames;
@@ -53,143 +53,119 @@ export default function HazardZonePanel({
   const selectedName = zoneNames[selectedZoneIndex] ?? zoneNames[0];
   const selectedColor = zoneColors[selectedZoneIndex] ?? zoneColors[0];
 
-  const handleDrawStart = () => {
-    onDrawStart(selectedName, selectedColor);
-  };
-
   return (
-    <div className="panel hazard-zone-panel">
-      <button
-        className="panel-collapse-btn"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <span>Hazard Zones</span>
-        <span className="collapse-icon">{open ? "▲" : "▼"}</span>
+    <div className="panel hz-panel">
+      {/* Header */}
+      <div className="hz-header">
+        <span className="hz-title">Hazard Zones</span>
         {zones.length > 0 && (
-          <span className="scenario-count-badge">{zones.length}</span>
+          <span className="hz-count">{zones.length}</span>
         )}
         {isDrawing && (
-          <span className="scenario-count-badge" style={{ background: "#3d5a80" }}>Drawing</span>
+          <span className="hz-drawing-badge">Drawing</span>
         )}
-      </button>
+      </div>
+      <div className="hz-criticality">
+        Define zones first — drives infrastructure at-risk classification and evacuation triggers.
+      </div>
 
-      {open && (
-        <div className="scenario-body">
-          {/* Zone type selector */}
+      {/* Zone type selector */}
+      {!isDrawing && (
+        <>
+          <div className="hz-section-label">Zone Type</div>
+          <div className="hz-type-tabs">
+            {zoneNames.map((name, idx) => (
+              <button
+                key={name}
+                className={`hz-type-tab${selectedZoneIndex === idx ? " active" : ""}`}
+                style={selectedZoneIndex === idx ? { borderColor: zoneColors[idx], color: zoneColors[idx] } : {}}
+                onClick={() => setSelectedZoneIndex(idx)}
+              >
+                <span className="hz-swatch" style={{ background: zoneColors[idx] }} />
+                {name}
+              </button>
+            ))}
+          </div>
+
+          <button
+            className="hz-draw-btn"
+            style={{ borderColor: selectedColor, color: selectedColor }}
+            onClick={() => onDrawStart(selectedName, selectedColor)}
+          >
+            ◉ Draw {selectedName}
+          </button>
+        </>
+      )}
+
+      {/* Drawing mode */}
+      {isDrawing && (
+        <div className="hz-drawing-state">
+          <div className="hz-drawing-hint">
+            Drawing: <strong style={{ color: selectedColor }}>{selectedName}</strong>
+            {"  ·  "}
+            {drawingPoints.length} pt{drawingPoints.length !== 1 ? "s" : ""}
+            {drawingPoints.length >= 3 && (
+              <> · {polygonAreaKm2(drawingPoints).toFixed(1)} km²</>
+            )}
+          </div>
+          {drawingPoints.length < 3 && (
+            <div className="hz-drawing-hint" style={{ opacity: 0.6 }}>Need ≥3 points to close</div>
+          )}
+          <div className="hz-drawing-btns">
+            <button
+              className="hz-close-btn"
+              onClick={onDrawClose}
+              disabled={drawingPoints.length < 3}
+            >
+              ✓ Close Zone
+            </button>
+            <button className="hz-cancel-btn" onClick={onDrawCancel}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Zone list */}
+      {zones.length > 0 && (
+        <div className="hz-zone-list">
+          {zones.map((z) => {
+            const area = polygonAreaKm2(z.polygon);
+            return (
+              <div key={z.id} className="hz-zone-row">
+                <span className="hz-swatch" style={{ background: z.color }} />
+                <span className="hz-zone-name">{z.name}</span>
+                <span className="hz-zone-area">
+                  {area >= 1 ? `${area.toFixed(1)} km²` : `${(area * 100).toFixed(0)} ha`}
+                </span>
+                <button
+                  className="hz-delete-btn"
+                  onClick={() => onRemoveZone(z.id)}
+                  title="Remove zone"
+                >×</button>
+              </div>
+            );
+          })}
+
+          {/* Clear all */}
           {!isDrawing && (
-            <div className="section" style={{ paddingTop: 0 }}>
-              <h4>Zone Type</h4>
-              <div className="zone-type-row">
-                {zoneNames.map((name, idx) => (
-                  <button
-                    key={name}
-                    className={`zone-type-btn${selectedZoneIndex === idx ? " active" : ""}`}
-                    style={selectedZoneIndex === idx ? { borderColor: zoneColors[idx], background: `${zoneColors[idx]}22`, color: zoneColors[idx] } : {}}
-                    onClick={() => setSelectedZoneIndex(idx)}
-                  >
-                    <span
-                      className="zone-type-swatch"
-                      style={{ background: zoneColors[idx] }}
-                    />
-                    {name}
-                  </button>
-                ))}
+            confirmClear ? (
+              <div className="hz-confirm-row">
+                <span className="hz-confirm-label">Clear all zones?</span>
+                <button className="hz-confirm-yes" onClick={() => { onClearAll(); setConfirmClear(false); }}>Yes</button>
+                <button className="hz-confirm-no" onClick={() => setConfirmClear(false)}>No</button>
               </div>
-
-              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                <button
-                  className="btn-primary"
-                  style={{ flex: 1, padding: "6px 0", fontSize: "0.85em", background: selectedColor + "cc", borderColor: selectedColor }}
-                  onClick={handleDrawStart}
-                >
-                  ◉ Draw Zone
-                </button>
-                {zones.length > 0 && (
-                  <button
-                    className="btn-secondary"
-                    style={{ padding: "6px 10px", fontSize: "0.85em", borderColor: "#8b2020", color: "#e57373" }}
-                    onClick={() => {
-                      if (confirm("Clear all hazard zones?")) onClearAll();
-                    }}
-                    title="Clear all zones"
-                  >
-                    ✕ All
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Drawing mode */}
-          {isDrawing && (
-            <div className="section zone-drawing-controls" style={{ paddingTop: 0 }}>
-              <div className="hint" style={{ marginBottom: 8 }}>
-                Drawing: <strong style={{ color: selectedColor }}>{selectedName}</strong>
-                <br />
-                {drawingPoints.length} point{drawingPoints.length !== 1 ? "s" : ""} placed
-                {drawingPoints.length >= 3 && (
-                  <span> · {polygonAreaKm2(drawingPoints).toFixed(2)} km²</span>
-                )}
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button
-                  className="btn-primary"
-                  style={{ flex: 1, padding: "6px 0", fontSize: "0.85em" }}
-                  onClick={onDrawClose}
-                  disabled={drawingPoints.length < 3}
-                >
-                  Close Zone
-                </button>
-                <button
-                  className="btn-secondary"
-                  style={{ padding: "6px 10px", fontSize: "0.85em" }}
-                  onClick={onDrawCancel}
-                >
-                  Cancel
-                </button>
-              </div>
-              {drawingPoints.length < 3 && (
-                <div className="hint" style={{ marginTop: 6 }}>
-                  Need at least 3 points to close.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Zones list */}
-          {zones.length === 0 && !isDrawing ? (
-            <div className="hint">No zones drawn yet.</div>
-          ) : (
-            <div className="zone-list">
-              {zones.map((z) => {
-                const area = polygonAreaKm2(z.polygon);
-                return (
-                  <div key={z.id} className="zone-item">
-                    <div className="zone-item-header">
-                      <span
-                        className="zone-item-swatch"
-                        style={{ background: z.color }}
-                      />
-                      <span className="zone-item-name">{z.name}</span>
-                      <span className="zone-item-area">
-                        {area >= 1 ? `${area.toFixed(1)} km²` : `${(area * 100).toFixed(0)} ha`}
-                      </span>
-                      <button
-                        className="btn-secondary"
-                        style={{ fontSize: "0.76em", padding: "2px 7px", borderColor: "#8b2020", color: "#e57373" }}
-                        onClick={() => onRemoveZone(z.id)}
-                        title="Remove this zone"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            ) : (
+              <button className="hz-clear-all-btn" onClick={() => setConfirmClear(true)}>
+                ✕ Clear all zones
+              </button>
+            )
           )}
         </div>
+      )}
+
+      {zones.length === 0 && !isDrawing && (
+        <div className="hz-empty">No zones drawn yet.</div>
       )}
     </div>
   );

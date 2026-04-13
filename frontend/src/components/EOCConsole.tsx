@@ -10,7 +10,9 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react
 import type { ReactNode } from "react";
 import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
-import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
+import { SymbolIcon } from "./AnnotationSymbolPicker";
+import MapMarkupPanel from "./MapMarkupPanel";
+import { autoSymbolsFromInfra } from "../utils/infraAutoSymbols";
 import SectionWorkspace from "./SectionWorkspace";
 import InitBriefingPanel, { type BriefingData } from "./InitBriefingPanel";
 import IncidentSetupPanel from "./IncidentSetupPanel";
@@ -179,7 +181,6 @@ export default function EOCConsole({
   const [activeLayer, setActiveLayer] = useState<AnnotationLayer>("situation");
   const [activeSymbolKey, setActiveSymbolKey] = useState<ICSSymbolKey | null>(null);
   const [activeColor, setActiveColor] = useState<string | null>(null);
-  const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const [selectedForm, setSelectedForm] = useState<ICSFormId>("ics201");
   const [formHtml, setFormHtml] = useState<string>("");
   const [savedFormEdits, setSavedFormEdits] = useState<Partial<Record<ICSFormId, string>>>({});
@@ -281,6 +282,18 @@ export default function EOCConsole({
       return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
     }).join(" ");
   }, [geoToPixel]);
+
+  // Forward wheel events through the SVG overlay to MapLibre for zoom/pan
+  const handleSvgWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+    const canvas = consoleMapRef.current?.getCanvas();
+    if (!canvas) return;
+    canvas.dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true, cancelable: true,
+      deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode,
+      ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey,
+      clientX: e.clientX, clientY: e.clientY,
+    }));
+  }, []);
 
   const handleSvgMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     e.preventDefault();
@@ -394,12 +407,6 @@ export default function EOCConsole({
       setPendingTextPos(null);
     }
   }, [pendingTextPos, pixelToGeo, onAddAnnotation, activeLayer, activeSymbolKey]);
-
-  const clearMarkup = useCallback(() => {
-    setPenPaths([]);
-    setTextMarkers([]);
-    setCurrentPenPath([]);
-  }, []);
 
   const handleMapRefCallback = useCallback((m: maplibregl.Map) => {
     consoleMapRef.current = m;
@@ -677,7 +684,7 @@ export default function EOCConsole({
             drawingZonePoints={drawingZonePoints}
             onZonePoint={onZonePoint}
             onZoneClose={onZoneClose}
-            readOnly={consoleTab !== "map" || (!drawingZone && !!incidentLocation)}
+            readOnly={consoleTab !== "map" || (!drawingZone && (!!incidentLocation || incidentAnnotations.length > 0 || hazardZones.length > 0))}
             mapRefCallback={handleMapRefCallback}
           />
 
@@ -689,6 +696,7 @@ export default function EOCConsole({
             onMouseMove={handleSvgMouseMove}
             onMouseUp={handleSvgMouseUp}
             onMouseLeave={handleSvgMouseUp}
+            onWheel={handleSvgWheel}
           >
             {/* Incident annotations — dimmed if not on active layer */}
             {incidentAnnotations.map((ann) => {
@@ -745,17 +753,20 @@ export default function EOCConsole({
 
                 return (
                   <g key={ann.id} opacity={opacity}
-                    transform={`translate(${x - 10},${y - 10})`}
+                    transform={`translate(${x - 14},${y - 14})`}
                     style={{ cursor: isActive ? "pointer" : "default" }}
                     onClick={() => isActive && onRemoveAnnotation?.(ann.id)}
                   >
-                    <SymbolIcon symbolKey={ann.symbolKey} color={color} size={20} />
+                    {/* Dark backdrop + colored ring for visibility against map tiles */}
+                    <circle cx={14} cy={14} r={16} fill="rgba(10,15,30,0.72)" />
+                    <circle cx={14} cy={14} r={16} fill="none" stroke={color} strokeWidth={1.5} />
+                    <SymbolIcon symbolKey={ann.symbolKey} color={color} size={28} />
                     {ann.label && ann.symbolKey !== "text_label" && (
                       <g style={{ pointerEvents: "none" }}>
-                        <text x={10} y={26} textAnchor="middle" fontSize={9}
-                          fill="none" stroke="#000" strokeWidth={2.5} strokeLinejoin="round"
+                        <text x={14} y={39} textAnchor="middle" fontSize={11}
+                          fill="none" stroke="rgba(10,15,30,0.9)" strokeWidth={3} strokeLinejoin="round"
                         >{ann.label}</text>
-                        <text x={10} y={26} textAnchor="middle" fontSize={9} fill={color}
+                        <text x={14} y={39} textAnchor="middle" fontSize={11} fill="#fff" fontWeight="600"
                         >{ann.label}</text>
                       </g>
                     )}
@@ -794,39 +805,7 @@ export default function EOCConsole({
             />
           )}
 
-          {/* Markup toolbar — ⊕ opens full symbol/draw picker; 📡 fetches OSM; ⌫ clears */}
-          <div className="eoc-markup-toolbar">
-            <button
-              className={`eoc-markup-tool${showSymbolPicker ? " active" : ""}`}
-              onClick={() => setShowSymbolPicker(v => !v)}
-              title="ICS symbols, layers, draw tools"
-            >⊕</button>
-            <button
-              className={`eoc-markup-tool${isFetchingFacilities ? " active" : ""}`}
-              title={!incidentLocation ? "Set incident location first" : "Fetch nearby facilities (OSM)"}
-              disabled={isFetchingFacilities || !incidentLocation || !onFetchFacilities}
-              onClick={async () => {
-                if (!onFetchFacilities) return;
-                setIsFetchingFacilities(true);
-                setFetchFacilitiesMsg("Fetching OSM resources…");
-                try {
-                  const count = await onFetchFacilities();
-                  setFetchFacilitiesMsg(count > 0 ? `+${count} facilities added` : "No new facilities found");
-                } catch {
-                  setFetchFacilitiesMsg("Fetch failed — check connection");
-                } finally {
-                  setIsFetchingFacilities(false);
-                  setTimeout(() => setFetchFacilitiesMsg(null), 4000);
-                }
-              }}
-            >{isFetchingFacilities ? "…" : "📡"}</button>
-            <button
-              className="eoc-markup-tool"
-              onClick={clearMarkup}
-              title="Clear all markup"
-              disabled={penPaths.length === 0 && textMarkers.length === 0 && currentPenPath.length === 0}
-            >⌫</button>
-          </div>
+          {/* Active draw hint for path-type symbols */}
 
           {/* Hint when a path-type symbol is selected */}
           {activeSymbolKey && SYMBOL_DEFS.find(s => s.key === activeSymbolKey)?.type === "path" && (
@@ -847,28 +826,6 @@ export default function EOCConsole({
           <div className="eoc-resize-handle" onMouseDown={handleResizeStart} title="Drag to resize" />
         )}
 
-        {/* Symbol picker flyout — desktop: floats over map; mobile: between map and panels */}
-        {showSymbolPicker && (
-          <div className="eoc-symbol-picker-flyout">
-            <AnnotationSymbolPicker
-              activeLayer={activeLayer}
-              activeSymbol={activeSymbolKey}
-              onLayerChange={(layer) => { setActiveLayer(layer); setActiveSymbolKey(null); setMarkupTool(null); }}
-              onSymbolSelect={(key) => { setActiveSymbolKey(prev => prev === key ? null : key); setMarkupTool(null); }}
-              activeColor={activeColor}
-              onColorChange={setActiveColor}
-            />
-            {incidentAnnotations.filter(a => a.layer === activeLayer).length > 0 && (
-              <button
-                className="eoc-clear-layer-btn"
-                onClick={() => onClearLayer?.(activeLayer)}
-                title={`Clear all ${activeLayer} layer annotations`}
-              >
-                Clear layer
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Right: content panel */}
         {!isFormsHidden && (
@@ -899,6 +856,17 @@ export default function EOCConsole({
             {/* ── Map tab ────────────────────────────────── */}
             {consoleTab === "map" && (
               <div className="eoc-setup-tab">
+                <HazardZonePanel
+                  hazardType={hazardType ?? "other"}
+                  zones={hazardZones}
+                  isDrawing={drawingZone}
+                  drawingPoints={drawingZonePoints}
+                  onDrawStart={onHazardZoneDrawStart ?? (() => {})}
+                  onDrawCancel={onHazardZoneDrawCancel ?? (() => {})}
+                  onDrawClose={onZoneClose ?? (() => {})}
+                  onRemoveZone={onRemoveHazardZone ?? (() => {})}
+                  onClearAll={onClearHazardZones ?? (() => {})}
+                />
                 <OverlayPanel
                   layers={{
                     roads: { data: overlayRoads ?? null, visible: overlayRoadsVisible ?? true },
@@ -910,17 +878,43 @@ export default function EOCConsole({
                   onLayerClear={onLayerClear ?? (() => {})}
                   incidentLocation={incidentLocation}
                   hazardType={hazardType}
+                  onAutoSymbol={(features) => {
+                    const day = activePeriod?.day ?? 1;
+                    const newAnns = autoSymbolsFromInfra(features, day);
+                    const existingOsmIds = new Set(
+                      incidentAnnotations.map(a => a.properties?.osmId).filter(Boolean)
+                    );
+                    newAnns
+                      .filter(a => !existingOsmIds.has(a.properties.osmId))
+                      .forEach(a => onAddAnnotation?.(a));
+                  }}
                 />
-                <HazardZonePanel
-                  hazardType={hazardType ?? "other"}
-                  zones={hazardZones}
-                  isDrawing={drawingZone}
-                  drawingPoints={drawingZonePoints}
-                  onDrawStart={onHazardZoneDrawStart ?? (() => {})}
-                  onDrawCancel={onHazardZoneDrawCancel ?? (() => {})}
-                  onDrawClose={onZoneClose ?? (() => {})}
-                  onRemoveZone={onRemoveHazardZone ?? (() => {})}
-                  onClearAll={onClearHazardZones ?? (() => {})}
+                <MapMarkupPanel
+                  activeLayer={activeLayer}
+                  activeSymbolKey={activeSymbolKey}
+                  activeColor={activeColor}
+                  annotations={incidentAnnotations}
+                  isFetchingFacilities={isFetchingFacilities}
+                  canFetchFacilities={!!incidentLocation && !!onFetchFacilities}
+                  onLayerChange={(layer) => { setActiveLayer(layer); setActiveSymbolKey(null); setMarkupTool(null); }}
+                  onSymbolSelect={(key) => setActiveSymbolKey(prev => prev === key ? null : key)}
+                  onColorChange={setActiveColor}
+                  onFetchFacilities={async () => {
+                    if (!onFetchFacilities) return;
+                    setIsFetchingFacilities(true);
+                    setFetchFacilitiesMsg("Fetching OSM resources…");
+                    try {
+                      const count = await onFetchFacilities();
+                      setFetchFacilitiesMsg(count > 0 ? `+${count} facilities added` : "No new facilities found");
+                    } catch {
+                      setFetchFacilitiesMsg("Fetch failed — check connection");
+                    } finally {
+                      setIsFetchingFacilities(false);
+                      setTimeout(() => setFetchFacilitiesMsg(null), 4000);
+                    }
+                  }}
+                  onRemoveAnnotation={onRemoveAnnotation ?? (() => {})}
+                  onClearLayer={onClearLayer ?? (() => {})}
                 />
                 <div className="eoc-tab-continue">
                   <button className="eoc-tab-continue-btn" onClick={() => setConsoleTab("briefing")}>

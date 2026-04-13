@@ -214,6 +214,9 @@ export default function MapView({
   // Location placement mode — true while operator is picking an incident location
   const [ignitionMode, setIgnitionMode] = useState(!ignitionPoint);
   const ignitionModeRef = useRef(!ignitionPoint);
+  // When incident location loads (e.g. from localStorage), exit placement mode
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (ignitionPoint) setIgnitionMode(false); }, [!!ignitionPoint]);
   const [toast, setToast] = useState<string | null>(null);
   const prevBasemapRef = useRef<BasemapId>("osm");
   // Zone drawing mode refs — updated via useEffect so click handler always sees fresh values
@@ -384,6 +387,8 @@ export default function MapView({
 
     // Click handler for community polygons
     m.on("click", "overlay-communities-fill", (e) => {
+      // Skip if clicking on an infrastructure point — let the infra handler take priority
+      if (m.queryRenderedFeatures(e.point, { layers: ["overlay-infra-circle"] }).length > 0) return;
       if (!e.features || !e.features.length) return;
       const props = e.features[0].properties as Record<string, unknown>;
       const name = (props.name ?? props.NAME ?? props.label ?? "Community") as string;
@@ -468,6 +473,9 @@ export default function MapView({
       addMapLayers(map.current!);
     });
   }, [basemap, mapReady, addMapLayers]);
+
+  // Sync readOnly prop → ref (click handlers close over the ref, not the prop)
+  useEffect(() => { readOnlyRef.current = readOnly; }, [readOnly]);
 
   // Sync ignitionMode state → ref (used in map click handler) + cursor
   useEffect(() => {

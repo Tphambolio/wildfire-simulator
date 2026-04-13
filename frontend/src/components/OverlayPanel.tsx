@@ -209,6 +209,8 @@ interface OverlayPanelProps {
   /** Incident location — enables live OSM/EC fetch scoped to this point */
   incidentLocation?: { lat: number; lng: number } | null;
   hazardType?: HazardType;
+  /** When provided, shows "Auto-place ICS Symbols" button on infrastructure layer */
+  onAutoSymbol?: (features: GeoJSON.Feature[]) => void;
 }
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -227,6 +229,7 @@ export default function OverlayPanel({
   onLayerClear,
   incidentLocation = null,
   hazardType = "other",
+  onAutoSymbol,
 }: OverlayPanelProps) {
   const hasAny = layers.roads.data || layers.communities.data || layers.infrastructure.data;
   const [edmontonLoading, setEdmontonLoading] = useState(false);
@@ -357,6 +360,17 @@ export default function OverlayPanel({
           onClear={() => onLayerClear(type)}
         />
       ))}
+
+      {/* ── Auto-place ICS symbols from infrastructure layer ── */}
+      {layers.infrastructure.data && onAutoSymbol && (
+        <button
+          className="ov-auto-sym-btn"
+          onClick={() => onAutoSymbol(layers.infrastructure.data!.features)}
+          title="Auto-place ICS symbols for hospitals, fire stations, EOC and other infrastructure"
+        >
+          ◉ Auto-place ICS Symbols
+        </button>
+      )}
 
       {/* ── Environment Canada weather alerts ── */}
       {weatherAlerts.length > 0 && (

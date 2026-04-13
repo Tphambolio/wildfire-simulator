@@ -17,6 +17,8 @@
  *   NIMS ICS-201 through ICS-209 (FEMA/NWCG 2021 revisions)
  */
 
+import { buildMapSchematicSVG } from "./mapSchematic";
+
 import type {
   WeatherParams,
   IncidentAnnotation,
@@ -105,6 +107,23 @@ function renderMapSnapshot(dataUrl: string | undefined, title: string): string {
     <li><span style="background:#f44336"></span>Medical</li>
   </ul>
 </div>`;
+}
+
+/** Renders a layer-specific schematic SVG map for use inside ICS form blocks. */
+function renderSchematic(
+  opts: ICSFormOptions,
+  layerFilter: import("../types/incident").AnnotationLayer | import("../types/incident").AnnotationLayer[] | null,
+  showHazardZones: boolean,
+  noDataMessage: string
+): string {
+  return buildMapSchematicSVG({
+    annotations: opts.annotations ?? [],
+    hazardZones: opts.hazardZones ?? [],
+    incidentLocation: opts.incidentLocation,
+    layerFilter,
+    showHazardZones,
+    noDataMessage,
+  });
 }
 
 function wrapForm(title: string, sections: string[], opts: ICSFormOptions, orientation: "portrait" | "landscape" = "portrait", formId = ""): string {
@@ -360,7 +379,9 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
            Use <strong>Full IAP</strong> in the EOC Console to generate all forms together.
          </p>`
     ),
-    icsBlock("9", "Operational Map", renderMapSnapshot(opts.mapSnapshotDataUrl, "Operational Map")),
+    icsBlock("9", "Situation Overview Map",
+      renderSchematic(opts, null, true,
+        "No spatial data yet — add annotations or hazard zones on the Map tab.")),
   ], opts, "portrait", "ics202");
 }
 
@@ -490,7 +511,9 @@ export function buildICS204HTML(opts: ICSFormOptions): string {
       "Confirm civilian evacuation before any resource entry into evacuation zone."
     ),
     ...(hasMapAnnotations ? [icsBlock("Map Legend", "Annotated Resources", annotationLegend)] : []),
-    icsBlock("4", "Operational Map", renderMapSnapshot(opts.mapSnapshotDataUrl, "Assignments Map")),
+    icsBlock("4", "Assignments Map",
+      renderSchematic(opts, "ics204", true,
+        "No assignment annotations yet — use the Map tab › 204 Assignments layer to place division supervisors, staging areas, drop points, and control lines.")),
   ], opts, "portrait", "ics204");
 }
 
@@ -632,7 +655,9 @@ export function buildICS206HTML(opts: ICSFormOptions): string {
       "Evacuate patient to nearest aid station or hospital per MedUL direction.",
       "Rehab required every 2 hours — medical assessment available at aid stations.",
     ])),
-    icsBlock("8", "Operational Map — Medical Resources", renderMapSnapshot(opts.mapSnapshotDataUrl, "Medical Resources Map")),
+    icsBlock("8", "Medical Resources Map",
+      renderSchematic(opts, "ics206", false,
+        "No medical annotations yet — use the Map tab › 206 Medical layer to place hospitals, aid stations, medevac LZs, and treatment sites.")),
   ], opts, "portrait", "ics206");
 }
 
@@ -788,6 +813,9 @@ export function buildICS208HTML(opts: ICSFormOptions): string {
       ["Emergency contact (Incident Safety Officer)", (opts.resources ?? []).find(r => r.icsPosition === "Safety Officer")?.name ?? ""],
       ["Emergency contact (Incident Commander)", opts.incidentCommanderName ?? ""],
     ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table>`),
+    icsBlock("8", "Safety / Hazard Zone Map",
+      renderSchematic(opts, ["situation", "evac"], true,
+        "No hazard zones or safety annotations yet — draw zones on the Map tab and place situation layer markers.")),
   ], opts, "portrait", "ics208");
 }
 

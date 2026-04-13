@@ -1674,6 +1674,465 @@ select {
   color: var(--text-dim);
 }
 
+.ov-auto-sym-btn {
+  font-size: 10px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  cursor: pointer;
+  margin-top: 6px;
+  width: 100%;
+  text-align: center;
+}
+.ov-auto-sym-btn:hover { background: rgba(255, 107, 53, 0.12); }
+
+/* ── Map Markup Panel ─────────────────────────────────────────────────────── */
+
+.mmp-panel {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.mmp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.mmp-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+
+.mmp-ann-count {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.mmp-layer-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.mmp-layer-tab {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+.mmp-layer-tab:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+.mmp-layer-tab.active { font-weight: 800; }
+
+.mmp-role-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.mmp-section-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  padding: 5px 0 3px;
+}
+
+.mmp-symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.mmp-sym-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  min-width: 46px;
+}
+.mmp-sym-btn:hover { background: var(--surface-hi); }
+.mmp-sym-btn.active { background: rgba(255,255,255,0.06); }
+
+.mmp-sym-label {
+  font-size: 9px;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.2;
+  max-width: 50px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mmp-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--border-dim);
+  margin-bottom: 4px;
+}
+
+.mmp-color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+}
+.mmp-color-swatch.active { outline: 2px solid #fff; outline-offset: 1px; }
+
+.mmp-color-swatch--auto {
+  background: var(--surface-hi);
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 700;
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mmp-ann-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 130px;
+  overflow-y: auto;
+  margin-bottom: 6px;
+}
+
+.mmp-ann-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.mmp-ann-layer-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.mmp-ann-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.mmp-ann-delete {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.mmp-ann-delete:hover { color: var(--status-err); }
+
+.mmp-clear-layer-btn {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.mmp-clear-layer-btn:hover { border-color: var(--status-err); color: var(--status-err); }
+
+.mmp-fetch-btn {
+  width: 100%;
+  padding: 6px 10px;
+  margin-top: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: center;
+}
+.mmp-fetch-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.mmp-fetch-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.mmp-fetch-btn.loading { color: var(--accent); }
+
+/* ── Hazard Zone Panel ────────────────────────────────────────────────────── */
+
+.hz-panel {
+  padding: 10px 12px;
+}
+
+.hz-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.hz-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.hz-count {
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  padding: 1px 6px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.hz-drawing-badge {
+  font-size: 9px;
+  font-weight: 700;
+  background: #3d5a80;
+  color: #a0c8ff;
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.hz-criticality {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.hz-section-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.hz-type-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.hz-type-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.hz-type-tab:hover { border-color: var(--text-secondary); }
+.hz-type-tab.active { background: rgba(255,255,255,0.04); }
+
+.hz-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.hz-draw-btn {
+  width: 100%;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s;
+  margin-bottom: 4px;
+}
+.hz-draw-btn:hover { background: rgba(255,255,255,0.05); }
+
+.hz-drawing-state {
+  margin-bottom: 6px;
+}
+
+.hz-drawing-hint {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.hz-drawing-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.hz-close-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.hz-close-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.hz-close-btn:hover:not(:disabled) { opacity: 0.85; }
+
+.hz-cancel-btn {
+  padding: 4px 10px;
+  font-size: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.hz-cancel-btn:hover { border-color: var(--text-secondary); }
+
+.hz-zone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.hz-zone-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-primary);
+}
+
+.hz-zone-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hz-zone-area {
+  font-size: 9px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.hz-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.hz-delete-btn:hover { color: var(--status-err); }
+
+.hz-clear-all-btn {
+  margin-top: 6px;
+  font-size: 9px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 0;
+  text-align: left;
+  transition: color 0.15s;
+}
+.hz-clear-all-btn:hover { color: var(--status-err); }
+
+.hz-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hz-confirm-label {
+  font-size: 9px;
+  color: var(--status-err);
+  flex: 1;
+}
+
+.hz-confirm-yes {
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--status-err);
+  border: none;
+  border-radius: 3px;
+  color: #fff;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.hz-confirm-no {
+  font-size: 9px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.hz-empty {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+
 .eoc-at-risk-section {
   border-top: 1px solid rgba(255, 102, 0, 0.3);
   background: rgba(255, 102, 0, 0.05);
@@ -2698,7 +3157,7 @@ select {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .eoc-console-header {
@@ -2712,6 +3171,7 @@ select {
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-dim);
   gap: 16px;
+  position: relative;   /* dropdown anchor */
 }
 
 .eoc-header-left {
@@ -4967,7 +5427,7 @@ select {
 
 /* ── Incidents dropdown in EOC header ───────────────────────────────── */
 .eoc-incidents-menu {
-  position: relative;
+  /* position: relative removed — dropdown anchors to .eoc-console-header */
 }
 .eoc-incidents-menu > summary {
   list-style: none;
@@ -4978,9 +5438,9 @@ select {
 }
 .eoc-incidents-dropdown {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(48px + 4px);   /* header height + gap */
   right: 0;
-  z-index: 200;
+  z-index: 1000;
   background: var(--surface-mid);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
