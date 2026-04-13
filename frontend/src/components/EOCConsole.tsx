@@ -128,7 +128,7 @@ export default function EOCConsole({
   onClearLayer,
   onFetchFacilities,
   incidentName: incidentNameProp,
-  onIncidentNameChange,
+  onIncidentNameChange: _onIncidentNameChange,
   hazardType,
   onHazardTypeChange,
   incidentComplexity = 5,
@@ -171,13 +171,9 @@ export default function EOCConsole({
   useEffect(() => {
     if (initialConsoleTab !== undefined) setConsoleTabState(initialConsoleTab);
   }, [initialConsoleTab]);
-  const [localIncidentName, setLocalIncidentName] = useState("Untitled Incident");
+  const [localIncidentName] = useState("Untitled Incident");
   const incidentName = incidentNameProp ?? localIncidentName;
-  const setIncidentName = (name: string) => {
-    setLocalIncidentName(name);
-    onIncidentNameChange?.(name);
-  };
-  const [editingName, setEditingName] = useState(false);
+
   const [activeLayer, setActiveLayer] = useState<AnnotationLayer>("situation");
   const [activeSymbolKey, setActiveSymbolKey] = useState<ICSSymbolKey | null>(null);
   const [activeColor, setActiveColor] = useState<string | null>(null);
@@ -585,21 +581,6 @@ export default function EOCConsole({
       {/* ── Console header ─────────────────────────────────────────── */}
       <div className="eoc-console-header">
         <div className="eoc-header-left">
-          {editingName ? (
-            <input
-              className="eoc-incident-name-input"
-              value={incidentName}
-              autoFocus
-              onChange={(e) => setIncidentName(e.target.value)}
-              onBlur={() => setEditingName(false)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingName(false); }}
-            />
-          ) : (
-            <button className="eoc-incident-name-btn" onClick={() => setEditingName(true)} title="Click to edit incident name">
-              {incidentName}
-              <span className="eoc-edit-icon">✎</span>
-            </button>
-          )}
         </div>
         <div className="eoc-header-right">
           {syncPanelSlot}
