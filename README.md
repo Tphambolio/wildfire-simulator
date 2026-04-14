@@ -1,83 +1,130 @@
-# Wildfire Simulator V3
+# AIMS Console
 
-Research and development tool for Canadian FBP fire spread simulation.
+**All-Hazards Incident Management System** — a browser-based EOC command console built on NIMS/ICS standards.
 
-## What this does
+**Live:** [aims-console.vercel.app](https://aims-console.vercel.app)
 
-Simulates wildfire spread using the Canadian Forest Fire Behavior Prediction (FBP) System:
-- All 18 FBP fuel types (ST-X-3 validated)
-- Huygens wavelet fire spread (open wildland) and cellular automaton (urban/WUI)
-- FWI System (FFMC, DMC, DC, ISI, BUI, FWI)
-- Crown fire initiation (Van Wagner 1977)
-- Ember spotting (Albini 1979) with multi-front ignition
-- Directional slope effects (Butler 2007 cap, Anderson 1983 downslope)
-- Spatial fuel/water/buildings/WUI-zone grids
-- Interactive map with click-to-ignite, real-time streaming, pause/resume/cancel
+---
+
+## What it does
+
+AIMS Console supports full Incident Command System (ICS) workflow from initial briefing through IAP approval across multi-day operational periods:
+
+- **All-hazards** — wildfire, flood, hazmat, earthquake, mass casualty, infrastructure failure, search & rescue, severe weather
+- **Multi-day operational periods** — each period gets its own IAP approval slate; advance the clock and start fresh
+- **IAP Forms Dashboard** — per-period form status tracking (empty → draft → complete → approved); IC signs off individual forms and the full IAP package
+- **16 ICS forms** — ICS-201 through ICS-215A including ICS-205A (Comms List), ICS-209 (Status Summary), ICS-211 (Check-In List), ICS-213RR (Resource Request)
+- **Resource requests** — create ICS-213RR requests per period; track through pending → ordered → filled
+- **Section workspaces** — Command, Operations, Planning, Logistics, Finance; roster management per section
+- **Common Operating Picture** — MapLibre GL map with ICS annotation symbols, hazard zone drawing, OSM facility fetch
+- **Cloud sync** — share incident via a 6-character code; collaborators join via URL parameter
+- **LocalStorage persistence** — incidents survive page reload; export/import as JSON
+
+---
+
+## ICS Forms
+
+| Form | Title | Level |
+|------|-------|-------|
+| ICS-201 | Incident Briefing | Incident |
+| ICS-202 | Incident Objectives | Per period |
+| ICS-203 | Organization Assignment | Per period |
+| ICS-204 | Assignment List | Per period |
+| ICS-205 | Radio Comms Plan | Per period |
+| ICS-205A | Communications List | Per period |
+| ICS-206 | Medical Plan | Per period |
+| ICS-207 | Org Chart | Per period |
+| ICS-208 | Safety Message/Plan | Per period |
+| ICS-209 | Incident Status Summary | Per period |
+| ICS-211 | Check-In/Sign-In List | Per period |
+| ICS-213 | General Message | Per period |
+| ICS-213RR | Resource Request | Per request |
+| ICS-214 | Activity Log | Per period |
+| ICS-215 | Operational Planning Worksheet | Per period |
+| ICS-215A | Safety Analysis | Per period |
+
+Forms are fully editable HTML documents rendered in-browser. All edits are saved to the incident and survive page reload.
+
+---
+
+## IAP Approval Workflow
+
+Each operational period tracks form status independently:
+
+```
+empty → draft → complete → approved
+                         ↘ rejected → complete → approved
+```
+
+- Opening a form auto-transitions it from **empty → draft**
+- Section chiefs mark forms **complete** when ready
+- The IC **approves** individual forms with an inline signature confirm
+- **Approve Full IAP** button is gated until all required forms are approved for the period
+- Day 2+ shows a **↩ Carry from Period 1** link on empty forms that were approved the previous period
+
+---
+
+## Supported Hazard Types
+
+`wildfire` · `flood` · `hazmat` · `earthquake` · `mass_casualty` · `infrastructure` · `search_rescue` · `severe_weather`
+
+Each hazard type defines which ICS forms are **required** — the IAP dashboard highlights required forms and gates full-IAP approval accordingly.
+
+---
 
 ## Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Fire engine | Python 3.10+ with Numba JIT |
-| API | FastAPI + WebSocket |
-| Frontend | React + Vite + TypeScript + MapLibre GL |
-| Deploy | Docker Compose |
+| Frontend | React 19 + TypeScript 5.9 + Vite 7 |
+| Map | MapLibre GL 5 |
+| State | React hooks + localStorage (no external store) |
+| Deploy | Vercel (frontend-only, no backend required) |
 
-## Quick start
+---
 
-```bash
-# Start the API backend
-PYTHONPATH=engine/src:api/src uvicorn firesim_api.main:app --port 8000
-
-# In a second terminal, start the frontend
-cd frontend && npm install && npm run dev
-```
-
-Then open http://localhost:3000, click the map to set an ignition point, adjust weather, and run a simulation.
-
-## Docker
+## Local development
 
 ```bash
-docker compose up --build
-# Frontend: http://localhost:3000
-# API: http://localhost:8000/api/v1/health
+cd frontend
+npm install
+npm run dev       # http://localhost:5173
+npm run build     # production bundle (must be zero TS errors)
 ```
 
-## Testing
-
-```bash
-make test           # All 501 tests
-make test-engine    # 434 engine tests
-make test-api       # 67 API integration tests
-```
+---
 
 ## Project structure
 
 ```
-engine/     Pure Python fire science (zero web deps, 434 tests)
-api/        FastAPI backend with WebSocket streaming (67 tests)
-frontend/   React + Vite + TypeScript + MapLibre GL
+frontend/
+  src/
+    components/
+      EOCConsole.tsx          Main tabbed console
+      IAPDashboard.tsx        Per-period IAP forms dashboard
+      SectionWorkspace.tsx    Per-section roster + forms
+      MapView.tsx             MapLibre GL COP
+      OperationalPeriodPanel  Multi-day period switcher
+      InitBriefingPanel       ICS-201 initial briefing flow
+      ...
+    hooks/
+      useIncident.ts          All incident state + cloud sync
+    types/
+      incident.ts             Core types — IncidentSession, OperationalPeriod,
+                              ICSFormId, FormRecord, ResourceRequest, HAZARD_DEFS
+    utils/
+      icsForms.ts             All 16 ICS form HTML generators
+    index.css                 All styles (dark EOC theme)
 ```
 
-## API
+---
+
+## Cloud sync
+
+Incidents can be shared with a 6-character code generated on demand:
 
 ```
-POST /api/v1/simulations          Start a simulation
-GET  /api/v1/simulations/{id}     Get status and results
-WS   /api/v1/simulations/ws/{id}  Stream frames in real-time
-GET  /api/v1/health               Health check
-
-POST /api/v1/fwi/calculate        Compute FWI from noon weather observation
-POST /api/v1/fwi/multi-day        Chain FWI across daily observations
-
-GET  /api/v1/weather              Live FWI indices for a location (CWFIS)
+☁ Share Incident → copies a URL like https://aims-console.vercel.app?incident=ABC123
 ```
 
-## References
-
-- Forestry Canada Fire Danger Group (1992). ST-X-3.
-- Tymstra, C. et al. (2010). Prometheus: Canadian Wildland Fire Growth Simulation Model.
-- Van Wagner, C.E. (1977). Crown fire initiation.
-- Albini, F.A. (1979). Spot fire distance from burning trees.
-- Butler et al. (2007). Slope effect observations.
-- Anderson (1983). Downslope fire spread.
+Anyone with the link joins the incident in read/edit mode. Changes sync automatically on a 2-second debounce via a lightweight cloud store.

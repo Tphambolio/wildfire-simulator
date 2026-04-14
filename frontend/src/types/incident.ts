@@ -145,9 +145,43 @@ export type HazardType =
   | "other";
 
 export type ICSFormId =
-  | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics206"
-  | "ics207" | "ics208" | "ics213" | "ics215" | "ics215a" | "ics214"
+  | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics205a" | "ics206"
+  | "ics207" | "ics208" | "ics209" | "ics211" | "ics213" | "ics213rr" | "ics214"
+  | "ics215" | "ics215a"
   | "full-iap";
+
+export type FormStatus = "empty" | "draft" | "complete" | "approved" | "rejected";
+
+export interface FormRecord {
+  status: FormStatus;
+  preparedBy?: string;
+  preparedByPosition?: string;
+  preparedAt?: string;
+  approvedBy?: string;
+  approvedByPosition?: string;
+  approvedAt?: string;
+  rejectionNote?: string;
+}
+
+export interface ResourceRequest {
+  id: string;
+  requestNumber: string;
+  periodDay: number;
+  createdAt: string;
+  requestedBy: string;
+  requestedByPosition: string;
+  requestedBySection: ICSSection;
+  quantity: number;
+  resourceKind: string;
+  resourceType: string;
+  deliveryDate: string;
+  deliveryTime: string;
+  deliveryLocation: string;
+  priority: "immediate" | "urgent" | "routine";
+  status: "pending" | "ordered" | "filled" | "cancelled";
+  orderNumber?: string;
+  notes?: string;
+}
 
 export interface HazardDef {
   key: HazardType;
@@ -161,14 +195,14 @@ export interface HazardDef {
 }
 
 export const HAZARD_DEFS: HazardDef[] = [
-  { key: "flood",          label: "Flood / Water",       icon: "🌊", color: "#1565c0", zoneNames: ["Evacuation Zone","Advisory Zone","Shelter Zone"],  zoneColors: ["#f44336","#ff9800","#2196f3"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics208","full-iap"],        defaultRadius: 30 },
-  { key: "hazmat",         label: "HAZMAT",              icon: "☣️", color: "#fdd835", zoneNames: ["Hot Zone","Warm Zone","Cold Zone"],                zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics208","ics215a","full-iap"], defaultRadius: 15 },
-  { key: "mass_casualty",  label: "Mass Casualty (MCI)", icon: "🚑", color: "#c62828", zoneNames: ["Scene Perimeter","Staging","Rehab Area"],          zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","full-iap"],                defaultRadius: 10 },
-  { key: "wildfire_smoke", label: "Wildfire / Smoke",    icon: "🔥", color: "#e64a19", zoneNames: ["Evacuation Order","Evacuation Alert","Advisory"],  zoneColors: ["#f44336","#ff9800","#ffeb3b"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics208","full-iap"],        defaultRadius: 50 },
-  { key: "severe_weather", label: "Severe Weather",      icon: "🌪️", color: "#6a1b9a", zoneNames: ["Impact Zone","Warning Area","Watch Area"],         zoneColors: ["#f44336","#ff9800","#9c27b0"], relevantForms: ["ics201","ics202","ics205","ics206","full-iap"],                         defaultRadius: 40 },
-  { key: "infrastructure", label: "Infrastructure",      icon: "⚡", color: "#37474f", zoneNames: ["Outage Zone","Affected Area","Restoration Zone"],   zoneColors: ["#607d8b","#90a4ae","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","full-iap"],                         defaultRadius: 20 },
-  { key: "evacuation",     label: "Mass Evacuation",     icon: "🚶", color: "#00838f", zoneNames: ["Mandatory Evac","Voluntary Evac","Shelter Area"],   zoneColors: ["#f44336","#ff9800","#00bcd4"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","full-iap"],                defaultRadius: 30 },
-  { key: "other",          label: "Other / General",     icon: "📋", color: "#546e7a", zoneNames: ["Zone A","Zone B","Zone C"],                        zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","full-iap"],                defaultRadius: 20 },
+  { key: "flood",          label: "Flood / Water",       icon: "🌊", color: "#1565c0", zoneNames: ["Evacuation Zone","Advisory Zone","Shelter Zone"],  zoneColors: ["#f44336","#ff9800","#2196f3"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics208","ics209","ics211","full-iap"],        defaultRadius: 30 },
+  { key: "hazmat",         label: "HAZMAT",              icon: "☣️", color: "#fdd835", zoneNames: ["Hot Zone","Warm Zone","Cold Zone"],                zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics205a","ics206","ics208","ics209","ics211","ics215a","full-iap"], defaultRadius: 15 },
+  { key: "mass_casualty",  label: "Mass Casualty (MCI)", icon: "🚑", color: "#c62828", zoneNames: ["Scene Perimeter","Staging","Rehab Area"],          zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics205a","ics206","ics209","ics211","full-iap"],        defaultRadius: 10 },
+  { key: "wildfire_smoke", label: "Wildfire / Smoke",    icon: "🔥", color: "#e64a19", zoneNames: ["Evacuation Order","Evacuation Alert","Advisory"],  zoneColors: ["#f44336","#ff9800","#ffeb3b"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics208","ics209","ics211","full-iap"],        defaultRadius: 50 },
+  { key: "severe_weather", label: "Severe Weather",      icon: "🌪️", color: "#6a1b9a", zoneNames: ["Impact Zone","Warning Area","Watch Area"],         zoneColors: ["#f44336","#ff9800","#9c27b0"], relevantForms: ["ics201","ics202","ics205","ics206","ics209","ics211","full-iap"],                         defaultRadius: 40 },
+  { key: "infrastructure", label: "Infrastructure",      icon: "⚡", color: "#37474f", zoneNames: ["Outage Zone","Affected Area","Restoration Zone"],   zoneColors: ["#607d8b","#90a4ae","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics209","ics211","full-iap"],                         defaultRadius: 20 },
+  { key: "evacuation",     label: "Mass Evacuation",     icon: "🚶", color: "#00838f", zoneNames: ["Mandatory Evac","Voluntary Evac","Shelter Area"],   zoneColors: ["#f44336","#ff9800","#00bcd4"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics209","ics211","full-iap"],                defaultRadius: 30 },
+  { key: "other",          label: "Other / General",     icon: "📋", color: "#546e7a", zoneNames: ["Zone A","Zone B","Zone C"],                        zoneColors: ["#f44336","#ff9800","#4caf50"], relevantForms: ["ics201","ics202","ics204","ics205","ics206","ics209","ics211","full-iap"],                defaultRadius: 20 },
 ];
 
 // ── Hazard zones (manually drawn on map) ─────────────────────────────────────
@@ -217,6 +251,10 @@ export interface OperationalPeriod {
   evacuationDecisions: EvacDecisionRecord[];
   objectives: string[];                 // ICS-202 objectives for this period
   situationNarrative: string;
+  formRecords?: Partial<Record<ICSFormId, FormRecord>>;
+  iapApprovedAt?: string;
+  iapApprovedBy?: string;
+  iapApprovedByPosition?: string;
 }
 
 // ── ICS Section model ─────────────────────────────────────────────────────────
@@ -329,6 +367,7 @@ export interface IncidentSession {
   syncedAt?: string;         // ISO timestamp of last successful cloud sync
   ics201CompletedAt?: string; // Set when initial briefing is completed
   jurisdiction?: string;     // Reporting authority / jurisdiction
+  resourceRequests?: ResourceRequest[];
 }
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
@@ -346,6 +385,7 @@ export function makeOperationalPeriod(day: number, date: string): OperationalPer
     evacuationDecisions: [],
     objectives: [],
     situationNarrative: "",
+    formRecords: {},
   };
 }
 
@@ -365,5 +405,6 @@ export function makeIncident(name: string): IncidentSession {
     operationalPeriods: [makeOperationalPeriod(1, today)],
     resources: [],
     agencies: [],
+    resourceRequests: [],
   };
 }

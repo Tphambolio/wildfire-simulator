@@ -25,16 +25,21 @@ import {
   buildICS203HTML,
   buildICS204HTML,
   buildICS205HTML,
+  buildICS205AHTML,
   buildICS206HTML,
   buildICS207HTML,
   buildICS208HTML,
+  buildICS209HTML,
+  buildICS211HTML,
   buildICS213HTML,
+  buildICS213RRHTML,
   buildICS214HTML,
   buildICS215HTML,
   buildICS215aHTML,
   buildFullIAPHTML,
 } from "../utils/icsForms";
-import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation, HazardType, HazardZone, IncidentResource, IncidentAgency, OperationalPeriod, WeatherParams } from "../types/incident";
+import IAPDashboard from "./IAPDashboard";
+import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation, HazardType, HazardZone, IncidentResource, IncidentAgency, OperationalPeriod, WeatherParams, IncidentSession, FormRecord, ResourceRequest } from "../types/incident";
 import { SYMBOL_DEFS } from "../types/incident";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -89,13 +94,22 @@ interface EOCConsoleProps {
   syncPanelSlot?: ReactNode;
   nextStepCardSlot?: ReactNode;
   teamSummarySlot?: ReactNode;
+  /** Full incident object — needed by IAPDashboard */
+  incident?: IncidentSession;
+  activePeriodIndex?: number;
+  onUpdateFormRecord?: (periodIndex: number, formId: ICSFormId, patch: Partial<FormRecord>) => void;
+  onAddResourceRequest?: (req: Omit<ResourceRequest, "id" | "requestNumber" | "createdAt">) => void;
+  onUpdateResourceRequest?: (id: string, patch: Partial<ResourceRequest>) => void;
+  onRemoveResourceRequest?: (id: string) => void;
+  onApproveIAP?: (periodIndex: number, approverName: string, approverPosition: string) => void;
 }
 
 export type ConsoleTab = "incident" | "map" | "briefing" | "command" | "operations" | "planning" | "logistics" | "finance" | "iap";
 
 export type ICSFormId =
-  | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics206"
-  | "ics207" | "ics208" | "ics213" | "ics214" | "ics215" | "ics215a"
+  | "ics201" | "ics202" | "ics203" | "ics204" | "ics205" | "ics205a" | "ics206"
+  | "ics207" | "ics208" | "ics209" | "ics211" | "ics213" | "ics213rr" | "ics214"
+  | "ics215" | "ics215a"
   | "full-iap";
 
 const ICS_FORM_LABELS: Record<ICSFormId, string> = {
@@ -104,10 +118,14 @@ const ICS_FORM_LABELS: Record<ICSFormId, string> = {
   ics203: "ICS-203 Organization",
   ics204: "ICS-204 Assignments",
   ics205: "ICS-205 Comms Plan",
+  ics205a: "ICS-205A · Comms List",
   ics206: "ICS-206 Medical Plan",
   ics207: "ICS-207 Org Chart",
   ics208: "ICS-208 Safety Plan",
+  ics209: "ICS-209 · Status Summary",
+  ics211: "ICS-211 · Check-In List",
   ics213: "ICS-213 General Message",
+  ics213rr: "ICS-213RR · Resource Request",
   ics214: "ICS-214 Activity Log",
   ics215: "ICS-215 Resource Needs",
   ics215a: "ICS-215A Safety Analysis",
@@ -161,6 +179,13 @@ export default function EOCConsole({
   syncPanelSlot,
   nextStepCardSlot,
   teamSummarySlot,
+  incident,
+  activePeriodIndex,
+  onUpdateFormRecord,
+  onAddResourceRequest,
+  onUpdateResourceRequest,
+  onRemoveResourceRequest,
+  onApproveIAP,
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTabState] = useState<ConsoleTab>(initialConsoleTab ?? "briefing");
   const setConsoleTab = useCallback((tab: ConsoleTab) => {
@@ -178,6 +203,7 @@ export default function EOCConsole({
   const [activeSymbolKey, setActiveSymbolKey] = useState<ICSSymbolKey | null>(null);
   const [activeColor, setActiveColor] = useState<string | null>(null);
   const [selectedForm, setSelectedForm] = useState<ICSFormId>("ics201");
+  const [selectedRequestId, setSelectedRequestId] = useState<string>("");
   const [formHtml, setFormHtml] = useState<string>("");
   const [savedFormEdits, setSavedFormEdits] = useState<Partial<Record<ICSFormId, string>>>({});
   const [mapSnapshot, setMapSnapshot] = useState<string | undefined>(undefined);
@@ -495,7 +521,8 @@ export default function EOCConsole({
     // Overlay data for form auto-population (hospitals, EOC, power, water, communities)
     overlayInfrastructure: overlayInfrastructure ?? null,
     overlayCommunities: overlayCommunities ?? null,
-  }), [incidentName, incidentLocation, mapSnapshot, incidentAnnotations, activePeriod, hazardType, incidentComplexity, hazardZones, resources, agencies, overlayInfrastructure, overlayCommunities]);
+    resourceRequests: incident?.resourceRequests,
+  }), [incidentName, incidentLocation, mapSnapshot, incidentAnnotations, activePeriod, hazardType, incidentComplexity, hazardZones, resources, agencies, overlayInfrastructure, overlayCommunities, incident]);
 
   // ── Handle initial briefing completion ────────────────────────────────────
 
@@ -531,10 +558,17 @@ export default function EOCConsole({
     else if (formId === "ics203") html = buildICS203HTML(opts);
     else if (formId === "ics204") html = buildICS204HTML(opts);
     else if (formId === "ics205") html = buildICS205HTML(opts);
+    else if (formId === "ics205a") html = buildICS205AHTML(opts);
     else if (formId === "ics206") html = buildICS206HTML(opts);
     else if (formId === "ics207") html = buildICS207HTML(opts);
     else if (formId === "ics208") html = buildICS208HTML(opts);
+    else if (formId === "ics209") html = buildICS209HTML(opts);
+    else if (formId === "ics211") html = buildICS211HTML(opts);
     else if (formId === "ics213") html = buildICS213HTML(opts);
+    else if (formId === "ics213rr") {
+      const req = incident?.resourceRequests?.find((r) => r.id === selectedRequestId);
+      if (req) html = buildICS213RRHTML(opts, req);
+    }
     else if (formId === "ics214") html = buildICS214HTML(opts);
     else if (formId === "ics215") html = buildICS215HTML(opts);
     else if (formId === "ics215a") html = buildICS215aHTML(opts);
@@ -547,7 +581,17 @@ export default function EOCConsole({
     const snap = await captureMapSnapshot();
     setConsoleTab("iap");
     renderForm(formId, snap);
-  }, [captureMapSnapshot, renderForm]);
+    // Auto-advance empty → draft when form is first opened
+    if (formId !== "full-iap" && formId !== "ics201") {
+      const record = activePeriod?.formRecords?.[formId];
+      if (!record || record.status === "empty") {
+        onUpdateFormRecord?.(activePeriodIndex ?? 0, formId, {
+          status: "draft",
+          preparedAt: new Date().toISOString(),
+        });
+      }
+    }
+  }, [captureMapSnapshot, renderForm, activePeriod, onUpdateFormRecord, activePeriodIndex]);
 
   const handleResetForm = useCallback(async () => {
     setSavedFormEdits((prev) => { const n = { ...prev }; delete n[selectedForm]; return n; });
@@ -996,76 +1040,21 @@ export default function EOCConsole({
                   <span className="eoc-forms-subtitle">NIMS Incident Action Plan</span>
                 </div>
 
-                <div className="eoc-form-group">
-                  <span className="eoc-form-group-label">Initial Briefing</span>
-                  <div className="eoc-form-btns">
-                    {(["ics201"] as ICSFormId[]).map((id) => (
-                      <button
-                        key={id}
-                        className={`eoc-form-btn${selectedForm === id ? " active" : ""}`}
-                        onClick={() => handleFormSelect(id)}
-                      >
-                        {ICS_FORM_LABELS[id]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="eoc-form-group">
-                  <span className="eoc-form-group-label">IAP Package</span>
-                  <div className="eoc-form-btns">
-                    {(["ics202", "ics203", "ics204", "ics205", "ics206"] as ICSFormId[]).map((id) => (
-                      <button
-                        key={id}
-                        className={`eoc-form-btn${selectedForm === id ? " active" : ""}`}
-                        onClick={() => handleFormSelect(id)}
-                      >
-                        {ICS_FORM_LABELS[id]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="eoc-form-group">
-                  <span className="eoc-form-group-label">Safety &amp; Org</span>
-                  <div className="eoc-form-btns">
-                    {(["ics207", "ics208", "ics215a"] as ICSFormId[]).map((id) => (
-                      <button
-                        key={id}
-                        className={`eoc-form-btn${selectedForm === id ? " active" : ""}`}
-                        onClick={() => handleFormSelect(id)}
-                      >
-                        {ICS_FORM_LABELS[id]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="eoc-form-group">
-                  <span className="eoc-form-group-label">Resources &amp; Messages</span>
-                  <div className="eoc-form-btns">
-                    {(["ics215", "ics213", "ics214"] as ICSFormId[]).map((id) => (
-                      <button
-                        key={id}
-                        className={`eoc-form-btn${selectedForm === id ? " active" : ""}`}
-                        onClick={() => handleFormSelect(id)}
-                      >
-                        {ICS_FORM_LABELS[id]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="eoc-form-group">
-                  <div className="eoc-form-btns">
-                    <button
-                      className={`eoc-form-btn eoc-form-btn--primary${selectedForm === "full-iap" ? " active" : ""}`}
-                      onClick={() => handleFormSelect("full-iap")}
-                    >
-                      ⬇ Generate Full IAP (201–215A)
-                    </button>
-                  </div>
-                </div>
+                {incident && activePeriod ? (
+                  <IAPDashboard
+                    incident={incident}
+                    activePeriod={activePeriod}
+                    activePeriodIndex={activePeriodIndex ?? 0}
+                    selectedForm={selectedForm}
+                    onSelectForm={handleFormSelect}
+                    onSelectRequest={setSelectedRequestId}
+                    onUpdateFormRecord={onUpdateFormRecord ?? (() => {})}
+                    onAddResourceRequest={onAddResourceRequest ?? (() => {})}
+                    onUpdateResourceRequest={onUpdateResourceRequest ?? (() => {})}
+                    onRemoveResourceRequest={onRemoveResourceRequest ?? (() => {})}
+                    onApproveIAP={onApproveIAP ?? (() => {})}
+                  />
+                ) : null}
 
                 {formHtml && (
                   <div className="eoc-form-viewer">

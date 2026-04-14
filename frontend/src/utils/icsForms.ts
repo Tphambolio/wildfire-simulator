@@ -28,6 +28,7 @@ import type {
   IncidentAgency,
   OperationalPeriod,
   ICSSection,
+  ResourceRequest,
 } from "../types/incident";
 import { ICS_POSITIONS_BY_SECTION } from "../types/incident";
 
@@ -57,6 +58,8 @@ export interface ICSFormOptions {
   overlayInfrastructure?: GeoJSON.FeatureCollection | null;
   /** Communities overlay — neighbourhood polygons */
   overlayCommunities?: GeoJSON.FeatureCollection | null;
+  /** Resource requests for ICS-213RR in full IAP */
+  resourceRequests?: ResourceRequest[];
 }
 
 // ── Wind direction label ──────────────────────────────────────────────────────
@@ -927,23 +930,240 @@ export function buildICS215aHTML(opts: ICSFormOptions): string {
 
 // ── Full IAP package ──────────────────────────────────────────────────────────
 
+// ── ICS-213RR Resource Request ────────────────────────────────────────────────
+
+export function buildICS213RRHTML(opts: ICSFormOptions, request: ResourceRequest): string {
+  const priorityCheck = (p: string) => request.priority === p ? "☑" : "☐";
+  const lscName = opts.resources?.find(r => r.icsSection === "logistics" && r.icsPosition === "Logistics Section Chief")?.name ?? "(unassigned)";
+  const fscName = opts.resources?.find(r => r.icsSection === "finance" && r.icsPosition === "Finance/Admin Section Chief")?.name ?? "(unassigned)";
+  const pscName = opts.resources?.find(r => r.icsSection === "planning" && r.icsPosition === "Planning Section Chief")?.name ?? "(unassigned)";
+  const createdDate = new Date(request.createdAt);
+  const dateStr = createdDate.toISOString().slice(0, 10);
+  const timeStr = createdDate.toUTCString().slice(17, 22) + " UTC";
+
+  const sections = [
+    icsBlock("1", "Incident Information", kvTable([
+      ["Incident Name", opts.incidentName],
+      ["Date / Time", `${dateStr} ${timeStr}`],
+      ["Incident Number", ""],
+    ])),
+    icsBlock("2", "Request Details", `
+      <table class="kv">
+        <tr><th>Request #</th><td>${esc(request.requestNumber)}</td><th>Priority</th><td>${priorityCheck("immediate")} Immediate &nbsp; ${priorityCheck("urgent")} Urgent &nbsp; ${priorityCheck("routine")} Routine</td></tr>
+        <tr><th>Date Needed</th><td>${esc(request.deliveryDate)}</td><th>Time Needed</th><td>${esc(request.deliveryTime)}</td></tr>
+        <tr><th>Delivery Location</th><td colspan="3">${esc(request.deliveryLocation)}</td></tr>
+      </table>`),
+    icsBlock("3", "Resource Requested", kvTable([
+      ["Quantity", String(request.quantity)],
+      ["Kind / Category", request.resourceKind],
+      ["Type", request.resourceType],
+      ["Special Instructions / Notes", request.notes ?? ""],
+    ])),
+    icsBlock("4", "Requested By", kvTable([
+      ["Name", request.requestedBy],
+      ["ICS Position", request.requestedByPosition],
+      ["Section", request.requestedBySection],
+    ])),
+    icsBlock("5", "Logistics Section — Order Tracking", kvTable([
+      ["Order #", request.orderNumber ?? ""],
+      ["Vendor / Source", ""],
+      ["Estimated Cost", ""],
+      ["Approved By (LSC)", lscName],
+    ])),
+    icsBlock("6", "Finance / Admin Section", kvTable([
+      ["Cost Code", ""],
+      ["Approved By (FSC)", fscName],
+    ])),
+    icsBlock("7", "Planning Section", kvTable([
+      ["Approved By (PSC)", pscName],
+    ])),
+  ];
+  return wrapForm("ICS-213RR · Resource Request", sections, opts, "portrait", "ics213rr");
+}
+
+// ── ICS-209 Incident Status Summary ──────────────────────────────────────────
+
+export function buildICS209HTML(opts: ICSFormOptions): string {
+  const pscName = opts.resources?.find(r => r.icsSection === "planning" && r.icsPosition === "Planning Section Chief")?.name ?? "(unassigned)";
+  const sectionCounts = (["command","operations","planning","logistics","finance"] as ICSSection[]).map(sec => {
+    const count = (opts.resources ?? []).filter(r => r.icsSection === sec && r.status === "assigned").length;
+    return `<tr><td>${sec.charAt(0).toUpperCase() + sec.slice(1)}</td><td style="text-align:center">${count}</td></tr>`;
+  }).join("");
+  const totalAssigned = (opts.resources ?? []).filter(r => r.status === "assigned").length;
+
+  const evacRows = (opts.period?.evacuationDecisions ?? []).length > 0
+    ? opts.period!.evacuationDecisions.map(d => {
+        const zoneStr = d.zones.map(z => `${z.tier}: ${z.communities.join(", ")}`).join("; ");
+        return `<tr><td>${new Date(d.timestamp).toLocaleString("en-CA")}</td><td>${esc(zoneStr)}</td></tr>`;
+      }).join("")
+    : `<tr><td colspan="2" class="muted">No evacuation decisions recorded.</td></tr>`;
+
+  const w = opts.weather;
+  const sections = [
+    icsBlock("1", "Incident Information", `
+      <table class="kv">
+        <tr><th>Incident Name</th><td>${esc(opts.incidentName)}</td><th>Incident Number</th><td></td></tr>
+        <tr><th>Hazard Type</th><td>${esc(opts.hazardType ?? "—")}</td><th>Complexity</th><td>Type ${esc(opts.incidentComplexity ?? "—")}</td></tr>
+        <tr><th>Incident Commander</th><td>${esc(opts.incidentCommanderName ?? "—")}</td><th>Jurisdiction</th><td>${esc(opts.jurisdiction ?? "—")}</td></tr>
+        <tr><th>Op Period Date</th><td>${esc(opts.period?.date ?? "—")}</td><th>Op Period</th><td>${esc(opts.period?.opPeriodStart ?? "")}–${esc(opts.period?.opPeriodEnd ?? "")}</td></tr>
+      </table>`),
+    icsBlock("2", "Situation Summary", `<p contenteditable="true" spellcheck="false">${esc(opts.period?.situationNarrative || "No situation narrative entered.")}</p>`),
+    icsBlock("3", "Objectives for This Period", renderList(opts.period?.objectives?.length ? opts.period.objectives : ["(no objectives entered)"])),
+    icsBlock("4", "Planned Actions — Next Period", `
+      <table class="kv">
+        <tr><td contenteditable="true" spellcheck="false">&nbsp;</td></tr>
+        <tr><td contenteditable="true" spellcheck="false">&nbsp;</td></tr>
+        <tr><td contenteditable="true" spellcheck="false">&nbsp;</td></tr>
+      </table>`),
+    icsBlock("5", "Evacuations", `
+      <table class="kv">
+        <tr><th>Timestamp</th><th>Details</th></tr>
+        ${evacRows}
+      </table>`),
+    icsBlock("6", "Resource Summary", `
+      <table class="kv">
+        <tr><th>Section</th><th>Count</th></tr>
+        ${sectionCounts}
+        <tr><th><strong>Total Assigned</strong></th><td><strong>${totalAssigned}</strong></td></tr>
+      </table>`),
+    icsBlock("7", "Life Safety", `
+      <table class="kv">
+        <tr><th>Category</th><th>Count</th><th>Notes</th></tr>
+        <tr><td>Injured</td><td contenteditable="true"></td><td contenteditable="true"></td></tr>
+        <tr><td>Missing</td><td contenteditable="true"></td><td contenteditable="true"></td></tr>
+        <tr><td>Fatalities</td><td contenteditable="true"></td><td contenteditable="true"></td></tr>
+      </table>`),
+    icsBlock("8", "Infrastructure Impacts", `<p contenteditable="true" spellcheck="false">(describe any infrastructure, utility, or critical facility impacts)</p>`),
+    w ? icsBlock("9", "Weather Summary", kvTable([
+      ["Wind", `${w.wind_speed} km/h from ${windDirLabel(w.wind_direction)} (${w.wind_direction}°)`],
+      ["Temperature", `${w.temperature}°C`],
+      ["Relative Humidity", `${w.relative_humidity}%`],
+      ["Precipitation", `${w.precipitation} mm`],
+    ])) : "",
+    icsBlock("10", "Prepared By / Approved By", kvTable([
+      ["Prepared By (PSC)", pscName],
+      ["Prepared Date/Time", new Date().toLocaleString("en-CA")],
+      ["Approved By (IC)", opts.incidentCommanderName ?? ""],
+      ["IC Signature", ""],
+    ])),
+  ];
+  return wrapForm("ICS-209 · Incident Status Summary", sections, opts, "portrait", "ics209");
+}
+
+// ── ICS-205A Communications List ─────────────────────────────────────────────
+
+export function buildICS205AHTML(opts: ICSFormOptions): string {
+  const lscName = opts.resources?.find(r => r.icsSection === "logistics" && r.icsPosition === "Logistics Section Chief")?.name ?? "(unassigned)";
+  const ORDER: ICSSection[] = ["command", "operations", "planning", "logistics", "finance", "other"];
+  const sorted = [...(opts.resources ?? [])].sort((a, b) => ORDER.indexOf(a.icsSection) - ORDER.indexOf(b.icsSection));
+
+  const rows = sorted.length > 0
+    ? sorted.map(r => `
+        <tr>
+          <td>${esc(r.icsPosition ?? r.role ?? "—")}</td>
+          <td>${esc(r.name)}</td>
+          <td>${esc(r.agency)}</td>
+          <td contenteditable="true" spellcheck="false"></td>
+          <td contenteditable="true" spellcheck="false"></td>
+          <td contenteditable="true" spellcheck="false"></td>
+        </tr>`).join("")
+    : `<tr><td colspan="6" class="muted">No resources assigned.</td></tr>`;
+
+  const sections = [
+    incidentInfoBlock(opts, [["Op Period", `${opts.period?.opPeriodStart ?? ""}–${opts.period?.opPeriodEnd ?? ""}`]]),
+    icsBlock("2", "Personnel Contact List", `
+      <table class="kv" style="font-size:11px">
+        <tr>
+          <th>ICS Position</th><th>Name</th><th>Agency</th>
+          <th>Cell Phone</th><th>Office / Satellite</th><th>Email / Notes</th>
+        </tr>
+        ${rows}
+      </table>`),
+    icsBlock("3", "Key External Contacts", `
+      <table class="kv">
+        <tr><th>EOC Director</th><td contenteditable="true"></td></tr>
+        <tr><th>Regional Dispatch</th><td contenteditable="true"></td></tr>
+        <tr><th>Media Line</th><td contenteditable="true"></td></tr>
+        <tr><th>Agency Admin</th><td contenteditable="true"></td></tr>
+        <tr><th>Legal / Risk</th><td contenteditable="true"></td></tr>
+        <tr><th>Other</th><td contenteditable="true"></td></tr>
+      </table>`),
+    icsBlock("4", "Prepared By", kvTable([
+      ["Prepared By (LSC)", lscName],
+      ["Date / Time", new Date().toLocaleString("en-CA")],
+    ])),
+  ];
+  return wrapForm("ICS-205A · Communications List", sections, opts, "portrait", "ics205a");
+}
+
+// ── ICS-211 Check-In / Sign-In List ──────────────────────────────────────────
+
+export function buildICS211HTML(opts: ICSFormOptions): string {
+  const lscName = opts.resources?.find(r => r.icsSection === "logistics" && r.icsPosition === "Logistics Section Chief")?.name ?? "(unassigned)";
+  const ORDER: ICSSection[] = ["command", "operations", "planning", "logistics", "finance", "other"];
+  const assigned = [...(opts.resources ?? [])]
+    .filter(r => r.status === "assigned")
+    .sort((a, b) => ORDER.indexOf(a.icsSection) - ORDER.indexOf(b.icsSection));
+
+  const rows = assigned.length > 0
+    ? assigned.map((r, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td contenteditable="true" spellcheck="false"></td>
+          <td>${esc(r.name)}</td>
+          <td>${esc(r.agency)}</td>
+          <td>${esc(r.icsPosition ?? r.role ?? "—")}</td>
+          <td contenteditable="true" spellcheck="false"></td>
+          <td contenteditable="true" spellcheck="false"></td>
+          <td contenteditable="true" spellcheck="false"></td>
+        </tr>`).join("")
+    : `<tr><td colspan="8" class="muted">No assigned resources.</td></tr>`;
+
+  const sections = [
+    incidentInfoBlock(opts, [["Op Period", `${opts.period?.opPeriodStart ?? ""}–${opts.period?.opPeriodEnd ?? ""}`]]),
+    icsBlock("2", `Check-In List (${assigned.length} assigned)`, `
+      <table class="kv" style="font-size:11px">
+        <tr>
+          <th>#</th><th>Date/Time In</th><th>Name</th><th>Agency</th>
+          <th>ICS Position</th><th>Supervisor</th><th>Contact / Radio</th><th>Date/Time Out</th>
+        </tr>
+        ${rows}
+      </table>`),
+    icsBlock("3", "Prepared By", kvTable([
+      ["Prepared By (LSC)", lscName],
+      ["Total Checked In", String(assigned.length)],
+      ["Date / Time", new Date().toLocaleString("en-CA")],
+    ])),
+  ];
+  return wrapForm("ICS-211 · Check-In / Sign-In List", sections, opts, "portrait", "ics211");
+}
+
 export function buildFullIAPHTML(opts: ICSFormOptions): string {
   const fullOpts = { ...opts, isPartOfFullIAP: true };
+  const firstReq = opts.resourceRequests?.[0];
   const forms = [
     buildICS201HTML(fullOpts),
     buildICS202HTML(fullOpts),
     buildICS203HTML(fullOpts),
     buildICS204HTML(fullOpts),
     buildICS205HTML(fullOpts),
+    buildICS205AHTML(fullOpts),
     buildICS206HTML(fullOpts),
     buildICS207HTML(fullOpts),
     buildICS208HTML(fullOpts),
+    buildICS209HTML(fullOpts),
+    buildICS211HTML(fullOpts),
     buildICS213HTML(fullOpts),
+    ...(firstReq ? [buildICS213RRHTML(fullOpts, firstReq)] : []),
     buildICS215HTML(fullOpts),
     buildICS215aHTML(fullOpts),
   ];
 
-  const FORM_CODES = ["ICS 201", "ICS 202", "ICS 203", "ICS 204", "ICS 205", "ICS 206", "ICS 207", "ICS 208", "ICS 213", "ICS 215", "ICS 215A"];
+  const FORM_CODES = [
+    "ICS 201", "ICS 202", "ICS 203", "ICS 204", "ICS 205", "ICS 205A",
+    "ICS 206", "ICS 207", "ICS 208", "ICS 209", "ICS 211",
+    "ICS 213", ...(firstReq ? ["ICS 213RR"] : []), "ICS 215", "ICS 215A",
+  ];
   const totalForms = forms.length;
 
   const CONTAINER_OPEN = '<div class="ics-container">';

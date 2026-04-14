@@ -212,6 +212,11 @@ export default function App() {
     shareIncident,
     joinIncident,
     addResource,
+    updateFormRecord,
+    addResourceRequest,
+    updateResourceRequest,
+    removeResourceRequest,
+    approveIAP,
   } = useIncident();
 
   // Restore incidentLocation from the period's persisted ignitionPoint when loading an incident
@@ -369,6 +374,13 @@ export default function App() {
               onConsoleTabChange={setEocConsoleTab}
               ics201CompletedAt={incident.ics201CompletedAt}
               onBriefingComplete={handleBriefingComplete}
+              incident={incident}
+              activePeriodIndex={incident.activePeriodIndex}
+              onUpdateFormRecord={updateFormRecord}
+              onAddResourceRequest={addResourceRequest}
+              onUpdateResourceRequest={updateResourceRequest}
+              onRemoveResourceRequest={removeResourceRequest}
+              onApproveIAP={approveIAP}
               incidentPanelSlot={
                 <IncidentPanel
                   incidents={incidents}

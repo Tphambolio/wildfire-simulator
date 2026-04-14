@@ -10,6 +10,10 @@ import type {
   EvacDecisionRecord,
   HazardZone,
   IncidentResource,
+  ICSFormId,
+  FormRecord,
+  FormStatus,
+  ResourceRequest,
 } from "../types/incident";
 import { makeIncident, makeOperationalPeriod } from "../types/incident";
 
@@ -306,6 +310,84 @@ export function useIncident() {
     [updateActiveIncident]
   );
 
+  // ── IAP form records ─────────────────────────────────────────────────────
+
+  const updateFormRecord = useCallback(
+    (periodIndex: number, formId: ICSFormId, patch: Partial<FormRecord>) => {
+      updateActiveIncident((incident) => {
+        const periods = incident.operationalPeriods.map((p, idx) => {
+          if (idx !== periodIndex) return p;
+          const existing: FormRecord = p.formRecords?.[formId] ?? { status: "empty" as FormStatus };
+          return {
+            ...p,
+            formRecords: {
+              ...p.formRecords,
+              [formId]: { ...existing, ...patch },
+            },
+          };
+        });
+        return { ...incident, operationalPeriods: periods };
+      });
+    },
+    [updateActiveIncident]
+  );
+
+  const addResourceRequest = useCallback(
+    (req: Omit<ResourceRequest, "id" | "requestNumber" | "createdAt">) => {
+      updateActiveIncident((incident) => {
+        const existing = incident.resourceRequests ?? [];
+        const requestNumber = "RR-" + String(existing.length + 1).padStart(3, "0");
+        const newReq: ResourceRequest = {
+          ...req,
+          id: crypto.randomUUID(),
+          requestNumber,
+          createdAt: new Date().toISOString(),
+        };
+        return { ...incident, resourceRequests: [...existing, newReq] };
+      });
+    },
+    [updateActiveIncident]
+  );
+
+  const updateResourceRequest = useCallback(
+    (id: string, patch: Partial<ResourceRequest>) => {
+      updateActiveIncident((incident) => ({
+        ...incident,
+        resourceRequests: (incident.resourceRequests ?? []).map((r) =>
+          r.id === id ? { ...r, ...patch } : r
+        ),
+      }));
+    },
+    [updateActiveIncident]
+  );
+
+  const removeResourceRequest = useCallback(
+    (id: string) => {
+      updateActiveIncident((incident) => ({
+        ...incident,
+        resourceRequests: (incident.resourceRequests ?? []).filter((r) => r.id !== id),
+      }));
+    },
+    [updateActiveIncident]
+  );
+
+  const approveIAP = useCallback(
+    (periodIndex: number, approverName: string, approverPosition: string) => {
+      updateActiveIncident((incident) => {
+        const periods = incident.operationalPeriods.map((p, idx) =>
+          idx !== periodIndex ? p : {
+            ...p,
+            iapApprovedAt: new Date().toISOString(),
+            iapApprovedBy: approverName,
+            iapApprovedByPosition: approverPosition,
+          }
+        );
+        return { ...incident, operationalPeriods: periods };
+      });
+    },
+    [updateActiveIncident]
+  );
+
   // ── Cloud sync ────────────────────────────────────────────────────────────
 
   // Reconnect catch-up: when browser goes online, push any incidents missing a shareCode
@@ -499,6 +581,12 @@ export function useIncident() {
     // Multi-day
     advancePeriod,
     setActivePeriodIndex,
+    // IAP form records
+    updateFormRecord,
+    addResourceRequest,
+    updateResourceRequest,
+    removeResourceRequest,
+    approveIAP,
     // Export
     exportIncident,
     importIncident,
