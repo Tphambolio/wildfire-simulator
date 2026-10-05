@@ -62,8 +62,9 @@ def _warn_geojson_crs(path: str, context: str) -> None:
         pass  # Best-effort; don't break loading over a CRS-check failure
 
 
-# Edmonton FBP raster codes (Edmonton_FBP_FuelLayer_20251105_10m.tif)
-# Verified from classification_statistics.csv
+# Edmonton FBP raster codes, per classification_statistics.csv. Note: the
+# Edmonton_FBP_FuelLayer_20251105_10m.tif in data/ actually contains codes
+# {2, 12, 14, 31, 32, 99} and is detected as the canopy LiDAR scheme below.
 FBP_RASTER_CODES: dict[int, FuelType | None] = {
     -9999: None,
     0: None,
@@ -100,6 +101,35 @@ CANOPY_RASTER_CODES: dict[int, FuelType | None] = {
     99: None,   # Non-fuel
 }
 
+# terra-drone-flights RPAS LiDAR pipeline rasters (cloudN_fuel5m/20m.tif, cloudN_fbp_fuel.tif)
+# Codes from terra-drone-flights/pipeline/config.yaml (fuel.fbp_codes). Note 41/42 are
+# M-1/M-2 here, not O-1a/O-1b as in FBP_RASTER_CODES, and 31 is D-1, not grass.
+TERRA_PIPELINE_CODES: dict[int, FuelType | None] = {
+    -9999: None,
+    0: None,
+    1: FuelType.O1a,
+    2: FuelType.O1b,
+    11: FuelType.C1,
+    12: FuelType.C2,
+    13: FuelType.C3,
+    14: FuelType.C4,
+    15: FuelType.C5,
+    31: FuelType.D1,
+    41: FuelType.M1,
+    42: FuelType.M2,
+}
+
+# Named schemes, in tie-break priority order (earlier wins when a raster's codes fit several).
+CODE_SCHEMES: dict[str, dict[int, FuelType | None]] = {
+    "edmonton_fbp": FBP_RASTER_CODES,
+    "uplvi": UPLVI_RASTER_CODES,
+    "canopy_lidar": CANOPY_RASTER_CODES,
+    "terra_pipeline": TERRA_PIPELINE_CODES,
+}
+
+# Codes that mean "no data" in every scheme; ignored when matching a raster to a scheme.
+_NODATA_CODES = {-9999, 0}
+
 # Broad mapping covering all raster types plus standard FBP numeric codes
 ALL_CODES: dict[int, FuelType | None] = {
     -9999: None,
@@ -124,18 +154,59 @@ ALL_CODES: dict[int, FuelType | None] = {
 }
 
 
-def _detect_code_map(unique_codes: set[int]) -> dict[int, FuelType | None]:
-    """Pick the right code mapping based on codes present in the raster."""
-    if 42 in unique_codes and 22 not in unique_codes:
-        logger.info("Detected FBP raster code scheme")
-        return FBP_RASTER_CODES
-    if 22 in unique_codes and 42 not in unique_codes:
-        logger.info("Detected uPLVI raster code scheme")
-        return UPLVI_RASTER_CODES
-    if 14 in unique_codes and 22 not in unique_codes and 42 not in unique_codes:
-        logger.info("Detected Edmonton canopy LiDAR raster code scheme")
-        return CANOPY_RASTER_CODES
-    logger.info("Using broad code mapping (ambiguous raster)")
+def normalize_fuel_codes(data: np.ndarray, nodata: float | None, fill: int = -9999) -> np.ndarray:
+    """Integer fuel codes with no-data set to ``fill``; float rasters (NaN no-data) are rounded."""
+    if data.dtype.kind == "f":
+        invalid = ~np.isfinite(data)
+        if nodata is not None and np.isfinite(nodata):
+            invalid |= data == nodata
+        return np.where(invalid, fill, np.rint(data)).astype(np.int32)
+    data = data.copy()
+    if nodata is not None:
+        data[data == int(nodata)] = fill
+    return data
+
+
+def _detect_code_map(
+    unique_codes: set[int], code_scheme: str = "auto"
+) -> dict[int, FuelType | None]:
+    """Pick the code mapping for a raster.
+
+    With ``code_scheme="auto"`` a scheme is a candidate only if every code in the
+    raster is defined in it (ignoring no-data codes). Codes are reused with different
+    meanings across schemes (e.g. 41/42 are grass in the Edmonton FBP scheme but
+    M-1/M-2 in the drone-pipeline scheme), so a scheme that merely shares some codes
+    is not enough. Ties are broken by ``CODE_SCHEMES`` order with a warning; pass an
+    explicit ``code_scheme`` to remove the ambiguity.
+    """
+    if code_scheme != "auto":
+        if code_scheme not in CODE_SCHEMES:
+            raise ValueError(
+                f"Unknown fuel code scheme {code_scheme!r}; expected 'auto' or one of "
+                f"{sorted(CODE_SCHEMES)}"
+            )
+        unmapped = sorted(unique_codes - set(CODE_SCHEMES[code_scheme]) - _NODATA_CODES)
+        if unmapped:
+            logger.warning("Codes %s are not in the %s scheme; treated as non-fuel", unmapped, code_scheme)
+        return CODE_SCHEMES[code_scheme]
+
+    codes = set(unique_codes) - _NODATA_CODES
+    if not codes:
+        return ALL_CODES  # all no-data: nothing to map
+    candidates = [name for name, cmap in CODE_SCHEMES.items() if codes <= set(cmap)]
+    if len(candidates) == 1:
+        logger.info("Detected %s raster code scheme", candidates[0])
+        return CODE_SCHEMES[candidates[0]]
+    if candidates:
+        logger.warning(
+            "Fuel codes %s fit several schemes %s; using %s. Pass code_scheme to choose explicitly.",
+            sorted(codes), candidates, candidates[0],
+        )
+        return CODE_SCHEMES[candidates[0]]
+    logger.warning(
+        "Fuel codes %s match no known scheme; using broad code mapping (unmapped codes are "
+        "non-fuel). Pass code_scheme to choose explicitly.", sorted(codes),
+    )
     return ALL_CODES
 
 
@@ -144,6 +215,7 @@ def load_fuel_grid(
     target_resolution_m: float = 50.0,
     water_path: str | None = None,
     buildings_path: str | None = None,
+    code_scheme: str = "auto",
 ) -> FuelGrid:
     """Load a GeoTIFF fuel raster and return a FuelGrid.
 
@@ -153,6 +225,8 @@ def load_fuel_grid(
             Smaller = more detail but more memory. Default 50m.
         water_path: Optional path to water body GeoJSON for masking.
         buildings_path: Optional path to building footprint GeoJSON for masking.
+        code_scheme: Raster code table: "auto" (detect from the codes present) or a
+            key of CODE_SCHEMES ("edmonton_fbp", "uplvi", "canopy_lidar", "terra_pipeline").
 
     Returns:
         FuelGrid ready for use with Simulator.
@@ -196,9 +270,7 @@ def load_fuel_grid(
         src_bounds.right, src_bounds.top,
     )
 
-    # Replace nodata with -9999 for consistent mapping
-    if nodata is not None:
-        data[data == int(nodata)] = -9999
+    data = normalize_fuel_codes(data, nodata)
 
     # Downsample if source resolution is finer than target
     src_res_m = abs(src_res[0])  # Approximate meters (works for UTM)
@@ -223,7 +295,7 @@ def load_fuel_grid(
 
     # Detect code mapping from unique values
     unique_codes = set(np.unique(data).tolist())
-    code_map = _detect_code_map(unique_codes)
+    code_map = _detect_code_map(unique_codes, code_scheme)
 
     # Map integer codes to FuelType enums
     fuel_types: list[list[FuelType | None]] = []

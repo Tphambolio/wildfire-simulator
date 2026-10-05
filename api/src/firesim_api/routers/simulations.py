@@ -116,7 +116,7 @@ async def fuel_grid_image(fuel_grid_path: str) -> dict:
         from rasterio.warp import transform_bounds
         from PIL import Image as PILImage
 
-        from firesim.data.fuel_loader import ALL_CODES, _detect_code_map
+        from firesim.data.fuel_loader import ALL_CODES, _detect_code_map, normalize_fuel_codes
 
         with rasterio.open(path) as src:
             data = src.read(1)
@@ -130,8 +130,7 @@ async def fuel_grid_image(fuel_grid_path: str) -> dict:
             src_bounds.right, src_bounds.top,
         )
 
-        if nodata is not None:
-            data[data == int(nodata)] = 0
+        data = normalize_fuel_codes(data, nodata, fill=0)
 
         # Downsample to max 512px on longest side for a lightweight overlay
         rows, cols = data.shape

@@ -10,16 +10,20 @@ is within the raster extent and has fuel coverage.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 
-_EDMONTON_FBP = (
-    "/home/rpas/dev/wildfire/wildfire-self-learning/data/fuel_maps/"
-    "Edmonton_FBP_FuelLayer_20251105_10m.tif"
+# The repo's data/ copy (not committed), or FIRESIM_TEST_FUEL_RASTER
+_EDMONTON_FBP = os.environ.get(
+    "FIRESIM_TEST_FUEL_RASTER",
+    str(Path(__file__).resolve().parents[3] / "data" / "Edmonton_FBP_FuelLayer_20251105_10m.tif"),
 )
 
 # Skip the whole module when the raster is not available
 pytestmark = pytest.mark.skipif(
-    not __import__("os").path.exists(_EDMONTON_FBP),
+    not os.path.exists(_EDMONTON_FBP),
     reason="Real Edmonton FBP raster not available — skipping integration tests",
 )
 
