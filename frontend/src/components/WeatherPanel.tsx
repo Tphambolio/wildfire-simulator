@@ -684,7 +684,7 @@ export default function WeatherPanel({
                 checked={includeDEM}
                 onChange={(e) => setIncludeDEM(e.target.checked)}
               />
-              Terrain slope (DEM — ISF/RSF correction)
+              Terrain slope (DEM — FBP net effective wind)
             </label>
             <div className="hint" style={{ fontSize: "0.85em", opacity: 0.7 }}>
               Spatial fuel types: D2, O1a, O1b, S2, C1. Fallback: {fuelType}

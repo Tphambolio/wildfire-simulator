@@ -25,6 +25,7 @@ import IsochronePanel from "./components/IsochronePanel";
 import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
+import MapErrorBoundary from "./components/MapErrorBoundary";
 
 /**
  * Export burn probability contour polygons as GeoJSON.
@@ -756,6 +757,7 @@ export default function App() {
             </div>
           </div>
         )}
+        <MapErrorBoundary>
         <MapView
             frames={frames}
             currentFrameIndex={currentFrameIndex}
@@ -777,6 +779,7 @@ export default function App() {
             fuelGridImage={fuelGridImage}
             fuelGridVisible={fuelGridVisible}
           />
+        </MapErrorBoundary>
       </main>
 
       {/* ── Fixed bottom timeline bar (hidden in EOC tab) ────── */}
