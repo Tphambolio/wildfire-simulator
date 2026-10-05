@@ -88,7 +88,8 @@ def check_ember_spotting(
                 continue  # Non-fuel vertex can't generate embers
 
         # Calculate FBP to get HFI
-        fbp = fbp_for_conditions(conditions, fuel)
+        cbh, cfl = fuel_grid.get_canopy_at(vertex.lat, vertex.lng) if fuel_grid else (None, None)
+        fbp = fbp_for_conditions(conditions, fuel, cbh=cbh, cfl=cfl)
 
         hfi = fbp.hfi  # Head fire intensity (kW/m)
 

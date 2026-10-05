@@ -56,11 +56,14 @@ def fbp_for_conditions(
     fuel_type: FuelType,
     slope_pct: float = 0.0,
     aspect_deg: float = 0.0,
+    cbh: float | None = None,
+    cfl: float | None = None,
 ) -> FBPResult:
     """Full FBP output (head, flank, back, direction) for local fuel and terrain.
 
     Slope enters through the net effective wind (ST-X-3 eqs 39-50); aspect is
-    the upslope azimuth.
+    the upslope azimuth. ``cbh`` / ``cfl`` override the fuel type's default
+    crown base height and crown fuel load (e.g. per-cell values from LiDAR).
     """
     return calculate_fbp(
         fuel_type=fuel_type,
@@ -76,6 +79,8 @@ def fbp_for_conditions(
         slope_aspect=aspect_deg,
         pdf=conditions.pdf,
         gfl=conditions.gfl,
+        cbh=cbh,
+        cfl=cfl,
     )
 
 
@@ -94,6 +99,27 @@ class FuelGrid:
     lng_max: float
     rows: int
     cols: int
+    # Optional per-cell canopy layers (e.g. from LiDAR). None (whole layer or a
+    # cell) means "use the fuel type's FBP default".
+    cbh: list[list[float | None]] | None = None  # crown base height (m)
+    cfl: list[list[float | None]] | None = None  # crown fuel load (kg/m2)
+
+    def get_canopy_at(self, lat: float, lng: float) -> tuple[float | None, float | None]:
+        """Per-cell crown base height and crown fuel load, or (None, None) for defaults."""
+        if (self.cbh is None and self.cfl is None) or not (
+            self.lat_min <= lat <= self.lat_max and self.lng_min <= lng <= self.lng_max
+        ):
+            return None, None
+        row, col = self._cell_index(lat, lng)
+        return (
+            self.cbh[row][col] if self.cbh is not None else None,
+            self.cfl[row][col] if self.cfl is not None else None,
+        )
+
+    def _cell_index(self, lat: float, lng: float) -> tuple[int, int]:
+        row = int((self.lat_max - lat) / (self.lat_max - self.lat_min) * self.rows)
+        col = int((lng - self.lng_min) / (self.lng_max - self.lng_min) * self.cols)
+        return max(0, min(self.rows - 1, row)), max(0, min(self.cols - 1, col))
 
     def get_fuel_at(self, lat: float, lng: float) -> FuelType | None:
         """Look up fuel type at a geographic coordinate.
@@ -104,13 +130,7 @@ class FuelGrid:
             return None
         if lng < self.lng_min or lng > self.lng_max:
             return None
-
-        row = int((self.lat_max - lat) / (self.lat_max - self.lat_min) * self.rows)
-        col = int((lng - self.lng_min) / (self.lng_max - self.lng_min) * self.cols)
-
-        row = max(0, min(self.rows - 1, row))
-        col = max(0, min(self.cols - 1, col))
-
+        row, col = self._cell_index(lat, lng)
         return self.fuel_types[row][col]
 
 
@@ -212,6 +232,8 @@ def expand_vertex(
     dt_minutes: float,
     num_rays: int = 36,
     ros_modifier: float = 1.0,
+    cbh: float | None = None,
+    cfl: float | None = None,
 ) -> list[FireVertex]:
     """Expand a single fire front vertex as a Huygens wavelet.
 
@@ -229,11 +251,12 @@ def expand_vertex(
         dt_minutes: Timestep duration (minutes)
         num_rays: Number of radial directions to sample
         ros_modifier: Multiplier on all rates (e.g. WUI zones)
+        cbh, cfl: Per-cell crown base height / crown fuel load overrides
 
     Returns:
         List of new vertices forming the wavelet ellipse
     """
-    fbp = fbp_for_conditions(conditions, fuel_type, slope_pct, aspect_deg)
+    fbp = fbp_for_conditions(conditions, fuel_type, slope_pct, aspect_deg, cbh, cfl)
 
     head_ros = fbp.ros_final * ros_modifier
     if head_ros <= 0.001:
@@ -326,6 +349,7 @@ def expand_fire_front(
         slope_pct, aspect_deg = 0.0, 0.0
         if terrain_grid is not None:
             slope_pct, aspect_deg = terrain_grid.get_slope_aspect(vertex.lat, vertex.lng)
+        cbh, cfl = fuel_grid.get_canopy_at(vertex.lat, vertex.lng) if fuel_grid else (None, None)
 
         # Get WUI zone modifiers if available
         ros_mod = 1.0
@@ -342,6 +366,8 @@ def expand_fire_front(
             dt_minutes=dt_minutes,
             num_rays=num_rays,
             ros_modifier=ros_mod,
+            cbh=cbh,
+            cfl=cfl,
         )
 
         # Clip rays that land on non-fuel — shorten to barrier boundary

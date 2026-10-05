@@ -181,25 +181,31 @@ def run_cellular_simulation(
     # Ignite starting cell
     burning[ign_row, ign_col] = True
 
-    # FBP per (fuel, slope, aspect), cached; slope/aspect rounded to 1 % / 1 degree
+    # FBP per (fuel, slope, aspect, canopy), cached; slope/aspect rounded to 1 % / 1 degree
     fbp_cache: dict[tuple, tuple] = {}
 
-    def get_fbp(fuel: FuelType, slope_pct: float = 0.0, aspect_deg: float = 0.0) -> tuple:
+    def get_fbp(
+        fuel: FuelType,
+        slope_pct: float = 0.0,
+        aspect_deg: float = 0.0,
+        cbh: float | None = None,
+        cfl: float | None = None,
+    ) -> tuple:
         if slope_pct < 1.0:
             slope_pct, aspect_deg = 0.0, 0.0
-        key = (fuel.value, round(slope_pct), round(aspect_deg) % 360)
+        key = (fuel.value, round(slope_pct), round(aspect_deg) % 360, cbh, cfl)
         if key not in fbp_cache:
-            fbp = fbp_for_conditions(conditions, fuel, float(key[1]), float(key[2]))
+            fbp = fbp_for_conditions(conditions, fuel, float(key[1]), float(key[2]), cbh, cfl)
             fbp_cache[key] = (
                 fbp.ros_final, fbp.hfi, fbp.lb, fbp.fire_type,
                 fbp.back_ros, fbp.flank_ros, fbp.raz,
             )
         return fbp_cache[key]
 
-    def terrain_at(lat: float, lng: float) -> tuple[float, float]:
-        if terrain_grid is None:
-            return 0.0, 0.0
-        return terrain_grid.get_slope_aspect(lat, lng)
+    def site_at(lat: float, lng: float) -> tuple[float, float, float | None, float | None]:
+        """Slope, aspect and canopy (cbh, cfl) for get_fbp at a location."""
+        slope, aspect = (0.0, 0.0) if terrain_grid is None else terrain_grid.get_slope_aspect(lat, lng)
+        return (slope, aspect, *fuel_grid.get_canopy_at(lat, lng))
 
     # Simulation loop
     duration_minutes = config["duration_hours"] * 60.0
@@ -219,7 +225,7 @@ def run_cellular_simulation(
         ign_lat_pos = lat_max - (ign_row + 0.5) * cell_lat
         ign_lng_pos = lng_min + (ign_col + 0.5) * cell_lng
         ign_ros, ign_hfi, _ign_lbr, ign_fire_type = get_fbp(
-            ign_fuel, *terrain_at(ign_lat_pos, ign_lng_pos)
+            ign_fuel, *site_at(ign_lat_pos, ign_lng_pos)
         )[:4]
         _ign_cell = BurnedCell(
             lat=ign_lat_pos,
@@ -275,7 +281,7 @@ def run_cellular_simulation(
             cell_center_lat = lat_max - (row + 0.5) * cell_lat
             cell_center_lng = lng_min + (col + 0.5) * cell_lng
             ros_base, fi, lbr, cell_fire_type, back_ros, flank_ros, raz = get_fbp(
-                fuel, *terrain_at(cell_center_lat, cell_center_lng)
+                fuel, *site_at(cell_center_lat, cell_center_lng)
             )
             ros_sum += ros_base
             ros_count += 1
@@ -334,7 +340,7 @@ def run_cellular_simulation(
                     cell_lng_pos = lng_min + (nc + 0.5) * cell_lng
                     # Determine fire type for the neighbor cell using its own FBP
                     neighbor_fire_type = get_fbp(
-                        neighbor_fuel, *terrain_at(cell_lat_pos, cell_lng_pos)
+                        neighbor_fuel, *site_at(cell_lat_pos, cell_lng_pos)
                     )[3]
                     cell = BurnedCell(
                         lat=cell_lat_pos,

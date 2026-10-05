@@ -56,7 +56,7 @@ docker compose up --build
 | `fbp/calculator.py` | FBP equations matching cffdrs: `calculate_fbp()` (head/flank/back ROS, SFC, CFB, HFI, WSV/RAZ slope adjustment), ISI with eq 53a wind cap, curing (Wotton 2009), FMC from date |
 | `fbp/crown_fire.py` | CSI, RSO, CFB (ST-X-3 eqs 56-58), C-6 crown ROS, `FireType` classification |
 | `fwi/calculator.py` | Van Wagner & Pickett (1985): `FWICalculator` with `calculate()` → `FWIResult` |
-| `spread/huygens.py` | **Primary spread algorithm** — elliptical Huygens wavelet, smooth perimeters |
+| `spread/huygens.py` | **Primary spread algorithm** — elliptical Huygens wavelet; `FuelGrid` holds fuel types plus optional per-cell `cbh`/`cfl` (e.g. LiDAR) layers |
 | `spread/cellular.py` | CA mode for WUI/urban (discrete cells, use `use_ca_mode=True`) |
 | `spread/ellipse.py` | LB ratio (forest + grass), flank ROS, ROS toward theta on the FBP ellipse |
 | `spread/slope.py` | ST-X-3 eq 39 slope factor (slope itself is applied via net effective wind in the FBP calculator) |
