@@ -14,11 +14,23 @@ export interface FWIOverrides {
   dc: number | null;
 }
 
+/** FBP fuel and foliage inputs (ST-X-3 / Wotton et al. 2009). */
+export interface FuelModifiers {
+  grass_cure?: number; // degree of curing (%) for O-1a/O-1b
+  grass_fuel_load?: number; // kg/m2
+  percent_conifer?: number; // M-1/M-2
+  percent_dead_fir?: number; // M-3/M-4
+  fmc?: number | null; // foliar moisture (%); omitted = computed from date
+  day_of_year?: number | null;
+  elevation_m?: number | null;
+}
+
 export interface SimulationCreate {
   ignition_lat: number;
   ignition_lng: number;
   weather: WeatherParams;
   fwi_overrides?: FWIOverrides;
+  fuel_modifiers?: FuelModifiers;
   duration_hours: number;
   snapshot_interval_minutes: number;
   fuel_type: string;
@@ -62,6 +74,7 @@ export interface MultiDaySimulationCreate {
   ignition_lng: number;
   days: MultiDayWeatherParams[];
   fwi_overrides?: FWIOverrides;
+  fuel_modifiers?: FuelModifiers;
   month?: number;
   snapshot_interval_minutes?: number;
   fuel_type?: string;
@@ -104,6 +117,7 @@ export interface BurnProbabilityRequest {
   ignition_lng: number;
   weather: WeatherParams;
   fwi_overrides?: FWIOverrides;
+  fuel_modifiers?: FuelModifiers;
   duration_hours: number;
   n_iterations: number;
   jitter_m?: number;

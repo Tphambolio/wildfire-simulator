@@ -160,106 +160,49 @@ class TestNeighborsConstant:
 
 
 class TestEllipticalSpreadProb:
-    """Verify directional spread probability follows an elliptical pattern.
+    """Directional spread probability from the FBP fire ellipse.
 
-    Head fire direction should have the highest probability; backing direction
-    the lowest. Flank directions should be intermediate.
-
-    Reference: Alexander (1985) — elliptical fire shape.
+    The directional rate is the distance to the FBP ellipse from the ignition
+    point toward theta: head rate at 0, back rate at 180 degrees.
     """
 
+    # C-2-like rates at 20 km/h: head, flank = (head + back) / (2 LB), back
+    HEAD, BACK, LB = 5.0, 0.4, 2.5
+    FLANK = (HEAD + BACK) / (2 * LB)
+
+    def _p(self, angle, spread_dir=90.0, head=None, flank=None, back=None, cell=50.0, dt=5.0):
+        head = self.HEAD if head is None else head
+        flank = self.FLANK if flank is None else flank
+        back = self.BACK if back is None else back
+        return _elliptical_spread_prob(angle, spread_dir, head, flank, back, cell, dt)
+
     def test_head_direction_highest_probability(self):
-        """Head fire probability > flank > back (FBP directional spread).
+        """Head > flank > back."""
+        head_prob, flank_prob, back_prob = self._p(90.0), self._p(0.0), self._p(270.0)
+        assert head_prob > flank_prob > back_prob
 
-        Geometric interpolation gives exactly the three FBP reference ROS values:
-          θ=0°  → head_ros            (maximum)
-          θ=90° → flank_ros = head/LBR (intermediate)
-          θ=180°→ back_ros  = head/LBR² (minimum)
-        All three are strictly decreasing with angle from head direction.
-        """
-        spread_dir = 90.0  # fire spreads east
-        ros = 5.0
-        lbr = 3.0
-        cell_size = 50.0
-        dt = 5.0
-
-        head_prob = _elliptical_spread_prob(90.0, spread_dir, ros, lbr, cell_size, dt)
-        flank_prob = _elliptical_spread_prob(0.0, spread_dir, ros, lbr, cell_size, dt)
-        back_prob = _elliptical_spread_prob(270.0, spread_dir, ros, lbr, cell_size, dt)
-
-        assert head_prob > flank_prob   # head fastest
-        assert flank_prob > back_prob   # back slowest (back_ros = head_ros/LBR²)
+    def test_head_and_back_match_fbp_rates(self):
+        """At 0 and 180 degrees the directional rate is the FBP head and back rate."""
+        assert self._p(90.0) == pytest.approx(self.HEAD * 5.0 / 50.0, rel=1e-3)
+        assert self._p(270.0) == pytest.approx(self.BACK * 5.0 / 50.0, rel=1e-3)
 
     def test_probability_bounded_zero_to_one(self):
         """Spread probability must be in [0, 1]."""
         for angle in range(0, 360, 45):
-            prob = _elliptical_spread_prob(
-                float(angle), 90.0, 10.0, 3.0, 50.0, 5.0
-            )
-            assert 0.0 <= prob <= 1.0
+            assert 0.0 <= self._p(float(angle), head=10.0) <= 1.0
 
     def test_no_wind_symmetric(self):
-        """With LBR=1 (no wind), spread should be symmetric in all directions."""
-        spread_dir = 90.0
-        ros = 3.0
-        lbr = 1.0
-        cell_size = 50.0
-        dt = 5.0
-
-        probs = [
-            _elliptical_spread_prob(float(a), spread_dir, ros, lbr, cell_size, dt)
-            for a in [0, 90, 180, 270]
-        ]
-        # All directions should give the same probability
+        """Equal head, flank and back rates spread equally in all directions."""
+        probs = [self._p(float(a), head=3.0, flank=3.0, back=3.0) for a in (0, 90, 180, 270)]
         assert max(probs) - min(probs) < 1e-6
 
     def test_high_ros_saturates_to_one(self):
         """Very high ROS relative to cell size should give probability ~1.0."""
-        prob = _elliptical_spread_prob(
-            90.0, 90.0, ros=1000.0, lbr=3.0, cell_size=50.0, dt=5.0
-        )
-        assert prob == pytest.approx(1.0)
+        assert self._p(90.0, head=1000.0, flank=200.0, back=10.0) == pytest.approx(1.0)
 
     def test_zero_ros_gives_zero_probability(self):
         """Zero ROS should produce zero spread probability."""
-        prob = _elliptical_spread_prob(
-            90.0, 90.0, ros=0.0, lbr=3.0, cell_size=50.0, dt=5.0
-        )
-        assert prob == pytest.approx(0.0)
-
-    def test_higher_lbr_decreases_back_probability(self):
-        """Higher LBR (stronger wind) should decrease back-fire direction probability.
-
-        With the geometric interpolation:
-          - Head direction (θ=0°) always gets dir_ros = head_ros, regardless of LBR.
-            LBR does NOT change head probability when head_ros is held constant.
-          - Back direction (θ=180°) gets back_ros = head_ros / LBR², so higher LBR
-            means lower back_ros and lower back spread probability.
-          - Flank direction (θ=90°) gets flank_ros = head_ros / LBR, so higher LBR
-            also reduces flank probability (correctly).
-        """
-        spread_dir = 90.0  # fire spreads east; back is west (270°)
-        ros = 5.0
-        cell_size = 100.0
-        dt = 5.0
-
-        # Back probability should decrease with higher LBR
-        back_prob_low_lbr = _elliptical_spread_prob(
-            270.0, spread_dir, ros=ros, lbr=1.5, cell_size=cell_size, dt=dt
-        )
-        back_prob_high_lbr = _elliptical_spread_prob(
-            270.0, spread_dir, ros=ros, lbr=5.0, cell_size=cell_size, dt=dt
-        )
-        assert back_prob_high_lbr < back_prob_low_lbr
-
-        # Head probability is the same for both LBR values (head_ros unchanged)
-        head_prob_low_lbr = _elliptical_spread_prob(
-            90.0, spread_dir, ros=ros, lbr=1.5, cell_size=cell_size, dt=dt
-        )
-        head_prob_high_lbr = _elliptical_spread_prob(
-            90.0, spread_dir, ros=ros, lbr=5.0, cell_size=cell_size, dt=dt
-        )
-        assert head_prob_low_lbr == pytest.approx(head_prob_high_lbr)
+        assert self._p(90.0, head=0.0, flank=0.0, back=0.0) == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------

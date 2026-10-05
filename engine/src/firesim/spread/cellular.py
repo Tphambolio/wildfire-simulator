@@ -15,15 +15,16 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from firesim.fbp.calculator import calculate_fbp
 from firesim.fbp.constants import FuelType
-from firesim.spread.ellipse import (
-    calculate_back_ros,
-    calculate_flank_ros,
-    calculate_length_to_breadth_ratio,
+from firesim.spread.ellipse import calculate_ros_at_theta
+from firesim.spread.huygens import (
+    FireVertex,
+    FuelGrid,
+    SpreadConditions,
+    SpreadModifierGrid,
+    TerrainGrid,
+    fbp_for_conditions,
 )
-from firesim.spread.huygens import FireVertex, FuelGrid, SpreadConditions, SpreadModifierGrid, TerrainGrid
-from firesim.spread.slope import calculate_directional_slope_factor
 from firesim.spread.spotting import SpotFire, check_ember_spotting
 
 logger = logging.getLogger(__name__)
@@ -91,9 +92,9 @@ def run_cellular_simulation(
         conditions: Weather/FWI conditions.
         default_fuel: Fallback fuel type.
         spread_modifier_grid: Optional WUI modifiers.
-        terrain_grid: Optional slope/aspect grid for directional slope correction
-            (CFFDRS ST-X-3). When provided, spread probability to each 8-neighbor
-            is scaled by the directional slope factor.
+        terrain_grid: Optional slope/aspect grid. Slope enters FBP through the
+            net effective wind (ST-X-3 eqs 39-50), which changes the head, flank
+            and back rates and the spread direction per cell.
         dt_minutes: Timestep in minutes.
         snapshot_interval_minutes: How often to yield frames.
         enable_spotting: When True, apply Albini (1979) ember spotting model to seed
@@ -180,22 +181,25 @@ def run_cellular_simulation(
     # Ignite starting cell
     burning[ign_row, ign_col] = True
 
-    # Pre-compute FBP for each fuel type (cache to avoid redundant calculations)
-    fbp_cache: dict[str, tuple] = {}
+    # FBP per (fuel, slope, aspect), cached; slope/aspect rounded to 1 % / 1 degree
+    fbp_cache: dict[tuple, tuple] = {}
 
-    def get_fbp(fuel: FuelType) -> tuple:
-        key = fuel.value
+    def get_fbp(fuel: FuelType, slope_pct: float = 0.0, aspect_deg: float = 0.0) -> tuple:
+        if slope_pct < 1.0:
+            slope_pct, aspect_deg = 0.0, 0.0
+        key = (fuel.value, round(slope_pct), round(aspect_deg) % 360)
         if key not in fbp_cache:
-            fbp = calculate_fbp(
-                fuel_type=fuel,
-                wind_speed=conditions.wind_speed,
-                ffmc=conditions.ffmc,
-                dmc=conditions.dmc,
-                dc=conditions.dc,
+            fbp = fbp_for_conditions(conditions, fuel, float(key[1]), float(key[2]))
+            fbp_cache[key] = (
+                fbp.ros_final, fbp.hfi, fbp.lb, fbp.fire_type,
+                fbp.back_ros, fbp.flank_ros, fbp.raz,
             )
-            lbr = calculate_length_to_breadth_ratio(conditions.wind_speed)
-            fbp_cache[key] = (fbp.ros_final, fbp.hfi, lbr, fbp.fire_type)
         return fbp_cache[key]
+
+    def terrain_at(lat: float, lng: float) -> tuple[float, float]:
+        if terrain_grid is None:
+            return 0.0, 0.0
+        return terrain_grid.get_slope_aspect(lat, lng)
 
     # Simulation loop
     duration_minutes = config["duration_hours"] * 60.0
@@ -212,9 +216,11 @@ def run_cellular_simulation(
     # Seed ignition cell so the t=0 snapshot is non-empty (ignition cell is burning,
     # not yet spread-to, so it is never added by the spread loop).
     if ign_fuel is not None:
-        ign_ros, ign_hfi, _ign_lbr, ign_fire_type = get_fbp(ign_fuel)
         ign_lat_pos = lat_max - (ign_row + 0.5) * cell_lat
         ign_lng_pos = lng_min + (ign_col + 0.5) * cell_lng
+        ign_ros, ign_hfi, _ign_lbr, ign_fire_type = get_fbp(
+            ign_fuel, *terrain_at(ign_lat_pos, ign_lng_pos)
+        )[:4]
         _ign_cell = BurnedCell(
             lat=ign_lat_pos,
             lng=ign_lng_pos,
@@ -225,9 +231,6 @@ def run_cellular_simulation(
         )
         all_burned_cells.append(_ign_cell)
         snapshot_burned_cells.append(_ign_cell)
-
-    # Fire spread direction (opposite of wind FROM)
-    spread_dir = (conditions.wind_direction + 180.0) % 360.0
 
     logger.info(
         "CA simulation: %dx%d grid, cell=%.0fm, ignition=(%d,%d), duration=%.1fh",
@@ -268,30 +271,27 @@ def run_cellular_simulation(
             if fuel is None:
                 continue
 
-            # Get FBP output (ros_base, head fire intensity, LBR, fire_type enum)
-            ros_base, fi, lbr, cell_fire_type = get_fbp(fuel)
+            # FBP for this cell's fuel and terrain: head/back/flank ROS and direction
+            cell_center_lat = lat_max - (row + 0.5) * cell_lat
+            cell_center_lng = lng_min + (col + 0.5) * cell_lng
+            ros_base, fi, lbr, cell_fire_type, back_ros, flank_ros, raz = get_fbp(
+                fuel, *terrain_at(cell_center_lat, cell_center_lng)
+            )
             ros_sum += ros_base
             ros_count += 1
 
             # Apply WUI modifiers
-            ros_mod = 1.0
-            cell_center_lat = lat_max - (row + 0.5) * cell_lat
-            cell_center_lng = lng_min + (col + 0.5) * cell_lng
             if spread_modifier_grid is not None:
                 rm, im, _ = spread_modifier_grid.get_modifiers_at(
                     cell_center_lat, cell_center_lng,
                 )
                 ros_base *= rm
+                back_ros *= rm
+                flank_ros *= rm
                 fi *= im
 
             if ros_base <= 0.001:
                 continue
-
-            # Terrain: look up slope/aspect once per burning cell
-            if terrain_grid is not None:
-                slope_pct, aspect_deg = terrain_grid.get_slope_aspect(cell_center_lat, cell_center_lng)
-            else:
-                slope_pct, aspect_deg = 0.0, 0.0
 
             # Store intensity and set burn duration for this cell
             intensity_map[row, col] = fi
@@ -315,16 +315,9 @@ def run_cellular_simulation(
                 if neighbor_fuel is None:
                     continue  # Non-fuel — fire wraps around
 
-                # Apply directional slope factor (ST-X-3 §3.3)
-                if slope_pct > 1.0:
-                    sf = calculate_directional_slope_factor(slope_pct, aspect_deg, angle)
-                    ros_spread = ros_base * sf
-                else:
-                    ros_spread = ros_base
-
-                # Elliptical spread probability
+                # Elliptical spread probability (slope already in the FBP rates)
                 spread_prob = _elliptical_spread_prob(
-                    angle, spread_dir, ros_spread, lbr, cell_size_m, dt_minutes,
+                    angle, raz, ros_base, flank_ros, back_ros, cell_size_m, dt_minutes,
                 )
 
                 # Heat accumulation for failed ignitions
@@ -340,7 +333,9 @@ def run_cellular_simulation(
                     cell_lat_pos = lat_max - (nr + 0.5) * cell_lat
                     cell_lng_pos = lng_min + (nc + 0.5) * cell_lng
                     # Determine fire type for the neighbor cell using its own FBP
-                    neighbor_fire_type = get_fbp(neighbor_fuel)[3]
+                    neighbor_fire_type = get_fbp(
+                        neighbor_fuel, *terrain_at(cell_lat_pos, cell_lng_pos)
+                    )[3]
                     cell = BurnedCell(
                         lat=cell_lat_pos,
                         lng=cell_lng_pos,
@@ -513,55 +508,30 @@ def _apply_spotting(
 def _elliptical_spread_prob(
     neighbor_angle: float,
     spread_dir: float,
-    ros: float,
-    lbr: float,
+    head_ros: float,
+    flank_ros: float,
+    back_ros: float,
     cell_size: float,
     dt: float,
 ) -> float:
-    """Calculate spread probability to a neighbor using the FBP directional ROS.
+    """Spread probability to a neighbour from the FBP fire ellipse.
 
-    Uses geometric interpolation between the three FBP reference points:
-      θ = 0°   → head_ros   (maximum, downwind)
-      θ = 90°  → flank_ros  = head_ros / LBR  (perpendicular to wind)
-      θ = 180° → back_ros   = head_ros / LBR² (upwind)
+    The directional rate is the distance from the ignition point to the FBP
+    fire ellipse toward angle theta, built from the head, flank (ST-X-3 eq 89)
+    and back (back ISI, eqs 75-76) rates. It equals the head rate along the
+    spread direction and the back rate opposite it.
 
-    The formula is:
-      dir_ros(θ) = head_ros × (back_ros / head_ros)^(θ / π)
-                 = head_ros × LBR^(−2θ / π)
-
-    This satisfies all three FBP reference conditions exactly:
-      At θ=0:    head_ros × 1            = head_ros  ✓
-      At θ=π/2:  head_ros × (1/LBR²)^½  = head_ros/LBR = flank_ros  ✓
-      At θ=π:    head_ros × (1/LBR²)^1  = head_ros/LBR² = back_ros  ✓
-
-    The polar-conic focus formula (a(1−e²)/(1−e·cosθ)) was tried but gives
-    flank_ros/LBR at θ=90° instead of flank_ros — under high LBR this makes
-    flank probability so low that the fire stalls when the head direction is
-    blocked by non-fuel (roads, water bodies).
-
-    Reference: FBP System ST-X-3; Alexander & de Groot (1988).
+    Probability = fraction of the cell the fire front covers in one step.
     """
-    head_ros = ros
     if head_ros < 1e-10:
         return 0.0  # no spread
 
-    back_ros = calculate_back_ros(head_ros, lbr)  # head_ros / LBR²
-
-    # Angular separation from head fire direction, normalised to [0°, 180°]
     raw_diff = (neighbor_angle - spread_dir) % 360.0
     if raw_diff > 180.0:
         raw_diff = 360.0 - raw_diff
-    theta_rad = math.radians(raw_diff)  # in [0, π]
+    dir_ros = calculate_ros_at_theta(head_ros, flank_ros, back_ros, math.radians(raw_diff))
 
-    # Geometric interpolation: dir_ros = head_ros × (back_ros/head_ros)^(θ/π)
-    ratio = back_ros / head_ros  # = 1/LBR² ∈ (0, 1]
-    dir_ros = head_ros * (ratio ** (theta_rad / math.pi))
-
-    # Distance fire can travel in this timestep
-    dist = dir_ros * dt  # metres
-
-    # Probability = fraction of cell size covered
-    return min(1.0, dist / cell_size)
+    return max(0.0, min(1.0, dir_ros * dt / cell_size))
 
 
 def _make_frame(

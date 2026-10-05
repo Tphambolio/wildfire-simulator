@@ -342,6 +342,20 @@ async def create_perimeter_override(req: PerimeterOverrideRequest) -> Simulation
 
 
 @router.post("/burn-probability", response_model=BurnProbabilityResponse)
+def _foliar_moisture(params: BurnProbabilityRequest) -> float:
+    """FMC override, else ST-X-3 model from ignition point and date, else 100 %."""
+    mods = params.fuel_modifiers
+    if mods.fmc is not None:
+        return mods.fmc
+    if mods.day_of_year is not None:
+        from firesim.fbp.calculator import calculate_foliar_moisture
+
+        return calculate_foliar_moisture(
+            params.ignition_lat, params.ignition_lng, mods.elevation_m, mods.day_of_year
+        )
+    return 100.0
+
+
 async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbabilityResponse:
     """Run Monte Carlo burn probability analysis.
 
@@ -428,6 +442,11 @@ async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbab
         ffmc=fwi.ffmc if fwi and fwi.ffmc is not None else 85.0,
         dmc=fwi.dmc if fwi and fwi.dmc is not None else 40.0,
         dc=fwi.dc if fwi and fwi.dc is not None else 200.0,
+        pc=params.fuel_modifiers.percent_conifer,
+        grass_cure=params.fuel_modifiers.grass_cure,
+        pdf=params.fuel_modifiers.percent_dead_fir,
+        gfl=params.fuel_modifiers.grass_fuel_load,
+        fmc=_foliar_moisture(params),
     )
 
     mc_config = MonteCarloConfig(

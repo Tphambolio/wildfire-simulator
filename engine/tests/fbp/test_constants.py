@@ -43,9 +43,10 @@ class TestFuelTypes:
 
     @pytest.mark.parametrize("fuel_type", list(FuelType))
     def test_sfc_positive(self, fuel_type):
-        """Surface fuel consumption must be positive."""
-        spec = FUEL_TYPES[fuel_type]
-        assert spec.sfc > 0.0
+        """Surface fuel consumption (computed from BUI/FFMC) must be positive at BUI 80."""
+        from firesim.fbp.calculator import calculate_sfc
+
+        assert calculate_sfc(FUEL_TYPES[fuel_type], ffmc=90.0, bui=80.0) > 0.0
 
     def test_conifer_types_have_canopy(self):
         """Conifer fuel types should have positive CBH and CFL."""

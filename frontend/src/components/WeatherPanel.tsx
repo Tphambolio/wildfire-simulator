@@ -1,7 +1,7 @@
 /** Weather and simulation parameter controls. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig } from "../types/simulation";
+import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI } from "../services/api";
 import MultiDayPanel from "./MultiDayPanel";
@@ -127,6 +127,8 @@ export default function WeatherPanel({
     dc: 300,
   });
   const [fuelType, setFuelType] = useState("C2");
+  const [grassCure, setGrassCure] = useState(60);
+  const [percentConifer, setPercentConifer] = useState(50);
   const [useEdmontonGrid, setUseEdmontonGrid] = useState(true);
   const [useSyntheticCA, setUseSyntheticCA] = useState(false);
   const [enableSpotting, setEnableSpotting] = useState(false);
@@ -284,6 +286,16 @@ export default function WeatherPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // FBP fuel modifiers; foliar moisture is computed server-side from today's date (ST-X-3 eqs 1-8)
+  const fuelModifiers = (): FuelModifiers => {
+    const now = new Date();
+    const dayOfYear = Math.floor(
+      (Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.UTC(now.getFullYear(), 0, 0)) /
+        86400000,
+    );
+    return { grass_cure: grassCure, percent_conifer: percentConifer, day_of_year: dayOfYear };
+  };
+
   const handleMonteCarlo = () => {
     if (!ignitionPoint || !onComputeBurnProbability || hasErrors) return;
     onRunParams?.({
@@ -302,6 +314,7 @@ export default function WeatherPanel({
       ignition_lng: ignitionPoint.lng,
       weather,
       fwi_overrides: fwi,
+      fuel_modifiers: fuelModifiers(),
       duration_hours: durationHours,
       n_iterations: mcIterations,
       fuel_grid_path: useEdmontonGrid ? EDMONTON_FUEL_GRID_PATH : null,
@@ -329,6 +342,7 @@ export default function WeatherPanel({
       ignition_lng: ignitionPoint.lng,
       weather,
       fwi_overrides: fwi,
+      fuel_modifiers: fuelModifiers(),
       duration_hours: durationHours,
       snapshot_interval_minutes: snapshotMinutes,
       fuel_type: fuelType,
@@ -350,6 +364,7 @@ export default function WeatherPanel({
       ignition_lng: ignitionPoint.lng,
       days: multiDayDays,
       fwi_overrides: fwi,
+      fuel_modifiers: fuelModifiers(),
       month: new Date().getMonth() + 1,
       snapshot_interval_minutes: snapshotMinutes,
       fuel_type: fuelType,
@@ -555,6 +570,29 @@ export default function WeatherPanel({
             }}
           />
           Use Edmonton Fuel Grid (FBP 10m)
+        </label>
+        <label>
+          Grass curing (%)
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={5}
+            value={grassCure}
+            onChange={(e) => setGrassCure(Math.min(100, Math.max(0, Number(e.target.value))))}
+            title="Degree of curing for O-1a/O-1b grass (Wotton et al. 2009). 100 = fully cured."
+          />
+        </label>
+        <label>
+          Percent conifer (M-1/M-2)
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={5}
+            value={percentConifer}
+            onChange={(e) => setPercentConifer(Math.min(100, Math.max(0, Number(e.target.value))))}
+          />
         </label>
         {!useEdmontonGrid && (
           <>

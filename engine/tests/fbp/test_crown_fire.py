@@ -1,10 +1,13 @@
 """Tests for crown fire initiation and behavior."""
 
+import math
+
 import pytest
 
 from firesim.fbp.constants import FuelType, FUEL_TYPES
 from firesim.fbp.crown_fire import (
     calculate_critical_surface_intensity,
+    calculate_critical_surface_ros,
     calculate_crown_fraction_burned,
     classify_fire_type,
 )
@@ -43,27 +46,26 @@ class TestCriticalSurfaceIntensity:
 
 
 class TestCrownFractionBurned:
-    """Test CFB calculation."""
+    """Test CFB (ST-X-3 eq 58): CFB = 1 - exp(-0.23 (ROS - RSO))."""
 
     def test_below_threshold_no_crown(self):
-        """SFI below CSI should produce zero CFB."""
-        cfb = calculate_crown_fraction_burned(sfi=500.0, csi=1000.0)
-        assert cfb == 0.0
+        """ROS at or below RSO gives zero CFB."""
+        assert calculate_crown_fraction_burned(ros=2.0, rso=3.0) == 0.0
 
     def test_above_threshold_positive_cfb(self):
-        """SFI above CSI should produce positive CFB."""
-        cfb = calculate_crown_fraction_burned(sfi=2000.0, csi=1000.0)
-        assert cfb > 0.0
+        """ROS above RSO gives positive CFB matching eq 58."""
+        cfb = calculate_crown_fraction_burned(ros=10.0, rso=3.0)
+        assert cfb == pytest.approx(1.0 - math.exp(-0.23 * 7.0))
 
     def test_cfb_bounded_zero_to_one(self):
         """CFB should always be between 0 and 1."""
-        cfb = calculate_crown_fraction_burned(sfi=50000.0, csi=100.0)
+        cfb = calculate_crown_fraction_burned(ros=500.0, rso=0.1)
         assert 0.0 <= cfb <= 1.0
 
-    def test_zero_csi_no_crown(self):
-        """Zero CSI (no canopy) means no crown fire."""
-        cfb = calculate_crown_fraction_burned(sfi=5000.0, csi=0.0)
-        assert cfb == 0.0
+    def test_rso_from_csi_and_sfc(self):
+        """RSO = CSI / (300 SFC) (eq 57); no surface fuel means no crowning."""
+        assert calculate_critical_surface_ros(900.0, 1.5) == pytest.approx(2.0)
+        assert calculate_critical_surface_ros(900.0, 0.0) == math.inf
 
 
 class TestFireTypeClassification:

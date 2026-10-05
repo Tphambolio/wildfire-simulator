@@ -20,50 +20,6 @@ from firesim.fbp.constants import FuelType, FUEL_TYPES, get_fuel_spec
 from firesim.types import FireType
 
 
-def _reference_surface_ros(
-    fuel_type: FuelType,
-    isi: float,
-    bui: float,
-    pc: float = 50.0,
-    grass_cure: float = 60.0,
-) -> float:
-    """Direct ST-X-3 formula implementation used as a precision reference.
-
-    This mirrors the equations in calculator.py without going through the
-    full calculate_fbp path, so it validates the main implementation
-    produces the correct numerical output.
-    """
-    spec = FUEL_TYPES[fuel_type]
-
-    if fuel_type in (FuelType.M1, FuelType.M2):
-        c2 = FUEL_TYPES[FuelType.C2]
-        d1 = FUEL_TYPES[FuelType.D1]
-        ros_c = c2.a * (1.0 - math.exp(-c2.b * isi)) ** c2.c
-        ros_d = d1.a * (1.0 - math.exp(-d1.b * isi)) ** d1.c
-        be = calculate_bui_effect(bui, c2.q, c2.bui0)
-        ros_c *= be
-        if fuel_type == FuelType.M2:
-            ros_d *= 0.2
-        return (pc / 100.0) * ros_c + (1.0 - pc / 100.0) * ros_d
-
-    ros = spec.a * (1.0 - math.exp(-spec.b * isi)) ** spec.c
-
-    if spec.group in ("conifer", "slash", "mixedwood"):
-        be = calculate_bui_effect(bui, spec.q, spec.bui0)
-        ros *= be
-
-    if fuel_type in (FuelType.O1a, FuelType.O1b):
-        pc_val = float(grass_cure)
-        if pc_val < 58.8:
-            cf = 0.176 + 0.020 * (pc_val - 58.8)
-        else:
-            delta = pc_val - 58.8
-            cf = 0.176 + 0.020 * delta * (1.0 - 0.008 * delta)
-        ros *= max(0.0, min(1.0, cf))
-
-    return ros
-
-
 class TestISI:
     """Test Initial Spread Index calculation."""
 
@@ -159,14 +115,21 @@ class TestGrassCuring:
         assert cf > 0.5
 
     def test_full_curing(self):
-        """100% curing should give maximum curing factor."""
-        cf = calculate_grass_curing_factor(100.0)
-        assert cf > 0.6
+        """100% cured grass spreads at the full O-1 rate (Wotton et al. 2009 eq 35b)."""
+        assert calculate_grass_curing_factor(100.0) == pytest.approx(1.0)
 
-    def test_threshold_at_58(self):
-        """Below ~58% curing, fire spread is negligible."""
+    def test_below_threshold_exponential(self):
+        """Below 58.8% the curing factor is 0.005 * (exp(0.061 C) - 1) (eq 35a)."""
         cf = calculate_grass_curing_factor(50.0)
-        assert cf < 0.05
+        assert cf == pytest.approx(0.005 * (math.exp(0.061 * 50.0) - 1.0))
+        # The two branches meet at 58.8 % (within rounding of the published constants)
+        assert calculate_grass_curing_factor(58.79) == pytest.approx(0.176, abs=0.001)
+
+    def test_linear_above_threshold(self):
+        """Above 58.8% the curing factor rises linearly at 0.02 per percent (eq 35b)."""
+        assert calculate_grass_curing_factor(80.0) - calculate_grass_curing_factor(70.0) == (
+            pytest.approx(0.2)
+        )
 
 
 # FBP validation for each fuel type.
@@ -194,7 +157,7 @@ class TestFBPAllFuelTypes:
             (FuelType.C6, 0.5, 12.0),
             (FuelType.C7, 0.5, 10.0),
             (FuelType.D1, 0.5, 8.0),
-            (FuelType.D2, 0.1, 5.0),
+            (FuelType.D2, 0.0, 0.0),  # green aspen: no spread below BUI 80
             (FuelType.M1, 1.0, 18.0),
             (FuelType.M2, 0.5, 12.0),
             (FuelType.M3, 3.0, 60.0),
@@ -268,11 +231,24 @@ class TestFBPCrownFire:
         assert result.cfb == 0.0
         assert result.fire_type == FireType.SURFACE
 
-    def test_crown_fire_increases_ros(self):
-        """Crown fires should have higher final ROS than surface ROS."""
+    def test_crown_fire_does_not_change_c2_rate(self):
+        """Outside C-6, FBP's final ROS is the surface rate; crowning adds intensity."""
         result = calculate_fbp("C2", 40.0, 95.0, 80.0, 500.0)
-        if result.cfb > 0.0:
-            assert result.ros_final >= result.ros_surface
+        assert result.cfb > 0.0
+        assert result.ros_final == pytest.approx(result.ros_surface)
+        assert result.hfi > result.sfi
+
+    def test_cfb_equation_58(self):
+        """CFB = 1 - exp(-0.23 (ROS - RSO)), RSO = CSI / (300 SFC)."""
+        result = calculate_fbp("C3", 30.0, 92.0, 80.0, 500.0, fmc=100.0)
+        assert result.rso == pytest.approx(result.csi / (300.0 * result.sfc))
+        assert result.cfb == pytest.approx(1.0 - math.exp(-0.23 * (result.ros_final - result.rso)))
+
+    def test_c6_crown_rate_exceeds_surface(self):
+        """C-6 is the one fuel type with a separate crown rate (eqs 64-66)."""
+        result = calculate_fbp("C6", 40.0, 94.0, 80.0, 500.0)
+        assert result.cfb > 0.0
+        assert result.ros_final > result.ros_surface
 
 
 class TestFBPSlope:
@@ -284,111 +260,26 @@ class TestFBPSlope:
         slope = calculate_fbp("C2", 20.0, 90.0, 45.0, 300.0, slope=50.0)
         assert slope.ros_surface > flat.ros_surface
 
-    def test_slope_capped_at_2x(self):
-        """Slope factor should not exceed 2x (Butler 2007 cap)."""
+    def test_slope_enters_as_equivalent_wind(self):
+        """Slope raises the net effective wind speed WSV (ST-X-3 eqs 39-50)."""
         flat = calculate_fbp("C2", 20.0, 90.0, 45.0, 300.0, slope=0.0)
-        steep = calculate_fbp("C2", 20.0, 90.0, 45.0, 300.0, slope=100.0)
-        ratio = steep.ros_surface / flat.ros_surface
-        assert ratio <= 2.05  # small tolerance for floating point
+        steep = calculate_fbp("C2", 20.0, 90.0, 45.0, 300.0, slope=60.0)
+        assert flat.wsv == pytest.approx(20.0)
+        assert steep.wsv > flat.wsv
+        assert steep.isi > flat.isi
 
-
-class TestISFPathway:
-    """Validate ISF → RSF pathway via calculate_surface_ros().
-
-    The ISF pathway (ST-X-3 §3.3): ISF = ISI × SF, RSF = f(ISF).
-    Compared against the simple RSF = RSI × SF approach to confirm the
-    nonlinear difference is present at high slope factors.
-    """
-
-    def test_surface_ros_flat_matches_fbp(self):
-        """calculate_surface_ros with flat ISI should match calculate_fbp surface ROS."""
-        ffmc, wind, dmc, dc = 90.0, 20.0, 45.0, 300.0
-        isi = calculate_isi(ffmc, wind)
-        bui = calculate_bui(dmc, dc)
-        spec = get_fuel_spec(FuelType.C2)
-        ros_direct = calculate_surface_ros(spec, isi, bui)
-        fbp = calculate_fbp("C2", wind, ffmc, dmc, dc)
-        assert abs(ros_direct - fbp.ros_surface) < fbp.ros_surface * 0.01
-
-    def test_isf_pathway_increases_ros_more_than_sf_multiply(self):
-        """ISF pathway gives higher RSF than simple RSI × SF at large SF.
-
-        Due to the concavity of ROS = a(1-exp(-b·ISI))^c at high ISI, the
-        ISF pathway (modify ISI then compute ROS) gives a larger RSF than
-        multiplying the final ROS by SF when the ROS equation is not yet
-        saturated.
-        """
-        ffmc, wind, dmc, dc = 85.0, 10.0, 30.0, 150.0
-        isi = calculate_isi(ffmc, wind)
-        bui = calculate_bui(dmc, dc)
-        spec = get_fuel_spec(FuelType.C2)
-
-        import math
-        sf = min(math.exp(3.533 * (50.0 / 100.0) ** 1.2), 2.0)  # 50% slope SF
-
-        # Simple RSF = RSI × SF (old approach)
-        ros_flat = calculate_surface_ros(spec, isi, bui)
-        rsf_multiply = ros_flat * sf
-
-        # ISF → RSF (new approach): ISF = ISI × SF, then compute ROS
-        isf = isi * sf
-        rsf_isf = calculate_surface_ros(spec, isf, bui)
-
-        # Both should be greater than flat ROS
-        assert rsf_isf > ros_flat
-        assert rsf_multiply > ros_flat
-
-        # The ISF pathway gives a different (typically larger) result for C2
-        # at moderate ISI where the ROS equation is in its steep region.
-        # We just verify the values differ — the magnitude is fuel/ISI dependent.
-        assert abs(rsf_isf - rsf_multiply) / ros_flat > 0.01, (
-            f"ISF pathway RSF {rsf_isf:.3f} should differ from SF×RSI {rsf_multiply:.3f}"
+    def test_cross_slope_turns_spread_direction(self):
+        """Upslope to the north with wind toward the east turns the head between them."""
+        result = calculate_fbp(
+            "C2", 15.0, 90.0, 45.0, 300.0, slope=40.0, wind_direction=270.0, slope_aspect=0.0
         )
+        assert 0.0 < result.raz < 90.0
 
-    @pytest.mark.parametrize("slope_pct", [20.0, 40.0, 60.0, 100.0])
-    def test_isf_slope_ros_increases_with_slope(self, slope_pct):
-        """ISF-corrected ROS must increase monotonically with slope (C2, standard conditions).
-
-        Validates the ISF pathway produces physically plausible slope effects.
-        Standard conditions: FFMC=90, wind=20 km/h, DMC=45, DC=300, C2.
-        """
-        ffmc, wind, dmc, dc = 90.0, 20.0, 45.0, 300.0
-        isi = calculate_isi(ffmc, wind)
-        bui = calculate_bui(dmc, dc)
-        spec = get_fuel_spec(FuelType.C2)
-
-        import math
-        sf = min(math.exp(3.533 * (slope_pct / 100.0) ** 1.2), 2.0)
-        isf = isi * sf
-
-        ros_flat = calculate_surface_ros(spec, isi, bui)
-        rsf = calculate_surface_ros(spec, isf, bui)
-        ratio = rsf / ros_flat
-
-        assert ratio > 1.0, f"{slope_pct}% slope: ISF ratio {ratio:.2f} should exceed 1.0"
-
-    def test_isf_slope_100pct_ratio_reasonable(self):
-        """At 100% slope the ISF ratio should be in a physically sensible range.
-
-        SF at 100% = exp(3.533) ≈ 34, capped at 2.0 (Butler 2007).
-        ISF = ISI × 2.0 → RSF/RSI depends on fuel type and ISI level.
-        For C2 at standard conditions, ratio is typically 1.5–3.0.
-        """
-        ffmc, wind, dmc, dc = 90.0, 20.0, 45.0, 300.0
-        isi = calculate_isi(ffmc, wind)
-        bui = calculate_bui(dmc, dc)
-        spec = get_fuel_spec(FuelType.C2)
-
-        import math
-        sf = min(math.exp(3.533 * 1.0 ** 1.2), 2.0)  # capped at 2.0
-        isf = isi * sf
-        ros_flat = calculate_surface_ros(spec, isi, bui)
-        rsf = calculate_surface_ros(spec, isf, bui)
-        ratio = rsf / ros_flat
-
-        assert 1.3 <= ratio <= 4.0, (
-            f"100% slope ISF ratio {ratio:.2f} outside expected range [1.3, 4.0]"
-        )
+    def test_steep_slope_not_capped_at_2x(self):
+        """There is no 2x cap: SF = exp(3.533 (GS/100)^1.2) up to 10 at 70 % (eq 39)."""
+        flat = calculate_fbp("C2", 0.0, 90.0, 45.0, 300.0, slope=0.0)
+        steep = calculate_fbp("C2", 0.0, 90.0, 45.0, 300.0, slope=60.0)
+        assert steep.ros_final / flat.ros_final > 2.5
 
 
 class TestFBPMixedwood:
@@ -414,73 +305,60 @@ class TestFBPMixedwood:
         assert d1.ros_surface <= m1.ros_surface <= c2.ros_surface
 
 
-# Reference conditions used for precision validation.
-# Two FFMC/wind/DMC/DC sets that give meaningfully different ISI/BUI values.
-_PRECISION_CASES = [
-    # (label, ffmc, wind_speed, dmc, dc)
-    ("moderate", 88.0, 15.0, 40.0, 250.0),
-    ("high",     92.0, 30.0, 70.0, 400.0),
-]
+class TestSTX3Defects:
+    """Regression tests for departures from ST-X-3 / Wotton (2009) fixed in 2026-10."""
 
-# Fuel types whose surface ROS depends only on (a, b, c) and BUI effect.
-# Excludes M1/M2 (blended) and O1a/O1b (grass curing) which are tested separately.
-_STANDARD_FUEL_TYPES = [
-    FuelType.C1, FuelType.C2, FuelType.C3, FuelType.C4, FuelType.C5,
-    FuelType.C6, FuelType.C7, FuelType.D1, FuelType.D2,
-    FuelType.M3, FuelType.M4,
-    FuelType.S1, FuelType.S2, FuelType.S3,
-]
+    def test_d1_has_buildup_effect(self):
+        """D-1 carries a buildup effect (q = 0.9, BUI0 = 32)."""
+        low = calculate_fbp("D1", 20.0, 90.0, 10.0, 100.0)
+        high = calculate_fbp("D1", 20.0, 90.0, 80.0, 500.0)
+        assert high.ros_surface > low.ros_surface
 
+    def test_sfc_depends_on_bui(self):
+        """Surface fuel consumption is a function of BUI, not a constant (ST-X-3 eqs 9-25)."""
+        low = calculate_fbp("C2", 20.0, 90.0, 10.0, 100.0)
+        high = calculate_fbp("C2", 20.0, 90.0, 80.0, 500.0)
+        assert high.sfc > low.sfc
+        assert high.sfc == pytest.approx(5.0 * (1.0 - math.exp(-0.0115 * high.bui)))
 
-class TestFBPPrecision:
-    """Precision validation: surface ROS must match direct ST-X-3 formula to <1%.
+    def test_isi_wind_function_above_40(self):
+        """Above 40 km/h FBP uses f(W) = 12 (1 - exp(-0.0818 (W - 28))) (eq 53a)."""
+        isi_39 = calculate_isi(90.0, 39.9)
+        isi_60 = calculate_isi(90.0, 60.0)
+        f_f = isi_39 / (0.208 * math.exp(0.05039 * 39.9))
+        assert isi_60 == pytest.approx(0.208 * f_f * 12.0 * (1.0 - math.exp(-0.0818 * 32.0)))
 
-    The _reference_surface_ros helper is an independent implementation of the
-    same equations. Comparing it against calculate_fbp catches transcription
-    errors, copy-paste drift, and sign mistakes that broad-range tests miss.
+    def test_grass_length_to_breadth(self):
+        """O-1 uses LB = 1.1 WSV^0.464 (Wotton et al. 2009 eq 80)."""
+        grass = calculate_fbp("O1a", 20.0, 90.0, 45.0, 300.0, grass_cure=100.0)
+        forest = calculate_fbp("C2", 20.0, 90.0, 45.0, 300.0)
+        assert grass.lb == pytest.approx(1.1 * 20.0**0.464)
+        assert grass.lb != pytest.approx(forest.lb)
 
-    This satisfies the ±5% accuracy requirement from the technical standards.
-    """
+    def test_flank_and_back_rates(self):
+        """BROS from the back ISI, FROS = (ROS + BROS) / (2 LB) (eqs 75-89)."""
+        r = calculate_fbp("C2", 20.0, 90.0, 45.0, 300.0)
+        spec = get_fuel_spec("C2")
+        bisi = 0.208 * math.exp(-0.05039 * 20.0) * r.isi / (0.208 * math.exp(0.05039 * 20.0))
+        expected_back = calculate_surface_ros(spec, bisi, r.bui)
+        assert r.back_ros == pytest.approx(expected_back)
+        assert r.flank_ros == pytest.approx((r.ros_final + r.back_ros) / (2.0 * r.lb))
 
-    @pytest.mark.parametrize("label,ffmc,wind_speed,dmc,dc", _PRECISION_CASES)
-    @pytest.mark.parametrize("fuel_type", _STANDARD_FUEL_TYPES)
-    def test_surface_ros_matches_formula(self, label, ffmc, wind_speed, dmc, dc, fuel_type):
-        """calculate_fbp surface ROS must be within 1% of direct formula output."""
-        isi = calculate_isi(ffmc, wind_speed)
-        bui = calculate_bui(dmc, dc)
-        expected = _reference_surface_ros(fuel_type, isi, bui)
-        result = calculate_fbp(fuel_type, wind_speed, ffmc, dmc, dc)
-        tolerance = max(expected * 0.01, 0.005)  # 1% relative or 0.005 m/min absolute
-        assert abs(result.ros_surface - expected) <= tolerance, (
-            f"[{label}] {fuel_type.value}: got {result.ros_surface:.4f} m/min, "
-            f"reference {expected:.4f} m/min (diff {result.ros_surface - expected:+.4f})"
-        )
+    def test_c4_buildup_q(self):
+        """C-4 q is 0.80 (ST-X-3 Table 7)."""
+        assert get_fuel_spec("C4").q == pytest.approx(0.80)
 
-    @pytest.mark.parametrize("label,ffmc,wind_speed,dmc,dc", _PRECISION_CASES)
-    @pytest.mark.parametrize("fuel_type", [FuelType.M1, FuelType.M2])
-    def test_mixedwood_ros_matches_formula(self, label, ffmc, wind_speed, dmc, dc, fuel_type):
-        """M1/M2 surface ROS must match blended formula to within 1%."""
-        isi = calculate_isi(ffmc, wind_speed)
-        bui = calculate_bui(dmc, dc)
-        expected = _reference_surface_ros(fuel_type, isi, bui, pc=50.0)
-        result = calculate_fbp(fuel_type, wind_speed, ffmc, dmc, dc, pc=50.0)
-        tolerance = max(expected * 0.01, 0.005)
-        assert abs(result.ros_surface - expected) <= tolerance, (
-            f"[{label}] {fuel_type.value}: got {result.ros_surface:.4f}, "
-            f"reference {expected:.4f}"
-        )
+    def test_foliar_moisture_from_date(self):
+        """FMC follows ST-X-3 eqs 1-8: minimum 85 % near the seasonal dip."""
+        from firesim.fbp.calculator import calculate_foliar_moisture
 
-    @pytest.mark.parametrize("grass_cure", [60.0, 75.0, 90.0])
-    @pytest.mark.parametrize("fuel_type", [FuelType.O1a, FuelType.O1b])
-    def test_grass_ros_matches_formula(self, grass_cure, fuel_type):
-        """O1a/O1b ROS including curing factor must match formula to within 1%."""
-        ffmc, wind_speed, dmc, dc = 90.0, 20.0, 45.0, 300.0
-        isi = calculate_isi(ffmc, wind_speed)
-        bui = calculate_bui(dmc, dc)
-        expected = _reference_surface_ros(fuel_type, isi, bui, grass_cure=grass_cure)
-        result = calculate_fbp(fuel_type, wind_speed, ffmc, dmc, dc, grass_cure=grass_cure)
-        tolerance = max(expected * 0.01, 0.005)
-        assert abs(result.ros_surface - expected) <= tolerance, (
-            f"{fuel_type.value} cure={grass_cure}%: got {result.ros_surface:.4f}, "
-            f"reference {expected:.4f}"
-        )
+        values = [calculate_foliar_moisture(53.5, -113.5, None, d) for d in range(100, 250)]
+        assert min(values) == pytest.approx(85.0)
+        assert max(values) == pytest.approx(120.0)
+
+    def test_fmc_changes_crowning(self):
+        """Lower foliar moisture lowers the crowning threshold."""
+        dry = calculate_fbp("C3", 25.0, 92.0, 80.0, 500.0, fmc=85.0)
+        wet = calculate_fbp("C3", 25.0, 92.0, 80.0, 500.0, fmc=120.0)
+        assert dry.csi < wet.csi
+        assert dry.cfb >= wet.cfb

@@ -22,19 +22,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from firesim.fbp.calculator import (
-    calculate_bui,
-    calculate_fbp,
-    calculate_isi,
-    calculate_surface_ros,
-)
-from firesim.fbp.constants import FuelType, get_fuel_spec
-from firesim.spread.ellipse import (
-    calculate_back_ros,
-    calculate_flank_ros,
-    calculate_length_to_breadth_ratio,
-)
-from firesim.spread.slope import calculate_directional_slope_factor
+from firesim.fbp.calculator import calculate_fbp
+from firesim.fbp.constants import FuelType
 from firesim.types import FBPResult
 
 
@@ -57,6 +46,37 @@ class SpreadConditions:
     dc: float
     pc: float = 50.0  # percent conifer for M1/M2
     grass_cure: float = 60.0  # percent curing for O1a/O1b
+    pdf: float = 35.0  # percent dead balsam fir for M3/M4
+    gfl: float = 0.35  # grass fuel load (kg/m2) for O1a/O1b
+    fmc: float = 100.0  # foliar moisture content (%)
+
+
+def fbp_for_conditions(
+    conditions: SpreadConditions,
+    fuel_type: FuelType,
+    slope_pct: float = 0.0,
+    aspect_deg: float = 0.0,
+) -> FBPResult:
+    """Full FBP output (head, flank, back, direction) for local fuel and terrain.
+
+    Slope enters through the net effective wind (ST-X-3 eqs 39-50); aspect is
+    the upslope azimuth.
+    """
+    return calculate_fbp(
+        fuel_type=fuel_type,
+        wind_speed=conditions.wind_speed,
+        ffmc=conditions.ffmc,
+        dmc=conditions.dmc,
+        dc=conditions.dc,
+        slope=slope_pct if slope_pct >= 1.0 else 0.0,
+        pc=conditions.pc,
+        grass_cure=conditions.grass_cure,
+        fmc=conditions.fmc,
+        wind_direction=conditions.wind_direction,
+        slope_aspect=aspect_deg,
+        pdf=conditions.pdf,
+        gfl=conditions.gfl,
+    )
 
 
 @dataclass
@@ -195,128 +215,66 @@ def expand_vertex(
 ) -> list[FireVertex]:
     """Expand a single fire front vertex as a Huygens wavelet.
 
-    Calculates FBP output for the local fuel type and conditions,
-    then generates an elliptical wavelet centered on the vertex.
+    The wavelet is the FBP fire ellipse for the local fuel, weather and
+    slope: head rate ROS, back rate BROS (from the back ISI) and flank rate
+    FROS = (ROS + BROS) / (2 LB), oriented along the net effective wind
+    direction RAZ (ST-X-3 eqs 39-89).
 
     Args:
         vertex: Fire front vertex to expand
         conditions: Weather and FWI conditions
         fuel_type: Local fuel type at this vertex
         slope_pct: Local slope (%)
-        aspect_deg: Local aspect (degrees, 0=N)
+        aspect_deg: Local upslope azimuth (degrees, 0=N)
         dt_minutes: Timestep duration (minutes)
         num_rays: Number of radial directions to sample
+        ros_modifier: Multiplier on all rates (e.g. WUI zones)
 
     Returns:
         List of new vertices forming the wavelet ellipse
     """
-    # Pre-compute ISI/BUI and fuel spec once per vertex for ISF per-ray pathway
-    isi = calculate_isi(conditions.ffmc, conditions.wind_speed)
-    bui = calculate_bui(conditions.dmc, conditions.dc)
-    spec = get_fuel_spec(fuel_type)
+    fbp = fbp_for_conditions(conditions, fuel_type, slope_pct, aspect_deg)
 
-    # Flat-terrain surface ROS (denominator for ISF ratio — computed once)
-    ros_flat = calculate_surface_ros(spec, isi, bui, conditions.pc, conditions.grass_cure)
-
-    # Full FBP (flat terrain — slope applied per ray via ISF below)
-    fbp = calculate_fbp(
-        fuel_type=fuel_type,
-        wind_speed=conditions.wind_speed,
-        ffmc=conditions.ffmc,
-        dmc=conditions.dmc,
-        dc=conditions.dc,
-        slope=0.0,
-        pc=conditions.pc,
-        grass_cure=conditions.grass_cure,
-    )
-
-    # Fire spread direction (opposite of meteorological wind FROM)
-    spread_dir = (conditions.wind_direction + 180.0) % 360.0
-
-    head_ros = fbp.ros_final * ros_modifier  # m/min, flat-terrain; ISF applied per ray
-
+    head_ros = fbp.ros_final * ros_modifier
     if head_ros <= 0.001:
         return [vertex]  # No spread
+    back_ros = fbp.back_ros * ros_modifier
+    flank_ros = fbp.flank_ros * ros_modifier
 
-    # Fire ellipse shape
-    lbr = calculate_length_to_breadth_ratio(conditions.wind_speed)
-    back_ros = calculate_back_ros(head_ros, lbr)
-    flank_ros = calculate_flank_ros(head_ros, lbr)
+    # Ellipse in rate space: semi-major (head + back) / 2, semi-minor = FROS,
+    # centre displaced (head - back) / 2 toward the head along RAZ.
+    spread_dir_rad = math.radians(fbp.raz)
+    a_ros = (head_ros + back_ros) / 2.0
+    b_ros = flank_ros
+    center_offset = (head_ros - back_ros) / 2.0 * dt_minutes
+    offset_n = center_offset * math.cos(spread_dir_rad)
+    offset_e = center_offset * math.sin(spread_dir_rad)
 
-    spread_dir_rad = math.radians(spread_dir)
-
-    # Coordinate conversion
     m_per_lng = _m_per_deg_lng(vertex.lat)
 
     wavelet_points = []
     for i in range(num_rays):
-        # Ray direction (degrees, 0=N, clockwise)
+        # Ray direction (degrees, 0=N, clockwise) measured from the ellipse centre
         ray_deg = 360.0 * i / num_rays
         ray_rad = math.radians(ray_deg)
+        angle_from_head = math.radians(ray_deg - fbp.raz)
+        cos_a = math.cos(angle_from_head)
+        sin_a = math.sin(angle_from_head)
 
-        # Angle between this ray and the head fire direction
-        angle_from_head = ray_deg - spread_dir
-        angle_from_head_rad = math.radians(angle_from_head)
-
-        # ROS in this direction (elliptical interpolation)
-        # Using the elliptical ROS formula:
-        # ROS(theta) = a * b / sqrt((b*cos(theta))^2 + (a*sin(theta))^2)
-        # where a = semi-major (head direction), b = semi-minor (flank)
-        cos_a = math.cos(angle_from_head_rad)
-        sin_a = math.sin(angle_from_head_rad)
-
-        # Semi-axes in ROS space
-        # Head fire: semi-major axis in spread direction
-        a_ros = (head_ros + back_ros) / 2.0
-        b_ros = flank_ros
-
-        # Offset from center (the ellipse center is shifted from ignition)
-        center_offset_ros = (head_ros - back_ros) / 2.0
-
-        # Point on the ellipse relative to the center
+        # Polar radius of the ellipse from its centre
         denom = math.sqrt((b_ros * cos_a) ** 2 + (a_ros * sin_a) ** 2)
-        if denom < 1e-10:
-            ray_ros = a_ros
-        else:
-            ray_ros = a_ros * b_ros / denom
+        ray_ros = a_ros if denom < 1e-10 else a_ros * b_ros / denom
 
-        # ISF → RSF per ray (ST-X-3 §3.3):
-        #   ISF = ISI × SF_directional  (slope-adjusted ISI for this ray)
-        #   RSF = surface_ros(ISF) / surface_ros(ISI) × ray_ros
-        # Using the ratio correctly captures the nonlinear ROS equation's
-        # response to ISI change, unlike a simple ray_ros × SF multiply.
-        sf_ray = calculate_directional_slope_factor(slope_pct, aspect_deg, ray_deg)
-        if ros_flat > 0.001:
-            isf_ray = isi * sf_ray
-            ros_isf_ray = calculate_surface_ros(
-                spec, isf_ray, bui, conditions.pc, conditions.grass_cure
-            )
-            ray_ros *= ros_isf_ray / ros_flat
-        else:
-            ray_ros *= sf_ray  # fallback when flat ROS is negligible (zero ISI)
-
-        # Distance traveled in this timestep
         dist_m = ray_ros * dt_minutes
+        total_dn = offset_n + dist_m * math.cos(ray_rad)
+        total_de = offset_e + dist_m * math.sin(ray_rad)
 
-        # The actual displacement accounts for the ellipse center offset
-        # For simplicity, compute the wavelet point from the vertex
-        # using the offset center plus the elliptical radius
-        offset_n = center_offset_ros * dt_minutes * math.cos(spread_dir_rad)
-        offset_e = center_offset_ros * dt_minutes * math.sin(spread_dir_rad)
-
-        # Ray displacement from ellipse center
-        dn = dist_m * math.cos(ray_rad)
-        de = dist_m * math.sin(ray_rad)
-
-        # Total displacement from vertex
-        total_dn = offset_n + dn
-        total_de = offset_e + de
-
-        # Convert to lat/lng
-        new_lat = vertex.lat + total_dn / _M_PER_DEG_LAT
-        new_lng = vertex.lng + total_de / m_per_lng
-
-        wavelet_points.append(FireVertex(lat=new_lat, lng=new_lng))
+        wavelet_points.append(
+            FireVertex(
+                lat=vertex.lat + total_dn / _M_PER_DEG_LAT,
+                lng=vertex.lng + total_de / m_per_lng,
+            )
+        )
 
     return wavelet_points
 

@@ -12,9 +12,9 @@ import math
 import random
 from dataclasses import dataclass
 
-from firesim.fbp.calculator import calculate_fbp
 from firesim.fbp.constants import FuelType
 from firesim.spread.huygens import (
+    fbp_for_conditions,
     FireVertex,
     FuelGrid,
     SpreadConditions,
@@ -88,13 +88,7 @@ def check_ember_spotting(
                 continue  # Non-fuel vertex can't generate embers
 
         # Calculate FBP to get HFI
-        fbp = calculate_fbp(
-            fuel_type=fuel,
-            wind_speed=conditions.wind_speed,
-            ffmc=conditions.ffmc,
-            dmc=conditions.dmc,
-            dc=conditions.dc,
-        )
+        fbp = fbp_for_conditions(conditions, fuel)
 
         hfi = fbp.hfi  # Head fire intensity (kW/m)
 

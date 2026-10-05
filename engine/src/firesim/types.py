@@ -32,6 +32,14 @@ class FBPResult:
     cfb: float  # crown fraction burned (0-1)
     fire_type: FireType
     flame_length: float  # m (Byram 1959)
+    back_ros: float = 0.0  # m/min, ST-X-3 eq 89 (back ISI)
+    flank_ros: float = 0.0  # m/min, ST-X-3 eq 89 (FROS = (ROS + BROS) / (2 LB))
+    lb: float = 1.0  # length-to-breadth ratio (ST-X-3 eq 79/80)
+    wsv: float = 0.0  # net effective wind speed incl. slope (km/h)
+    raz: float = 0.0  # direction of head fire spread (degrees, toward, 0=N)
+    csi: float = 0.0  # critical surface intensity for crowning (kW/m)
+    rso: float = 0.0  # critical surface ROS for crowning (m/min)
+    fmc: float = 0.0  # foliar moisture content used (%)
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,16 @@ class SimulationConfig:
     ffmc: float | None = None  # override; if None, calculated from weather
     dmc: float | None = None
     dc: float | None = None
+    # FBP fuel modifiers (ST-X-3 / Wotton et al. 2009)
+    grass_cure: float = 60.0  # degree of curing (%) for O-1a/O-1b
+    grass_fuel_load: float = 0.35  # kg/m2, O-1a/O-1b surface fuel consumption
+    percent_conifer: float = 50.0  # M-1/M-2
+    percent_dead_fir: float = 35.0  # M-3/M-4
+    # Foliar moisture: explicit override, else ST-X-3 eqs 1-6 from ignition
+    # lat/lng and day_of_year, else 100 %.
+    fmc: float | None = None
+    day_of_year: int | None = None
+    elevation_m: float | None = None
 
 
 @dataclass(frozen=True)

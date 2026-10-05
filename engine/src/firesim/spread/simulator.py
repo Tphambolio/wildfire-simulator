@@ -17,9 +17,8 @@ import math
 from collections import defaultdict
 from typing import Generator
 
-from firesim.fbp.calculator import calculate_fbp
+from firesim.fbp.calculator import calculate_flame_length, calculate_foliar_moisture
 from firesim.fbp.constants import FuelType
-from firesim.spread.ellipse import calculate_length_to_breadth_ratio
 from firesim.spread.huygens import (
     FireVertex,
     FuelGrid,
@@ -27,6 +26,7 @@ from firesim.spread.huygens import (
     SpreadModifierGrid,
     TerrainGrid,
     expand_fire_front,
+    fbp_for_conditions,
     simplify_front,
 )
 from firesim.spread.perimeter import calculate_polygon_area_ha, vertices_to_polygon
@@ -116,14 +116,7 @@ class Simulator:
         else:
             front = self._create_ignition_front(config.ignition_lat, config.ignition_lng)
 
-        # Build spread conditions from config
-        conditions = SpreadConditions(
-            wind_speed=config.weather.wind_speed,
-            wind_direction=config.weather.wind_direction,
-            ffmc=config.ffmc if config.ffmc is not None else 85.0,
-            dmc=config.dmc if config.dmc is not None else 40.0,
-            dc=config.dc if config.dc is not None else 200.0,
-        )
+        conditions = self._spread_conditions()
 
         # Time tracking
         total_minutes = config.duration_hours * 60.0
@@ -167,8 +160,8 @@ class Simulator:
                 )
                 new_fronts.append(simplify_front(new_front))
 
-                # Check ember spotting (only when fuel grid present — no barriers to jump otherwise)
-                if self.fuel_grid is not None:
+                # Ember spotting: opt-in, and only with a fuel grid (no barriers to jump otherwise)
+                if self.enable_spotting and self.fuel_grid is not None:
                     spots = check_ember_spotting(
                         front=f,
                         conditions=conditions,
@@ -220,13 +213,7 @@ class Simulator:
         Produces per-cell burned data instead of perimeter polygons.
         """
         config = self.config
-        conditions = SpreadConditions(
-            wind_speed=config.weather.wind_speed,
-            wind_direction=config.weather.wind_direction,
-            ffmc=config.ffmc if config.ffmc is not None else 85.0,
-            dmc=config.dmc if config.dmc is not None else 40.0,
-            dc=config.dc if config.dc is not None else 200.0,
-        )
+        conditions = self._spread_conditions()
 
         ca_frames = run_cellular_simulation(
             config={
@@ -238,6 +225,7 @@ class Simulator:
             conditions=conditions,
             default_fuel=self.default_fuel,
             spread_modifier_grid=self.spread_modifier_grid,
+            terrain_grid=self.terrain_grid,
             dt_minutes=1.0,
             snapshot_interval_minutes=config.snapshot_interval_minutes,
             enable_spotting=self.enable_spotting,
@@ -300,13 +288,40 @@ class Simulator:
                 head_ros_m_min=cf.mean_ros,
                 max_hfi_kw_m=cf.max_intensity,
                 fire_type=frame_fire_type,
-                flame_length_m=0.0,
+                flame_length_m=calculate_flame_length(cf.max_intensity),
                 fuel_breakdown=cf.fuel_breakdown,
                 spot_fires=ca_spot_fires,
                 num_fronts=1,
                 burned_cells=burned_data,
                 ignition_snapped_m=cf.ignition_snapped_m,
             )
+
+    def _foliar_moisture(self) -> float:
+        """FMC: explicit override, else ST-X-3 eqs 1-8 from location and date, else 100 %."""
+        config = self.config
+        if config.fmc is not None:
+            return config.fmc
+        if config.day_of_year is not None:
+            return calculate_foliar_moisture(
+                config.ignition_lat, config.ignition_lng, config.elevation_m, config.day_of_year
+            )
+        return 100.0
+
+    def _spread_conditions(self) -> SpreadConditions:
+        """Weather, FWI codes and fuel modifiers for the FBP calculations."""
+        config = self.config
+        return SpreadConditions(
+            wind_speed=config.weather.wind_speed,
+            wind_direction=config.weather.wind_direction,
+            ffmc=config.ffmc if config.ffmc is not None else 85.0,
+            dmc=config.dmc if config.dmc is not None else 40.0,
+            dc=config.dc if config.dc is not None else 200.0,
+            pc=config.percent_conifer,
+            grass_cure=config.grass_cure,
+            pdf=config.percent_dead_fir,
+            gfl=config.grass_fuel_load,
+            fmc=self._foliar_moisture(),
+        )
 
     @staticmethod
     def _merge_fronts(fronts: list[list[FireVertex]]) -> list[FireVertex]:
@@ -362,14 +377,8 @@ class Simulator:
         # Calculate area
         area_ha = calculate_polygon_area_ha(front)
 
-        # Calculate FBP for the head fire direction to get metrics
-        fbp = calculate_fbp(
-            fuel_type=self.default_fuel,
-            wind_speed=self.config.weather.wind_speed,
-            ffmc=self.config.ffmc if self.config.ffmc is not None else 85.0,
-            dmc=self.config.dmc if self.config.dmc is not None else 40.0,
-            dc=self.config.dc if self.config.dc is not None else 200.0,
-        )
+        # Head-fire FBP metrics for the default fuel on flat ground
+        fbp = fbp_for_conditions(self._spread_conditions(), self.default_fuel)
 
         # Build fuel breakdown
         fuel_breakdown: dict[str, float] = {}

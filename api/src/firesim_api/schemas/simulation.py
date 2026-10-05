@@ -33,6 +33,34 @@ class FWIOverrides(BaseModel):
     dc: float | None = Field(default=None, ge=0, description="Drought Code")
 
 
+class FuelModifiers(BaseModel):
+    """FBP fuel and foliage inputs (ST-X-3 / Wotton et al. 2009)."""
+
+    grass_cure: float = Field(
+        default=60.0, ge=0, le=100, description="Degree of grass curing (%) for O-1a/O-1b"
+    )
+    grass_fuel_load: float = Field(
+        default=0.35, gt=0, le=5, description="Grass fuel load (kg/m2) for O-1a/O-1b"
+    )
+    percent_conifer: float = Field(default=50.0, ge=0, le=100, description="Percent conifer for M-1/M-2")
+    percent_dead_fir: float = Field(
+        default=35.0, ge=0, le=100, description="Percent dead balsam fir for M-3/M-4"
+    )
+    fmc: float | None = Field(
+        default=None, gt=0, le=300,
+        description="Foliar moisture content (%). If omitted, computed from location and day_of_year.",
+    )
+    day_of_year: int | None = Field(
+        default=None, ge=1, le=366,
+        description="Julian day for the ST-X-3 foliar moisture model (100 % used if omitted)",
+    )
+    elevation_m: float | None = Field(default=None, description="Elevation (m) for the foliar moisture model")
+
+    def config_kwargs(self) -> dict:
+        """Keyword arguments for firesim.types.SimulationConfig."""
+        return self.model_dump()
+
+
 class SimulationCreate(BaseModel):
     """Request body for creating a new simulation."""
 
@@ -40,6 +68,7 @@ class SimulationCreate(BaseModel):
     ignition_lng: float = Field(..., ge=-180, le=180, description="Ignition longitude")
     weather: WeatherParams
     fwi_overrides: FWIOverrides | None = None
+    fuel_modifiers: FuelModifiers = Field(default_factory=FuelModifiers)
     duration_hours: float = Field(default=4.0, gt=0, le=24, description="Simulation duration (hours)")
     snapshot_interval_minutes: float = Field(
         default=30.0, gt=0, le=120, description="Snapshot interval (minutes)"
@@ -66,7 +95,7 @@ class SimulationCreate(BaseModel):
         description=(
             "Path to Digital Elevation Model GeoTIFF for slope-adjusted spread. "
             "When provided, slope (%) and aspect (°) are derived per cell from the "
-            "DEM and used in the CFFDRS ISF → RSF slope correction (ST-X-3 §3.3). "
+            "DEM and folded into the FBP net effective wind speed (ST-X-3 eqs 39-50). "
             "Overrides FIRESIM_DEM_PATH if set."
         ),
     )
@@ -161,6 +190,7 @@ class MultiDaySimulationCreate(BaseModel):
         ..., min_length=1, max_length=7, description="Weather for each 24-hour period"
     )
     fwi_overrides: FWIOverrides | None = None
+    fuel_modifiers: FuelModifiers = Field(default_factory=FuelModifiers)
     """Starting FWI state (Day 0 carry-in). If None, uses spring startup defaults."""
     month: int = Field(default=6, ge=1, le=12, description="Month (1-12) for FWI day-length factors")
     snapshot_interval_minutes: float = Field(default=30.0, gt=0, le=120)
@@ -208,6 +238,7 @@ class BurnProbabilityRequest(BaseModel):
     ignition_lng: float = Field(..., ge=-180, le=180, description="Ignition longitude")
     weather: WeatherParams
     fwi_overrides: FWIOverrides | None = None
+    fuel_modifiers: FuelModifiers = Field(default_factory=FuelModifiers)
     duration_hours: float = Field(default=4.0, gt=0, le=24, description="Duration per iteration (hours)")
     n_iterations: int = Field(default=100, ge=1, le=500, description="Number of Monte Carlo iterations")
     jitter_m: float = Field(default=100.0, ge=0, le=1000, description="Ignition point jitter radius (metres)")
@@ -219,7 +250,7 @@ class BurnProbabilityRequest(BaseModel):
     buildings_path: str | None = Field(default=None, description="Path to buildings GeoJSON")
     dem_path: str | None = Field(
         default=None,
-        description="Path to DEM GeoTIFF for slope-adjusted spread (CFFDRS ISF → RSF)",
+        description="Path to DEM GeoTIFF for slope-adjusted spread (ST-X-3 net effective wind)",
     )
 
 

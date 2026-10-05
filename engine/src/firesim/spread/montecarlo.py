@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -128,14 +128,8 @@ def run_monte_carlo(
         rh_delta = rng.uniform(-mc_config.rh_abs, mc_config.rh_abs)
         ffmc_varied = max(0.0, min(101.0, base_conditions.ffmc - rh_delta * _FFMC_PER_RH))
 
-        iter_conditions = SpreadConditions(
-            wind_speed=wind_speed,
-            wind_direction=base_conditions.wind_direction,
-            ffmc=ffmc_varied,
-            dmc=base_conditions.dmc,
-            dc=base_conditions.dc,
-            pc=base_conditions.pc,
-            grass_cure=base_conditions.grass_cure,
+        iter_conditions = replace(
+            base_conditions, wind_speed=wind_speed, ffmc=ffmc_varied
         )
 
         config = {

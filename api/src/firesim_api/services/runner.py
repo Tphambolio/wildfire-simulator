@@ -278,6 +278,7 @@ class SimulationRunner:
                 ffmc=fwi.ffmc if fwi else 85.0,
                 dmc=fwi.dmc if fwi else 40.0,
                 dc=fwi.dc if fwi else 200.0,
+                **params.fuel_modifiers.config_kwargs(),
             )
 
             from firesim_api.settings import settings
@@ -511,6 +512,7 @@ class SimulationRunner:
                     ffmc=day_fwi.ffmc,
                     dmc=day_fwi.dmc,
                     dc=day_fwi.dc,
+                    **params.fuel_modifiers.config_kwargs(),
                 )
 
                 simulator = Simulator(
@@ -672,6 +674,7 @@ class SimulationRunner:
                 ffmc=fwi.ffmc if fwi and fwi.ffmc is not None else 85.0,
                 dmc=fwi.dmc if fwi and fwi.dmc is not None else 40.0,
                 dc=fwi.dc if fwi and fwi.dc is not None else 200.0,
+                **params.fuel_modifiers.config_kwargs(),
             )
 
             dem_path = params.dem_path or settings.dem_path

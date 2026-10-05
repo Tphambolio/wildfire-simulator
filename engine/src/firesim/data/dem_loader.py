@@ -3,13 +3,13 @@
 Produces TerrainGrid (slope %, aspect °) consumed by the Huygens wavelet
 and cellular automaton spread models for CFFDRS slope-adjusted ROS.
 
-Slope factor formula: SF = exp(3.533 × (GS/100)^1.2) — ST-X-3 §3.3
-Applied per ray direction via calculate_directional_slope_factor() in
-spread/slope.py using the RSF = RSI × SF pathway (RSF = rate of spread
-on slope, RSI = rate of spread on level terrain).
+Slope enters FBP as a slope-equivalent wind speed added vectorially to the
+wind (net effective wind speed WSV and direction RAZ, ST-X-3 eqs 39-50); see
+firesim.fbp.calculator.calculate_slope_adjustment. Aspect here is the
+upslope azimuth.
 
 References:
-    Forestry Canada Fire Danger Group (1992). ST-X-3 §3.3 (slope factor).
+    Forestry Canada Fire Danger Group (1992). ST-X-3 eqs 39-50 (slope factor, net effective wind).
     ESRI (1996). How Aspect Works / How Slope Works (terrain derivatives).
 """
 
