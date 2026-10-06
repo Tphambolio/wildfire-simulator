@@ -11,7 +11,7 @@
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { EvacZone } from "./evacZones";
-import type { SuppressionAdvisory } from "../components/EOCSummary";
+import type { SuppressionAdvisory } from "./suppressionAdvisory";
 import { fwiClassColor } from "./fwiClass";
 
 // ── Geometry helpers (duplicated from EOCSummary to keep utility self-contained) ──
@@ -525,26 +525,27 @@ export function buildICS209HTML(opts: ICS209Options): string {
     suppBlock = `
     ${sectionHeader("SECTION G — SUPPRESSION ADVISORY")}
     <div class="row">
-      ${block("Intensity Class", `<span class="badge" style="background:${suppAdvisory.color}">${esc(suppAdvisory.intensityLabel)}</span>`, "w3")}
-      ${block("Strategy", `<strong style="color:${suppAdvisory.color}">${esc(suppAdvisory.strategy)}</strong>`, "w3")}
-      ${block("Direct Attack", suppAdvisory.suppressionFeasible
-        ? '<span style="color:#2e7d32;font-weight:bold;">FEASIBLE</span>'
-        : '<span style="color:#b71c1c;font-weight:bold;">NOT SAFE — withdraw all crews</span>',
+      ${block("Head Fire Intensity Class", `<span class="badge" style="background:${suppAdvisory.color};color:${suppAdvisory.textColor}">${esc(suppAdvisory.intensityLabel)}</span>`, "w3")}
+      ${block("Fire behaviour", `<strong>${esc(suppAdvisory.strategy)}</strong>`, "w3")}
+      ${block("Direct attack at head", suppAdvisory.suppressionFeasible
+        ? '<span style="color:#2e7d32;font-weight:bold;">GENERALLY POSSIBLE</span>'
+        : '<span style="color:#b71c1c;font-weight:bold;">GENERALLY NOT POSSIBLE</span>',
         "w2")}
-      ${block("RPAS Min Standoff", `${suppAdvisory.rpasStandoffM.toFixed(0)} m`, "w2", "big")}
+      ${block("RPAS stand-off (rule of thumb)", `${suppAdvisory.rpasStandoffM.toFixed(0)} m`, "w2", "big")}
     </div>
     <div class="row">
       <div class="block w6" style="flex:3; padding:4px 6px;">
-        <div class="block-label">Strategy Detail</div>
+        <div class="block-label">Interpretation</div>
         <div class="block-value" style="font-size:8pt; font-style:italic;">${esc(suppAdvisory.strategyDetail)}</div>
-        <div class="block-label" style="margin-top:4px;">Initial Attack Resources</div>
+        <div class="block-label" style="margin-top:4px;">Generally effective at the head</div>
         <ul class="res">${resList}</ul>
+        <div style="font-size:7pt; margin-top:4px; color:#555;">Source: ${esc(suppAdvisory.source)}</div>
       </div>
       <div class="block w4" style="flex:2; padding:4px 6px;">
         <div class="block-label">RPAS Operational Advisory</div>
         <ul class="res">${rpasNotesList}</ul>
         <div style="font-size:7pt; margin-top:4px; color:#555;">
-          Ref: TC RPAS Near Wildfire Guidance · IC authorization required for all RPAS ops at fire
+          Stand-off is a FireSim rule of thumb, not a published standard · IC authorization required for all RPAS ops at fire
         </div>
       </div>
     </div>`;

@@ -24,6 +24,7 @@ import type { SimulationFrame } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { EvacZone } from "./evacZones";
 import type { IncidentAnnotation } from "../types/incident";
+import { buildSuppressionAdvisory } from "./suppressionAdvisory";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,8 @@ function extractSpreadStats(frames: SimulationFrame[]): SpreadStats | null {
 
 // ── Suppression advisory logic ────────────────────────────────────────────────
 
+// One source for intensity classes and their meaning (utils/fireClasses.ts); the RPAS
+// stand-off is the same FireSim rule of thumb as in EOCSummary's advisory.
 interface SuppressionSummary {
   strategy: string;
   strategyDetail: string;
@@ -113,44 +116,14 @@ interface SuppressionSummary {
 }
 
 function buildSuppressionSummary(spread: SpreadStats): SuppressionSummary {
-  const hfi = spread.peakHfiKwM;
-  const isCrown = spread.fireType.toLowerCase().includes("crown");
-  const hasSpot = spread.spotCount > 0;
-  const standoff = isCrown
-    ? Math.max(500, spread.maxSpotDistM * 1.5) + 1000
-    : hasSpot
-    ? Math.max(500, spread.maxSpotDistM * 1.5)
-    : 500;
-
-  if (hfi < 200) return {
-    intensityClass: "I", strategy: "Direct Attack",
-    strategyDetail: "Ground crews can establish direct perimeter control. Water application and hand line viable.",
-    resources: ["2–4 Initial attack crews (Type 4–5)", "1–2 Water tenders", "Light air tanker support (optional)"],
-    rpasStandoffM: standoff, feasible: true,
-  };
-  if (hfi < 500) return {
-    intensityClass: "II", strategy: "Flanking / Direct Attack on Flanks",
-    strategyDetail: "Direct attack on head not recommended. Flank attack with aerial water support. Monitor for blow-up.",
-    resources: ["4–6 IA crews (Type 3–4)", "2 Water tenders", "1 Air tanker", "1 Helicopter (bucket)"],
-    rpasStandoffM: standoff, feasible: true,
-  };
-  if (hfi < 2000) return {
-    intensityClass: "III", strategy: "Indirect Attack",
-    strategyDetail: "Fire too intense for direct attack. Establish indirect lines using natural features. Heavy aerial support required.",
-    resources: ["Extended attack IMT (Type 3)", "1–2 Heavy air tankers", "2 Helicopters", "4–8 Crew modules", "Dozer for indirect line"],
-    rpasStandoffM: standoff, feasible: true,
-  };
-  if (hfi < 4000) return {
-    intensityClass: "IV", strategy: "Defensive — Structure Protection",
-    strategyDetail: "Suppression not feasible at head. Focus on structure protection and evacuation support. Defensive stand in prepared positions only.",
-    resources: ["Multi-agency IMT (Type 2)", "Heavy air tankers", "Structure protection crews", "Law enforcement evacuation support", "Heavy equipment"],
-    rpasStandoffM: standoff, feasible: false,
-  };
+  const adv = buildSuppressionAdvisory(spread);
   return {
-    intensityClass: "V", strategy: "Life Safety Only — Withdrawal",
-    strategyDetail: "EXTREME fire behaviour. No direct or indirect attack. Withdraw all resources from danger zone. Life safety operations only.",
-    resources: ["National/Regional IMT (Type 1)", "Evacuation enforcement", "Reception centre activation", "Perimeter security", "Fire weather monitoring only"],
-    rpasStandoffM: standoff, feasible: false,
+    strategy: adv.strategy,
+    strategyDetail: adv.strategyDetail,
+    resources: adv.resources,
+    rpasStandoffM: adv.rpasStandoffM,
+    intensityClass: String(adv.intensityClass),
+    feasible: adv.suppressionFeasible,
   };
 }
 
