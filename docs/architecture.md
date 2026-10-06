@@ -39,8 +39,8 @@ frontend/        React + Vite + TypeScript + MapLibre GL
 
 ## Fire spread models
 
-`Simulator.run()` picks the model: a fuel grid of 50 x 50 cells or more uses the grid
-(level-set) model; otherwise the Huygens model with the default fuel type.
+`Simulator.run()` picks the model: any spatial fuel grid uses the grid (level-set) model;
+without one, the Huygens model runs with the default fuel type.
 
 **Both models share the FBP layer** (`spread/huygens.py: fbp_for_conditions`): for each
 location the head, flank and back rates and the spread direction RAZ come from FBP with the
@@ -64,6 +64,12 @@ each cell's FBP wavelet (the approach of ELMFIRE). Second-order ENO upwind diffe
 order next to non-fuel; non-fuel cells act as walls (zero-gradient boundary). The first few
 cells of growth use the exact FBP point-ignition ellipse of the ignition cell, restricted to
 cells connected to it through fuel. Deterministic: the same inputs give the same fire.
+
+An existing fire can be the starting point instead of an ignition: an RPAS-observed
+perimeter (`initial_perimeter`) or the burned cells of the previous day in a multi-day run
+(`initial_burned`). That area starts burned and spreads as an established fire (no
+acceleration). Each frame carries the outline of the largest burned area as a polygon, used
+for GeoJSON export, buildings-at-risk counts and day-to-day carry-over.
 
 Each burned cell records its arrival time (minutes) and the front's normal speed when it
 crossed; intensity and fire type use that speed, so flanks and backs are not given head-fire

@@ -37,7 +37,9 @@ earlier, rounder wavelets that the instantaneous FBP ellipse (LB(t)) does not; t
 shrinks with time. The level set runs slightly small on narrow fires (grass, LB 4.4)
 because of numerical smoothing at 50 m cells. Tests: `engine/tests/spread/test_fbp_ellipse_agreement.py`,
 `engine/tests/spread/test_cellular.py` (also: walls block spread, diagonal walls do not leak,
-fire wraps through gaps, back cells are less intense than head cells, runs are deterministic).
+fire wraps through gaps, back cells are less intense than head cells, runs are deterministic)
+and `engine/tests/spread/test_grid_continuation.py` (RPAS perimeter and multi-day starts,
+outline encloses the burned cells).
 
 ## 3. History: what was wrong before 2026-10
 
@@ -58,6 +60,9 @@ many places. All are fixed and each has a regression test:
 | Stochastic cellular automaton with a "heat accumulation" ignition rule | grid-mode fires up to ~16-47x too large, random die-outs |
 | Huygens fires started as a 30 m circle | 30 min fires about 60 % too large |
 | Fuel loader read the drone-pipeline codes 41/42 (M-1/M-2) as grass | wrong fuels on pipeline rasters |
+| Grid model ignored the starting perimeter | on fuel grids, RPAS perimeter corrections and multi-day days restarted from the ignition point |
+| Grid-mode "perimeter" was an unordered sample of cell centres | invalid GeoJSON export; buildings at risk always 0 |
+| Synthetic demo landscape unseeded | identical scenarios gave different results (26 vs 35 ha) |
 
 Most of these came from the v2 code base, whose fire science was assembled from summaries
 rather than the source reports, and the old tests re-implemented the same formulas, so they
