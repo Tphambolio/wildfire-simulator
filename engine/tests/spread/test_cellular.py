@@ -15,7 +15,12 @@ import numpy as np
 import pytest
 
 from firesim.fbp.constants import FuelType
-from firesim.fbp.calculator import calculate_fbp
+from firesim.fbp.calculator import (
+    calculate_acceleration,
+    calculate_distance_at_time,
+    calculate_fbp,
+    calculate_lb_at_time,
+)
 from firesim.spread.cellular import (
     BurnedCell,
     CellularFrame,
@@ -155,8 +160,28 @@ class TestFBPEllipseAgreement:
         f = fbp_for_conditions(cond, fuel)
         expected = calculate_ellipse_area(f.ros_final, f.back_ros, f.lb, 1.0)
         grid = metre_grid(200, 50.0, fuel)
+        frames = run_cellular_simulation(center_config(grid, 1.0), grid, cond, acceleration=False)
+        assert frames[-1].area_ha == pytest.approx(expected, rel=tol)
+
+    @pytest.mark.parametrize(
+        "fuel,cure,tol",
+        [(FuelType.C2, 60.0, 0.10), (FuelType.O1a, 100.0, 0.12)],
+    )
+    def test_accelerating_area_matches_fbp(self, fuel, cure, tol):
+        """With acceleration the area follows ST-X-3 eqs 73 and 81 (distance and LB at t)."""
+        cond = SpreadConditions(wind_speed=20.0, wind_direction=270.0, ffmc=92.0, dmc=40.0,
+                                dc=300.0, grass_cure=cure)
+        f = fbp_for_conditions(cond, fuel)
+        alpha = calculate_acceleration(fuel, f.cfb)
+        t = 60.0
+        length = calculate_distance_at_time(f.ros_final + f.back_ros, alpha, t)
+        breadth = length / calculate_lb_at_time(f.lb, alpha, t)
+        expected = math.pi * (length / 2) * (breadth / 2) / 1e4
+        grid = metre_grid(200, 50.0, fuel)
         frames = run_cellular_simulation(center_config(grid, 1.0), grid, cond)
         assert frames[-1].area_ha == pytest.approx(expected, rel=tol)
+        unaccelerated = calculate_ellipse_area(f.ros_final, f.back_ros, f.lb, 1.0)
+        assert frames[-1].area_ha < unaccelerated
 
     def test_calm_fire_is_round(self):
         cond = SpreadConditions(wind_speed=0.0, wind_direction=0.0, ffmc=92.0, dmc=40.0, dc=300.0)

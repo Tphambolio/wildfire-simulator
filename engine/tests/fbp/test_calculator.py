@@ -362,3 +362,34 @@ class TestSTX3Defects:
         wet = calculate_fbp("C3", 25.0, 92.0, 80.0, 500.0, fmc=120.0)
         assert dry.csi < wet.csi
         assert dry.cfb >= wet.cfb
+
+
+class TestAcceleration:
+    """Point-ignition acceleration (ST-X-3 eqs 70-73, 81)."""
+
+    def test_open_fuel_alpha(self):
+        from firesim.fbp.calculator import calculate_acceleration
+
+        assert calculate_acceleration("O1a", 0.0) == pytest.approx(0.115)
+        assert calculate_acceleration("C1", 0.9) == pytest.approx(0.115)
+
+    def test_closed_canopy_alpha_falls_with_crowning(self):
+        from firesim.fbp.calculator import calculate_acceleration
+
+        cfb = 0.3125  # maximum of CFB^2.5 exp(-8 CFB)
+        expected = 0.115 - 18.8 * cfb**2.5 * math.exp(-8 * cfb)
+        assert calculate_acceleration("C2", cfb) == pytest.approx(expected)
+        assert calculate_acceleration("C2", cfb) < calculate_acceleration("C2", 0.0)
+
+    def test_distance_is_integral_of_rate(self):
+        from firesim.fbp.calculator import calculate_distance_at_time, calculate_ros_at_time
+
+        n, t = 20000, 30.0
+        integral = sum(calculate_ros_at_time(10.0, 0.115, (i + 0.5) * t / n) for i in range(n)) * t / n
+        assert calculate_distance_at_time(10.0, 0.115, t) == pytest.approx(integral, rel=1e-6)
+
+    def test_lb_starts_round(self):
+        from firesim.fbp.calculator import calculate_lb_at_time
+
+        assert calculate_lb_at_time(3.0, 0.115, 0.0) == pytest.approx(1.0)
+        assert calculate_lb_at_time(3.0, 0.115, 600.0) == pytest.approx(3.0, rel=1e-6)

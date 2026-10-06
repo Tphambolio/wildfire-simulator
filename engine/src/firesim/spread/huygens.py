@@ -22,7 +22,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from firesim.fbp.calculator import calculate_fbp
+from firesim.fbp.calculator import (
+    calculate_acceleration,
+    calculate_fbp,
+    calculate_lb_at_time,
+    mean_acceleration_factor,
+)
 from firesim.fbp.constants import FuelType
 from firesim.types import FBPResult
 
@@ -234,6 +239,7 @@ def expand_vertex(
     ros_modifier: float = 1.0,
     cbh: float | None = None,
     cfl: float | None = None,
+    accel_window: tuple[float, float] | None = None,
 ) -> list[FireVertex]:
     """Expand a single fire front vertex as a Huygens wavelet.
 
@@ -252,6 +258,9 @@ def expand_vertex(
         num_rays: Number of radial directions to sample
         ros_modifier: Multiplier on all rates (e.g. WUI zones)
         cbh, cfl: Per-cell crown base height / crown fuel load overrides
+        accel_window: (t1, t2) minutes since this front's point ignition for the
+            step; rates are scaled by the mean FBP acceleration over the step and
+            the ellipse uses LB(t) (ST-X-3 eqs 70-72, 81). None = equilibrium fire.
 
     Returns:
         List of new vertices forming the wavelet ellipse
@@ -263,6 +272,15 @@ def expand_vertex(
         return [vertex]  # No spread
     back_ros = fbp.back_ros * ros_modifier
     flank_ros = fbp.flank_ros * ros_modifier
+    if accel_window is not None:
+        alpha = calculate_acceleration(fuel_type, fbp.cfb)
+        g = mean_acceleration_factor(alpha, *accel_window)
+        lb_t = calculate_lb_at_time(fbp.lb, alpha, 0.5 * (accel_window[0] + accel_window[1]))
+        head_ros *= g
+        back_ros *= g
+        flank_ros = (head_ros + back_ros) / (2.0 * lb_t)
+        if head_ros <= 1e-9:
+            return [vertex]
 
     # Ellipse in rate space: semi-major (head + back) / 2, semi-minor = FROS,
     # centre displaced (head - back) / 2 toward the head along RAZ.
@@ -311,6 +329,7 @@ def expand_fire_front(
     default_fuel: FuelType = FuelType.C2,
     num_rays: int = 36,
     spread_modifier_grid: SpreadModifierGrid | None = None,
+    accel_window: tuple[float, float] | None = None,
 ) -> list[FireVertex]:
     """Expand the entire fire front by one Huygens wavelet timestep.
 
@@ -327,6 +346,7 @@ def expand_fire_front(
         default_fuel: Fuel type to use when grid is None or lookup fails
         num_rays: Number of directional rays per wavelet
         spread_modifier_grid: Optional per-cell ROS/intensity multipliers
+        accel_window: (t1, t2) minutes since the front's point ignition, or None
 
     Returns:
         New fire front vertices (expanded)
@@ -368,6 +388,7 @@ def expand_fire_front(
             ros_modifier=ros_mod,
             cbh=cbh,
             cfl=cfl,
+            accel_window=accel_window,
         )
 
         # Clip rays that land on non-fuel — shorten to barrier boundary

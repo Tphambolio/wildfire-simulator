@@ -68,6 +68,11 @@ class SimulationRun:
         self._pause_event.set()  # Unblock if paused
 
 
+def _synthetic_seed(lat: float, lng: float) -> int:
+    """Stable RNG seed for the synthetic demo landscape at an ignition point."""
+    return round(lat * 1e4) * 10_000_000 + round(lng * 1e4)
+
+
 class SimulationRunner:
     """Manages simulation runs.
 
@@ -320,11 +325,14 @@ class SimulationRunner:
                 else:
                     from firesim.data.synthetic_grid import generate_synthetic_fuel_grid
 
+                    # Seeded from the ignition point (~11 m precision) so re-running a
+                    # scenario reproduces the same demo landscape and result.
                     fuel_grid = generate_synthetic_fuel_grid(
                         ignition_lat=params.ignition_lat,
                         ignition_lng=params.ignition_lng,
                         radius_km=5.0,
                         cell_size_m=50.0,
+                        seed=_synthetic_seed(params.ignition_lat, params.ignition_lng),
                     )
                     logger.info(
                         "Synthetic CA grid generated: %dx%d around (%.4f, %.4f)",
@@ -483,6 +491,7 @@ class SimulationRunner:
             )
 
             initial_front: list[FireVertex] | None = None
+            initial_burned: list[tuple[float, float]] | None = None
             time_offset = 0.0  # cumulative hours added to frame timestamps
 
             for day_idx, day_weather in enumerate(params.days):
@@ -522,6 +531,7 @@ class SimulationRunner:
                     default_fuel=fuel_type,
                     spread_modifier_grid=spread_modifier_grid,
                     initial_front=initial_front,
+                    initial_burned=initial_burned,
                 )
 
                 last_frame: SimulationFrame | None = None
@@ -549,13 +559,19 @@ class SimulationRunner:
                 if run._cancel_event.is_set():
                     break
 
-                # Carry fire front forward to next day
+                # Carry the fire forward to the next day: the perimeter for the Huygens
+                # model, and every burned cell for the grid model (which may hold
+                # several separate burned areas, e.g. from spot fires)
                 if last_frame is not None and len(last_frame.perimeter) >= 3:
                     initial_front = [
                         FireVertex(lat=lat, lng=lng) for lat, lng in last_frame.perimeter
                     ]
                 else:
                     initial_front = None
+                initial_burned = (
+                    [(c["lat"], c["lng"]) for c in last_frame.burned_cells]
+                    if last_frame is not None and last_frame.burned_cells else None
+                )
 
                 time_offset += 24.0
                 logger.info(

@@ -34,6 +34,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
+from firesim.fbp.calculator import calculate_acceleration
 from firesim.fbp.constants import FuelType
 from firesim.fbp.crown_fire import calculate_crown_fraction_burned, classify_fire_type
 from firesim.spread.huygens import (
@@ -85,6 +86,7 @@ class CellularFrame:
     spot_fires: list[SpotFire] | None = None
     num_fronts: int = 1
     ignition_snapped_m: float = 0.0  # >0 if ignition was moved to nearest fuel cell
+    perimeter: list[tuple[float, float]] | None = None  # (lat, lng) outline of the largest burned area
 
 
 def wavelet_normal_speed(a, b, c, nh, nk):
@@ -114,6 +116,10 @@ def run_cellular_simulation(
     snapshot_interval_minutes: float = 30.0,
     enable_spotting: bool = False,
     spotting_intensity: float = 1.0,
+    acceleration: bool = True,
+    initial_perimeter: list[tuple[float, float]] | None = None,
+    initial_burned: list[tuple[float, float]] | None = None,
+    compute_perimeter: bool = True,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -133,6 +139,15 @@ def run_cellular_simulation(
             burned cells and spread from the landing cells.
         spotting_intensity: Multiplier on spot fire probability (1.0 = baseline;
             0 = disabled). Has no effect when enable_spotting is False.
+        acceleration: Apply FBP point-ignition acceleration (ST-X-3 eqs 70-72, 81):
+            rates build up as 1 - exp(-alpha t) and the ellipse elongates as LB(t),
+            with alpha per cell from its crown fraction burned.
+        initial_perimeter: (lat, lng) polygon of an existing fire (e.g. an RPAS-observed
+            perimeter). Fuel cells whose centres fall inside start burned.
+        initial_burned: (lat, lng) points of already-burned cells (e.g. the previous day of a
+            multi-day run). With either, the fire is treated as established (no
+            acceleration) and spreads from that area instead of the ignition point.
+        compute_perimeter: Build each frame's outline polygon (skip for ensembles).
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -154,16 +169,28 @@ def run_cellular_simulation(
     params = _CellParams.build(fuel_grid, conditions, spread_modifier_grid, terrain_grid, center)
     fuel = params.fuel
 
-    ign_row, ign_col, snapped_m = _snap_ignition(
-        fuel_grid, config["ignition_lat"], config["ignition_lng"], cell_lat, cell_lng, dy
-    )
-
     arrival = np.full((rows, cols), np.inf)
     cross_ros = np.zeros((rows, cols))
     spot_events: list[tuple[float, SpotFire]] = []
 
-    if ign_row is not None and params.head[ign_row, ign_col] > 1e-6:
-        phi, t = _initial_front(params, ign_row, ign_col, dx, dy, duration, arrival, cross_ros)
+    start = _initial_region(fuel_grid, fuel, initial_perimeter, initial_burned, cell_lat, cell_lng)
+    snapped_m = 0.0
+    phi = None
+    if start is not None:
+        acceleration = False  # an existing fire is already at equilibrium spread
+        arrival[start] = 0.0
+        phi = _signed_distance(start, dx, dy)
+        t = 0.0
+        ign_row = ign_col = 0
+    else:
+        ign_row, ign_col, snapped_m = _snap_ignition(
+            fuel_grid, config["ignition_lat"], config["ignition_lng"], cell_lat, cell_lng, dy
+        )
+        if ign_row is not None and params.head[ign_row, ign_col] > 1e-6:
+            phi, t = _initial_front(params, ign_row, ign_col, dx, dy, duration, arrival, cross_ros,
+                                    acceleration)
+
+    if phi is not None:
         near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
         slice_len = dt_minutes if enable_spotting and spotting_intensity > 0.0 else duration
         next_slice = min(t + slice_len, duration)
@@ -179,7 +206,8 @@ def run_cellular_simulation(
             if speed <= 1e-9:
                 break
             step = min(CFL * h_min / speed, next_slice - t)
-            _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros)
+            _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros,
+                     acceleration)
             t += step
             if t >= next_slice - 1e-9:
                 if enable_spotting and spotting_intensity > 0.0:
@@ -200,8 +228,59 @@ def run_cellular_simulation(
 
     return _frames(
         arrival, cross_ros, params, fuel_grid, center, duration, snapshot_interval_minutes,
-        cell_area_m2, spot_events, snapped_m,
+        cell_area_m2, spot_events, snapped_m, cell_lat, cell_lng, compute_perimeter,
     )
+
+
+def _initial_region(fuel_grid, fuel, perimeter, burned_points, cell_lat, cell_lng):
+    """Boolean mask of fuel cells burned at t = 0, or None for a point ignition."""
+    if not perimeter and not burned_points:
+        return None
+    rows, cols = fuel.shape
+    mask = np.zeros((rows, cols), dtype=bool)
+    if perimeter and len(perimeter) >= 3:
+        import shapely
+
+        poly = shapely.Polygon([(lng, lat) for lat, lng in perimeter])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        rr, cc = np.mgrid[0:rows, 0:cols]
+        lats = fuel_grid.lat_max - (rr + 0.5) * cell_lat
+        lngs = fuel_grid.lng_min + (cc + 0.5) * cell_lng
+        mask |= shapely.contains_xy(poly, lngs, lats)
+    for lat, lng in burned_points or []:
+        r = int((fuel_grid.lat_max - lat) / cell_lat)
+        c = int((lng - fuel_grid.lng_min) / cell_lng)
+        if 0 <= r < rows and 0 <= c < cols:
+            mask[r, c] = True
+    mask &= fuel
+    return mask if mask.any() else None
+
+
+def _signed_distance(region, dx, dy):
+    """Signed distance (m) to the edge of ``region``: negative inside, positive outside."""
+    outside = ndimage.distance_transform_edt(~region, sampling=(dy, dx))
+    inside = ndimage.distance_transform_edt(region, sampling=(dy, dx))
+    return np.where(region, -inside, outside) + np.where(region, 0.5, -0.5) * min(dx, dy)
+
+
+def burned_outline(mask: np.ndarray, lat_max: float, lng_min: float, cell_lat: float,
+                   cell_lng: float) -> list[tuple[float, float]]:
+    """(lat, lng) exterior ring of the largest connected burned area in ``mask``."""
+    if not mask.any():
+        return []
+    from rasterio.features import shapes
+    from rasterio.transform import Affine
+
+    transform = Affine(cell_lng, 0.0, lng_min, 0.0, -cell_lat, lat_max)
+    best, best_area = None, -1.0
+    for geom, value in shapes(mask.astype(np.uint8), mask=mask, transform=transform):
+        ring = geom["coordinates"][0]
+        xs, ys = np.array([p[0] for p in ring]), np.array([p[1] for p in ring])
+        area = 0.5 * abs(np.dot(xs, np.roll(ys, 1)) - np.dot(ys, np.roll(xs, 1)))
+        if area > best_area:
+            best, best_area = ring, area
+    return [(lat, lng) for lng, lat in best]
 
 
 @dataclass
@@ -218,11 +297,13 @@ class _CellParams:
     cfl: np.ndarray
     rso: np.ndarray
     imult: np.ndarray
+    alpha: np.ndarray  # FBP acceleration parameter (per minute)
+    lb: np.ndarray  # equilibrium length-to-breadth ratio
 
     @classmethod
     def build(cls, fuel_grid, conditions, spread_modifier_grid, terrain_grid, center) -> "_CellParams":
         rows, cols = fuel_grid.rows, fuel_grid.cols
-        names = ("head", "back", "flank", "raz", "sfc", "cfl", "rso", "imult")
+        names = ("head", "back", "flank", "raz", "sfc", "cfl", "rso", "imult", "alpha", "lb")
         arr = {n: np.zeros((rows, cols)) for n in names}
         fuel = np.zeros((rows, cols), dtype=bool)
         cache: dict[tuple, tuple] = {}
@@ -249,7 +330,7 @@ class _CellParams:
                 if vals is None:
                     f = fbp_for_conditions(conditions, ft, float(key[1]), float(key[2]), cbh, cfl)
                     vals = (f.ros_final * rm, f.back_ros * rm, f.flank_ros * rm, f.raz,
-                            f.sfc, f.cfl, f.rso, im)
+                            f.sfc, f.cfl, f.rso, im, calculate_acceleration(ft, f.cfb), f.lb)
                     cache[key] = vals
                 for n, v in zip(names, vals):
                     arr[n][r, c] = v
@@ -258,16 +339,39 @@ class _CellParams:
         return cls(
             fuel=fuel, head=head, a=(head + back) / 2.0, b=arr["flank"], c=(head - back) / 2.0,
             hx=np.sin(raz), hy=np.cos(raz), sfc=arr["sfc"], cfl=arr["cfl"], rso=arr["rso"],
-            imult=arr["imult"],
+            imult=arr["imult"], alpha=np.where(fuel, arr["alpha"], 0.115), lb=np.maximum(arr["lb"], 1.0),
         )
 
 
-def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros):
-    """Exact FBP ellipse of the ignition cell until its head has run START_CELLS cells."""
+def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceleration=True):
+    """Exact FBP ellipse of the ignition cell until its head has run START_CELLS cells.
+
+    With acceleration the ellipse at t0 has the head and back distances of the
+    accelerating fire (ST-X-3 eq 73) and breadth from LB(t0) (eq 81); inside it,
+    arrival times use the mean speed over [0, t0].
+    """
     rows, cols = params.fuel.shape
     a, b, c = params.a[r0, c0], params.b[r0, c0], params.c[r0, c0]
     hx, hy, head = params.hx[r0, c0], params.hy[r0, c0], params.head[r0, c0]
-    t0 = min(START_CELLS * min(dx, dy) / head, 0.5 * duration)
+    run = START_CELLS * min(dx, dy)
+    if acceleration:
+        alpha, lb = params.alpha[r0, c0], params.lb[r0, c0]
+
+        def head_dist(t):
+            return head * (t + math.exp(-alpha * t) / alpha - 1.0 / alpha)
+
+        lo, hi = 0.0, run / head + 5.0 / alpha
+        for _ in range(60):  # bisection for the time the head has run `run` metres
+            mid = 0.5 * (lo + hi)
+            lo, hi = (mid, hi) if head_dist(mid) < run else (lo, mid)
+        t0 = min(hi, 0.5 * duration)
+        g0 = head_dist(t0) / (head * t0) if t0 > 0 else 0.0
+        lb_t0 = (lb - 1.0) * (1.0 - math.exp(-alpha * t0)) + 1.0
+        a, c = a * g0, c * g0
+        b = a / lb_t0
+        head = head * g0
+    else:
+        t0 = min(run / head, 0.5 * duration)
     rr, cc = np.mgrid[0:rows, 0:cols]
     x = (cc - c0) * dx
     y = (r0 - rr) * dy
@@ -291,7 +395,7 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros):
     return phi, t0
 
 
-def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros):
+def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acceleration=True):
     """Advance phi by one time step inside the window ``win`` (in place)."""
     sub = phi[win]
     pad = np.pad(sub, 2, mode="edge")
@@ -320,6 +424,12 @@ def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros):
 
     a, b, c = p.a[win], p.b[win], p.c[win]
     hx, hy, fuel = p.hx[win], p.hy[win], p.fuel[win]
+    if acceleration:  # mean FBP acceleration over the step and LB(t) at its midpoint
+        alpha = p.alpha[win]
+        g = 1.0 - (np.exp(-alpha * t) - np.exp(-alpha * (t + step))) / (alpha * step)
+        lb_t = (p.lb[win] - 1.0) * (1.0 - np.exp(-alpha * (t + 0.5 * step))) + 1.0
+        a, c = a * g, c * g
+        b = a / lb_t
     gx, gy = 0.5 * (dxm + dxp), 0.5 * (dym + dyp)
     g = np.hypot(gx, gy) + 1e-12
     nh = (gx * hx + gy * hy) / g
@@ -343,7 +453,7 @@ def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros):
 
 
 def _frames(arrival, cross_ros, p, fuel_grid, center, duration, snapshot_interval, cell_area_m2,
-            spot_events, snapped_m) -> list[CellularFrame]:
+            spot_events, snapped_m, cell_lat, cell_lng, compute_perimeter=True) -> list[CellularFrame]:
     """Build cumulative frames from per-cell arrival times."""
     burned_idx = np.argwhere(arrival <= duration)
     order = np.argsort(arrival[burned_idx[:, 0], burned_idx[:, 1]], kind="stable")
@@ -371,10 +481,15 @@ def _frames(arrival, cross_ros, p, fuel_grid, center, duration, snapshot_interva
         if n > prev_n:  # mean head ROS of the cells reached since the last frame
             mean_ros = float(np.mean(heads[prev_n:n]))
         spots = [s for ts, s in spot_events if prev_t < ts <= t_snap]
-        frames.append(_make_frame(
+        frame = _make_frame(
             float(t_snap), cells[:n], n - prev_n, cell_area_m2, mean_ros=mean_ros,
             spot_fires=spots or None, ignition_snapped_m=snapped_m if not frames else 0.0,
-        ))
+        )
+        if compute_perimeter:
+            frame.perimeter = burned_outline(
+                arrival <= t_snap, fuel_grid.lat_max, fuel_grid.lng_min, cell_lat, cell_lng
+            )
+        frames.append(frame)
         prev_t, prev_n = t_snap, n
 
     logger.info(

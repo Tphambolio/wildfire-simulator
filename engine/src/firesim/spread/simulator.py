@@ -17,6 +17,8 @@ import math
 from collections import defaultdict
 from typing import Generator
 
+import numpy as np
+
 from firesim.fbp.calculator import calculate_flame_length, calculate_foliar_moisture
 from firesim.fbp.constants import FuelType
 from firesim.spread.huygens import (
@@ -60,9 +62,11 @@ class Simulator:
         num_rays: int = 36,
         spread_modifier_grid: SpreadModifierGrid | None = None,
         initial_front: list[FireVertex] | None = None,
+        initial_burned: list[tuple[float, float]] | None = None,
         enable_spotting: bool = False,
         spotting_intensity: float = 1.0,
         building_centroids: list[tuple[float, float]] | None = None,
+        acceleration: bool = True,
     ):
         """Initialize simulator.
 
@@ -78,6 +82,12 @@ class Simulator:
             spread_modifier_grid: Per-cell WUI zone modifiers (None = no modification)
             building_centroids: List of (lat, lng) for buildings in nearby
                 neighbourhoods. Used to count structures at risk per frame.
+            initial_burned: (lat, lng) centres of already-burned grid cells, used by the
+                grid model to continue a fire (e.g. the next day of a multi-day run).
+            acceleration: Apply FBP point-ignition acceleration (ST-X-3 eqs 70-72)
+                from each front's ignition. Fronts supplied via ``initial_front``
+                (multi-day continuation, RPAS perimeter correction) are treated as
+                established fires at equilibrium spread.
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -87,9 +97,11 @@ class Simulator:
         self.num_rays = num_rays
         self.spread_modifier_grid = spread_modifier_grid
         self.initial_front = initial_front
+        self.initial_burned = initial_burned
         self.enable_spotting = enable_spotting
         self.spotting_intensity = spotting_intensity
         self.building_centroids = building_centroids
+        self.acceleration = acceleration
 
     def run(self) -> Generator[SimulationFrame, None, None]:
         """Run the simulation, yielding frames at snapshot intervals.
@@ -105,7 +117,7 @@ class Simulator:
 
         # Auto-select: CA for large spatial grids (real-world data),
         # Huygens for uniform fuel or small test grids
-        if self.fuel_grid is not None and self.fuel_grid.rows >= 50 and self.fuel_grid.cols >= 50:
+        if self.fuel_grid is not None:
             yield from self._run_cellular()
             return
 
@@ -113,8 +125,10 @@ class Simulator:
         # create a fresh ignition circle from the ignition point.
         if self.initial_front is not None and len(self.initial_front) >= 3:
             front = self.initial_front
+            front_ignited = None  # established fire: no acceleration
         else:
             front = self._create_ignition_front(config.ignition_lat, config.ignition_lng)
+            front_ignited = 0.0
 
         conditions = self._spread_conditions()
 
@@ -134,6 +148,8 @@ class Simulator:
 
         # Multi-front support: list of independent fire fronts
         fronts: list[list[FireVertex]] = [front]
+        # minutes at which each front was ignited (None = established, no acceleration)
+        ignited_at: list[float | None] = [front_ignited if self.acceleration else None]
         all_spot_fires: list[SpotFire] = []
 
         # Yield initial frame (t=0)
@@ -147,7 +163,11 @@ class Simulator:
             new_fronts: list[list[FireVertex]] = []
             timestep_spots: list[SpotFire] = []
 
-            for f in fronts:
+            for f, t_ign in zip(fronts, ignited_at):
+                window = (
+                    None if t_ign is None
+                    else (elapsed_minutes - t_ign, elapsed_minutes + dt - t_ign)
+                )
                 new_front = expand_fire_front(
                     front=f,
                     conditions=conditions,
@@ -157,6 +177,7 @@ class Simulator:
                     default_fuel=self.default_fuel,
                     num_rays=self.num_rays,
                     spread_modifier_grid=self.spread_modifier_grid,
+                    accel_window=window,
                 )
                 new_fronts.append(simplify_front(new_front))
 
@@ -174,15 +195,18 @@ class Simulator:
 
             # Create new fronts from spot fires (cap at 10 active fronts)
             MAX_FRONTS = 10
+            new_ignited = list(ignited_at)
             for spot in timestep_spots:
                 if len(new_fronts) >= MAX_FRONTS:
                     break
                 new_fronts.append(
-                    self._create_ignition_front(spot.lat, spot.lng, radius_m=15.0)
+                    self._create_ignition_front(spot.lat, spot.lng)
                 )
+                new_ignited.append(elapsed_minutes + dt if self.acceleration else None)
                 all_spot_fires.append(spot)
 
             fronts = new_fronts
+            ignited_at = new_ignited
             elapsed_minutes += dt
 
             # Yield snapshot if we've reached the interval
@@ -230,17 +254,18 @@ class Simulator:
             snapshot_interval_minutes=config.snapshot_interval_minutes,
             enable_spotting=self.enable_spotting,
             spotting_intensity=self.spotting_intensity,
+            acceleration=self.acceleration,
+            initial_perimeter=(
+                [(v.lat, v.lng) for v in self.initial_front]
+                if self.initial_front and len(self.initial_front) >= 3 else None
+            ),
+            initial_burned=self.initial_burned,
         )
 
         for cf in ca_frames:
-            # Convert CellularFrame to SimulationFrame
-            # Perimeter = convex boundary of burned cells (for area display)
-            if cf.burned_cells:
-                perimeter = [
-                    (c.lat, c.lng) for c in cf.burned_cells[::max(1, len(cf.burned_cells) // 100)]
-                ]
-            else:
-                perimeter = []
+            # Outline of the largest burned area (polygon), for export, building counts
+            # and multi-day carry-over
+            perimeter = cf.perimeter or []
 
             # Build burned_cells list for heatmap rendering (with fire_type for color coding)
             burned_data = [
@@ -293,8 +318,22 @@ class Simulator:
                 spot_fires=ca_spot_fires,
                 num_fronts=1,
                 burned_cells=burned_data,
+                buildings_at_risk=self._buildings_inside(perimeter),
                 ignition_snapped_m=cf.ignition_snapped_m,
             )
+
+    def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:
+        """Number of building centroids inside a (lat, lng) perimeter polygon."""
+        if not self.building_centroids or len(perimeter) < 3:
+            return 0
+        import shapely
+
+        poly = shapely.Polygon([(lng, lat) for lat, lng in perimeter])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        lats = np.array([b[0] for b in self.building_centroids])
+        lngs = np.array([b[1] for b in self.building_centroids])
+        return int(shapely.contains_xy(poly, lngs, lats).sum())
 
     def _foliar_moisture(self) -> float:
         """FMC: explicit override, else ST-X-3 eqs 1-8 from location and date, else 100 %."""
@@ -336,12 +375,14 @@ class Simulator:
         return merged
 
     def _create_ignition_front(
-        self, lat: float, lng: float, radius_m: float = 30.0, num_points: int = 12
+        self, lat: float, lng: float, radius_m: float = 1.0, num_points: int = 12
     ) -> list[FireVertex]:
         """Create initial fire front as a small circle around ignition point.
 
-        Starting with a single point causes degenerate geometry. Instead,
-        we initialize with a small circle representing the initial fire.
+        Starting with a single point causes degenerate geometry, so the front
+        starts as a 1 m circle. A Huygens front grows the whole starting shape
+        outward, so a larger circle adds roughly perimeter x radius to the area
+        (a 30 m circle made a 30 min C-2 fire about 60 % too large).
 
         Args:
             lat: Ignition latitude
@@ -399,15 +440,7 @@ class Simulator:
         perimeter = vertices_to_polygon(front)
 
         # Count structures at risk within the fire perimeter
-        buildings_at_risk = 0
-        if self.building_centroids and len(perimeter) >= 3:
-            from shapely.geometry import Point, Polygon
-            fire_poly = Polygon([(lng, lat) for lat, lng in perimeter])
-            if fire_poly.is_valid:
-                buildings_at_risk = sum(
-                    1 for (blat, blng) in self.building_centroids
-                    if fire_poly.contains(Point(blng, blat))
-                )
+        buildings_at_risk = self._buildings_inside(perimeter)
 
         return SimulationFrame(
             time_hours=time_hours,

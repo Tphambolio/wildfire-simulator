@@ -148,6 +148,7 @@ def run_monte_carlo(
                 terrain_grid=terrain_grid,
                 dt_minutes=dt_minutes,
                 snapshot_interval_minutes=mc_config.duration_hours * 60.0,  # final only
+                compute_perimeter=False,
             )
             random.seed()  # Restore non-deterministic state
 
