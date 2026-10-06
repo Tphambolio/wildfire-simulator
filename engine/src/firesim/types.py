@@ -40,6 +40,7 @@ class FBPResult:
     csi: float = 0.0  # critical surface intensity for crowning (kW/m)
     rso: float = 0.0  # critical surface ROS for crowning (m/min)
     fmc: float = 0.0  # foliar moisture content used (%)
+    cfl: float = 0.0  # crown fuel load available to burn (kg/m2; M types scaled by PC/PDF)
 
 
 @dataclass(frozen=True)

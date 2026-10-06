@@ -519,6 +519,12 @@ export default function App() {
         <div className="sidebar-brand">
           <h1>FIRESIM</h1>
           <span className="sidebar-subtitle">Canadian FBP Simulator</span>
+          <span
+            className="sidebar-status"
+            title="FBP equations match the cffdrs reference implementation; spread has not been validated against observed fires or Prometheus/WISE. Use for planning, training and what-if analysis, not as an operational forecast."
+          >
+            Planning &amp; training tool — not validated against observed fires
+          </span>
         </div>
         <div className="sidebar-content">
           <WeatherPanel

@@ -273,6 +273,16 @@ body {
   display: block;
 }
 
+.sidebar-brand .sidebar-status {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  opacity: 0.85;
+  margin-top: 6px;
+  display: block;
+  line-height: 1.3;
+}
+
 .sidebar-content {
   flex: 1;
   overflow-y: auto;

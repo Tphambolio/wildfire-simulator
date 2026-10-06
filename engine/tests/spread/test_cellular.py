@@ -1,12 +1,11 @@
-"""Unit tests for cellular automaton fire spread model.
+"""Tests for the grid (level-set) fire spread model.
 
-Tests cover 8-neighbor grid connectivity, elliptical ROS probability,
-heat accumulation ignition, and full simulation frame output.
+Covers agreement with the FBP point-ignition ellipse on uniform fuel,
+determinism, barriers, directional intensity, and frame output.
 
 References:
-    - Alexander, M.E. (1985). Estimating the length-to-breadth ratio of
-      elliptical forest fire patterns.
-    - Canadian Forest Fire Behavior Prediction System (FBP) documentation.
+    - Forestry Canada Fire Danger Group (1992). ST-X-3 (fire ellipse, eqs 79-89).
+    - Richards, G.D. (1990). An elliptical growth model of forest fire fronts.
 """
 
 import math
@@ -16,16 +15,16 @@ import numpy as np
 import pytest
 
 from firesim.fbp.constants import FuelType
+from firesim.fbp.calculator import calculate_fbp
 from firesim.spread.cellular import (
-    HEAT_IGNITION_THRESHOLD,
-    NEIGHBORS,
     BurnedCell,
     CellularFrame,
-    _elliptical_spread_prob,
     _make_frame,
+    ellipse_arrival_time,
     run_cellular_simulation,
 )
-from firesim.spread.huygens import FuelGrid, SpreadConditions
+from firesim.spread.ellipse import calculate_ellipse_area
+from firesim.spread.huygens import FuelGrid, SpreadConditions, fbp_for_conditions
 
 
 # ---------------------------------------------------------------------------
@@ -126,138 +125,118 @@ def center_config(fuel_grid: FuelGrid, duration_hours: float = 0.5) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# NEIGHBORS constant
-# ---------------------------------------------------------------------------
-
-
-class TestNeighborsConstant:
-    """Verify the 8-neighbor offset table is correct."""
-
-    def test_eight_neighbors(self):
-        assert len(NEIGHBORS) == 8
-
-    def test_neighbor_angles_unique(self):
-        angles = [n[2] for n in NEIGHBORS]
-        assert len(set(angles)) == 8
-
-    def test_cardinal_and_diagonal_present(self):
-        angles = {n[2] for n in NEIGHBORS}
-        expected = {0, 45, 90, 135, 180, 225, 270, 315}
-        assert angles == expected
-
-    def test_all_adjacent_cells_reachable(self):
-        """Every (dr, dc) pair must reach an adjacent cell."""
-        offsets = {(n[0], n[1]) for n in NEIGHBORS}
-        for dr, dc in offsets:
-            assert abs(dr) <= 1 and abs(dc) <= 1
-            assert not (dr == 0 and dc == 0)
+def metre_grid(n: int, cell_m: float, fuel: FuelType = FuelType.C2, lat0: float = 53.5,
+               lng0: float = -113.5) -> FuelGrid:
+    """Square n x n grid of cell_m-metre cells centred on (lat0, lng0)."""
+    dlat = n * cell_m / 111320.0
+    dlng = n * cell_m / (111320.0 * math.cos(math.radians(lat0)))
+    return FuelGrid(
+        fuel_types=[[fuel] * n for _ in range(n)],
+        lat_min=lat0 - dlat / 2, lat_max=lat0 + dlat / 2,
+        lng_min=lng0 - dlng / 2, lng_max=lng0 + dlng / 2, rows=n, cols=n,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Elliptical spread probability (_elliptical_spread_prob)
+# Agreement with the FBP ellipse
 # ---------------------------------------------------------------------------
 
 
-class TestEllipticalSpreadProb:
-    """Directional spread probability from the FBP fire ellipse.
+class TestFBPEllipseAgreement:
+    """On uniform fuel the burned area must follow the FBP point-ignition ellipse."""
 
-    The directional rate is the distance to the FBP ellipse from the ignition
-    point toward theta: head rate at 0, back rate at 180 degrees.
-    """
+    @pytest.mark.parametrize(
+        "fuel,cure,tol",
+        [(FuelType.C2, 60.0, 0.08), (FuelType.M1, 60.0, 0.08), (FuelType.O1a, 100.0, 0.12)],
+    )
+    def test_area_matches_fbp_ellipse(self, fuel, cure, tol):
+        cond = SpreadConditions(wind_speed=20.0, wind_direction=270.0, ffmc=92.0, dmc=40.0,
+                                dc=300.0, grass_cure=cure)
+        f = fbp_for_conditions(cond, fuel)
+        expected = calculate_ellipse_area(f.ros_final, f.back_ros, f.lb, 1.0)
+        grid = metre_grid(200, 50.0, fuel)
+        frames = run_cellular_simulation(center_config(grid, 1.0), grid, cond)
+        assert frames[-1].area_ha == pytest.approx(expected, rel=tol)
 
-    # C-2-like rates at 20 km/h: head, flank = (head + back) / (2 LB), back
-    HEAD, BACK, LB = 5.0, 0.4, 2.5
-    FLANK = (HEAD + BACK) / (2 * LB)
+    def test_calm_fire_is_round(self):
+        cond = SpreadConditions(wind_speed=0.0, wind_direction=0.0, ffmc=92.0, dmc=40.0, dc=300.0)
+        grid = metre_grid(120, 25.0)
+        cells = run_cellular_simulation(center_config(grid, 1.0), grid, cond)[-1].burned_cells
+        lat_span = max(c.lat for c in cells) - min(c.lat for c in cells)
+        lng_span = (max(c.lng for c in cells) - min(c.lng for c in cells)) * math.cos(math.radians(53.5))
+        assert lng_span == pytest.approx(lat_span, rel=0.1)
 
-    def _p(self, angle, spread_dir=90.0, head=None, flank=None, back=None, cell=50.0, dt=5.0):
-        head = self.HEAD if head is None else head
-        flank = self.FLANK if flank is None else flank
-        back = self.BACK if back is None else back
-        return _elliptical_spread_prob(angle, spread_dir, head, flank, back, cell, dt)
+    def test_deterministic(self, moderate_conditions):
+        grid = metre_grid(80, 50.0)
+        a = run_cellular_simulation(center_config(grid, 1.0), grid, moderate_conditions)
+        b = run_cellular_simulation(center_config(grid, 1.0), grid, moderate_conditions)
+        assert [f.total_burned for f in a] == [f.total_burned for f in b]
 
-    def test_head_direction_highest_probability(self):
-        """Head > flank > back."""
-        head_prob, flank_prob, back_prob = self._p(90.0), self._p(0.0), self._p(270.0)
-        assert head_prob > flank_prob > back_prob
-
-    def test_head_and_back_match_fbp_rates(self):
-        """At 0 and 180 degrees the directional rate is the FBP head and back rate."""
-        assert self._p(90.0) == pytest.approx(self.HEAD * 5.0 / 50.0, rel=1e-3)
-        assert self._p(270.0) == pytest.approx(self.BACK * 5.0 / 50.0, rel=1e-3)
-
-    def test_probability_bounded_zero_to_one(self):
-        """Spread probability must be in [0, 1]."""
-        for angle in range(0, 360, 45):
-            assert 0.0 <= self._p(float(angle), head=10.0) <= 1.0
-
-    def test_no_wind_symmetric(self):
-        """Equal head, flank and back rates spread equally in all directions."""
-        probs = [self._p(float(a), head=3.0, flank=3.0, back=3.0) for a in (0, 90, 180, 270)]
-        assert max(probs) - min(probs) < 1e-6
-
-    def test_high_ros_saturates_to_one(self):
-        """Very high ROS relative to cell size should give probability ~1.0."""
-        assert self._p(90.0, head=1000.0, flank=200.0, back=10.0) == pytest.approx(1.0)
-
-    def test_zero_ros_gives_zero_probability(self):
-        """Zero ROS should produce zero spread probability."""
-        assert self._p(90.0, head=0.0, flank=0.0, back=0.0) == pytest.approx(0.0)
+    def test_ellipse_arrival_time_endpoints(self):
+        f = calculate_fbp("C2", 20.0, 92.0, 40.0, 300.0)
+        a, b, c = (f.ros_final + f.back_ros) / 2, f.flank_ros, (f.ros_final - f.back_ros) / 2
+        assert ellipse_arrival_time(f.ros_final * 10, 0.0, a, b, c) == pytest.approx(10.0)
+        assert ellipse_arrival_time(-f.back_ros * 10, 0.0, a, b, c) == pytest.approx(10.0)
 
 
 # ---------------------------------------------------------------------------
-# Heat accumulation
+# Barriers and directional intensity
 # ---------------------------------------------------------------------------
 
 
-class TestHeatAccumulation:
-    """Verify that repeated heat exposure triggers ignition.
+class TestBarriers:
+    def _burned_cols(self, grid, frames):
+        cell_lng = (grid.lng_max - grid.lng_min) / grid.cols
+        return {int((c.lng - grid.lng_min) / cell_lng) for c in frames[-1].burned_cells}
 
-    HEAT_IGNITION_THRESHOLD: accumulated heat value that forces ignition
-    regardless of stochastic probability.
-    """
+    def test_fire_does_not_cross_wall(self, moderate_conditions):
+        grid = metre_grid(80, 25.0)
+        for r in range(80):
+            grid.fuel_types[r][50] = None
+        frames = run_cellular_simulation(center_config(grid, 2.0), grid, moderate_conditions)
+        cols = self._burned_cols(grid, frames)
+        assert 49 in cols and max(cols) < 50
 
-    def test_threshold_is_positive(self):
-        assert HEAT_IGNITION_THRESHOLD > 0.0
+    def test_fire_wraps_through_gap(self, moderate_conditions):
+        grid = metre_grid(80, 25.0)
+        for r in range(80):
+            if not 36 <= r <= 44:  # gap in line with the ignition
+                grid.fuel_types[r][50] = None
+        frames = run_cellular_simulation(center_config(grid, 2.0), grid, moderate_conditions)
+        assert max(self._burned_cols(grid, frames)) > 55
 
-    def test_heat_accumulation_ignites_cell(self):
-        """A non-fuel barrier surrounded by fuel should eventually force ignition
-        via heat if a neighbor accumulates enough heat to exceed the threshold.
-
-        We test this by running the simulation with a very small grid and very
-        long duration, seeding random so ignition is deterministic, and verifying
-        that cells adjacent to burning cells are eventually ignited.
-        """
-        random.seed(42)
-        np.random.seed(42)
-        grid = make_uniform_grid(rows=5, cols=5, fuel=FuelType.C2)
-        conditions = SpreadConditions(
-            wind_speed=30.0,
-            wind_direction=270.0,
-            ffmc=92.0,
-            dmc=60.0,
-            dc=400.0,
-        )
-        config = {
-            "ignition_lat": (grid.lat_min + grid.lat_max) / 2,
-            "ignition_lng": (grid.lng_min + grid.lng_max) / 2,
-            "duration_hours": 2.0,
-        }
-        frames = run_cellular_simulation(
-            config=config,
-            fuel_grid=grid,
-            conditions=conditions,
-            dt_minutes=1.0,
-            snapshot_interval_minutes=60.0,
-        )
-        # Fire should have spread — at least the ignition cell and some neighbors
-        last_frame = frames[-1]
-        assert last_frame.total_burned > 0
+    def test_fire_does_not_leak_through_diagonal_wall(self, moderate_conditions):
+        grid = metre_grid(80, 25.0)
+        for r in range(80):
+            c = 45 + (r - 40)
+            if 0 <= c < 80:
+                grid.fuel_types[r][c] = None
+        frames = run_cellular_simulation(center_config(grid, 2.0), grid, moderate_conditions)
+        cell_lat = (grid.lat_max - grid.lat_min) / 80
+        cell_lng = (grid.lng_max - grid.lng_min) / 80
+        for cell in frames[-1].burned_cells:
+            r = int((grid.lat_max - cell.lat) / cell_lat)
+            c = int((cell.lng - grid.lng_min) / cell_lng)
+            assert c < 45 + (r - 40)
 
 
-# ---------------------------------------------------------------------------
-# Full simulation — uniform fuel grid
-# ---------------------------------------------------------------------------
+class TestDirectionalIntensity:
+    def test_back_cells_less_intense_than_head_cells(self, moderate_conditions):
+        grid = metre_grid(100, 25.0)
+        frames = run_cellular_simulation(center_config(grid, 1.0), grid, moderate_conditions)
+        lng0 = (grid.lng_min + grid.lng_max) / 2
+        cells = frames[-1].burned_cells
+        head = max(cells, key=lambda c: c.lng)
+        back = min(cells, key=lambda c: c.lng)
+        assert back.lng < lng0 < head.lng
+        assert back.intensity < 0.2 * head.intensity
+
+    def test_timestep_is_arrival_minutes(self, moderate_conditions):
+        grid = metre_grid(100, 25.0)
+        frames = run_cellular_simulation(center_config(grid, 1.0), grid, moderate_conditions,
+                                         snapshot_interval_minutes=20.0)
+        for f in frames:
+            assert all(c.timestep <= f.time_hours * 60.0 + 0.5 for c in f.burned_cells)
 
 
 class TestRunCellularSimulation:
@@ -453,94 +432,33 @@ class TestMakeFrame:
     """Verify _make_frame produces correct CellularFrame values."""
 
     def test_empty_burned_gives_zero_area(self):
-        grid = make_uniform_grid(rows=10, cols=10)
-        burned = np.zeros((10, 10), dtype=bool)
-        frame = _make_frame(
-            elapsed_minutes=0.0,
-            all_burned_cells=[],
-            new_burned_cells=[],
-            rows=10,
-            cols=10,
-            cell_size_m=100.0,
-            fuel_grid=grid,
-            burned=burned,
-        )
+        frame = _make_frame(elapsed_minutes=0.0, burned_cells=[], new_cells=0, cell_area_m2=1e4)
         assert frame.area_ha == pytest.approx(0.0)
         assert frame.total_burned == 0
         assert frame.max_intensity == pytest.approx(0.0)
 
     def test_time_hours_conversion(self):
-        grid = make_uniform_grid(rows=10, cols=10)
-        burned = np.zeros((10, 10), dtype=bool)
-        frame = _make_frame(
-            elapsed_minutes=90.0,
-            all_burned_cells=[],
-            new_burned_cells=[],
-            rows=10,
-            cols=10,
-            cell_size_m=100.0,
-            fuel_grid=grid,
-            burned=burned,
-        )
+        frame = _make_frame(elapsed_minutes=90.0, burned_cells=[], new_cells=0, cell_area_m2=1e4)
         assert frame.time_hours == pytest.approx(1.5)
 
     def test_area_calculation(self):
-        """Area should equal total_burned * cell_area_ha."""
-        grid = make_uniform_grid(rows=10, cols=10)
-        burned = np.zeros((10, 10), dtype=bool)
-        burned[0, 0] = True
-        burned[0, 1] = True  # 2 burned cells
-        cell_size_m = 100.0
-        expected_ha = 2 * (cell_size_m ** 2) / 10000.0
-        frame = _make_frame(
-            elapsed_minutes=30.0,
-            all_burned_cells=[],
-            new_burned_cells=[],
-            rows=10,
-            cols=10,
-            cell_size_m=cell_size_m,
-            fuel_grid=grid,
-            burned=burned,
-        )
-        assert frame.area_ha == pytest.approx(expected_ha)
+        cells = [BurnedCell(lat=53.5, lng=-113.5, intensity=1.0, fuel_type="C2", timestep=0)] * 2
+        frame = _make_frame(elapsed_minutes=30.0, burned_cells=cells, new_cells=2, cell_area_m2=1e4)
+        assert frame.area_ha == pytest.approx(2.0)
 
     def test_fuel_breakdown_from_burned_cells(self):
-        """Fuel breakdown should reflect actual fuel type proportions."""
-        grid = make_uniform_grid(rows=10, cols=10)
-        burned = np.zeros((10, 10), dtype=bool)
         cells = [
             BurnedCell(lat=53.5, lng=-113.5, intensity=1000.0, fuel_type="C2", timestep=0),
             BurnedCell(lat=53.5, lng=-113.5, intensity=1000.0, fuel_type="C2", timestep=0),
             BurnedCell(lat=53.5, lng=-113.5, intensity=500.0, fuel_type="C3", timestep=0),
         ]
-        frame = _make_frame(
-            elapsed_minutes=30.0,
-            all_burned_cells=cells,
-            new_burned_cells=[],
-            rows=10,
-            cols=10,
-            cell_size_m=100.0,
-            fuel_grid=grid,
-            burned=burned,
-        )
+        frame = _make_frame(elapsed_minutes=30.0, burned_cells=cells, new_cells=3, cell_area_m2=1e4)
         assert frame.fuel_breakdown.get("C2", 0) == pytest.approx(2 / 3, rel=1e-6)
         assert frame.fuel_breakdown.get("C3", 0) == pytest.approx(1 / 3, rel=1e-6)
 
     def test_mean_ros_passed_through(self):
-        """mean_ros parameter must be stored in the frame (not hardcoded 0)."""
-        grid = make_uniform_grid(rows=10, cols=10)
-        burned = np.zeros((10, 10), dtype=bool)
-        frame = _make_frame(
-            elapsed_minutes=30.0,
-            all_burned_cells=[],
-            new_burned_cells=[],
-            rows=10,
-            cols=10,
-            cell_size_m=100.0,
-            fuel_grid=grid,
-            burned=burned,
-            mean_ros=7.42,
-        )
+        frame = _make_frame(elapsed_minutes=30.0, burned_cells=[], new_cells=0, cell_area_m2=1e4,
+                            mean_ros=7.42)
         assert frame.mean_ros == pytest.approx(7.42)
 
 
