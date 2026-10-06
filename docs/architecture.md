@@ -42,6 +42,10 @@ frontend/        React + Vite + TypeScript + MapLibre GL
 `Simulator.run()` picks the model: any spatial fuel grid uses the grid (level-set) model;
 without one, the Huygens model runs with the default fuel type.
 
+**Weather over time.** `Simulator.weather_schedule()` turns the configuration into periods of
+constant conditions (one, or one per hourly record); both models switch FBP rates at each
+period boundary, and the grid model evaluates FBP once per distinct cell type per period.
+
 **Both models share the FBP layer** (`spread/huygens.py: fbp_for_conditions`): for each
 location the head, flank and back rates and the spread direction RAZ come from FBP with the
 local fuel, slope (net effective wind) and any per-cell canopy (CBH, CFL), and fire
@@ -111,6 +115,9 @@ only if every code in the raster belongs to it, or set explicitly with `code_sch
 ## What this is not
 
 - Not validated against observed fires or other fire growth models (see `docs/verification.md`).
-- No hourly weather stream: one weather state per simulation (multi-day mode advances the FWI
-  codes daily).
+- Weather is one state per simulation unless an hourly stream is given (`hourly_weather`, or
+  "Use hourly forecast weather" in the UI, which fetches the Open-Meteo forecast for the
+  ignition point). With a stream, wind changes hourly and FFMC follows the hourly FFMC model
+  (Van Wagner 1977, matching cffdrs); DMC and DC stay fixed within a run. Multi-day mode advances
+  the daily codes between days.
 - No authentication or multi-tenancy.

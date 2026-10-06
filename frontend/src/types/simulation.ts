@@ -25,12 +25,23 @@ export interface FuelModifiers {
   elevation_m?: number | null;
 }
 
+/** One hour of weather for the hourly stream (applies until the next record). */
+export interface HourlyWeatherParams {
+  hours_from_start: number;
+  temperature: number;
+  relative_humidity: number;
+  wind_speed: number; // km/h at 10 m
+  wind_direction: number; // degrees FROM
+  precipitation?: number; // mm in the hour
+}
+
 export interface SimulationCreate {
   ignition_lat: number;
   ignition_lng: number;
   weather: WeatherParams;
   fwi_overrides?: FWIOverrides;
   fuel_modifiers?: FuelModifiers;
+  hourly_weather?: HourlyWeatherParams[] | null;
   duration_hours: number;
   snapshot_interval_minutes: number;
   fuel_type: string;

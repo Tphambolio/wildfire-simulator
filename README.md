@@ -14,6 +14,7 @@ Simulates wildfire spread using the Canadian Forest Fire Behavior Prediction (FB
 - Foliar moisture from location and date; grass curing, percent conifer / dead fir inputs
 - Optional per-cell crown base height and crown fuel load (e.g. from drone LiDAR)
 - FWI System (FFMC, DMC, DC, ISI, BUI, FWI), live CWFIS weather
+- Hourly weather streams (or the Open-Meteo hourly forecast) with hourly FFMC
 - Ember spotting (opt-in): Albini/Chase maximum distances; emission and landing heuristic
 - Monte Carlo burn probability
 - Spatial fuel/water/buildings/WUI-zone grids

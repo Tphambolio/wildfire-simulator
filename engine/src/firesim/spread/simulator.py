@@ -15,11 +15,13 @@ from __future__ import annotations
 import logging
 import math
 from collections import defaultdict
+from dataclasses import replace
 from typing import Generator
 
 import numpy as np
 
 from firesim.fbp.calculator import calculate_flame_length, calculate_foliar_moisture
+from firesim.fwi.calculator import hourly_ffmc
 from firesim.fbp.constants import FuelType
 from firesim.spread.huygens import (
     FireVertex,
@@ -130,7 +132,7 @@ class Simulator:
             front = self._create_ignition_front(config.ignition_lat, config.ignition_lng)
             front_ignited = 0.0
 
-        conditions = self._spread_conditions()
+        self._schedule = self.weather_schedule()
 
         # Time tracking
         total_minutes = config.duration_hours * 60.0
@@ -159,6 +161,7 @@ class Simulator:
         # Main simulation loop
         while elapsed_minutes < total_minutes:
             dt = min(self.dt_minutes, total_minutes - elapsed_minutes)
+            conditions = self.conditions_at(elapsed_minutes + 0.5 * dt)
 
             new_fronts: list[list[FireVertex]] = []
             timestep_spots: list[SpotFire] = []
@@ -237,7 +240,7 @@ class Simulator:
         Produces per-cell burned data instead of perimeter polygons.
         """
         config = self.config
-        conditions = self._spread_conditions()
+        self._schedule = self.weather_schedule()
 
         ca_frames = run_cellular_simulation(
             config={
@@ -246,11 +249,12 @@ class Simulator:
                 "duration_hours": config.duration_hours,
             },
             fuel_grid=self.fuel_grid,
-            conditions=conditions,
+            conditions=self._schedule[0][1],
             default_fuel=self.default_fuel,
             spread_modifier_grid=self.spread_modifier_grid,
             terrain_grid=self.terrain_grid,
             dt_minutes=1.0,
+            weather_schedule=self._schedule,
             snapshot_interval_minutes=config.snapshot_interval_minutes,
             enable_spotting=self.enable_spotting,
             spotting_intensity=self.spotting_intensity,
@@ -346,6 +350,41 @@ class Simulator:
             )
         return 100.0
 
+    def weather_schedule(self) -> list[tuple[float, SpreadConditions]]:
+        """(start minute, conditions) for each weather period, in time order.
+
+        Without an hourly stream there is one period. With one, each record sets the wind,
+        and FFMC is advanced through that hour with the hourly FFMC model from the previous
+        period's value, starting from the configured FFMC; the hour uses the FFMC reached at
+        its end (the moisture state its own weather produces).
+        """
+        base = self._spread_conditions()
+        records = sorted(self.config.hourly_weather or (), key=lambda r: r.hours_from_start)
+        if not records:
+            return [(0.0, base)]
+        schedule = [] if records[0].hours_from_start <= 0.0 else [(0.0, base)]
+        ffmc = base.ffmc
+        for i, rec in enumerate(records):
+            end = records[i + 1].hours_from_start if i + 1 < len(records) else rec.hours_from_start + 1.0
+            hours = max(end - rec.hours_from_start, 1e-6)
+            ffmc = hourly_ffmc(rec.temperature, rec.relative_humidity, rec.wind_speed,
+                               rec.precipitation, ffmc, hours)
+            schedule.append((max(rec.hours_from_start, 0.0) * 60.0, replace(
+                base, wind_speed=rec.wind_speed, wind_direction=rec.wind_direction, ffmc=ffmc,
+            )))
+        return schedule
+
+    def conditions_at(self, minutes: float) -> SpreadConditions:
+        """Conditions in force ``minutes`` after the start."""
+        schedule = self._schedule if hasattr(self, "_schedule") else self.weather_schedule()
+        current = schedule[0][1]
+        for start, cond in schedule:
+            if start <= minutes + 1e-9:
+                current = cond
+            else:
+                break
+        return current
+
     def _spread_conditions(self) -> SpreadConditions:
         """Weather, FWI codes and fuel modifiers for the FBP calculations."""
         config = self.config
@@ -418,8 +457,8 @@ class Simulator:
         # Calculate area
         area_ha = calculate_polygon_area_ha(front)
 
-        # Head-fire FBP metrics for the default fuel on flat ground
-        fbp = fbp_for_conditions(self._spread_conditions(), self.default_fuel)
+        # Head-fire FBP metrics for the default fuel on flat ground, current weather
+        fbp = fbp_for_conditions(self.conditions_at(time_hours * 60.0), self.default_fuel)
 
         # Build fuel breakdown
         fuel_breakdown: dict[str, float] = {}

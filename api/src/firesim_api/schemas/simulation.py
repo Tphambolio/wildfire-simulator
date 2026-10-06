@@ -25,6 +25,17 @@ class WeatherParams(BaseModel):
     )
 
 
+class HourlyWeatherParams(BaseModel):
+    """Weather for one hour of a simulation (applies until the next record)."""
+
+    hours_from_start: float = Field(..., ge=0, le=72, description="Hours after the simulation start")
+    temperature: float = Field(..., ge=-40, le=50, description="Temperature (C)")
+    relative_humidity: float = Field(..., ge=0, le=100, description="Relative humidity (%)")
+    wind_speed: float = Field(..., ge=0, le=100, description="10 m wind speed (km/h)")
+    wind_direction: float = Field(..., ge=0, lt=360, description="Wind direction (degrees FROM)")
+    precipitation: float = Field(default=0.0, ge=0, description="Rain in the hour (mm)")
+
+
 class FWIOverrides(BaseModel):
     """Optional FWI component overrides."""
 
@@ -72,6 +83,14 @@ class SimulationCreate(BaseModel):
     duration_hours: float = Field(default=4.0, gt=0, le=24, description="Simulation duration (hours)")
     snapshot_interval_minutes: float = Field(
         default=30.0, gt=0, le=120, description="Snapshot interval (minutes)"
+    )
+    hourly_weather: list[HourlyWeatherParams] | None = Field(
+        default=None,
+        description=(
+            "Optional hourly weather stream. Each record sets wind, temperature, RH and rain from "
+            "its hour until the next; FFMC starts from fwi_overrides.ffmc and follows the hourly "
+            "FFMC model. DMC and DC stay fixed. Without it, `weather` applies throughout."
+        ),
     )
     fuel_type: str = Field(default="C2", description="Default fuel type code")
     fuel_grid_path: str | None = Field(

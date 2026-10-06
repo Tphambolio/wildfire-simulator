@@ -306,3 +306,49 @@ class FWICalculator:
         self.ffmc_prev = ffmc
         self.dmc_prev = dmc
         self.dc_prev = dc
+
+
+def hourly_ffmc(
+    temp: float, rh: float, wind: float, rain: float, ffmc_prev: float, hours: float = 1.0
+) -> float:
+    """Hourly Fine Fuel Moisture Code (Van Wagner 1977, as revised in cffdrs ``hffmc``).
+
+    FFMC after ``hours`` of constant weather, from the FFMC at the start of the period.
+    Drying and wetting rates are those of the hourly model (a pine-needle litter layer), not
+    the daily FFMC's; rain is the amount in the period (mm). Uses the ST-X-3 / FWI moisture
+    coefficient 147.2 like the rest of FireSim (cffdrs uses 147.27723).
+
+    Args:
+        temp: Temperature (C)
+        rh: Relative humidity (%)
+        wind: 10 m wind speed (km/h)
+        rain: Rain in the period (mm)
+        ffmc_prev: FFMC at the start of the period
+        hours: Length of the period (h)
+    """
+    rh = min(max(rh, 0.0), 100.0)
+    mo = 147.2 * (101.0 - ffmc_prev) / (59.5 + ffmc_prev)
+    if rain > 0.0:
+        mr = mo + 42.5 * rain * math.exp(-100.0 / (251.0 - mo)) * (1.0 - math.exp(-6.93 / rain))
+        if mo > 150.0:
+            mr += 0.0015 * (mo - 150.0) ** 2 * rain**0.5
+        mo = min(mr, 250.0)
+    ed = 0.942 * rh**0.679 + 11.0 * math.exp((rh - 100.0) / 10.0) + 0.18 * (21.1 - temp) * (
+        1.0 - math.exp(-0.115 * rh)
+    )
+    ew = 0.618 * rh**0.753 + 10.0 * math.exp((rh - 100.0) / 10.0) + 0.18 * (21.1 - temp) * (
+        1.0 - math.exp(-0.115 * rh)
+    )
+    if mo > ed:
+        ko = 0.424 * (1.0 - (rh / 100.0) ** 1.7) + 0.0694 * wind**0.5 * (1.0 - (rh / 100.0) ** 8)
+        kd = ko * 0.0579 * math.exp(0.0365 * temp)
+        m = ed + (mo - ed) * 10.0 ** (-kd * hours)
+    elif mo < ew:
+        k1 = 0.424 * (1.0 - ((100.0 - rh) / 100.0) ** 1.7) + 0.0694 * wind**0.5 * (
+            1.0 - ((100.0 - rh) / 100.0) ** 8
+        )
+        kw = k1 * 0.0579 * math.exp(0.0365 * temp)
+        m = ew - (ew - mo) * 10.0 ** (-kw * hours)
+    else:
+        m = mo
+    return max(59.5 * (250.0 - m) / (147.2 + m), 0.0)
