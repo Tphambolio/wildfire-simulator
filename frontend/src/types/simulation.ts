@@ -41,6 +41,8 @@ export interface SimulationCreate {
   weather: WeatherParams;
   // Grid runs: "incremental" streams only newly burned cells per frame
   cells_mode?: "cumulative" | "incremental";
+  // Scenario start (ignition) time, ISO 8601 with offset; frame times are hours after it
+  start_time?: string | null;
   fwi_overrides?: FWIOverrides;
   fuel_modifiers?: FuelModifiers;
   hourly_weather?: HourlyWeatherParams[] | null;

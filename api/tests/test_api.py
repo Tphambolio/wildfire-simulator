@@ -220,3 +220,36 @@ async def test_arrival_404_for_unknown_run(client):
 async def test_version_endpoint(client):
     data = (await client.get("/api/v1/version")).json()
     assert data["version"] == "3.0.0" and "git_sha" in data
+
+
+async def test_start_time_round_trips_and_sets_day_of_year(client):
+    payload = {
+        "ignition_lat": 53.5, "ignition_lng": -113.5,
+        "weather": {"wind_speed": 10.0, "wind_direction": 270.0},
+        "duration_hours": 0.5, "snapshot_interval_minutes": 15.0,
+        "start_time": "2026-04-28T13:40:00-06:00",
+    }
+    resp = await client.post("/api/v1/simulations", json=payload)
+    assert resp.status_code in (200, 201)
+    sim_id = resp.json()["simulation_id"]
+    data = (await client.get(f"/api/v1/simulations/{sim_id}")).json()
+    from datetime import datetime
+
+    assert datetime.fromisoformat(data["config"]["start_time"]) == datetime.fromisoformat(payload["start_time"])
+
+    from firesim_api.schemas.simulation import SimulationCreate
+
+    req = SimulationCreate(**payload)
+    assert req.fuel_config_kwargs()["day_of_year"] == 118  # 28 April
+    explicit = SimulationCreate(**payload, fuel_modifiers={"day_of_year": 200})
+    assert explicit.fuel_config_kwargs()["day_of_year"] == 200
+
+
+async def test_start_time_needs_an_offset(client):
+    payload = {
+        "ignition_lat": 53.5, "ignition_lng": -113.5,
+        "weather": {"wind_speed": 10.0, "wind_direction": 270.0},
+        "start_time": "2026-04-28T13:40:00",
+    }
+    resp = await client.post("/api/v1/simulations", json=payload)
+    assert resp.status_code == 422
