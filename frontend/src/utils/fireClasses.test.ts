@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HFI_CLASSES, hfiClass } from "./fireClasses";
-import { buildSuppressionAdvisory } from "./suppressionAdvisory";
+import { RPAS_NOTE, buildSuppressionAdvisory } from "./suppressionAdvisory";
 
 describe("hfiClass (Cole & Alexander 1995; CWFIS HFI map limits)", () => {
   it.each([
@@ -38,13 +38,13 @@ describe("buildSuppressionAdvisory", () => {
     expect(adv.source).toMatch(/Cole & Alexander \(1995\)/);
   });
 
-  it("labels the RPAS stand-off as a rule of thumb and widens it for spotting and crowning", () => {
-    expect(buildSuppressionAdvisory({ ...base, peakHfiKwM: 100 }).rpasStandoffM).toBe(500);
+  it("gives no RPAS stand-off distance, only the generic authorization reminder", () => {
     const crown = buildSuppressionAdvisory({
       peakHfiKwM: 12000, fireType: "active_crown", spotCount: 3, maxSpotDistM: 800,
     });
-    expect(crown.rpasStandoffM).toBe(1200 + 1000);
-    expect(crown.rpasNotes[0]).toMatch(/rule of thumb/);
+    expect(crown).not.toHaveProperty("rpasStandoffM");
+    expect(crown.rpasNotes[0]).toBe(RPAS_NOTE);
+    expect(crown.rpasNotes[0]).not.toMatch(/\d|stand-?off/i); // no distances in the reminder
     expect(crown.intensityClass).toBe(6);
   });
 });
