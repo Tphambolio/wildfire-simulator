@@ -18,16 +18,30 @@ export function fwiClass(fwi: number): FwiClass {
   return "Extreme";
 }
 
+// Badge fills, each with its text colour at >= 4.5:1 (checked in fwiClass.test.ts)
 const COLORS: Record<FwiClass, string> = {
   Low: "#2e7d32",
-  Moderate: "#558b2f",
+  Moderate: "#33691e",
   High: "#f57f17",
-  "Very High": "#e65100",
+  "Very High": "#bf360c",
   Extreme: "#b71c1c",
+};
+const TEXT: Record<FwiClass, string> = {
+  Low: "#ffffff",
+  Moderate: "#ffffff",
+  High: "#1b1f24",
+  "Very High": "#ffffff",
+  Extreme: "#ffffff",
 };
 
 /** Badge colour for an FWI value or a class label. */
 export function fwiClassColor(value: number | string): string {
   if (typeof value === "number") return COLORS[fwiClass(value)];
   return COLORS[value as FwiClass] ?? "#1a237e";
+}
+
+/** Text colour for a badge filled with fwiClassColor (>= 4.5:1). */
+export function fwiClassTextColor(value: number | string): string {
+  const label = typeof value === "number" ? fwiClass(value) : (value as FwiClass);
+  return TEXT[label] ?? "#ffffff";
 }

@@ -12,6 +12,7 @@ import { buildGeoJSON, buildKML, downloadFile } from "../utils/geoExport";
 import type { EvacZone } from "../utils/evacZones";
 import { openICS209Report } from "../utils/ics209";
 import HfiClassChip from "./HfiClassChip";
+import { fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
 import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
 import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
 
@@ -392,10 +393,9 @@ export default function EOCSummary({
           </button>
           {frames.length > 0 && (
             <button
-              className="ts-btn ts-speed"
+              className="ts-btn ts-speed eoc-btn-emph"
               onClick={handleICS209}
               title="Generate printable ICS-209 Incident Status Summary"
-              style={{ background: "#1a237e", color: "#fff", fontWeight: 600 }}
             >
               ICS-209
             </button>
@@ -439,12 +439,7 @@ export default function EOCSummary({
               {runParams.fwi_value.toFixed(1)}{" "}
               <span
                 className="eoc-badge"
-                style={{
-                  background:
-                    runParams.fwi_value >= 30 ? "#b71c1c" :
-                    runParams.fwi_value >= 20 ? "#e65100" :
-                    runParams.fwi_value >= 10 ? "#f57f17" : "#558b2f",
-                }}
+                style={{ background: fwiClassColor(runParams.fwi_value), color: fwiClassTextColor(runParams.fwi_value) }}
               >
                 {runParams.danger_rating}
               </span>
@@ -547,17 +542,17 @@ export default function EOCSummary({
               <span>Area (ha)</span>
             </div>
             {[
-              { label: "P ≥ 75%", ha: burnArea.p75Ha, color: "#b71c1c" },
-              { label: "P ≥ 50%", ha: burnArea.p50Ha, color: "#e65100" },
-              { label: "P ≥ 25%", ha: burnArea.p25Ha, color: "#f57f17" },
-            ].map(({ label, ha, color }) => (
+              { label: "P ≥ 75%", ha: burnArea.p75Ha },
+              { label: "P ≥ 50%", ha: burnArea.p50Ha },
+              { label: "P ≥ 25%", ha: burnArea.p25Ha },
+            ].map(({ label, ha }) => (
               <div className="eoc-bp-row" key={label}>
-                <span className="eoc-bp-label" style={{ color }}>{label}</span>
+                <span className="eoc-bp-label">{label}</span>
                 <span className="eoc-bp-val">{ha.toFixed(1)}</span>
               </div>
             ))}
           </div>
-          <div className="eoc-sublabel" style={{ marginTop: 4 }}>
+          <div className="eoc-sublabel">
             Cell size: {burnArea.cellSizeM.toFixed(0)} m
           </div>
         </section>
@@ -567,13 +562,13 @@ export default function EOCSummary({
       {atRiskCounts &&
         (atRiskCounts.roads + atRiskCounts.communities + atRiskCounts.infrastructure) > 0 && (
         <section className="eoc-section eoc-at-risk-section">
-          <h4 style={{ color: "#ff6600" }}>⚠ At-Risk Infrastructure</h4>
-          <div className="eoc-sublabel" style={{ marginBottom: 6 }}>Features within P ≥ 50% burn zone</div>
+          <h4 className="text-warning">⚠ At-Risk Infrastructure</h4>
+          <div className="eoc-sublabel">Features within P ≥ 50% burn zone</div>
           <div className="eoc-grid">
             {atRiskCounts.communities > 0 && (
               <>
                 <span className="eoc-label">Communities</span>
-                <span className="eoc-value eoc-highlight" style={{ color: "#ff6600" }}>
+                <span className="eoc-value eoc-highlight">
                   {atRiskCounts.communities}
                 </span>
               </>
@@ -581,7 +576,7 @@ export default function EOCSummary({
             {atRiskCounts.roads > 0 && (
               <>
                 <span className="eoc-label">Road segments</span>
-                <span className="eoc-value eoc-highlight" style={{ color: "#ff6600" }}>
+                <span className="eoc-value eoc-highlight">
                   {atRiskCounts.roads}
                 </span>
               </>
@@ -589,7 +584,7 @@ export default function EOCSummary({
             {atRiskCounts.infrastructure > 0 && (
               <>
                 <span className="eoc-label">Infra points</span>
-                <span className="eoc-value eoc-highlight" style={{ color: "#ff6600" }}>
+                <span className="eoc-value eoc-highlight">
                   {atRiskCounts.infrastructure}
                 </span>
               </>
@@ -601,12 +596,12 @@ export default function EOCSummary({
       {/* Suppression advisory */}
       {suppAdvisory && (
         <section className="eoc-section eoc-supp-section">
-          <h4 style={{ color: suppAdvisory.color }}>
+          <h4 className="eoc-supp-title" style={{ borderLeftColor: suppAdvisory.color }}>
             Suppression Advisory · {suppAdvisory.intensityLabel}
           </h4>
           <div className="eoc-grid">
             <span className="eoc-label">Strategy</span>
-            <span className="eoc-value" style={{ color: suppAdvisory.color, fontWeight: 600 }}>
+            <span className="eoc-value eoc-strong">
               {suppAdvisory.strategy}
             </span>
             <span className="eoc-label">Direct attack</span>
@@ -614,10 +609,10 @@ export default function EOCSummary({
               {suppAdvisory.suppressionFeasible ? "Feasible" : "NOT safe — withdraw crews"}
             </span>
           </div>
-          <div className="eoc-sublabel" style={{ marginTop: 4, marginBottom: 6, fontStyle: "italic" }}>
+          <div className="eoc-sublabel">
             {suppAdvisory.strategyDetail}
           </div>
-          <div className="eoc-sublabel" style={{ fontWeight: 600, marginBottom: 2 }}>
+          <div className="eoc-sublabel eoc-strong">
             Initial attack resources:
           </div>
           <ul className="eoc-resource-list">

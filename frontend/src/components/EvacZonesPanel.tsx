@@ -109,6 +109,7 @@ export default function EvacZonesPanel({
                 step={0.05}
                 value={scale}
                 className="evac-scale-slider"
+                aria-label={`Evacuation ${label} zone expansion`}
                 onChange={(e) => onScaleChange(label, parseFloat(e.target.value))}
               />
               <span className="evac-scale-value">{scale.toFixed(2)}×</span>

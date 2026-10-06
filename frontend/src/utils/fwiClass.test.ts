@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fwiClass, fwiClassColor } from "./fwiClass";
+import { fwiClass, fwiClassColor, fwiClassTextColor } from "./fwiClass";
+import { contrastRatio } from "./contrast";
 
 // CWFIS national FWI map intervals: 0-5 Low, 6-15 Moderate, 16-22 High, 23-29 Very High,
 // 30+ Extreme. FWI is continuous, so the class limits fall at the half-integers 5.5, 15.5,
@@ -42,5 +43,11 @@ describe("fwiClassColor", () => {
 
   it("falls back for an unknown label", () => {
     expect(fwiClassColor("Unknown")).toBe("#1a237e");
+  });
+});
+
+describe("fwiClassTextColor", () => {
+  it.each(["Low", "Moderate", "High", "Very High", "Extreme"])("%s badge text meets 4.5:1", (c) => {
+    expect(contrastRatio(fwiClassTextColor(c), fwiClassColor(c))).toBeGreaterThanOrEqual(4.5);
   });
 });

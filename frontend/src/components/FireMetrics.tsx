@@ -35,46 +35,17 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
       <h3>Fire Metrics</h3>
 
       {(frame.ignition_snapped_m ?? 0) > 0 && (
-        <div style={{
-          marginBottom: 8,
-          padding: "4px 8px",
-          borderRadius: 3,
-          fontSize: 11,
-          background: "rgba(255, 200, 0, 0.12)",
-          color: "#ffc800",
-          border: "1px solid #806400",
-        }}>
-          Ignition snapped {Math.round(frame.ignition_snapped_m!)}m to nearest fuel cell
+        <div className="notice notice-warning">
+          Ignition snapped {Math.round(frame.ignition_snapped_m!)} m to nearest fuel cell
         </div>
       )}
 
-      <div style={{ marginBottom: 8 }}>
-        <span style={{
-          display: "inline-block",
-          padding: "2px 8px",
-          borderRadius: 3,
-          fontSize: 11,
-          fontWeight: 600,
-          background: isCAMode ? "rgba(100, 180, 255, 0.15)" : "rgba(255, 150, 50, 0.15)",
-          color: isCAMode ? "#64b4ff" : "#ff9632",
-          border: `1px solid ${isCAMode ? "#3a6080" : "#804020"}`,
-        }}>
+      <div className="metrics-tags">
+        <span className="tag" title={isCAMode ? "Grid (level-set) spread on the fuel grid" : "Huygens wavelet perimeter spread"}>
           {isCAMode ? "CA Grid" : "Huygens"}
         </span>
         {(frame.num_fronts ?? 1) > 1 && (
-          <span style={{
-            display: "inline-block",
-            marginLeft: 6,
-            padding: "2px 8px",
-            borderRadius: 3,
-            fontSize: 11,
-            fontWeight: 600,
-            background: "rgba(255, 100, 0, 0.15)",
-            color: "#ff6400",
-            border: "1px solid #803200",
-          }}>
-            {frame.num_fronts} fronts
-          </span>
+          <span className="tag">{frame.num_fronts} fronts</span>
         )}
       </div>
 
@@ -127,7 +98,7 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
         {!frame.building_exposure && (frame.buildings_at_risk ?? 0) > 0 && (
           <div className="metric-row">
             <span className="metric-label">Buildings inside perimeter</span>
-            <span className="metric-value" style={{ color: "#ff6400" }}>
+            <span className="metric-value text-warning">
               {frame.buildings_at_risk}
             </span>
           </div>
@@ -156,7 +127,7 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
               <span className="metric-value">{n}</span>
             </div>
           ))}
-          <div className="hint" style={{ marginTop: 4 }}>
+          <div className="hint-sm">
             Exposure, not ignition probability. Radiant heat uses Cohen's worst-case flame model
             (overestimates measured flux); embers and building-to-building fire are not modelled.
           </div>

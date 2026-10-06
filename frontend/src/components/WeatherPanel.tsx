@@ -5,7 +5,7 @@ import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams,
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast } from "../services/api";
 import MultiDayPanel from "./MultiDayPanel";
-import { fwiClass, fwiClassColor } from "../utils/fwiClass";
+import { fwiClass, fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
 
 // ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
 function computeISI(ffmc: number, windSpeedKmh: number): number {
@@ -561,7 +561,7 @@ function WeatherPanel({
 
       <div className="section">
         <h4>Fuel Type</h4>
-        <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+        <label>
           <input
             type="checkbox"
             checked={useEdmontonGrid}
@@ -607,7 +607,7 @@ function WeatherPanel({
                 </option>
               ))}
             </select>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px" }}>
+            <label>
               <input
                 type="checkbox"
                 checked={useSyntheticCA}
@@ -616,7 +616,7 @@ function WeatherPanel({
               Cellular automaton (synthetic fuel mosaic)
             </label>
             {useSyntheticCA && (
-              <div className="hint" style={{ fontSize: "0.85em", opacity: 0.7 }}>
+              <div className="hint-sm">
                 Generates a 5km mixed-fuel grid around the ignition point — shows heatmap spread
               </div>
             )}
@@ -624,7 +624,7 @@ function WeatherPanel({
         )}
         {(useEdmontonGrid || useSyntheticCA) && (
           <>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px" }}>
+            <label>
               <input
                 type="checkbox"
                 checked={enableSpotting}
@@ -633,8 +633,8 @@ function WeatherPanel({
               Ember spotting (Albini 1979)
             </label>
             {enableSpotting && (
-              <div style={{ paddingLeft: "20px", marginTop: "4px" }}>
-                <label style={{ fontSize: "0.9em" }}>
+              <div className="check-row-indent">
+                <label>
                   Intensity: <strong>{spottingIntensity.toFixed(1)}×</strong>
                   <input
                     type="range"
@@ -643,10 +643,9 @@ function WeatherPanel({
                     step={0.1}
                     value={spottingIntensity}
                     onChange={(e) => setSpottingIntensity(Number(e.target.value))}
-                    style={{ width: "100%", marginTop: "2px" }}
                   />
                 </label>
-                <div className="hint" style={{ fontSize: "0.8em", opacity: 0.7 }}>
+                <div className="hint-sm">
                   Crown fires loft embers downwind — seeds secondary ignitions
                 </div>
               </div>
@@ -655,7 +654,7 @@ function WeatherPanel({
         )}
         {useEdmontonGrid && (
           <>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", paddingLeft: "20px" }}>
+            <label className="check-row-indent">
               <input
                 type="checkbox"
                 checked={includeWater}
@@ -663,7 +662,7 @@ function WeatherPanel({
               />
               Water bodies (rivers, lakes)
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", paddingLeft: "20px" }}>
+            <label className="check-row-indent">
               <input
                 type="checkbox"
                 checked={includeBuildings}
@@ -672,7 +671,7 @@ function WeatherPanel({
               Buildings (341K footprints)
             </label>
             <label
-              style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", paddingLeft: "20px" }}
+              className="check-row-indent"
               title="425 park-buffer zones with spread x0.7, intensity x1.2, embers x3.0. These values have no documented source; leave off unless testing."
             >
               <input
@@ -682,7 +681,7 @@ function WeatherPanel({
               />
               WUI zone modifiers (unsourced test values)
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", paddingLeft: "20px" }}>
+            <label className="check-row-indent">
               <input
                 type="checkbox"
                 checked={includeDEM}
@@ -690,7 +689,7 @@ function WeatherPanel({
               />
               Terrain slope (DEM — FBP net effective wind)
             </label>
-            <div className="hint" style={{ fontSize: "0.85em", opacity: 0.7 }}>
+            <div className="hint-sm">
               Edmonton grid fuels: C-2, D-2, M-2, O-1a, O-1b. Cells without fuel data use {fuelType}.
             </div>
           </>
@@ -721,7 +720,6 @@ function WeatherPanel({
           />
         </label>
         <label
-          style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}
           title="Wind, temperature, RH and rain change hour by hour (Open-Meteo forecast for the ignition point); FFMC follows the hourly FFMC model from the FFMC above."
         >
           <input
@@ -796,7 +794,6 @@ function WeatherPanel({
             onClick={handleComputeFWI}
             disabled={fwiLoading}
             title="Update FFMC/DMC/DC from today's weather inputs"
-            style={{ marginTop: "8px" }}
           >
             {fwiLoading ? "Computing..." : "Update Codes from Weather"}
           </button>
@@ -819,7 +816,7 @@ function WeatherPanel({
         </span>
         <span
           className="fwi-danger-badge"
-          style={{ background: fwiClassColor(liveFWI) }}
+          style={{ background: fwiClassColor(liveFWI), color: fwiClassTextColor(liveFWI) }}
           title="CWFIS FWI map class (not an official fire danger rating)"
         >
           {liveDanger}
@@ -839,29 +836,26 @@ function WeatherPanel({
         href="https://tphambolio.github.io/FWI/"
         target="_blank"
         rel="noopener noreferrer"
-        className="hint"
-        style={{ display: "inline-block", color: "#64b5f6", marginBottom: "4px" }}
+        className="hint-link"
       >
         Fire Weather Detail →
       </a>
 
       {weatherMessage && (
         <div
-          className="hint"
-          style={{
-            marginBottom: "4px",
-            color: weatherMessage.toLowerCase().includes("not available") ||
-                   weatherMessage.toLowerCase().includes("could not")
-              ? "#e57373"
-              : "#81c784",
-          }}
+          className={`hint-sm weather-message ${
+            weatherMessage.toLowerCase().includes("not available") ||
+            weatherMessage.toLowerCase().includes("could not")
+              ? "text-danger"
+              : "text-success"
+          }`}
         >
           {weatherMessage}
         </div>
       )}
 
       {(weatherSource || stationName) && (
-        <div className="hint" style={{ marginBottom: "8px", fontSize: "0.8em", opacity: 0.6 }}>
+        <div className="hint-sm weather-message">
           {stationName && (
             <span>
               {stationName}
@@ -914,8 +908,8 @@ function WeatherPanel({
       )}
 
       {onComputeBurnProbability && (
-        <div style={{ marginTop: 12, borderTop: "1px solid #2a3a5a", paddingTop: 12 }}>
-          <div style={{ marginBottom: 8 }}>
+        <div className="mc-block">
+          <div>
             <label>
               Iterations: <strong>{mcIterations}</strong>
               <input
@@ -927,13 +921,12 @@ function WeatherPanel({
                 onChange={e => setMcIterations(Number(e.target.value))}
               />
             </label>
-            <div style={{ fontSize: 11, color: "#667", display: "flex", justifyContent: "space-between" }}>
+            <div className="range-scale hint-sm">
               <span>10 (fast)</span><span>200 (accurate)</span>
             </div>
           </div>
           <button
             className="btn-secondary"
-            style={{ width: "100%", background: "#1a3060", borderColor: "#3a60a0" }}
             onClick={handleMonteCarlo}
             disabled={!ignitionPoint || burnProbRunning || isRunning || (!useEdmontonGrid && !useSyntheticCA) || hasErrors}
             title={
@@ -952,12 +945,12 @@ function WeatherPanel({
             </div>
           )}
           {!useEdmontonGrid && !useSyntheticCA && !hasErrors && (
-            <div style={{ fontSize: 11, color: "#778", marginTop: 4 }}>
+            <div className="hint-sm">
               Enable Edmonton Grid or Synthetic CA to use Monte Carlo.
             </div>
           )}
           {hasErrors && (
-            <div style={{ fontSize: 11, color: "#e57373", marginTop: 4 }}>
+            <div className="hint-sm text-danger">
               Fix input errors before running.
             </div>
           )}

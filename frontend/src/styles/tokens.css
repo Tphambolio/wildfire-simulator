@@ -1,0 +1,157 @@
+/*
+ * FireSim design tokens (design spec §6).
+ *
+ * Dark is the default theme (EOC room). The light set is used for print and export, and can be
+ * forced on any subtree with the `.theme-light` class. Contrast of the text/surface pairs is
+ * checked by src/styles/tokens.test.ts (text >= 4.5:1, UI borders and focus >= 3:1).
+ *
+ * Map colour families (§6.2) never share a hue:
+ *   fire  = HFI classes 1-6, inferno ramp (must match utils/fireClasses.ts, tested)
+ *   fuel  = muted greens/browns, drawn under or without fire
+ *   evac  = blue outlines; watched lines teal; isochrones ink
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ── Surfaces (one neutral blue-grey family; no purple or navy mixes) ── */
+  --bg: #0e1217;          /* app background, map letterbox */
+  --surface: #151a21;     /* panels */
+  --surface-2: #1c232c;   /* cards, inputs, rows */
+  --surface-3: #252d38;   /* hover, raised, selected */
+  --chrome: #0a0d11;      /* top bar */
+  --overlay: rgba(14, 18, 23, 0.92); /* map overlays (legends, chips) */
+
+  /* ── Text ── */
+  --text: #e8ecf1;        /* 14.7:1 on --surface */
+  --text-2: #b9c2ce;      /* secondary, 9.7:1 */
+  --text-3: #939eac;      /* hints and captions, 5.8:1 on --surface-2 */
+  --chrome-text: #e8ecf1;
+  --chrome-text-2: #b9c2ce;
+
+  /* ── Lines ── */
+  --border: #2a333f;       /* dividers (decorative) */
+  --border-strong: #6b7787; /* input and control borders, >= 3:1 on surfaces */
+
+  /* ── Accent, status ── */
+  --accent: #2563eb;       /* primary buttons, selection; white on it 5.2:1 */
+  --accent-hover: #1d4ed8;
+  --on-accent: #ffffff;
+  --accent-text: #8ab4f8;  /* links and selected labels on dark surfaces */
+  --accent-soft: rgba(37, 99, 235, 0.18);
+  --danger: #b42318;       /* destructive buttons, error toast; white on it 6.6:1 */
+  --on-danger: #ffffff;
+  --danger-text: #ff8a80;  /* error text on dark surfaces */
+  --danger-soft: rgba(180, 35, 24, 0.18);
+  --warning-text: #f5b942;
+  --warning-soft: rgba(245, 185, 66, 0.14);
+  --success-text: #6fcf8f;
+  --success-soft: rgba(111, 207, 143, 0.14);
+  --focus: #8ab4f8;        /* focus ring, >= 3:1 on every surface */
+
+  /* ── Map colour families (§6.2) ── */
+  --fire-1: #f3f68a;
+  --fire-2: #fcae12;
+  --fire-3: #eb6628;
+  --fire-4: #bc3754;
+  --fire-5: #84206b;
+  --fire-6: #10092d;
+  --fire-perimeter: #ff3d00; /* current perimeter line in MapView (restyled in the map-layers PR) */
+  --fuel-grass: #dcd5b6;
+  --fuel-deciduous: #c2d4ae;
+  --fuel-mixedwood: #a7bf9c;
+  --fuel-conifer: #7f9e86;
+  --fuel-slash: #b3aca3;
+  --evac: #1d4ed8;
+  --watched-line: #0e7490;
+  --isochrone: #1f2937;
+
+  /* ── Type (12 px minimum anywhere) ── */
+  --font-ui: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --fs-xs: 12px;   /* captions, legends, chips */
+  --fs-sm: 13px;   /* dense tables, labels */
+  --fs-md: 14px;   /* body */
+  --fs-lg: 16px;   /* panel titles */
+  --fs-xl: 20px;   /* KPI values, clock */
+  --fs-2xl: 24px;
+  --lh: 1.4;
+
+  /* ── Spacing, shape, controls ── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --control-h: 32px;
+  --control-h-sm: 28px;
+  --target-min: 24px;
+  --focus-ring: 3px solid var(--focus);
+  --focus-offset: 2px;
+
+  /* ── Shell geometry ── */
+  --topbar-height: 52px;
+  --sidebar-width: 300px;
+  --bottombar-height: 72px;
+}
+
+/* Light set: print/export, or any subtree with .theme-light (§6.1 values) */
+.theme-light {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #eef0f3;
+  --surface-3: #e2e6eb;
+  --chrome: #1b2430;
+  --overlay: rgba(255, 255, 255, 0.94);
+  --text: #1b1f24;
+  --text-2: #4a5360;
+  --text-3: #56606d;
+  --chrome-text: #ffffff;
+  --chrome-text-2: #c8d0da;
+  --border: #c9ced6;
+  --border-strong: #6e7887;
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --on-accent: #ffffff;
+  --accent-text: #1d4ed8;
+  --accent-soft: rgba(29, 78, 216, 0.1);
+  --danger: #b42318;
+  --on-danger: #ffffff;
+  --danger-text: #b42318;
+  --danger-soft: rgba(180, 35, 24, 0.08);
+  --warning-text: #8a4b00;
+  --warning-soft: rgba(138, 75, 0, 0.08);
+  --success-text: #1e6b3a;
+  --success-soft: rgba(30, 107, 58, 0.08);
+  --focus: #1d4ed8;
+  --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+@media print {
+  :root {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #eef0f3;
+    --surface-3: #e2e6eb;
+    --chrome: #ffffff;
+    --overlay: #ffffff;
+    --text: #1b1f24;
+    --text-2: #4a5360;
+    --text-3: #56606d;
+    --chrome-text: #1b1f24;
+    --chrome-text-2: #4a5360;
+    --border: #c9ced6;
+    --border-strong: #6e7887;
+    --accent: #1d4ed8;
+    --accent-text: #1d4ed8;
+    --danger-text: #b42318;
+    --warning-text: #8a4b00;
+    --success-text: #1e6b3a;
+  }
+}

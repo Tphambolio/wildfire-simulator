@@ -36,16 +36,7 @@ function MapToast({ message, onDone }: { message: string; onDone: () => void }) 
     const t = setTimeout(onDone, 3000);
     return () => clearTimeout(t);
   }, [onDone]);
-  return (
-    <div style={{
-      position: "absolute", bottom: 80, left: "50%", transform: "translateX(-50%)",
-      zIndex: 20, background: "rgba(20,30,50,0.92)", color: "#e0e0e0",
-      padding: "8px 18px", borderRadius: 20, fontSize: 13, fontWeight: 500,
-      border: "1px solid #3a60a0", pointerEvents: "none", whiteSpace: "nowrap",
-    }}>
-      {message}
-    </div>
-  );
+  return <div className="map-toast" role="status">{message}</div>;
 }
 
 function LocationSearch({ onSelect }: { onSelect: (lat: number, lng: number, name: string) => void }) {
@@ -70,40 +61,32 @@ function LocationSearch({ onSelect }: { onSelect: (lat: number, lng: number, nam
   };
 
   return (
-    <div className="location-search" style={{
-      position: "absolute", top: 10, left: 10, zIndex: 10,
-      background: "rgba(20, 30, 50, 0.92)", borderRadius: 6, padding: "6px",
-      minWidth: 260, maxWidth: 320,
-    }}>
+    <div className="location-search" role="search">
       <input
-        type="text"
+        type="search"
+        aria-label="Search for a place"
         placeholder="Search location..."
         value={query}
         onChange={e => handleInput(e.target.value)}
-        style={{
-          width: "100%", padding: "6px 10px", border: "1px solid #445",
-          borderRadius: 4, background: "#1a2540", color: "#e0e0e0",
-          fontSize: 13, outline: "none", boxSizing: "border-box",
-        }}
       />
-      {loading && <div style={{ color: "#888", fontSize: 12, padding: "4px 6px" }}>Searching...</div>}
+      {loading && <div className="location-search-status" role="status">Searching...</div>}
       {results.length > 0 && (
-        <div style={{ maxHeight: 180, overflowY: "auto" }}>
+        <ul className="location-search-results">
           {results.map((r, i) => (
-            <div key={i} onClick={() => {
-              onSelect(parseFloat(r.lat), parseFloat(r.lon), r.display_name);
-              setResults([]); setQuery(r.display_name.split(",")[0]);
-            }} style={{
-              padding: "5px 8px", cursor: "pointer", fontSize: 12,
-              color: "#ccc", borderTop: "1px solid #334",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = "#2a3a5a")}
-            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            >
-              {r.display_name}
-            </div>
+            <li key={i}>
+              <button
+                type="button"
+                className="location-search-result"
+                onClick={() => {
+                  onSelect(parseFloat(r.lat), parseFloat(r.lon), r.display_name);
+                  setResults([]); setQuery(r.display_name.split(",")[0]);
+                }}
+              >
+                {r.display_name}
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -557,10 +540,10 @@ export default function MapView({
       spotPopupRef.current = new maplibregl.Popup({ closeButton: true, maxWidth: "220px" })
         .setLngLat(e.lngLat)
         .setHTML(
-          `<div style="background:#1a2540;color:#e0e0e0;padding:8px 10px;border-radius:4px;font-size:12px;line-height:1.6">
-            <strong style="color:#ff9800;font-size:13px">&#x1F525; Spot Fire</strong><br/>
-            <span style="color:#aaa">Distance from front:</span> <b>${props.distance_m.toFixed(0)} m</b><br/>
-            <span style="color:#aaa">Head fire intensity:</span> <b>${props.hfi_kw_m.toFixed(0)} kW/m</b>
+          `<div class="map-popup">
+            <strong class="map-popup-title">Spot fire</strong><br/>
+            <span class="map-popup-muted">Distance from front:</span> <b>${props.distance_m.toFixed(0)} m</b><br/>
+            <span class="map-popup-muted">Head fire intensity:</span> <b>${props.hfi_kw_m.toFixed(0)} kW/m</b>
           </div>`
         )
         .addTo(m);
@@ -672,10 +655,10 @@ export default function MapView({
       new maplibregl.Popup({ closeButton: true, maxWidth: "200px" })
         .setLngLat(e.lngLat)
         .setHTML(
-          `<div style="background:#1a2540;color:#e0e0e0;padding:8px 10px;border-radius:4px;font-size:12px">
-            <strong style="color:${atRisk ? "#ff6600" : "#29b6f6"}">${name}</strong><br/>
-            ${type ? `<span style="color:#aaa">${type}</span><br/>` : ""}
-            ${atRisk ? '<span style="color:#ff6600;font-weight:700">⚠ At-risk (P ≥ 50%)</span>' : ""}
+          `<div class="map-popup">
+            <strong class="map-popup-title">${name}</strong><br/>
+            ${type ? `<span class="map-popup-muted">${type}</span><br/>` : ""}
+            ${atRisk ? '<span class="map-popup-warn">⚠ At-risk (P ≥ 50%)</span>' : ""}
           </div>`
         )
         .addTo(m);
@@ -771,9 +754,9 @@ export default function MapView({
       new maplibregl.Popup({ closeButton: true, maxWidth: "200px" })
         .setLngLat(e.lngLat)
         .setHTML(
-          `<div style="background:#1a2540;color:#e0e0e0;padding:8px 10px;border-radius:4px;font-size:12px">
-            <strong style="color:${atRisk ? "#ff6600" : "#26c6da"}">${name}</strong><br/>
-            ${atRisk ? '<span style="color:#ff6600;font-weight:700">⚠ At-risk (P ≥ 50%)</span>' : ""}
+          `<div class="map-popup">
+            <strong class="map-popup-title">${name}</strong><br/>
+            ${atRisk ? '<span class="map-popup-warn">⚠ At-risk (P ≥ 50%)</span>' : ""}
           </div>`
         )
         .addTo(m);
@@ -1328,8 +1311,8 @@ export default function MapView({
   }, []);
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative" }}>
-      <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
+    <div className="map-view">
+      <div ref={mapContainer} className="map-view-canvas" />
       <LocationSearch onSelect={(lat, lng) => flyTo(lat, lng)} />
 
       {/* Burn Probability Legend */}
@@ -1358,7 +1341,7 @@ export default function MapView({
       {/* Grid-run legend: the per-cell crown-state circles are drawn only from zoom 14;
           below that the heatmap shows intensity-weighted density */}
       {frames.length > 0 && frames[currentFrameIndex]?.burned_cells && frames[currentFrameIndex].burned_cells!.length > 0 && (
-        <div className="burn-prob-legend" style={{ bottom: 120 }}>
+        <div className="burn-prob-legend fire-legend">
           <div className="burn-prob-legend-title">{mapZoom >= 14 ? "Crown Fire State" : "Fire Intensity"}</div>
           {mapZoom < 14 && (
             <div className="burn-prob-legend-meta">Burned cells weighted by HFI · zoom in for crown state</div>
@@ -1383,7 +1366,7 @@ export default function MapView({
               </div>
             ))}
             <div className="burn-prob-legend-row">
-              <div className="burn-prob-legend-swatch" style={{ background: "transparent", border: "2px solid #ff3d00" }} />
+              <div className="burn-prob-legend-swatch perimeter-swatch" />
               <span>Fire perimeter</span>
             </div>
           </div>

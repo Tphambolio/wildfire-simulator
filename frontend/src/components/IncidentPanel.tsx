@@ -79,29 +79,28 @@ function IncidentPanel({
       {open && (
         <div className="scenario-body">
           {/* New incident form */}
-          <div className="section" style={{ paddingTop: 0 }}>
+          <div className="section">
             <h4>New Incident</h4>
             <input
               className="scenario-name-input"
               type="text"
               placeholder="Incident name (e.g. River Valley Fire)"
+              aria-label="New incident name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
               maxLength={60}
             />
-            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+            <div className="button-row">
               <button
-                className="btn-primary"
-                style={{ flex: 1, padding: "6px 0", fontSize: "0.85em" }}
+                className="btn-primary btn-inline grow"
                 onClick={handleCreate}
                 disabled={!newName.trim()}
               >
                 Start Incident
               </button>
               <button
-                className="btn-secondary"
-                style={{ padding: "6px 10px", fontSize: "0.85em" }}
+                className="btn-secondary btn-inline"
                 onClick={handleImportClick}
                 title="Import incident from JSON file"
               >
@@ -111,12 +110,12 @@ function IncidentPanel({
                 ref={fileInputRef}
                 type="file"
                 accept=".json,application/json"
-                style={{ display: "none" }}
+                hidden
                 onChange={handleFileChange}
               />
             </div>
             {importError && (
-              <div className="hint" style={{ color: "#e57373", marginTop: 4 }}>
+              <div className="hint-sm text-danger">
                 {importError}
               </div>
             )}
@@ -124,7 +123,7 @@ function IncidentPanel({
 
           {/* Saved incidents list */}
           {incidents.length === 0 ? (
-            <div className="hint" style={{ marginTop: 4 }}>
+            <div className="hint">
               No incidents yet.
             </div>
           ) : (
@@ -150,8 +149,7 @@ function IncidentPanel({
                     <div className="scenario-item-actions">
                       {isActive ? (
                         <button
-                          className="btn-secondary"
-                          style={{ fontSize: "0.8em", padding: "3px 8px", borderColor: "#8b2020", color: "#e57373" }}
+                          className="btn-secondary btn-inline btn-small btn-danger-outline"
                           onClick={onClose}
                           title="Close this incident (archive)"
                         >
@@ -159,8 +157,7 @@ function IncidentPanel({
                         </button>
                       ) : (
                         <button
-                          className="btn-secondary"
-                          style={{ fontSize: "0.8em", padding: "3px 8px" }}
+                          className="btn-secondary btn-inline btn-small"
                           onClick={() => onLoad(inc.id)}
                           title="Resume this incident"
                         >
@@ -168,16 +165,14 @@ function IncidentPanel({
                         </button>
                       )}
                       <button
-                        className="btn-secondary"
-                        style={{ fontSize: "0.8em", padding: "3px 8px" }}
+                        className="btn-secondary btn-inline btn-small"
                         onClick={() => onExport(inc)}
                         title="Export incident as JSON"
                       >
                         Export
                       </button>
                       <button
-                        className="btn-secondary"
-                        style={{ fontSize: "0.8em", padding: "3px 8px", borderColor: "#8b2020", color: "#e57373" }}
+                        className="btn-secondary btn-inline btn-small btn-danger-outline"
                         onClick={() => {
                           if (confirm(`Delete incident "${inc.name}"? This cannot be undone.`)) onDelete(inc.id);
                         }}
