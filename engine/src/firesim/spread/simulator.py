@@ -317,7 +317,9 @@ class Simulator:
                 head_ros_m_min=cf.mean_ros,
                 max_hfi_kw_m=cf.max_intensity,
                 fire_type=frame_fire_type,
-                flame_length_m=calculate_flame_length(cf.max_intensity),
+                flame_length_m=calculate_flame_length(
+                    cf.max_intensity, 1.0 if frame_fire_type in (FireType.PASSIVE_CROWN, FireType.ACTIVE_CROWN) else 0.0
+                ),
                 fuel_breakdown=cf.fuel_breakdown,
                 spot_fires=ca_spot_fires,
                 num_fronts=1,

@@ -136,7 +136,8 @@ export default function WeatherPanel({
   const [spottingIntensity, setSpottingIntensity] = useState(1.0);
   const [includeWater, setIncludeWater] = useState(true);
   const [includeBuildings, setIncludeBuildings] = useState(true);
-  const [includeWUI, setIncludeWUI] = useState(true);
+  // Off by default: the bundled WUI multipliers have no documented source (see docs/verification.md)
+  const [includeWUI, setIncludeWUI] = useState(false);
   const [includeDEM, setIncludeDEM] = useState(true);
   const [durationHours, setDurationHours] = useState(4);
   const [snapshotMinutes, setSnapshotMinutes] = useState(30);
@@ -681,13 +682,16 @@ export default function WeatherPanel({
               />
               Buildings (341K footprints)
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", paddingLeft: "20px" }}>
+            <label
+              style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", paddingLeft: "20px" }}
+              title="425 park-buffer zones with spread x0.7, intensity x1.2, embers x3.0. These values have no documented source; leave off unless testing."
+            >
               <input
                 type="checkbox"
                 checked={includeWUI}
                 onChange={(e) => setIncludeWUI(e.target.checked)}
               />
-              WUI zone modifiers (425 zones)
+              WUI zone modifiers (unsourced test values)
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", paddingLeft: "20px" }}>
               <input

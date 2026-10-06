@@ -1,4 +1,9 @@
-"""Load WUI zone modifiers from GeoJSON."""
+"""Load WUI zone modifiers from GeoJSON.
+
+Provenance warning: the bundled ``data/wui_zones.geojson.gz`` (425 100 m buffers around parks,
+all with ros 0.7, intensity 1.2, ember 3.0) has no documented source or generating script.
+The frontend leaves it off by default; do not present results that use it as measured.
+"""
 
 from __future__ import annotations
 
