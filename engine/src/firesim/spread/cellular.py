@@ -34,6 +34,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
+from firesim.fbp.calculator import calculate_acceleration
 from firesim.fbp.constants import FuelType
 from firesim.fbp.crown_fire import calculate_crown_fraction_burned, classify_fire_type
 from firesim.spread.huygens import (
@@ -114,6 +115,7 @@ def run_cellular_simulation(
     snapshot_interval_minutes: float = 30.0,
     enable_spotting: bool = False,
     spotting_intensity: float = 1.0,
+    acceleration: bool = True,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -133,6 +135,9 @@ def run_cellular_simulation(
             burned cells and spread from the landing cells.
         spotting_intensity: Multiplier on spot fire probability (1.0 = baseline;
             0 = disabled). Has no effect when enable_spotting is False.
+        acceleration: Apply FBP point-ignition acceleration (ST-X-3 eqs 70-72, 81):
+            rates build up as 1 - exp(-alpha t) and the ellipse elongates as LB(t),
+            with alpha per cell from its crown fraction burned.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -163,7 +168,8 @@ def run_cellular_simulation(
     spot_events: list[tuple[float, SpotFire]] = []
 
     if ign_row is not None and params.head[ign_row, ign_col] > 1e-6:
-        phi, t = _initial_front(params, ign_row, ign_col, dx, dy, duration, arrival, cross_ros)
+        phi, t = _initial_front(params, ign_row, ign_col, dx, dy, duration, arrival, cross_ros,
+                                acceleration)
         near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
         slice_len = dt_minutes if enable_spotting and spotting_intensity > 0.0 else duration
         next_slice = min(t + slice_len, duration)
@@ -179,7 +185,8 @@ def run_cellular_simulation(
             if speed <= 1e-9:
                 break
             step = min(CFL * h_min / speed, next_slice - t)
-            _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros)
+            _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros,
+                     acceleration)
             t += step
             if t >= next_slice - 1e-9:
                 if enable_spotting and spotting_intensity > 0.0:
@@ -218,11 +225,13 @@ class _CellParams:
     cfl: np.ndarray
     rso: np.ndarray
     imult: np.ndarray
+    alpha: np.ndarray  # FBP acceleration parameter (per minute)
+    lb: np.ndarray  # equilibrium length-to-breadth ratio
 
     @classmethod
     def build(cls, fuel_grid, conditions, spread_modifier_grid, terrain_grid, center) -> "_CellParams":
         rows, cols = fuel_grid.rows, fuel_grid.cols
-        names = ("head", "back", "flank", "raz", "sfc", "cfl", "rso", "imult")
+        names = ("head", "back", "flank", "raz", "sfc", "cfl", "rso", "imult", "alpha", "lb")
         arr = {n: np.zeros((rows, cols)) for n in names}
         fuel = np.zeros((rows, cols), dtype=bool)
         cache: dict[tuple, tuple] = {}
@@ -249,7 +258,7 @@ class _CellParams:
                 if vals is None:
                     f = fbp_for_conditions(conditions, ft, float(key[1]), float(key[2]), cbh, cfl)
                     vals = (f.ros_final * rm, f.back_ros * rm, f.flank_ros * rm, f.raz,
-                            f.sfc, f.cfl, f.rso, im)
+                            f.sfc, f.cfl, f.rso, im, calculate_acceleration(ft, f.cfb), f.lb)
                     cache[key] = vals
                 for n, v in zip(names, vals):
                     arr[n][r, c] = v
@@ -258,16 +267,39 @@ class _CellParams:
         return cls(
             fuel=fuel, head=head, a=(head + back) / 2.0, b=arr["flank"], c=(head - back) / 2.0,
             hx=np.sin(raz), hy=np.cos(raz), sfc=arr["sfc"], cfl=arr["cfl"], rso=arr["rso"],
-            imult=arr["imult"],
+            imult=arr["imult"], alpha=np.where(fuel, arr["alpha"], 0.115), lb=np.maximum(arr["lb"], 1.0),
         )
 
 
-def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros):
-    """Exact FBP ellipse of the ignition cell until its head has run START_CELLS cells."""
+def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceleration=True):
+    """Exact FBP ellipse of the ignition cell until its head has run START_CELLS cells.
+
+    With acceleration the ellipse at t0 has the head and back distances of the
+    accelerating fire (ST-X-3 eq 73) and breadth from LB(t0) (eq 81); inside it,
+    arrival times use the mean speed over [0, t0].
+    """
     rows, cols = params.fuel.shape
     a, b, c = params.a[r0, c0], params.b[r0, c0], params.c[r0, c0]
     hx, hy, head = params.hx[r0, c0], params.hy[r0, c0], params.head[r0, c0]
-    t0 = min(START_CELLS * min(dx, dy) / head, 0.5 * duration)
+    run = START_CELLS * min(dx, dy)
+    if acceleration:
+        alpha, lb = params.alpha[r0, c0], params.lb[r0, c0]
+
+        def head_dist(t):
+            return head * (t + math.exp(-alpha * t) / alpha - 1.0 / alpha)
+
+        lo, hi = 0.0, run / head + 5.0 / alpha
+        for _ in range(60):  # bisection for the time the head has run `run` metres
+            mid = 0.5 * (lo + hi)
+            lo, hi = (mid, hi) if head_dist(mid) < run else (lo, mid)
+        t0 = min(hi, 0.5 * duration)
+        g0 = head_dist(t0) / (head * t0) if t0 > 0 else 0.0
+        lb_t0 = (lb - 1.0) * (1.0 - math.exp(-alpha * t0)) + 1.0
+        a, c = a * g0, c * g0
+        b = a / lb_t0
+        head = head * g0
+    else:
+        t0 = min(run / head, 0.5 * duration)
     rr, cc = np.mgrid[0:rows, 0:cols]
     x = (cc - c0) * dx
     y = (r0 - rr) * dy
@@ -291,7 +323,7 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros):
     return phi, t0
 
 
-def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros):
+def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acceleration=True):
     """Advance phi by one time step inside the window ``win`` (in place)."""
     sub = phi[win]
     pad = np.pad(sub, 2, mode="edge")
@@ -320,6 +352,12 @@ def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros):
 
     a, b, c = p.a[win], p.b[win], p.c[win]
     hx, hy, fuel = p.hx[win], p.hy[win], p.fuel[win]
+    if acceleration:  # mean FBP acceleration over the step and LB(t) at its midpoint
+        alpha = p.alpha[win]
+        g = 1.0 - (np.exp(-alpha * t) - np.exp(-alpha * (t + step))) / (alpha * step)
+        lb_t = (p.lb[win] - 1.0) * (1.0 - np.exp(-alpha * (t + 0.5 * step))) + 1.0
+        a, c = a * g, c * g
+        b = a / lb_t
     gx, gy = 0.5 * (dxm + dxp), 0.5 * (dym + dyp)
     g = np.hypot(gx, gy) + 1e-12
     nh = (gx * hx + gy * hy) / g

@@ -68,6 +68,11 @@ class SimulationRun:
         self._pause_event.set()  # Unblock if paused
 
 
+def _synthetic_seed(lat: float, lng: float) -> int:
+    """Stable RNG seed for the synthetic demo landscape at an ignition point."""
+    return round(lat * 1e4) * 10_000_000 + round(lng * 1e4)
+
+
 class SimulationRunner:
     """Manages simulation runs.
 
@@ -320,11 +325,14 @@ class SimulationRunner:
                 else:
                     from firesim.data.synthetic_grid import generate_synthetic_fuel_grid
 
+                    # Seeded from the ignition point (~11 m precision) so re-running a
+                    # scenario reproduces the same demo landscape and result.
                     fuel_grid = generate_synthetic_fuel_grid(
                         ignition_lat=params.ignition_lat,
                         ignition_lng=params.ignition_lng,
                         radius_km=5.0,
                         cell_size_m=50.0,
+                        seed=_synthetic_seed(params.ignition_lat, params.ignition_lng),
                     )
                     logger.info(
                         "Synthetic CA grid generated: %dx%d around (%.4f, %.4f)",

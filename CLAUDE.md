@@ -11,8 +11,8 @@ Used for municipal wildfire risk assessment and EOC planning in Edmonton's WUI.
 ## Architecture
 
 ```
-engine/          Pure Python FBP engine (no web deps) — 434 tests
-api/             FastAPI service — wraps engine, WebSocket streaming — 67 tests
+engine/          Pure Python FBP engine (no web deps)
+api/             FastAPI service — wraps engine, WebSocket streaming
 frontend/        React + TypeScript + MapLibre GL — Vite build
 docker-compose.yml  api:8000 + frontend:3000 (dev)
 Makefile         All key commands
@@ -26,9 +26,9 @@ Makefile         All key commands
 
 ```bash
 make install        # Install all deps (engine + api + frontend)
-make test           # Run all 501 tests
-make test-engine    # Engine only (434 tests)
-make test-api       # API only (67 tests)
+make test           # Run all tests
+make test-engine    # Engine only
+make test-api       # API only
 make test-cov       # Coverage report
 make lint           # TypeScript type-check
 make dev-api        # FastAPI at :8000 with auto-reload
@@ -57,7 +57,7 @@ docker compose up --build
 | `fbp/crown_fire.py` | CSI, RSO, CFB (ST-X-3 eqs 56-58), C-6 crown ROS, `FireType` classification |
 | `fwi/calculator.py` | Van Wagner & Pickett (1985): `FWICalculator` with `calculate()` → `FWIResult` |
 | `spread/huygens.py` | **Primary spread algorithm** — elliptical Huygens wavelet; `FuelGrid` holds fuel types plus optional per-cell `cbh`/`cfl` (e.g. LiDAR) layers |
-| `spread/cellular.py` | CA mode for WUI/urban (discrete cells, use `use_ca_mode=True`) |
+| `spread/cellular.py` | Level-set grid spread on spatial fuel grids (FBP-ellipse Huygens velocity, ELMFIRE-style); `use_ca_mode=True` forces it |
 | `spread/ellipse.py` | LB ratio (forest + grass), flank ROS, ROS toward theta on the FBP ellipse |
 | `spread/slope.py` | ST-X-3 eq 39 slope factor (slope itself is applied via net effective wind in the FBP calculator) |
 | `spread/spotting.py` | Albini (1979) ember spotting — crown fire → spot distance + probability |

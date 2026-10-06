@@ -514,3 +514,31 @@ class TestFrontendRenderingContract:
             assert len(frame["perimeter"]) >= 3, (
                 "Huygens frame must include a polygon perimeter for MapView rendering"
             )
+
+
+# ---------------------------------------------------------------------------
+# Synthetic demo landscape is reproducible
+# ---------------------------------------------------------------------------
+
+
+class TestSyntheticGridReproducible:
+    def test_same_ignition_gives_same_result(self, monkeypatch):
+        """use_ca_mode without a fuel raster: re-running a scenario must reproduce it."""
+        monkeypatch.delenv("FIRESIM_FUEL_GRID_PATH", raising=False)
+        payload = {
+            "ignition_lat": 53.55,
+            "ignition_lng": -113.45,
+            "weather": {"wind_speed": 20.0, "wind_direction": 270.0},
+            "fwi_overrides": {"ffmc": 92.0, "dmc": 40.0, "dc": 300.0},
+            "duration_hours": 0.5,
+            "snapshot_interval_minutes": 30.0,
+            "use_ca_mode": True,
+        }
+        areas = []
+        with TestClient(create_app()) as tc:
+            for _ in range(2):
+                resp = tc.post("/api/v1/simulations", json=payload)
+                result = _sync_wait_for_completion(tc, resp.json()["simulation_id"])
+                assert result["status"] == "completed", result.get("error")
+                areas.append(result["frames"][-1]["area_ha"])
+        assert areas[0] == areas[1] > 0

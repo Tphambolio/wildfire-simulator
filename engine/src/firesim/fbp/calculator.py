@@ -428,6 +428,46 @@ def calculate_slope_adjustment(
     return wsv, raz
 
 
+# Fuels whose point-ignition acceleration uses the open-fuel constant (ST-X-3 eq 70)
+_OPEN_ACCELERATION = (FuelType.C1, FuelType.O1a, FuelType.O1b, FuelType.S1, FuelType.S2,
+                      FuelType.S3, FuelType.D1, FuelType.D2)
+
+
+def calculate_acceleration(fuel_type: FuelType | str, cfb: float) -> float:
+    """Point-ignition acceleration parameter alpha (per minute), ST-X-3 eqs 70-71.
+
+    Open fuels: alpha = 0.115. Closed canopy (C-2 to C-7, M types):
+    alpha = 0.115 - 18.8 * CFB^2.5 * exp(-8 CFB).
+    """
+    if FuelType(fuel_type) in _OPEN_ACCELERATION:
+        return 0.115
+    return 0.115 - 18.8 * max(cfb, 0.0) ** 2.5 * math.exp(-8.0 * max(cfb, 0.0))
+
+
+def calculate_ros_at_time(ros_eq: float, alpha: float, minutes: float) -> float:
+    """Rate of spread t minutes after a point ignition (ST-X-3 eq 72)."""
+    return ros_eq * (1.0 - math.exp(-alpha * max(minutes, 0.0)))
+
+
+def calculate_distance_at_time(ros_eq: float, alpha: float, minutes: float) -> float:
+    """Spread distance t minutes after a point ignition (ST-X-3 eq 73)."""
+    t = max(minutes, 0.0)
+    return ros_eq * (t + math.exp(-alpha * t) / alpha - 1.0 / alpha)
+
+
+def calculate_lb_at_time(lb: float, alpha: float, minutes: float) -> float:
+    """Length-to-breadth ratio t minutes after a point ignition (ST-X-3 eq 81)."""
+    return (lb - 1.0) * (1.0 - math.exp(-alpha * max(minutes, 0.0))) + 1.0
+
+
+def mean_acceleration_factor(alpha: float, t1: float, t2: float) -> float:
+    """Mean of (1 - exp(-alpha t)) over [t1, t2]: distance in the step / (ROS_eq * dt)."""
+    t1, t2 = max(t1, 0.0), max(t2, 0.0)
+    if t2 <= t1:
+        return 1.0 - math.exp(-alpha * t1)
+    return 1.0 - (math.exp(-alpha * t1) - math.exp(-alpha * t2)) / (alpha * (t2 - t1))
+
+
 def _calculate_flame_length(hfi: float) -> float:
     """Calculate flame length from head fire intensity.
 

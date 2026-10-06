@@ -1,16 +1,20 @@
 # Wildfire Simulator V3
 
-Research and development tool for Canadian FBP fire spread simulation.
+Planning, training and what-if tool for Canadian FBP fire spread simulation. The FBP
+equations are verified against the CFS `cffdrs` reference implementation; spread has not been
+validated against observed fires. See [docs/verification.md](docs/verification.md).
 
 ## What this does
 
 Simulates wildfire spread using the Canadian Forest Fire Behavior Prediction (FBP) System:
-- All 18 FBP fuel types (ST-X-3 validated)
-- Huygens wavelet fire spread (open wildland) and cellular automaton (urban/WUI)
-- FWI System (FFMC, DMC, DC, ISI, BUI, FWI)
-- Crown fire initiation (Van Wagner 1977)
-- Ember spotting (Albini 1979) with multi-front ignition
-- Directional slope effects (Butler 2007 cap, Anderson 1983 downslope)
+- All 18 FBP fuel types (ST-X-3 with GLC-X-10 revisions), matching `cffdrs` to float precision
+- Huygens wavelet spread for uniform fuel; level-set spread on spatial fuel grids
+  (wraps around water, roads and buildings)
+- Point-ignition acceleration, slope via net effective wind, crown fire (eqs 56-58, C-6 crown rate)
+- Foliar moisture from location and date; grass curing, percent conifer / dead fir inputs
+- Optional per-cell crown base height and crown fuel load (e.g. from drone LiDAR)
+- FWI System (FFMC, DMC, DC, ISI, BUI, FWI), live CWFIS weather
+- Ember spotting (heuristic, opt-in) and Monte Carlo burn probability
 - Spatial fuel/water/buildings/WUI-zone grids
 - Interactive map with click-to-ignite, real-time streaming, pause/resume/cancel
 
@@ -46,16 +50,16 @@ docker compose up --build
 ## Testing
 
 ```bash
-make test           # All 501 tests
-make test-engine    # 434 engine tests
-make test-api       # 67 API integration tests
+make test           # All tests (about 660)
+make test-engine    # Engine tests, incl. cffdrs reference and FBP-ellipse agreement
+make test-api       # API integration tests
 ```
 
 ## Project structure
 
 ```
-engine/     Pure Python fire science (zero web deps, 434 tests)
-api/        FastAPI backend with WebSocket streaming (67 tests)
+engine/     Pure Python fire science (zero web deps)
+api/        FastAPI backend with WebSocket streaming
 frontend/   React + Vite + TypeScript + MapLibre GL
 ```
 
@@ -73,11 +77,27 @@ POST /api/v1/fwi/multi-day        Chain FWI across daily observations
 GET  /api/v1/weather              Live FWI indices for a location (CWFIS)
 ```
 
+## Documentation
+
+- [docs/fbp-reference.md](docs/fbp-reference.md): equations, inputs, cffdrs verification
+- [docs/architecture.md](docs/architecture.md): components and the two spread models
+- [docs/verification.md](docs/verification.md): what is verified, history of fixes, known limits
+- [docs/api-reference.md](docs/api-reference.md), [docs/deployment.md](docs/deployment.md)
+
 ## References
 
-- Forestry Canada Fire Danger Group (1992). ST-X-3.
-- Tymstra, C. et al. (2010). Prometheus: Canadian Wildland Fire Growth Simulation Model.
-- Van Wagner, C.E. (1977). Crown fire initiation.
-- Albini, F.A. (1979). Spot fire distance from burning trees.
-- Butler et al. (2007). Slope effect observations.
-- Anderson (1983). Downslope fire spread.
+- Forestry Canada Fire Danger Group (1992). *Development and Structure of the Canadian Forest
+  Fire Behavior Prediction System.* Information Report ST-X-3.
+- Wotton, B.M., Alexander, M.E., Taylor, S.W. (2009). *Updates and revisions to the 1992
+  Canadian Forest Fire Behavior Prediction System.* Information Report GLC-X-10.
+- Van Wagner, C.E. (1977). Conditions for the start and spread of crown fire. *Can. J. For. Res.* 7: 23-34.
+- Van Wagner, C.E., Pickett, T.L. (1985). *Equations and FORTRAN program for the Canadian Forest
+  Fire Weather Index System.* Forestry Technical Report 33.
+- Richards, G.D. (1990). An elliptical growth model of forest fire fronts and its numerical
+  solution. *Int. J. Numer. Meth. Eng.* 30: 1163-1179.
+- Tymstra, C., Bryce, R.W., Wotton, B.M., Taylor, S.W., Armitage, O.B. (2010). *Development and
+  structure of Prometheus: the Canadian Wildland Fire Growth Simulation Model.* NOR-X-417.
+- Lautenberger, C. (2013). Wildland fire modeling with an Eulerian level set method and
+  automated calibration. *Fire Safety Journal* 62: 289-298. (ELMFIRE; level-set approach)
+- Wang, X. et al. (2017). cffdrs: an R package for the Canadian Forest Fire Danger Rating
+  System. *Ecological Processes* 6: 5.
