@@ -31,8 +31,24 @@ runner: SimulationRunner | None = None
 ws_manager: ConnectionManager | None = None
 
 
-def _frame_to_schema(frame: SimulationFrame, day: int | None = None) -> FrameSchema:
-    """Convert engine SimulationFrame to API schema."""
+def _incremental(run) -> bool:
+    """Whether the run streams only newly burned cells (single-event grid runs that ask)."""
+    return isinstance(run.config, SimulationCreate) and run.config.cells_mode == "incremental"
+
+
+def _cell_offsets(run, frames: list[SimulationFrame]) -> list[int]:
+    """Per frame, how many earlier cells to leave out (the previous frame's cell count)."""
+    if not _incremental(run):
+        return [0] * len(frames)
+    return [0] + [len(f.burned_cells or []) for f in frames[:-1]]
+
+
+def _frame_to_schema(frame: SimulationFrame, day: int | None = None, offset: int = 0) -> FrameSchema:
+    """Convert engine SimulationFrame to API schema.
+
+    ``offset`` > 0 sends only the cells after the first ``offset`` (frames' cells are
+    ordered by arrival, so each frame's cells extend the previous frame's).
+    """
     return FrameSchema(
         time_hours=frame.time_hours,
         perimeter=[[lat, lng] for lat, lng in frame.perimeter],
@@ -44,7 +60,9 @@ def _frame_to_schema(frame: SimulationFrame, day: int | None = None) -> FrameSch
         fuel_breakdown=frame.fuel_breakdown,
         spot_fires=frame.spot_fires,
         num_fronts=frame.num_fronts,
-        burned_cells=frame.burned_cells,
+        burned_cells=frame.burned_cells[offset:] if offset and frame.burned_cells else frame.burned_cells,
+        cells_offset=offset if frame.burned_cells else 0,
+        head=frame.head,
         day=day,
         buildings_at_risk=frame.buildings_at_risk,
         ignition_snapped_m=round(frame.ignition_snapped_m, 1),
@@ -57,10 +75,16 @@ def _on_frame(sim_id: str, frame: SimulationFrame) -> None:
     """Callback from simulation thread — broadcast frame via WebSocket."""
     if ws_manager is None:
         return
+    offset = 0
+    run = runner.get(sim_id) if runner is not None else None
+    if run is not None and _incremental(run):
+        frames = run.get_frames()  # this frame was added before the callback
+        if len(frames) > 1:
+            offset = len(frames[-2].burned_cells or [])
     event = {
         "type": "simulation.frame",
         "simulation_id": sim_id,
-        "frame": _frame_to_schema(frame).model_dump(),
+        "frame": _frame_to_schema(frame, offset=offset).model_dump(),
     }
     ws_manager.broadcast_from_thread(sim_id, event)
 
@@ -193,7 +217,11 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
     if run is None:
         raise HTTPException(status_code=404, detail="Simulation not found")
 
-    frames = [_frame_to_schema(f) for f in run.get_frames()]
+    engine_frames = run.get_frames()
+    frames = [
+        _frame_to_schema(f, offset=o)
+        for f, o in zip(engine_frames, _cell_offsets(run, engine_frames))
+    ]
 
     # Only include config in response for single-day simulations
     config_out = run.config if isinstance(run.config, SimulationCreate) else None
@@ -205,6 +233,39 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
         frames=frames,
         error=run.error,
     )
+
+
+@router.get("/{sim_id}/arrival")
+async def get_arrival(sim_id: str) -> dict:
+    """Arrival time of the fire at each fuel-grid cell (grid runs, once complete).
+
+    ``minutes`` is base64 of little-endian int16, row-major from the north-west corner,
+    whole minutes after ignition, -1 where the cell did not burn.
+    """
+    import base64
+
+    import numpy as np
+
+    if runner is None:
+        raise HTTPException(status_code=500, detail="Runner not initialized")
+    run = runner.get(sim_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    frames = run.get_frames()
+    raster = next((f.arrival_raster for f in reversed(frames) if f.arrival_raster), None)
+    if raster is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No arrival grid: the run is not finished or did not use a fuel grid",
+        )
+    minutes = np.asarray(raster["minutes"], dtype="<i2")
+    return {
+        "rows": raster["rows"], "cols": raster["cols"],
+        "lat_min": raster["lat_min"], "lat_max": raster["lat_max"],
+        "lng_min": raster["lng_min"], "lng_max": raster["lng_max"],
+        "encoding": "int16-le-base64",
+        "minutes": base64.b64encode(minutes.tobytes()).decode(),
+    }
 
 
 @router.websocket("/ws/{sim_id}")
@@ -223,11 +284,12 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
 
     try:
         # Send any frames that already exist
-        for frame in run.get_frames():
+        existing = run.get_frames()
+        for frame, offset in zip(existing, _cell_offsets(run, existing)):
             await websocket.send_json({
                 "type": "simulation.frame",
                 "simulation_id": sim_id,
-                "frame": _frame_to_schema(frame).model_dump(),
+                "frame": _frame_to_schema(frame, offset=offset).model_dump(),
             })
 
         # If already done, send completion
@@ -277,7 +339,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                 await websocket.send_json({
                     "type": "simulation.frame",
                     "simulation_id": sim_id,
-                    "frame": _frame_to_schema(frames[-1]).model_dump(),
+                    "frame": _frame_to_schema(frames[-1], offset=_cell_offsets(run, frames)[-1]).model_dump(),
                 })
 
     except WebSocketDisconnect:

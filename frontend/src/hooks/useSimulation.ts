@@ -83,11 +83,12 @@ export function useSimulation() {
 
         if (data.type === "simulation.frame" && data.frame) {
           setState((prev) => {
+            const frame = withAllCells(data.frame!, prev.frames[prev.frames.length - 1]);
             // Prepend a synthetic T=0 frame on the very first real frame so the
             // scrubber always starts at the ignition state (nothing burning).
             const newFrames = prev.frames.length === 0
-              ? [T0_FRAME, data.frame!]
-              : [...prev.frames, data.frame!];
+              ? [T0_FRAME, frame]
+              : [...prev.frames, frame];
             return {
               ...prev,
               frames: newFrames,
@@ -152,7 +153,9 @@ export function useSimulation() {
   }, []);
 
   const startSimulation = useCallback(
-    (params: SimulationCreate) => _startWithCreateFn(() => createSimulation(params)),
+    // Grid runs stream only newly burned cells; withAllCells rebuilds each frame's full list
+    (params: SimulationCreate) =>
+      _startWithCreateFn(() => createSimulation({ ...params, cells_mode: "incremental" })),
     [_startWithCreateFn]
   );
 
@@ -170,7 +173,9 @@ export function useSimulation() {
     const poll = async () => {
       try {
         const resp = await getSimulation(simId);
-        const framesWithT0 = resp.frames.length > 0 ? [T0_FRAME, ...resp.frames] : [];
+        const full: SimulationFrame[] = [];
+        for (const f of resp.frames) full.push(withAllCells(f, full[full.length - 1]));
+        const framesWithT0 = full.length > 0 ? [T0_FRAME, ...full] : [];
         setState((prev) => ({
           ...prev,
           frames: framesWithT0,
@@ -238,4 +243,16 @@ export function useSimulation() {
     resumeSimulation,
     cancelSimulation,
   };
+}
+
+/**
+ * A frame with all its burned cells. In incremental mode the server sends only the cells
+ * burned since the previous frame, and ``cells_offset`` says how many earlier cells (the
+ * previous frame's) come first.
+ */
+export function withAllCells(frame: SimulationFrame, prev: SimulationFrame | undefined): SimulationFrame {
+  const offset = frame.cells_offset ?? 0;
+  if (offset <= 0) return frame;
+  const earlier = (prev?.burned_cells ?? []).slice(0, offset);
+  return { ...frame, burned_cells: earlier.concat(frame.burned_cells ?? []), cells_offset: 0 };
 }

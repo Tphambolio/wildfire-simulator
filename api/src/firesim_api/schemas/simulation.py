@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -90,6 +92,14 @@ class SimulationCreate(BaseModel):
             "Optional hourly weather stream. Each record sets wind, temperature, RH and rain from "
             "its hour until the next; FFMC starts from fwi_overrides.ffmc and follows the hourly "
             "FFMC model. DMC and DC stay fixed. Without it, `weather` applies throughout."
+        ),
+    )
+    cells_mode: Literal["cumulative", "incremental"] = Field(
+        default="cumulative",
+        description=(
+            "Grid runs: 'cumulative' sends every burned cell so far in each frame; 'incremental' "
+            "sends only the cells burned since the previous frame (frame.cells_offset says how "
+            "many earlier cells were left out). Multi-day runs are always cumulative."
         ),
     )
     fuel_type: str = Field(default="C2", description="Default fuel type code")
@@ -179,6 +189,11 @@ class SimulationFrame(BaseModel):
     building_exposure: dict[str, int] | None = None
     # Per-building exposure for buildings within 500 m of the fire (final frame only)
     building_exposure_detail: list[dict] | None = None
+    # Grid model: fastest head cell reached since the previous frame
+    # {lat, lng, ros, raz, hfi, cfb, fuel, t, max_spot_distance_m}
+    head: dict | None = None
+    # Incremental cells: number of earlier cells not repeated in burned_cells (0 = all cells)
+    cells_offset: int = 0
 
 
 class SimulationResponse(BaseModel):

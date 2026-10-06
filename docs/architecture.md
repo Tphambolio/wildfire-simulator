@@ -82,7 +82,12 @@ With building footprints, the burned cells also become flame panels for per-buil
 
 Each burned cell records its arrival time (minutes) and the front's normal speed when it
 crossed; intensity and fire type use that speed, so flanks and backs are not given head-fire
-intensity. Ember spotting (opt-in) is evaluated on newly burned cells every minute.
+intensity. Each cell is also tagged head, flank or back by the angle between its spread
+direction (the arrival-time gradient) and its FBP head direction, and each frame reports the
+fastest head cell (speed, direction, intensity, Albini maximum spotting distance). On uniform
+fuel the fastest head cell spreads at the FBP ROS and the rearmost back cell at BROS
+(`engine/tests/spread/test_deployment_data.py`). The final arrival grid is served at
+`GET /simulations/{id}/arrival`, and frames can be streamed incrementally (`cells_mode`). Ember spotting (opt-in) is evaluated on newly burned cells every minute.
 
 This replaced a stochastic cellular automaton in 2026-10; see `docs/verification.md`.
 

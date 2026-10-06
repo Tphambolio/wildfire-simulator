@@ -151,3 +151,72 @@ async def test_fuel_grid_image_has_legend_without_fire_colours(client):
     for e in legend:
         r, g, b = (int(e["color"][i:i + 2], 16) for i in (1, 3, 5))
         assert not (r > 200 and g < 180 and b < 100), e  # no orange/red
+
+
+_EDMONTON_FUEL = (
+    __import__("pathlib").Path(__file__).resolve().parents[2]
+    / "data" / "Edmonton_FBP_FuelLayer_20251105_10m.tif"
+)
+
+
+async def _run_grid(client, cells_mode: str) -> dict:
+    if not _EDMONTON_FUEL.exists():
+        pytest.skip("Edmonton fuel grid not present")
+    payload = {
+        # grass in north-east Edmonton, where the fire spreads freely
+        "ignition_lat": 53.6778, "ignition_lng": -113.3631,
+        "weather": {"wind_speed": 25.0, "wind_direction": 270.0},
+        "fwi_overrides": {"ffmc": 92.0, "dmc": 40.0, "dc": 300.0},
+        "duration_hours": 2.0, "snapshot_interval_minutes": 10.0,
+        "fuel_grid_path": str(_EDMONTON_FUEL), "cells_mode": cells_mode,
+    }
+    resp = await client.post("/api/v1/simulations", json=payload)
+    sim_id = resp.json()["simulation_id"]
+    for _ in range(120):
+        data = (await client.get(f"/api/v1/simulations/{sim_id}")).json()
+        if data["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.5)
+    assert data["status"] == "completed", data.get("error")
+    return data
+
+
+async def test_incremental_frames_rebuild_cumulative(client):
+    """Incremental frames (only new cells) rebuild exactly the cumulative frames, smaller."""
+    import json
+
+    full = await _run_grid(client, "cumulative")
+    inc = await _run_grid(client, "incremental")
+    assert len(full["frames"]) == len(inc["frames"])
+    cells: list[dict] = []
+    for f_full, f_inc in zip(full["frames"], inc["frames"]):
+        assert f_inc["cells_offset"] == len(cells)
+        cells = cells[: f_inc["cells_offset"]] + (f_inc["burned_cells"] or [])
+        assert cells == (f_full["burned_cells"] or [])
+        assert f_full["cells_offset"] == 0
+    assert full["frames"][-1]["area_ha"] > 5  # the fire spread
+    assert len(json.dumps(inc)) < 0.6 * len(json.dumps(full))
+    last = inc["frames"][-1]
+    assert {"ros", "part"} <= last["burned_cells"][0].keys() if last["burned_cells"] else True
+    heads = [f["head"] for f in inc["frames"] if f["head"]]
+    assert heads and all(h["ros"] > 0 and 0 <= h["raz"] < 360 for h in heads)
+
+    # Arrival grid for the finished run
+    arr = (await client.get(f"/api/v1/simulations/{inc['simulation_id']}/arrival")).json()
+    import base64
+
+    import numpy as np
+
+    minutes = np.frombuffer(base64.b64decode(arr["minutes"]), dtype="<i2").reshape(arr["rows"], arr["cols"])
+    assert int((minutes >= 0).sum()) == cells.__len__()
+    assert 0 <= minutes[minutes >= 0].max() <= 120
+
+
+async def test_arrival_404_for_unknown_run(client):
+    resp = await client.get("/api/v1/simulations/nope/arrival")
+    assert resp.status_code == 404
+
+
+async def test_version_endpoint(client):
+    data = (await client.get("/api/v1/version")).json()
+    assert data["version"] == "3.0.0" and "git_sha" in data
