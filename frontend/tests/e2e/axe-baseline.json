@@ -1,0 +1,61 @@
+{
+  "shell": {
+    "color-contrast": {
+      "impact": "serious",
+      "nodes": 4,
+      "help": "Elements must meet minimum color contrast ratio thresholds",
+      "targets": [
+        ".sidebar-subtitle",
+        ".section:nth-child(5) > .hint",
+        ".fwi-danger-badge",
+        "button[title=\"Street\"]"
+      ]
+    },
+    "target-size": {
+      "impact": "serious",
+      "nodes": 2,
+      "help": "All touch targets must be 24px large, or leave sufficient space",
+      "targets": [
+        "label:nth-child(6) > input[type=\"checkbox\"]",
+        "label:nth-child(7) > input[type=\"checkbox\"]"
+      ]
+    }
+  },
+  "completed": {
+    "color-contrast": {
+      "impact": "serious",
+      "nodes": 10,
+      "help": "Elements must meet minimum color contrast ratio thresholds",
+      "targets": [
+        ".sidebar-subtitle",
+        ".section:nth-child(5) > .hint",
+        ".fwi-danger-badge",
+        "div:nth-child(13) > div > div > span:nth-child(1)",
+        "div:nth-child(13) > div > div > span:nth-child(2)",
+        ".metrics-rows > .metric-row:nth-child(4) > .metric-value",
+        "button[title=\"Street\"]",
+        ".ts-tl-start",
+        ".ts-tl-end",
+        ".ts-frame-count"
+      ]
+    },
+    "label": {
+      "impact": "critical",
+      "nodes": 1,
+      "help": "Form elements must have labels",
+      "targets": [
+        ".evac-scale-slider"
+      ]
+    },
+    "target-size": {
+      "impact": "serious",
+      "nodes": 3,
+      "help": "All touch targets must be 24px large, or leave sufficient space",
+      "targets": [
+        "label:nth-child(6) > input[type=\"checkbox\"]",
+        "label:nth-child(7) > input[type=\"checkbox\"]",
+        ".toggle-advanced:nth-child(9)"
+      ]
+    }
+  }
+}

@@ -57,6 +57,9 @@ make test-engine    # Engine tests, incl. cffdrs reference and FBP-ellipse agree
 make test-api       # API integration tests
 ```
 
+Frontend unit tests (Vitest) and end-to-end tests (Playwright with a mocked API): see
+[frontend/README.md](frontend/README.md#testing).
+
 ## Project structure
 
 ```

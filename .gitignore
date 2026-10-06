@@ -38,3 +38,9 @@ engine/.env
 .DS_Store
 Thumbs.db
 .vercel
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
