@@ -14,7 +14,8 @@ Simulates wildfire spread using the Canadian Forest Fire Behavior Prediction (FB
 - Foliar moisture from location and date; grass curing, percent conifer / dead fir inputs
 - Optional per-cell crown base height and crown fuel load (e.g. from drone LiDAR)
 - FWI System (FFMC, DMC, DC, ISI, BUI, FWI), live CWFIS weather
-- Ember spotting (heuristic, opt-in) and Monte Carlo burn probability
+- Ember spotting (opt-in): Albini/Chase maximum distances; emission and landing heuristic
+- Monte Carlo burn probability
 - Spatial fuel/water/buildings/WUI-zone grids
 - Interactive map with click-to-ignite, real-time streaming, pause/resume/cancel
 
@@ -99,5 +100,9 @@ GET  /api/v1/weather              Live FWI indices for a location (CWFIS)
   structure of Prometheus: the Canadian Wildland Fire Growth Simulation Model.* NOR-X-417.
 - Lautenberger, C. (2013). Wildland fire modeling with an Eulerian level set method and
   automated calibration. *Fire Safety Journal* 62: 289-298. (ELMFIRE; level-set approach)
+- Albini, F.A. (1979). *Spot fire distance from burning trees: a predictive model.* GTR INT-56;
+  Albini (1981) Res. Note INT-309; Albini (1983) *Potential spotting distance from wind-driven
+  surface fires.* Res. Pap. INT-309; Chase, C.H. (1981) Res. Note INT-310 and (1984) INT-346;
+  Morris, G.A. (1987) Res. Note INT-374. USDA Forest Service.
 - Wang, X. et al. (2017). cffdrs: an R package for the Canadian Forest Fire Danger Rating
   System. *Ecological Processes* 6: 5.

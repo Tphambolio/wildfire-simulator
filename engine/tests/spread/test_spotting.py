@@ -126,8 +126,8 @@ def make_front(lat: float = 53.5, lng: float = -113.5, n: int = 20) -> list[Fire
 class TestConstants:
     """Verify model constants match the literature."""
 
-    def test_crown_fire_threshold_van_wagner_1977(self):
-        """Van Wagner (1977) crown fire threshold is 4000 kW/m."""
+    def test_emission_threshold(self):
+        """Heuristic ember-emission threshold (not from Van Wagner or Albini)."""
         assert CROWN_FIRE_THRESHOLD_KW_M == pytest.approx(4000.0)
 
     def test_max_spot_prob_positive_and_bounded(self):
@@ -353,17 +353,10 @@ class TestSpotFireDataclass:
 
 
 class TestSpottingDistanceScaling:
-    """Spot distance must increase with wind speed and match Albini (1979) INT-56.
+    """Spot distance must increase with wind speed and stay within Albini's maximum.
 
-    Albini (1979) gives maximum spotting distances for burning trees under
-    sustained wind. The model uses wind_distance = wind_speed^1.5 (calibrated),
-    which implies distance grows super-linearly with wind speed.
-
-    Published Albini (1979) INT-56 reference ranges (crown fire conditions):
-        14 km/h  (~4 m/s):   70– 200 m
-        29 km/h  (~8 m/s):  200– 400 m
-        50 km/h  (~14 m/s): 300– 600 m
-        60 km/h  (~17 m/s): 500–1000 m
+    Maximum distances come from firesim.spread.albini, which is checked against the
+    published worked examples in test_albini.py.
     """
 
     def _collect_spots(self, conditions, n_trials=100):
@@ -429,43 +422,21 @@ class TestSpottingDistanceScaling:
                 f"Spot distance {spot.distance_m:.1f} m is below the 10 m minimum"
             )
 
-    @pytest.mark.parametrize("wind_speed,hfi,expected_lo,expected_hi", [
-        # Albini (1979) INT-56 Table 1 reference ranges for crown fire conditions.
-        # expected_lo = minimum of 30% of max_distance (stochastic floor)
-        # expected_hi = max_distance * 1.05 (small tolerance)
-        (14.0,  7558,   20,  220),   # ~14 km/h: Albini range  70-200m
-        (29.0, 38774,   90,  440),   # ~29 km/h: Albini range 200-400m
-        (50.0, 10000,  165,  650),   # ~50 km/h: Albini range 300-600m
-        (60.0, 30000,  275, 1100),   # ~60 km/h: Albini range 500-1000m
-    ])
-    def test_albini_1979_distance_bounds(self, wind_speed, hfi, expected_lo, expected_hi):
-        """Max spot distance must fall within Albini (1979) INT-56 range.
+    def test_distances_bounded_by_albini_maximum(self):
+        """Each spot lands within the Albini maximum distance for its source."""
+        from firesim.fbp.constants import FuelType
+        from firesim.spread.albini import max_spot_distance
+        from firesim.spread.huygens import fbp_for_conditions
 
-        The bounds account for the stochastic uniform(0.3, 1.0) multiplier:
-        expected_lo = 0.3 * wind^1.5 * intensity_factor (minimum possible)
-        expected_hi = 1.0 * wind^1.5 * intensity_factor * 1.05 (maximum + 5%)
-
-        This confirms the /3.0 divisor has been removed (distances calibrated
-        to Albini range vs the ~3x underprediction of the earlier formula).
-        """
-        CROWN_THRESHOLD = 4000.0
-        intensity_factor = min(2.0, math.sqrt(hfi / CROWN_THRESHOLD))
-        wind_distance = wind_speed ** 1.5
-        max_distance = wind_distance * intensity_factor
-
-        # Any individual spot_distance is in [0.3*max, 1.0*max]
-        min_possible = max_distance * 0.30
-        max_possible = max_distance * 1.00
-
-        assert min_possible >= expected_lo, (
-            f"At wind={wind_speed}km/h, HFI={hfi}kW/m: "
-            f"min possible distance {min_possible:.0f}m below Albini floor {expected_lo}m. "
-            "Check that the /3.0 divisor has been removed from the formula."
+        conditions = SpreadConditions(
+            wind_speed=40.0, wind_direction=270.0, ffmc=95.0, dmc=80.0, dc=500.0,
         )
-        assert max_possible <= expected_hi, (
-            f"At wind={wind_speed}km/h, HFI={hfi}kW/m: "
-            f"max possible distance {max_possible:.0f}m exceeds Albini ceiling {expected_hi}m"
-        )
+        fbp = fbp_for_conditions(conditions, FuelType.C5)  # the fuel _collect_spots uses
+        s_max = max_spot_distance("C5", fbp.hfi, fbp.cfb, conditions.wind_speed)
+        spots = self._collect_spots(conditions, n_trials=200)
+        assert spots
+        for spot in spots:
+            assert 0.3 * s_max - 1e-6 <= spot.distance_m <= s_max + 1e-6
 
 
 # ---------------------------------------------------------------------------
