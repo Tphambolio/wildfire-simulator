@@ -9,6 +9,7 @@
  * three-zone model with finer temporal resolution.
  */
 
+import { memo } from "react";
 import type { Isochrone } from "../utils/isochrones";
 import { ISO_PRESETS, DEFAULT_ISO_HOURS } from "../utils/isochrones";
 
@@ -29,7 +30,7 @@ function activePreset(targetHours: number[]): string | null {
   return null;
 }
 
-export default function IsochronePanel({
+function IsochronePanel({
   isochrones,
   visible,
   targetHours,
@@ -103,3 +104,6 @@ export default function IsochronePanel({
     </div>
   );
 }
+
+// Re-render only when props change, not on every streamed frame
+export default memo(IsochronePanel);

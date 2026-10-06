@@ -134,3 +134,20 @@ def test_frame_schema_carries_buildings_and_snap():
     assert out["ignition_snapped_m"] == 402.0
     assert out["building_exposure"]["within_30m"] == 9
     assert out["building_exposure_detail"][0]["band"] == "radiant"
+
+
+async def test_fuel_grid_image_has_legend_without_fire_colours(client):
+    """The fuel overlay lists the fuels it draws, in colours that are not fire hues."""
+    import pathlib
+
+    tif = pathlib.Path(__file__).resolve().parents[2] / "data" / "Edmonton_FBP_FuelLayer_20251105_10m.tif"
+    if not tif.exists():
+        pytest.skip("Edmonton fuel grid not present")
+    resp = await client.get("/api/v1/simulations/fuel-grid-image", params={"fuel_grid_path": str(tif)})
+    assert resp.status_code == 200
+    legend = resp.json()["legend"]
+    fuels = {e["fuel"] for e in legend}
+    assert {"C2", "D2", "O1a"} <= fuels
+    for e in legend:
+        r, g, b = (int(e["color"][i:i + 2], 16) for i in (1, 3, 5))
+        assert not (r > 200 and g < 180 and b < 100), e  # no orange/red

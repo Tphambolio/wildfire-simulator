@@ -12,6 +12,7 @@ import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulati
 import type { RunParams } from "../components/WeatherPanel";
 import type { EvacZone } from "./evacZones";
 import type { SuppressionAdvisory } from "../components/EOCSummary";
+import { fwiClassColor } from "./fwiClass";
 
 // ── Geometry helpers (duplicated from EOCSummary to keep utility self-contained) ──
 
@@ -52,14 +53,7 @@ function complexityLevel(hfi: number): string {
   return "Type 1 — National/Regional IMT";
 }
 
-function dangerColor(rating: string): string {
-  const r = rating.toLowerCase();
-  if (r.includes("extreme"))    return "#b71c1c";
-  if (r.includes("very high"))  return "#e65100";
-  if (r.includes("high"))       return "#f57f17";
-  if (r.includes("moderate"))   return "#558b2f";
-  return "#1a237e";
-}
+const dangerColor = (rating: string): string => fwiClassColor(rating);
 
 // ── Per-day stats extraction ──────────────────────────────────────────────────
 

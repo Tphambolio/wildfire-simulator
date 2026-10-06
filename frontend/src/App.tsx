@@ -1,6 +1,6 @@
 /** FireSim V3 — Canadian FBP Wildfire Spread Simulator */
 
-import { useCallback, useState, useMemo, useRef, useEffect } from "react";
+import { lazy, Suspense, useCallback, useState, useMemo, useRef, useEffect } from "react";
 import MapView from "./components/MapView";
 import WeatherPanel from "./components/WeatherPanel";
 import type { RunParams } from "./components/WeatherPanel";
@@ -18,7 +18,8 @@ import { computeBurnProbability, fetchFuelGridImage } from "./services/api";
 import type { SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { computeEvacZones, applyZoneHistory } from "./utils/evacZones";
 import type { EvacZoneLabel } from "./utils/evacZones";
-import EOCConsole from "./components/EOCConsole";
+// The EOC console (and its ICS forms) loads only when its tab is opened
+const EOCConsole = lazy(() => import("./components/EOCConsole"));
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IncidentPanel from "./components/IncidentPanel";
 import IsochronePanel from "./components/IsochronePanel";
@@ -26,6 +27,7 @@ import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
+import { fwiClassColor } from "./utils/fwiClass";
 
 /**
  * Export burn probability contour polygons as GeoJSON.
@@ -281,7 +283,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"simulation" | "eoc">("simulation");
   const [isochronesVisible, setIsochronesVisible] = useState(false);
   const [isoTargetHours, setIsoTargetHours] = useState<number[]>(DEFAULT_ISO_HOURS);
-  const [fuelGridImage, setFuelGridImage] = useState<{ image: string; bounds: [number, number, number, number] } | null>(null);
+  const [fuelGridImage, setFuelGridImage] = useState<{ image: string; bounds: [number, number, number, number]; legend?: Array<{ fuel: string; color: string }> } | null>(null);
   const [fuelGridVisible, setFuelGridVisible] = useState(true);
 
   // ── Scenario management ───────────────────────────────────────────────────
@@ -482,8 +484,13 @@ export default function App() {
     [saveScenario]
   );
 
+  // Last single-event request, for "Retry" on the error toast
+  const lastStartRef = useRef<SimulationCreate | null>(null);
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
   const handleStartSimulation = useCallback(
     (params: SimulationCreate) => {
+      lastStartRef.current = params;
+      setDismissedError(null);
       startSimulation(params);
     },
     [startSimulation]
@@ -627,8 +634,14 @@ export default function App() {
           />
         </div>
         <footer className="sidebar-footer">
-          <button className="sidebar-footer-btn">⚙ Settings</button>
-          <button className="sidebar-footer-btn">? Support</button>
+          <a
+            className="sidebar-footer-btn"
+            href="https://github.com/Tphambolio/wildfire-simulator/blob/master/docs/verification.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Methods &amp; limits
+          </a>
         </footer>
       </aside>
 
@@ -675,12 +688,11 @@ export default function App() {
               <span>·</span>
               <span>FWI {lastRunParams.fwi_value.toFixed(1)}</span>
               <span className="run-params-danger" style={{
-                background: lastRunParams.fwi_value >= 30 ? "#b71c1c" : lastRunParams.fwi_value >= 20 ? "#e65100" : lastRunParams.fwi_value >= 10 ? "#f57f17" : "#558b2f",
+                background: fwiClassColor(lastRunParams.fwi_value),
               }}>{lastRunParams.danger_rating}</span>
             </div>
           )}
           {status && <span className={`status-badge status-${status}`}>{status}</span>}
-          <button className="btn-emergency">Emergency Alert</button>
         </div>
       </header>
 
@@ -699,6 +711,7 @@ export default function App() {
             onAdvancePeriod={advancePeriod}
             onUpdateName={(name) => updateIncidentField("name", name)}
           />
+          <Suspense fallback={<div className="hint" style={{ padding: 16 }}>Loading EOC console…</div>}>
           <EOCConsole
             frames={frames}
             currentFrameIndex={currentFrameIndex}
@@ -735,6 +748,7 @@ export default function App() {
             incidentName={incident?.name}
             onIncidentNameChange={(name) => updateIncidentField("name", name)}
           />
+          </Suspense>
         </div>
       )}
 
@@ -799,16 +813,37 @@ export default function App() {
         </div>
       )}
 
-      {error && (
-        <div className="error-toast">
-          {error}
+      {error && error !== dismissedError && (
+        <div className="error-toast" role="alert">
+          <span>{plainError(error)}</span>
+          {plainError(error) !== error && <span className="error-toast-detail">{error}</span>}
+          <span className="error-toast-actions">
+            {lastStartRef.current && (
+              <button onClick={() => handleStartSimulation(lastStartRef.current!)}>Retry</button>
+            )}
+            <button onClick={() => setDismissedError(error)} aria-label="Dismiss">Dismiss</button>
+          </span>
         </div>
       )}
       {burnProbError && (
-        <div className="error-toast">
-          Burn probability: {burnProbError}
+        <div className="error-toast" role="alert">
+          <span>Burn probability: {plainError(burnProbError)}</span>
+          <span className="error-toast-actions">
+            <button onClick={() => setBurnProbError(null)} aria-label="Dismiss">Dismiss</button>
+          </span>
         </div>
       )}
     </div>
   );
+}
+
+/** A readable message for common server and network failures (raw text kept as detail). */
+function plainError(raw: string): string {
+  if (/internal server error|status 500|\b500\b/i.test(raw)) {
+    return "The simulation server hit an error. Try again; if it repeats, change the inputs.";
+  }
+  if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+    return "Cannot reach the simulation server. Check the connection and try again.";
+  }
+  return raw;
 }

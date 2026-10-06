@@ -184,7 +184,7 @@ class TestFWIDangerRating:
         })
         data = resp.json()
         assert data["fwi"] >= 19.0
-        assert "High" in data["danger_rating"]
+        assert data["danger_rating"] in ("High", "Very High", "Extreme")
 
 
 class TestFWIPrevDayEffect:

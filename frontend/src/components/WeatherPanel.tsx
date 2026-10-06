@@ -1,10 +1,11 @@
 /** Weather and simulation parameter controls. */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast } from "../services/api";
 import MultiDayPanel from "./MultiDayPanel";
+import { fwiClass, fwiClassColor } from "../utils/fwiClass";
 
 // ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
 function computeISI(ffmc: number, windSpeedKmh: number): number {
@@ -32,13 +33,6 @@ function computeFWI(isi: number, bui: number): number {
     : B;
 }
 
-function dangerRating(fwi: number): string {
-  if (fwi < 5) return "Low";
-  if (fwi < 10) return "Moderate";
-  if (fwi < 20) return "High";
-  if (fwi < 30) return "Very High";
-  return "Extreme";
-}
 
 // ── Validation ───────────────────────────────────────────────────────────────
 interface ValidationErrors {
@@ -102,7 +96,7 @@ interface WeatherPanelProps {
   onEdmontonGridChange?: (fuelGridPath: string | null) => void;
 }
 
-export default function WeatherPanel({
+function WeatherPanel({
   onStartSimulation,
   onStartMultiDaySimulation,
   onComputeBurnProbability,
@@ -260,7 +254,7 @@ export default function WeatherPanel({
     () => computeFWI(liveISI, liveBUI),
     [liveISI, liveBUI]
   );
-  const liveDanger = dangerRating(liveFWI);
+  const liveDanger = fwiClass(liveFWI);
 
   // ── Validation ────────────────────────────────────────────────────────────
   const validationErrors = useMemo(() => validateInputs(weather, fwi), [weather, fwi]);
@@ -448,11 +442,6 @@ export default function WeatherPanel({
     return dirs[Math.round(deg / 45) % 8];
   };
 
-  const dangerColor = (fwiVal: number) =>
-    fwiVal >= 30 ? "#b71c1c" :
-    fwiVal >= 20 ? "#e65100" :
-    fwiVal >= 10 ? "#f57f17" :
-    fwiVal >= 5  ? "#558b2f" : "#2e7d32";
 
   return (
     <div className="panel weather-panel">
@@ -702,7 +691,7 @@ export default function WeatherPanel({
               Terrain slope (DEM — FBP net effective wind)
             </label>
             <div className="hint" style={{ fontSize: "0.85em", opacity: 0.7 }}>
-              Spatial fuel types: D2, O1a, O1b, S2, C1. Fallback: {fuelType}
+              Edmonton grid fuels: C-2, D-2, M-2, O-1a, O-1b. Cells without fuel data use {fuelType}.
             </div>
           </>
         )}
@@ -830,7 +819,8 @@ export default function WeatherPanel({
         </span>
         <span
           className="fwi-danger-badge"
-          style={{ background: dangerColor(liveFWI) }}
+          style={{ background: fwiClassColor(liveFWI) }}
+          title="CWFIS FWI map class (not an official fire danger rating)"
         >
           {liveDanger}
         </span>
@@ -911,10 +901,16 @@ export default function WeatherPanel({
           className="btn-primary"
           onClick={handleSubmit}
           disabled={!ignitionPoint || isRunning || hasErrors}
-          title={hasErrors ? "Fix validation errors before running" : undefined}
+          title={
+            hasErrors ? "Fix validation errors before running"
+              : !ignitionPoint ? "Click the map to set an ignition point first" : undefined
+          }
         >
           {isRunning ? "Simulating..." : "Run Simulation"}
         </button>
+      )}
+      {simMode === "single" && !ignitionPoint && !isRunning && (
+        <div className="run-hint">Click the map to set an ignition point first.</div>
       )}
 
       {onComputeBurnProbability && (
@@ -970,3 +966,6 @@ export default function WeatherPanel({
     </div>
   );
 }
+
+// Re-render only when props change, not on every streamed frame
+export default memo(WeatherPanel);

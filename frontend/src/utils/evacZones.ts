@@ -125,17 +125,24 @@ function featureName(f: GeoJSON.Feature): string {
  * Find community features whose centroid falls inside the zone perimeter.
  * Returns actual GeoJSON features (not just names) for map rendering.
  */
+// Community centroids, computed once per communities layer
+const centroidCache = new WeakMap<GeoJSON.FeatureCollection, Array<[number, number] | null>>();
+
 function communitiesInZone(
   perimeter: number[][],
   communities: GeoJSON.FeatureCollection | null | undefined,
 ): GeoJSON.Feature[] {
   if (!communities || perimeter.length < 3) return [];
-  const result: GeoJSON.Feature[] = [];
-  for (const feat of communities.features) {
-    const c = geometryCentroid(feat.geometry);
-    if (!c) continue;
-    if (pointInPolygon(c[0], c[1], perimeter)) result.push(feat);
+  let centroids = centroidCache.get(communities);
+  if (!centroids) {
+    centroids = communities.features.map((f) => geometryCentroid(f.geometry));
+    centroidCache.set(communities, centroids);
   }
+  const result: GeoJSON.Feature[] = [];
+  communities.features.forEach((feat, i) => {
+    const c = centroids![i];
+    if (c && pointInPolygon(c[0], c[1], perimeter)) result.push(feat);
+  });
   return result;
 }
 
@@ -171,15 +178,30 @@ export function computeEvacZones(
 ): EvacZone[] {
   if (frames.length === 0) return [];
 
+  // The zones depend only on the frame chosen for each tier, so scrubbing between frames
+  // that pick the same tier frames returns the previous result (same array identity, so
+  // the map does not redraw the zones).
   const maxHours = frames[frames.length - 1].time_hours;
+  const chosen = ZONE_DEFS.map((def) =>
+    def.targetHours > maxHours + 1 ? null : closestFrame(frames, def.targetHours) ?? null,
+  );
+  if (
+    lastResult &&
+    lastResult.communities === communities &&
+    lastResult.scales === scales &&
+    lastResult.chosen.length === chosen.length &&
+    lastResult.chosen.every((f, i) => f === chosen[i])
+  ) {
+    return lastResult.zones;
+  }
+
   const zones: EvacZone[] = [];
   // Track which neighbourhood names have been assigned to a closer tier
   const assignedNames = new Set<string>();
 
-  for (const def of ZONE_DEFS) {
-    if (def.targetHours > maxHours + 1) continue;
-    const frame = closestFrame(frames, def.targetHours);
-    if (!frame) continue;
+  ZONE_DEFS.forEach((def, i) => {
+    const frame = chosen[i];
+    if (!frame) return;
 
     const scale = scales[def.label] ?? 1;
     const scaled = scalePolygon(frame.perimeter, scale);
@@ -201,10 +223,18 @@ export function computeEvacZones(
       communitiesFeatures: exclusiveFeatures,
       scale,
     });
-  }
+  });
 
+  lastResult = { communities, scales, chosen, zones };
   return zones;
 }
+
+let lastResult: {
+  communities: GeoJSON.FeatureCollection | null | undefined;
+  scales: Record<EvacZoneLabel, number>;
+  chosen: Array<SimulationFrame | null>;
+  zones: EvacZone[];
+} | null = null;
 
 /**
  * Convert evac zones to a GeoJSON FeatureCollection for map rendering and export.
