@@ -393,3 +393,21 @@ class TestAcceleration:
 
         assert calculate_lb_at_time(3.0, 0.115, 0.0) == pytest.approx(1.0)
         assert calculate_lb_at_time(3.0, 0.115, 600.0) == pytest.approx(3.0, rel=1e-6)
+
+
+class TestFlameLength:
+    def test_surface_fire_uses_byram(self):
+        from firesim.fbp.calculator import calculate_flame_length
+
+        assert calculate_flame_length(2000.0, 0.0) == pytest.approx(0.0775 * 2000.0**0.46)
+
+    def test_crown_fire_uses_thomas(self):
+        from firesim.fbp.calculator import calculate_flame_length
+
+        assert calculate_flame_length(30000.0, 0.9) == pytest.approx(0.0266 * 30000.0 ** (2 / 3))
+        assert calculate_flame_length(30000.0, 0.9) > 2.5 * calculate_flame_length(30000.0, 0.0)
+
+    def test_fbp_result_uses_fire_type(self):
+        crown = calculate_fbp("C2", 40.0, 95.0, 80.0, 500.0)
+        assert crown.cfb >= 0.1
+        assert crown.flame_length == pytest.approx(0.0266 * crown.hfi ** (2 / 3))

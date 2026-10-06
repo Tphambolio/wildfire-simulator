@@ -468,25 +468,26 @@ def mean_acceleration_factor(alpha: float, t1: float, t2: float) -> float:
     return 1.0 - (math.exp(-alpha * t1) - math.exp(-alpha * t2)) / (alpha * (t2 - t1))
 
 
-def _calculate_flame_length(hfi: float) -> float:
-    """Calculate flame length from head fire intensity.
+def _calculate_flame_length(hfi: float, cfb: float = 0.0) -> float:
+    """Flame length (m) from head fire intensity (kW/m).
 
-    Byram (1959): L = 0.0775 * I^0.46
-
-    Args:
-        hfi: Head fire intensity (kW/m)
-
-    Returns:
-        Flame length in meters
+    Surface fires (CFB < 0.1): Byram (1959), L = 0.0775 I^0.46.
+    Crowning fires (CFB >= 0.1): Thomas (1963), L = 0.0266 I^(2/3), the relation recommended
+    for crown fires in Alexander & Cruz (2012, Int. J. Wildland Fire 21: 95-113); Byram's
+    surface-fire fit gives about a third of the flame length at crown-fire intensities.
+    Both are taken from that review and not re-checked against the 1959/1963 originals.
+    FBP itself has no flame length output.
     """
     if hfi <= 0.0:
         return 0.0
+    if cfb >= 0.1:
+        return 0.0266 * hfi ** (2.0 / 3.0)
     return 0.0775 * hfi**0.46
 
 
-def calculate_flame_length(hfi: float) -> float:
-    """Public wrapper for Byram (1959) flame length (m) from HFI (kW/m)."""
-    return _calculate_flame_length(hfi)
+def calculate_flame_length(hfi: float, cfb: float = 0.0) -> float:
+    """Public wrapper: flame length (m) from HFI (kW/m) and crown fraction burned."""
+    return _calculate_flame_length(hfi, cfb)
 
 
 def calculate_fbp(
@@ -589,7 +590,7 @@ def calculate_fbp(
         hfi=hfi,
         cfb=cfb,
         fire_type=classify_fire_type(cfb),
-        flame_length=_calculate_flame_length(hfi),
+        flame_length=_calculate_flame_length(hfi, cfb),
         back_ros=bros,
         flank_ros=fros,
         lb=lb,

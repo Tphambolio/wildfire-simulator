@@ -66,6 +66,10 @@ GLC-X-10 revisions (M-4 `c` = 1.48; D-2 spreads at 0.2 x D-1 and not at all belo
     (eqs 70-71); `ROS(t) = ROS_eq (1 - exp(-alpha t))` (eq 72); distance eq 73;
     `LB(t) = (LB - 1)(1 - exp(-alpha t)) + 1` (eq 81).
 
+Flame length is not an FBP output. FireSim uses Byram (1959), `L = 0.0775 I^0.46`, for surface
+fires and Thomas (1963), `L = 0.0266 I^(2/3)`, when CFB >= 0.1, following the recommendation in
+Alexander & Cruz (2012, IJWF 21: 95-113); both forms taken from that review.
+
 Fire type: surface (CFB = 0), surface with torching (0 < CFB < 0.1), intermittent / passive
 crown (0.1 to 0.9), continuous / active crown (>= 0.9). ST-X-3's classes are surface (< 0.1),
 intermittent and crown; the torching label only splits ST-X-3's surface class.

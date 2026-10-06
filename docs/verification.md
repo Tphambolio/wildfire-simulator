@@ -115,6 +115,9 @@ could not catch the errors.
 - **Fuel grids**: the Edmonton grid is the City canopy-LiDAR product at 20 m (simulated at 50 m).
   Outside Edmonton only a uniform fuel type or a synthetic demo landscape is available.
 - Urban trees in the Edmonton grid are non-fuel; structure-to-structure spread is not modelled.
+- **WUI zone modifiers** (`data/wui_zones.geojson.gz`: 425 park buffers with spread x0.7,
+  intensity x1.2, embers x3.0) have no documented source or generating script. They are off by
+  default in the UI and should not be used for results presented as measured.
 
 ## How to reproduce
 
