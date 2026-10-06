@@ -1,8 +1,8 @@
 /**
  * Mock FireSim API for Playwright.
  *
- * - HTTP: page.route answers /api/v1/** from the recorded fixture
- *   (tests/fixtures/terwillegar_grass_4h.json, written by record_fixture.py).
+ * - HTTP: page.route answers /api/v1/** from the recorded fixtures written by
+ *   record_fixture.py (terwillegar_grass_4h.json, fuel_grid_image.json, arrival.json).
  * - WebSocket: page.routeWebSocket intercepts /api/v1/simulations/ws/{id} in the browser and
  *   replays the fixture frames as `simulation.frame` events, then `simulation.completed`,
  *   exactly as the API's WebSocket endpoint sends them. No server process is needed.
@@ -21,12 +21,13 @@ export interface Fixture {
   simulation_id: string;
   status: string;
   config: Record<string, unknown> | null;
-  frames: Array<Record<string, unknown> & { time_hours: number; area_ha: number }>;
+  frames: Array<Record<string, unknown> & { time_hours: number; area_ha: number; cells_offset?: number }>;
   error: string | null;
 }
 
 export const fixture: Fixture = JSON.parse(readFileSync(FIXTURES + "terwillegar_grass_4h.json", "utf8"));
 const fuelGridImage = readFileSync(FIXTURES + "fuel_grid_image.json", "utf8");
+const arrival = readFileSync(FIXTURES + "arrival.json", "utf8");
 
 // 1x1 transparent PNG
 const BLANK_PNG = Buffer.from(
@@ -97,6 +98,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       state.posts.push(body);
       return json(route, { simulation_id: fixture.simulation_id, status: "running", config: fixture.config, frames: [], error: null });
     }
+    if (path === `/api/v1/simulations/${fixture.simulation_id}/arrival`) return json(route, arrival);
     if (path === `/api/v1/simulations/${fixture.simulation_id}` && req.method() === "GET") {
       state.polls++;
       return json(route, fixture);

@@ -4,7 +4,10 @@
 Runs the real FireSim API in-process (FastAPI TestClient, no server or network), POSTs a
 Terwillegar-like grass fire on the Edmonton fuel grid, polls GET /api/v1/simulations/{id}
 until it completes, and writes the API response (SimulationResponse with frames, exactly as
-the API serialises it) to ``terwillegar_grass_4h.json`` next to this script.
+the API serialises it) to ``terwillegar_grass_4h.json`` next to this script. The request asks
+for ``cells_mode: "incremental"`` as the app does, so frames carry only newly burned cells plus
+``cells_offset``. It also records GET /simulations/fuel-grid-image (``fuel_grid_image.json``)
+and GET /simulations/{id}/arrival (``arrival.json``).
 
 Because it goes through the API's own routes and schemas, the fixture follows any change to
 the frame format (e.g. PR 6 incremental frames): re-run this script and commit the result.
@@ -36,6 +39,7 @@ from firesim_api.main import app  # noqa: E402
 
 OUT = HERE / "terwillegar_grass_4h.json"
 FUEL_IMG_OUT = HERE / "fuel_grid_image.json"
+ARRIVAL_OUT = HERE / "arrival.json"
 DATA = REPO / "data"
 
 # Paths the frontend sends by default (WeatherPanel), mapped to the repo's data/ folder.
@@ -51,6 +55,7 @@ LOCAL_TO_DEPLOYED = {str(DATA): "/app/data"}
 REQUEST = {
     "ignition_lat": 53.4606,
     "ignition_lng": -113.6596,
+    "cells_mode": "incremental",
     "weather": {
         "wind_speed": 20,
         "wind_direction": 270,
@@ -73,17 +78,26 @@ REQUEST = {
     "spotting_intensity": 1.0,
 }
 
-# Size budget: keep the committed JSON small. burned_cells are thinned (every k-th cell) on all
-# frames but the last until the file fits; the last frame keeps its full cell list.
+# Size budget: keep the committed JSON small. If it is over, burned_cells are thinned (every
+# k-th cell) until it fits.
 MAX_BYTES = 3_000_000
 SIM_ID = "fixture-terwillegar-4h"
 
 
 def _thin(frames: list[dict], k: int) -> None:
-    for f in frames[:-1]:
+    """Keep every k-th cell. Incremental frames keep every k-th new cell and get their
+    cells_offset recomputed, so the client's rebuild (useSimulation.withAllCells) stays valid."""
+    if k <= 1:
+        return
+    incremental = any((f.get("cells_offset") or 0) > 0 for f in frames)
+    total = 0
+    for f in frames:
         cells = f.get("burned_cells")
-        if cells and k > 1:
+        if cells:
             f["burned_cells"] = cells[::k]
+        if incremental and cells is not None:
+            f["cells_offset"] = total if (f.get("cells_offset") or 0) > 0 else 0
+            total = f["cells_offset"] + len(f["burned_cells"])
 
 
 def _round_floats(obj, nd: int = 6):
@@ -116,6 +130,10 @@ def main() -> int:
         )
         img.raise_for_status()
         FUEL_IMG_OUT.write_text(json.dumps(img.json(), separators=(",", ":")) + "\n")
+        # Arrival-time raster of the finished run (404 if the API predates it)
+        arr = client.get(f"/api/v1/simulations/{sim_id}/arrival")
+        if arr.status_code == 200:
+            ARRIVAL_OUT.write_text(json.dumps(arr.json(), separators=(",", ":")) + "\n")
     if data["status"] != "completed":
         print(f"simulation {data['status']}: {data.get('error')}", file=sys.stderr)
         return 1

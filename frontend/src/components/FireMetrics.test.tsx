@@ -48,12 +48,20 @@ describe("FireMetrics", () => {
     expect(screen.getByText("Buildings inside perimeter").closest(".metric-row")).toHaveTextContent("7");
   });
 
-  it("labels the grid model's rate as Mean ROS and shows the snap notice", () => {
+  it("marks grid-model frames and shows the snap notice", () => {
     const f = frame(1, square(0.01), { burned_cells: [], ignition_snapped_m: 120 });
     render(<FireMetrics frame={f} status="completed" totalFrames={2} />);
-    expect(screen.getByText("Mean ROS")).toBeInTheDocument();
+    expect(screen.getByText("Head ROS")).toBeInTheDocument();
     expect(screen.getByText("CA Grid")).toBeInTheDocument();
     expect(screen.getByText(/Ignition snapped 120m/)).toBeInTheDocument();
+    expect(screen.queryByText("Head spreading toward")).not.toBeInTheDocument();
+  });
+
+  it("shows the head direction and spotting distance when the frame has a head", () => {
+    const head = { lat: 53.5, lng: -113.5, ros: 25, raz: 92, hfi: 4000, cfb: 0, fuel: "O1a", t: 30, max_spot_distance_m: 140.4 };
+    render(<FireMetrics frame={frame(1, square(0.01), { burned_cells: [], head })} status="completed" totalFrames={2} />);
+    expect(screen.getByText("Head spreading toward").closest(".metric-row")).toHaveTextContent("E (92°)");
+    expect(screen.getByText("Max spotting distance").closest(".metric-row")).toHaveTextContent("140 m");
   });
 
   it("renders the final frame of the recorded fixture", () => {

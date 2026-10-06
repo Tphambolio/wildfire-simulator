@@ -21,6 +21,8 @@ test.describe("smoke", () => {
     expect(body.ignition_lat).toBeCloseTo(53.55, 1);
     expect(body.ignition_lng).toBeCloseTo(-113.49, 1);
     expect(body).toHaveProperty("weather");
+    // The app asks for incremental frames, the mode the fixture was recorded in
+    expect(body.cells_mode).toBe("incremental");
     expect(api.wsConnections).toBe(1);
     expect(api.polls).toBe(0);
 
