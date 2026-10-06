@@ -13,7 +13,7 @@
  *   5. useSimulation hook POSTs to /perimeter-override and opens WebSocket
  */
 
-import { useCallback, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import type { PerimeterOverrideRequest } from "../types/simulation";
 
 interface PerimeterOverridePanelProps {
@@ -25,7 +25,7 @@ interface PerimeterOverridePanelProps {
   isRunning: boolean;
 }
 
-export default function PerimeterOverridePanel({
+function PerimeterOverridePanel({
   simulationId,
   onOverrideStart,
   isRunning,
@@ -199,3 +199,6 @@ export default function PerimeterOverridePanel({
     </div>
   );
 }
+
+// Re-render only when props change, not on every streamed frame
+export default memo(PerimeterOverridePanel);

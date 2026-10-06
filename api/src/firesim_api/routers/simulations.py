@@ -148,6 +148,7 @@ async def fuel_grid_image(fuel_grid_path: str) -> dict:
         code_map = _detect_code_map(unique_codes)
 
         rgba = np.zeros((rows, cols, 4), dtype=np.uint8)
+        present: set[str] = set()
         for r_code, fuel_type in code_map.items():
             if fuel_type is None:
                 continue
@@ -155,6 +156,8 @@ async def fuel_grid_image(fuel_grid_path: str) -> dict:
             if colour is None:
                 continue
             mask = data == r_code
+            if mask.any():
+                present.add(fuel_type.value)
             rgba[mask, 0] = colour[0]
             rgba[mask, 1] = colour[1]
             rgba[mask, 2] = colour[2]
@@ -169,6 +172,11 @@ async def fuel_grid_image(fuel_grid_path: str) -> dict:
             "image": f"data:image/png;base64,{encoded}",
             "bounds": [lng_min, lat_min, lng_max, lat_max],
             "fuel_grid_path": path,
+            # Fuel types drawn in this image, in table order, for the map legend
+            "legend": [
+                {"fuel": code, "color": "#%02x%02x%02x" % rgb}
+                for code, rgb in _FUEL_COLOURS.items() if code in present
+            ],
         })
 
     except Exception as exc:
@@ -490,7 +498,9 @@ async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbab
 # NOTE: The /fuel-grid-image GET route is registered above /{sim_id} to
 # prevent FastAPI from matching "fuel-grid-image" as a sim_id path param.
 
-# FBP fuel type → RGBA colour (matches standard Canadian FBP colour conventions)
+# FBP fuel type → overlay colour. Greens for conifer, browns for deciduous and mixedwood,
+# khaki for grass, greys for slash: kept away from the yellow-orange-red used for fire,
+# intensity and evacuation zones so the fire stays readable on top of the fuel map.
 _FUEL_COLOURS: dict[str, tuple[int, int, int]] = {
     "C1":  (0,   104,  55),   # Dark green
     "C2":  (0,   128,   0),   # Green
@@ -499,15 +509,15 @@ _FUEL_COLOURS: dict[str, tuple[int, int, int]] = {
     "C5":  (107, 142,  35),   # Olive
     "C6":  (154, 205,  50),   # Yellow-green
     "C7":  (173, 255,  47),   # Chartreuse
-    "D1":  (160, 120,  40),   # Brown
-    "D2":  (205, 133,  63),   # Peru
+    "D1":  (139, 115,  85),   # Muted brown
+    "D2":  (158, 142, 104),   # Muted tan
     "M1":  (210, 180, 140),   # Tan
     "M2":  (188, 143, 143),   # Rosy brown
     "M3":  (128,   0, 128),   # Purple
     "M4":  (186,  85, 211),   # Medium orchid
-    "O1a": (255, 215,   0),   # Gold
-    "O1b": (255, 165,   0),   # Orange
-    "S1":  (220,  20,  60),   # Crimson
-    "S2":  (178,  34,  34),   # Firebrick
-    "S3":  (139,   0,   0),   # Dark red
+    "O1a": (189, 183, 107),   # Dark khaki
+    "O1b": (143, 151,  89),   # Olive khaki
+    "S1":  (112, 128, 144),   # Slate grey
+    "S2":  (96,   96, 110),   # Grey
+    "S3":  (70,   70,  80),   # Dark grey
 }

@@ -6,7 +6,7 @@
  * cells are flagged as "at-risk" and highlighted on the map.
  */
 
-import { useState, useCallback, useRef } from "react";
+import { memo, useState, useCallback, useRef } from "react";
 
 export type LayerType = "roads" | "communities" | "infrastructure";
 
@@ -205,7 +205,7 @@ interface OverlayPanelProps {
   onLayerClear: (type: LayerType) => void;
 }
 
-export default function OverlayPanel({
+function OverlayPanel({
   layers,
   atRiskCounts,
   onLayerLoad,
@@ -271,3 +271,6 @@ export default function OverlayPanel({
     </div>
   );
 }
+
+// Re-render only when props change, not on every streamed frame
+export default memo(OverlayPanel);

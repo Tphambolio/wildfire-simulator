@@ -26,6 +26,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from firesim.fwi.calculator import FWICalculator
+from firesim.fwi.classes import fwi_class
 
 logger = logging.getLogger(__name__)
 
@@ -328,10 +329,4 @@ def _float(val: object) -> float | None:
 def _fwi_label(fwi: float | None) -> str:
     if fwi is None:
         return "Unknown"
-    if fwi >= 30:
-        return "Very High / Extreme"
-    if fwi >= 19:
-        return "High"
-    if fwi >= 10:
-        return "Moderate"
-    return "Low"
+    return fwi_class(fwi)

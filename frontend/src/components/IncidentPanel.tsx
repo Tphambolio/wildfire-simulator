@@ -1,6 +1,6 @@
 /** Incident save/load panel — manage multi-day operational incidents in the sidebar. */
 
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import type { IncidentSession } from "../types/incident";
 
 interface IncidentPanelProps {
@@ -23,7 +23,7 @@ function formatDate(iso: string): string {
   });
 }
 
-export default function IncidentPanel({
+function IncidentPanel({
   incidents,
   activeIncidentId,
   onCreate,
@@ -196,3 +196,6 @@ export default function IncidentPanel({
     </div>
   );
 }
+
+// Re-render only when props change, not on every streamed frame
+export default memo(IncidentPanel);

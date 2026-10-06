@@ -17,18 +17,12 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from firesim.fwi.calculator import FWICalculator
+from firesim.fwi.classes import fwi_class
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/fwi", tags=["fwi"])
 
-# FWI danger thresholds (Van Wagner 1987 / CIFFC convention)
-_FWI_THRESHOLDS = [
-    (30.0, "Very High / Extreme"),
-    (19.0, "High"),
-    (10.0, "Moderate"),
-    (0.0, "Low"),
-]
 
 
 class FWICalculateRequest(BaseModel):
@@ -101,9 +95,7 @@ def calculate_fwi(request: FWICalculateRequest) -> FWICalculateResponse:
         month=month,
     )
 
-    danger = next(
-        label for threshold, label in _FWI_THRESHOLDS if result.fwi >= threshold
-    )
+    danger = fwi_class(result.fwi)
 
     logger.info(
         "FWI calculated: temp=%.1f rh=%.0f wind=%.1f → FWI=%.1f (%s)",
@@ -183,7 +175,7 @@ class FWIMultiDayResponse(BaseModel):
 
 
 def _danger(fwi_val: float) -> str:
-    return next(label for threshold, label in _FWI_THRESHOLDS if fwi_val >= threshold)
+    return fwi_class(fwi_val)
 
 
 @router.post("/multi-day", response_model=FWIMultiDayResponse)

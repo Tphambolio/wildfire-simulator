@@ -109,7 +109,7 @@ export async function createPerimeterOverride(
   return resp.json();
 }
 
-export async function fetchFuelGridImage(fuelGridPath: string): Promise<{ image: string; bounds: [number, number, number, number] }> {
+export async function fetchFuelGridImage(fuelGridPath: string): Promise<{ image: string; bounds: [number, number, number, number]; legend?: Array<{ fuel: string; color: string }> }> {
   const params = new URLSearchParams({ fuel_grid_path: fuelGridPath });
   const res = await fetch(`${API_BASE}/api/v1/simulations/fuel-grid-image?${params}`);
   if (!res.ok) throw new Error(`Fuel grid image failed: ${res.status}`);

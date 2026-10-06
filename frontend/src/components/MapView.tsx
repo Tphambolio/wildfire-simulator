@@ -16,6 +16,19 @@ import { isochronesToGeoJSON, isochroneLabelsGeoJSON } from "../utils/isochrones
 
 /** Minimum spot fire HFI (kW/m) to render on the map. Weak spots below this are hidden. */
 const SPOT_HFI_MIN = 300;
+// Spot fires at or above this HFI (kW/m) get the pulsing ring
+const PULSE_HFI_MIN = 1500;
+// Fuel overlay opacity; dimmed once a fire is drawn so the fire reads on top
+const FUEL_OPACITY = 0.55;
+const FUEL_OPACITY_WITH_FIRE = 0.35;
+const FUEL_NAMES: Record<string, string> = {
+  C1: "Spruce-lichen", C2: "Boreal spruce", C3: "Mature pine", C4: "Immature pine",
+  C5: "Red/white pine", C6: "Conifer plantation", C7: "Ponderosa/Douglas-fir",
+  D1: "Aspen, leafless", D2: "Aspen, green", M1: "Mixedwood, leafless", M2: "Mixedwood, green",
+  M3: "Dead fir mixedwood, leafless", M4: "Dead fir mixedwood, green",
+  O1a: "Matted grass", O1b: "Standing grass", S1: "Pine slash", S2: "Spruce/fir slash",
+  S3: "Cedar/hemlock slash",
+};
 
 /** A simple non-modal toast — disappears after 3 s */
 function MapToast({ message, onDone }: { message: string; onDone: () => void }) {
@@ -182,7 +195,7 @@ interface MapViewProps {
   isochrones?: Isochrone[];
   isochronesVisible?: boolean;
   /** Fuel grid raster overlay — base64 PNG + WGS84 bounds */
-  fuelGridImage?: { image: string; bounds: [number, number, number, number] } | null;
+  fuelGridImage?: { image: string; bounds: [number, number, number, number]; legend?: Array<{ fuel: string; color: string }> } | null;
   fuelGridVisible?: boolean;
   /** When true: disables click-to-ignite and hides the map controls panel */
   readOnly?: boolean;
@@ -225,6 +238,9 @@ export default function MapView({
   // Ignition placement mode — true while operator is picking a start point
   const [ignitionMode, setIgnitionMode] = useState(!ignitionPoint);
   const ignitionModeRef = useRef(!ignitionPoint);
+  // The click that placed the ignition point; feature popups ignore it
+  const ignitionClickRef = useRef<MouseEvent | null>(null);
+  const [mapZoom, setMapZoom] = useState(11);
   const [toast, setToast] = useState<string | null>(null);
   // Counter incremented each time fire layers are (re-)added to the map.
   // The perimeter-update effect depends on this so it re-runs after
@@ -233,6 +249,29 @@ export default function MapView({
   const prevBasemapRef = useRef<BasemapId>("osm");
   const [showSpotFires, setShowSpotFires] = useState(true);
   const pulseAnimRef = useRef<number | null>(null);
+
+  // Start or stop the spot-fire pulse ring (only spots with HFI >= PULSE_HFI_MIN pulse)
+  const setPulse = useCallback((on: boolean) => {
+    const m = map.current;
+    if (!on || !m) {
+      if (pulseAnimRef.current) cancelAnimationFrame(pulseAnimRef.current);
+      pulseAnimRef.current = null;
+      return;
+    }
+    if (pulseAnimRef.current) return; // already running
+    let animStart: number | null = null;
+    const PULSE_CYCLE = 1400;
+    const animatePulse = (ts: number) => {
+      if (!animStart) animStart = ts;
+      const t = ((ts - animStart) % PULSE_CYCLE) / PULSE_CYCLE;
+      if (m.getLayer("spot-fires-pulse")) {
+        m.setPaintProperty("spot-fires-pulse", "circle-radius", 8 + t * 18);
+        m.setPaintProperty("spot-fires-pulse", "circle-stroke-opacity", (1 - t) * 0.85);
+      }
+      pulseAnimRef.current = requestAnimationFrame(animatePulse);
+    };
+    pulseAnimRef.current = requestAnimationFrame(animatePulse);
+  }, []);
   const spotPopupRef = useRef<maplibregl.Popup | null>(null);
 
   const addFireLayers = useCallback((m: maplibregl.Map) => {
@@ -277,7 +316,8 @@ export default function MapView({
           4000, "#f44336",
           10000, "#b71c1c",
         ],
-        "fill-opacity": 0.5,
+        // Grid runs draw the burned area as a heatmap; their outline fill stays faint
+        "fill-opacity": ["case", ["==", ["get", "mode"], "grid"], 0.12, 0.5],
         "fill-outline-color": "transparent",
       },
     });
@@ -470,7 +510,7 @@ export default function MapView({
       id: "spot-fires-pulse",
       type: "circle",
       source: "spot-fires",
-      filter: [">=", ["get", "hfi_kw_m"], 1500],
+      filter: [">=", ["get", "hfi_kw_m"], PULSE_HFI_MIN],
       paint: {
         "circle-radius": 10,
         "circle-color": "transparent",
@@ -510,6 +550,7 @@ export default function MapView({
 
     // Click handler: show popup with spot fire metadata
     m.on("click", "spot-fires-circle", (e) => {
+      if (e.originalEvent === ignitionClickRef.current) return;
       if (!e.features || e.features.length === 0) return;
       const props = e.features[0].properties as { distance_m: number; hfi_kw_m: number };
       if (spotPopupRef.current) spotPopupRef.current.remove();
@@ -527,22 +568,9 @@ export default function MapView({
     m.on("mouseenter", "spot-fires-circle", () => { m.getCanvas().style.cursor = "pointer"; });
     m.on("mouseleave", "spot-fires-circle", () => { m.getCanvas().style.cursor = ""; });
 
-    // Start pulse animation
-    if (pulseAnimRef.current) cancelAnimationFrame(pulseAnimRef.current);
-    let animStart: number | null = null;
-    const PULSE_CYCLE = 1400;
-    const animatePulse = (ts: number) => {
-      if (!animStart) animStart = ts;
-      const t = ((ts - animStart) % PULSE_CYCLE) / PULSE_CYCLE;
-      const radius = 8 + t * 18;
-      const strokeOpacity = (1 - t) * 0.85;
-      if (m.getLayer("spot-fires-pulse")) {
-        m.setPaintProperty("spot-fires-pulse", "circle-radius", radius);
-        m.setPaintProperty("spot-fires-pulse", "circle-stroke-opacity", strokeOpacity);
-      }
-      pulseAnimRef.current = requestAnimationFrame(animatePulse);
-    };
-    pulseAnimRef.current = requestAnimationFrame(animatePulse);
+    // The pulse animation runs only while high-intensity spot fires are shown (setPulse):
+    // each tick repaints the whole map, so an idle loop keeps the GPU busy permanently.
+    if (pulseAnimRef.current) { cancelAnimationFrame(pulseAnimRef.current); pulseAnimRef.current = null; }
 
     // ember-trajectories / ember-lines intentionally not created — arcs add visual clutter.
 
@@ -635,6 +663,7 @@ export default function MapView({
 
     // Click handler for infrastructure points — show name/type popup
     m.on("click", "overlay-infra-circle", (e) => {
+      if (e.originalEvent === ignitionClickRef.current) return;
       if (!e.features || !e.features.length) return;
       const props = e.features[0].properties as Record<string, unknown>;
       const name = (props.name ?? props.label ?? props.NAME ?? "Infrastructure point") as string;
@@ -734,6 +763,7 @@ export default function MapView({
 
     // Click handler for community polygons
     m.on("click", "overlay-communities-fill", (e) => {
+      if (e.originalEvent === ignitionClickRef.current) return;
       if (!e.features || !e.features.length) return;
       const props = e.features[0].properties as Record<string, unknown>;
       const name = (props.name ?? props.NAME ?? props.label ?? "Community") as string;
@@ -767,6 +797,7 @@ export default function MapView({
     });
 
     m.addControl(new maplibregl.NavigationControl(), "top-right");
+    m.on("zoomend", () => setMapZoom(m.getZoom()));
 
     m.on("load", () => {
       addFireLayers(m);
@@ -777,6 +808,7 @@ export default function MapView({
 
     m.on("click", (e) => {
       if (readOnlyRef.current || !ignitionModeRef.current) return;
+      ignitionClickRef.current = e.originalEvent;
       onMapClick(e.lngLat.lat, e.lngLat.lng);
       // Exit placement mode after setting ignition
       ignitionModeRef.current = false;
@@ -868,6 +900,7 @@ export default function MapView({
         ?.setData({ type: "FeatureCollection", features: [] });
       (map.current.getSource("ember-sources") as maplibregl.GeoJSONSource | undefined)
         ?.setData({ type: "FeatureCollection", features: [] });
+      setPulse(false);
       return;
     }
 
@@ -890,15 +923,30 @@ export default function MapView({
 
       heatSrc.setData({ type: "FeatureCollection", features });
 
-      // Clear polygon layers (not used in CA mode)
+      // Outline of the burned area (the engine's perimeter polygon), so the fire's extent
+      // stays visible at city zoom where the heatmap thins out
       const perimSrc = map.current.getSource("fire-perimeter") as maplibregl.GeoJSONSource | undefined;
-      if (perimSrc) perimSrc.setData({ type: "FeatureCollection", features: [] });
+      if (perimSrc) {
+        const ring = currentFrame.perimeter.map(([lat, lng]) => [lng, lat]);
+        if (ring.length >= 3 && (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1])) {
+          ring.push(ring[0]);
+        }
+        perimSrc.setData({
+          type: "FeatureCollection",
+          features: ring.length >= 4 ? [{
+            type: "Feature",
+            geometry: { type: "Polygon", coordinates: [ring] },
+            properties: { mode: "grid", hfi: currentFrame.max_hfi_kw_m },
+          }] : [],
+        });
+      }
       const histSrc = map.current.getSource("fire-history") as maplibregl.GeoJSONSource | undefined;
       if (histSrc) histSrc.setData({ type: "FeatureCollection", features: [] });
 
       // Spot fire landing zones — accumulate across all frames for the heat blob
       const spotSrcCA = map.current.getSource("spot-fires") as maplibregl.GeoJSONSource | undefined;
       const allSpotFiresCA = frames.slice(0, currentFrameIndex + 1).flatMap((f) => f.spot_fires ?? []);
+      setPulse(allSpotFiresCA.some((sf) => sf.hfi_kw_m >= PULSE_HFI_MIN));
       if (spotSrcCA) {
         spotSrcCA.setData({
           type: "FeatureCollection",
@@ -1006,6 +1054,7 @@ export default function MapView({
     // Spot fire landing zones — accumulate across all frames for the heat blob
     const spotSrc = map.current.getSource("spot-fires") as maplibregl.GeoJSONSource | undefined;
     const allSpotFires = frames.slice(0, currentFrameIndex + 1).flatMap((f) => f.spot_fires ?? []);
+    setPulse(allSpotFires.some((sf) => sf.hfi_kw_m >= PULSE_HFI_MIN));
     if (spotSrc) {
       spotSrc.setData({
         type: "FeatureCollection",
@@ -1034,7 +1083,7 @@ export default function MapView({
         })),
       });
     }
-  }, [frames, currentFrameIndex, mapReady, fireLayersVersion]);
+  }, [frames, currentFrameIndex, mapReady, fireLayersVersion, setPulse]);
 
   // Render burn probability heatmap when Monte Carlo result arrives
   useEffect(() => {
@@ -1109,6 +1158,25 @@ export default function MapView({
     });
   }, [showBurnProbView, burnProbabilityData, mapReady, fireLayersVersion]);
 
+  const hasFire = frames.length > 0;
+
+  // Zoom to the current frame's fire (perimeter, else burned cells), with a margin
+  const fitToFire = useCallback(() => {
+    const m = map.current;
+    const f = frames[currentFrameIndex] ?? frames[frames.length - 1];
+    if (!m || !f) return;
+    const pts: number[][] = f.perimeter.length >= 3
+      ? f.perimeter
+      : (f.burned_cells ?? []).map((c) => [c.lat, c.lng]);
+    if (pts.length === 0) return;
+    let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity;
+    for (const [lat, lng] of pts) {
+      s = Math.min(s, lat); n = Math.max(n, lat); w = Math.min(w, lng); e = Math.max(e, lng);
+    }
+    m.fitBounds([[w, s], [e, n]], { padding: 80, maxZoom: 15, duration: 600 });
+  }, [frames, currentFrameIndex]);
+  const fuelOpacity = fuelGridVisible ? (hasFire ? FUEL_OPACITY_WITH_FIRE : FUEL_OPACITY) : 0;
+
   // Fuel grid raster overlay
   useEffect(() => {
     if (!map.current || !mapReady) return;
@@ -1137,7 +1205,7 @@ export default function MapView({
         type: "raster",
         source: "fuel-grid",
         paint: {
-          "raster-opacity": fuelGridVisible ? 0.55 : 0,
+          "raster-opacity": fuelOpacity,
           "raster-resampling": "nearest",
         },
       },
@@ -1151,10 +1219,10 @@ export default function MapView({
     if (!map.current || !mapReady) return;
     if (map.current.getLayer("fuel-grid-layer")) {
       map.current.setPaintProperty(
-        "fuel-grid-layer", "raster-opacity", fuelGridVisible ? 0.55 : 0,
+        "fuel-grid-layer", "raster-opacity", fuelOpacity,
       );
     }
-  }, [fuelGridVisible, mapReady]);
+  }, [fuelOpacity, mapReady]);
 
   // Sync overlay GeoJSON sources
   useEffect(() => {
@@ -1287,20 +1355,49 @@ export default function MapView({
           </div>
         </div>
       )}
-      {/* Crown Fire Type Legend — shown in CA mode when cells are present */}
+      {/* Grid-run legend: the per-cell crown-state circles are drawn only from zoom 14;
+          below that the heatmap shows intensity-weighted density */}
       {frames.length > 0 && frames[currentFrameIndex]?.burned_cells && frames[currentFrameIndex].burned_cells!.length > 0 && (
         <div className="burn-prob-legend" style={{ bottom: 120 }}>
-          <div className="burn-prob-legend-title">Crown Fire State</div>
+          <div className="burn-prob-legend-title">{mapZoom >= 14 ? "Crown Fire State" : "Fire Intensity"}</div>
+          {mapZoom < 14 && (
+            <div className="burn-prob-legend-meta">Burned cells weighted by HFI · zoom in for crown state</div>
+          )}
           <div className="burn-prob-legend-scale">
-            {[
-              { label: "Active crown",    color: "#8B0000" },
-              { label: "Passive crown",   color: "#CC2200" },
-              { label: "Torching",        color: "#FF5500" },
-              { label: "Surface fire",    color: "#FF9800" },
-            ].map(({ label, color }) => (
-              <div key={label} className="burn-prob-legend-row">
+            {(mapZoom >= 14
+              ? [
+                  { label: "Active crown",    color: "#8B0000" },
+                  { label: "Passive crown",   color: "#CC2200" },
+                  { label: "Torching",        color: "#FF5500" },
+                  { label: "Surface fire",    color: "#FF9800" },
+                ]
+              : [
+                  { label: "High",  color: "rgb(180,30,10)" },
+                  { label: "",      color: "rgb(255,140,20)" },
+                  { label: "Low",   color: "rgb(255,255,180)" },
+                ]
+            ).map(({ label, color }, i) => (
+              <div key={label || i} className="burn-prob-legend-row">
                 <div className="burn-prob-legend-swatch" style={{ background: color }} />
                 <span>{label}</span>
+              </div>
+            ))}
+            <div className="burn-prob-legend-row">
+              <div className="burn-prob-legend-swatch" style={{ background: "transparent", border: "2px solid #ff3d00" }} />
+              <span>Fire perimeter</span>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Fuel legend — the fuel types drawn in the overlay */}
+      {fuelGridVisible && fuelGridImage?.legend && fuelGridImage.legend.length > 0 && (
+        <div className="burn-prob-legend fuel-legend">
+          <div className="burn-prob-legend-title">FBP Fuel Type</div>
+          <div className="burn-prob-legend-scale">
+            {fuelGridImage.legend.map(({ fuel, color }) => (
+              <div key={fuel} className="burn-prob-legend-row">
+                <div className="burn-prob-legend-swatch" style={{ background: color }} />
+                <span>{fuel} {FUEL_NAMES[fuel] ?? ""}</span>
               </div>
             ))}
           </div>
@@ -1348,6 +1445,14 @@ export default function MapView({
             </button>
           )}
         </div>
+
+        {/* Fit the map to the current fire */}
+        {frames.length > 0 && (
+          <button className="mcp-btn" onClick={fitToFire} title="Zoom the map to the fire">
+            <span className="mcp-icon">⤢</span>
+            <span className="mcp-label">Fit to fire</span>
+          </button>
+        )}
 
         {/* Spot fires toggle */}
         <button

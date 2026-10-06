@@ -1,6 +1,6 @@
 /** Scenario save/load panel — persist named simulation configs for pre-incident planning. */
 
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import type { ScenarioConfig } from "../types/simulation";
 
 interface ScenarioPanelProps {
@@ -22,7 +22,7 @@ function formatDate(iso: string): string {
   });
 }
 
-export default function ScenarioPanel({
+function ScenarioPanel({
   scenarios,
   currentConfig,
   onSave,
@@ -220,3 +220,6 @@ export default function ScenarioPanel({
     </div>
   );
 }
+
+// Re-render only when props change, not on every streamed frame
+export default memo(ScenarioPanel);

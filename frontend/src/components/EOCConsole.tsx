@@ -69,7 +69,7 @@ interface EOCConsoleProps {
   isochrones?: Isochrone[];
   isochronesVisible?: boolean;
   // Fuel grid
-  fuelGridImage?: { image: string; bounds: [number, number, number, number] } | null;
+  fuelGridImage?: { image: string; bounds: [number, number, number, number]; legend?: Array<{ fuel: string; color: string }> } | null;
   fuelGridVisible?: boolean;
   // Incident annotation store (from useIncident)
   incidentAnnotations?: IncidentAnnotation[];
