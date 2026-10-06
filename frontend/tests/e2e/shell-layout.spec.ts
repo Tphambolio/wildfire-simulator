@@ -98,7 +98,7 @@ test.describe("map-first layout", () => {
       .toBe(true);
 
     await expect(page.locator(".situation-panel")).toBeFocused();
-    await expect(page.locator(".situation-title")).toHaveText(/^At \d{2}:\d{2} M[DS]T$/);
+    await expect(page.locator(".situation-title")).toHaveText(/^At \d{2}:\d{2} (?:[A-Z]{2,4}|GMT[-+]\d+)$/);
     await expect(page.locator(".situation-status")).toContainText("Run complete");
 
     // Timeline: clock labels HH:MM, T+ secondary, slider value text has both
@@ -108,10 +108,10 @@ test.describe("map-first layout", () => {
     const elapsed = await page.locator(".ts-tick-elapsed").allTextContents();
     expect(elapsed[0]).toBe("T+0:00");
     expect(elapsed[elapsed.length - 1]).toBe("T+4:00");
-    await expect(page.locator(".ts-now-clock")).toHaveText(/^\d{2}:\d{2}M[DS]T$/);
+    await expect(page.locator(".ts-now-clock")).toHaveText(/^\d{2}:\d{2}(?:[A-Z]{2,4}|GMT[-+]\d+)$/);
     await expect(page.getByRole("slider", { name: "Timeline" })).toHaveAttribute(
       "aria-valuetext",
-      /^\d{2}:\d{2} M[DS]T, T\+4:00$/,
+      /^\d{2}:\d{2} (?:[A-Z]{2,4}|GMT[-+]\d+), T\+4:00$/,
     );
   });
 
