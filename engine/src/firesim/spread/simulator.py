@@ -277,22 +277,28 @@ class Simulator:
         exposure = self._building_exposure(ca_frames[-1].emitters if ca_frames else None,
                                            config.duration_hours * 60.0)
 
+        # Each frame's cells are a prefix of the final frame's (ordered by arrival), so the
+        # cell dicts are built once and each frame takes a slice
+        all_cells = [
+            {
+                "lat": c.lat, "lng": c.lng,
+                "intensity": c.intensity,
+                "fuel": c.fuel_type,
+                "fire_type": c.fire_type,
+                "t": c.timestep,
+                "ros": round(c.ros, 3),
+                "part": c.part,
+            }
+            for c in (ca_frames[-1].burned_cells if ca_frames else [])
+        ]
+        arrival_raster = self._arrival_raster(ca_frames[-1].arrival if ca_frames else None)
+
         for i, cf in enumerate(ca_frames):
             # Outline of the largest burned area (polygon), for export, building counts
             # and multi-day carry-over
             perimeter = cf.perimeter or []
-
-            # Build burned_cells list for heatmap rendering (with fire_type for color coding)
-            burned_data = [
-                {
-                    "lat": c.lat, "lng": c.lng,
-                    "intensity": c.intensity,
-                    "fuel": c.fuel_type,
-                    "fire_type": c.fire_type,
-                    "t": c.timestep,
-                }
-                for c in cf.burned_cells
-            ]
+            burned_data = all_cells[:len(cf.burned_cells)]
+            is_last = i == len(ca_frames) - 1
 
             ca_spot_fires = None
             if cf.spot_fires:
@@ -341,9 +347,36 @@ class Simulator:
                     summarize(exposure, cf.time_hours * 60.0 + 1e-9, inside) if exposure else None
                 ),
                 building_exposure_detail=(
-                    _exposure_detail(exposure) if exposure and i == len(ca_frames) - 1 else None
+                    _exposure_detail(exposure) if exposure and is_last else None
                 ),
+                head=self._head_summary(cf.head),
+                arrival_raster=arrival_raster if is_last else None,
             )
+
+    def _head_summary(self, head: dict | None) -> dict | None:
+        """The grid frame's head cell, with the Albini maximum spotting distance there."""
+        if head is None:
+            return None
+        from firesim.spread.albini import max_spot_distance
+
+        wind = self.conditions_at(head["t"]).wind_speed  # 10 m wind when the head got there
+        out = {k: (round(v, 6) if isinstance(v, float) else v) for k, v in head.items()}
+        out["max_spot_distance_m"] = round(
+            max_spot_distance(head["fuel"], head["hfi"], head["cfb"], wind), 1
+        )
+        return out
+
+    def _arrival_raster(self, arrival) -> dict | None:
+        """Arrival minutes per fuel-grid cell (rounded; -1 = not burned), north row first."""
+        if arrival is None or self.fuel_grid is None:
+            return None
+        g = self.fuel_grid
+        minutes = np.where(np.isfinite(arrival), np.rint(arrival), -1).astype(np.int16)
+        return {
+            "rows": g.rows, "cols": g.cols,
+            "lat_min": g.lat_min, "lat_max": g.lat_max, "lng_min": g.lng_min, "lng_max": g.lng_max,
+            "minutes": minutes,
+        }
 
     def _building_exposure(self, emitters, duration_min: float):
         """Per-building exposure records from the grid model's flame panels, or None."""

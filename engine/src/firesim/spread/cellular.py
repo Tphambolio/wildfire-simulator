@@ -73,6 +73,9 @@ class BurnedCell:
     fuel_type: str
     timestep: int  # arrival time (minutes after ignition, rounded)
     fire_type: str = "surface"  # FireType value: surface, surface_with_torching, passive_crown, active_crown
+    ros: float = 0.0  # m/min, the front's normal speed when it crossed the cell
+    part: str = "head"  # head, flank or back: spread direction relative to the cell's FBP head direction
+    arrival_min: float = 0.0  # arrival time, minutes (unrounded)
 
 
 @dataclass
@@ -84,13 +87,18 @@ class CellularFrame:
     new_cells: int
     area_ha: float
     max_intensity: float
-    mean_ros: float
+    mean_ros: float  # head front speed (m/min): fastest head cell reached since the last frame
     fuel_breakdown: dict[str, float]
     spot_fires: list[SpotFire] | None = None
     num_fronts: int = 1
     ignition_snapped_m: float = 0.0  # >0 if ignition was moved to nearest fuel cell
     perimeter: list[tuple[float, float]] | None = None  # (lat, lng) outline of the largest burned area
     emitters: Emitters | None = None  # burned cells as flame panels (last frame only)
+    # Fastest head cell reached since the previous frame: lat, lng, ros (m/min), raz (deg,
+    # direction of spread), hfi (kW/m), cfb, fuel, t (arrival, min). None when no head cell
+    # was reached.
+    head: dict | None = None
+    arrival: np.ndarray | None = None  # arrival minutes per cell, inf = unburned (last frame only)
 
 
 def wavelet_normal_speed(a, b, c, nh, nk):
@@ -255,14 +263,59 @@ def run_cellular_simulation(
 
     frames = _frames(
         arrival, cross_ros, params, fuel_grid, center, duration, snapshot_interval_minutes,
-        cell_area_m2, spot_events, snapped_m, cell_lat, cell_lng, compute_perimeter,
+        cell_area_m2, spot_events, snapped_m, cell_lat, cell_lng, compute_perimeter, dx, dy,
     )
+    if frames:
+        frames[-1].arrival = np.where(arrival <= duration, arrival, np.inf)
     if compute_perimeter and frames:
         frames[-1].emitters = flame_emitters(arrival, cross_ros, params, duration, dx, dy)
         frames[-1].emitters.lat0, frames[-1].emitters.lng0 = lat_max, lng_min
         frames[-1].emitters.m_per_deg_lat = dy / cell_lat
         frames[-1].emitters.m_per_deg_lng = dx / cell_lng
     return frames
+
+
+def spread_directions(t: np.ndarray, dx: float, dy: float, p) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Unit spread direction (east, north) of each burned cell, and whether it has a
+    later-burned neighbour.
+
+    The direction is the arrival-time gradient estimated from earlier-burned neighbours
+    (each weighted by its time difference over distance); cells with none (the ignition)
+    take the cell's FBP head direction. ``t`` holds arrival minutes, inf where unburned.
+    """
+    rows, cols = t.shape
+    pad = np.pad(t, 1, constant_values=np.inf)
+    gx = np.zeros((rows, cols))
+    gy = np.zeros((rows, cols))
+    later = np.zeros((rows, cols), dtype=bool)
+    finite = np.isfinite(t)
+    for dr, dc in ADJACENT:
+        nb = pad[1 + dr:1 + dr + rows, 1 + dc:1 + dc + cols]
+        dist = math.hypot(dc * dx, dr * dy)
+        earlier = np.isfinite(nb) & finite & (nb < t)
+        w = np.where(earlier, t - np.where(earlier, nb, 0.0), 0.0) / dist
+        gx += w * (-dc * dx) / dist  # unit vector from the neighbour to this cell
+        gy += w * (dr * dy) / dist
+        later |= np.isfinite(nb) & (nb > t) & finite
+    norm = np.hypot(gx, gy)
+    none = norm < 1e-12
+    gx = np.where(none, p.hx, gx / np.where(none, 1.0, norm))
+    gy = np.where(none, p.hy, gy / np.where(none, 1.0, norm))
+    norm = np.hypot(gx, gy)
+    safe = np.where(norm > 0, norm, 1.0)
+    return gx / safe, gy / safe, later
+
+
+# Head / flank / back by the angle between the spread direction and the FBP head direction
+_HEAD_COS = math.cos(math.radians(45.0))
+_BACK_COS = -_HEAD_COS
+
+
+def fire_part(nx, ny, hx, hy):
+    """'head' within 45 deg of the cell's FBP head direction (RAZ), 'back' within 45 deg of
+    the opposite, 'flank' otherwise."""
+    cos = nx * hx + ny * hy
+    return np.where(cos >= _HEAD_COS, "head", np.where(cos <= _BACK_COS, "back", "flank"))
 
 
 def flame_emitters(arrival, cross_ros, p, duration, dx, dy,
@@ -277,29 +330,10 @@ def flame_emitters(arrival, cross_ros, p, duration, dx, dy,
     residence time. Flame height from the cell intensity: Byram, or Thomas when CFB >= 0.1.
     Positions in metres, x east and y north of the grid's north-west corner.
     """
-    rows, cols = arrival.shape
     t = np.where(arrival <= duration, arrival, np.inf)
-    pad = np.pad(t, 1, constant_values=np.inf)
-    gx = np.zeros((rows, cols))
-    gy = np.zeros((rows, cols))
-    later = np.zeros((rows, cols), dtype=bool)
-    for dr, dc in ADJACENT:
-        nb = pad[1 + dr:1 + dr + rows, 1 + dc:1 + dc + cols]
-        dist = math.hypot(dc * dx, dr * dy)
-        earlier = np.isfinite(nb) & np.isfinite(t) & (nb < t)
-        w = np.where(earlier, t - np.where(earlier, nb, 0.0), 0.0) / dist
-        gx += w * (-dc * dx) / dist  # unit vector from the neighbour to this cell
-        gy += w * (dr * dy) / dist
-        later |= np.isfinite(nb) & (nb > t) & np.isfinite(t)
-    burned = np.isfinite(t)
-    r, c = np.nonzero(burned)
+    gx, gy, later = spread_directions(t, dx, dy, p)
+    r, c = np.nonzero(np.isfinite(t))
     nx, ny = gx[r, c], gy[r, c]
-    norm = np.hypot(nx, ny)
-    none = norm < 1e-12
-    nx = np.where(none, p.hx[r, c], nx / np.where(none, 1.0, norm))
-    ny = np.where(none, p.hy[r, c], ny / np.where(none, 1.0, norm))
-    norm = np.hypot(nx, ny)
-    nx, ny = nx / np.where(norm > 0, norm, 1.0), ny / np.where(norm > 0, norm, 1.0)
 
     ros = cross_ros[r, c]
     rso = p.rso[r, c]
@@ -559,38 +593,61 @@ def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acc
 
 
 def _frames(arrival, cross_ros, p, fuel_grid, center, duration, snapshot_interval, cell_area_m2,
-            spot_events, snapped_m, cell_lat, cell_lng, compute_perimeter=True) -> list[CellularFrame]:
-    """Build cumulative frames from per-cell arrival times."""
+            spot_events, snapped_m, cell_lat, cell_lng, compute_perimeter=True,
+            dx: float = 1.0, dy: float = 1.0) -> list[CellularFrame]:
+    """Build cumulative frames from per-cell arrival times.
+
+    Each frame's ``mean_ros`` is the head fire's front speed: the fastest normal speed among
+    head cells reached since the previous frame (carried forward when none was reached).
+    """
     burned_idx = np.argwhere(arrival <= duration)
     order = np.argsort(arrival[burned_idx[:, 0], burned_idx[:, 1]], kind="stable")
     burned_idx = burned_idx[order]
+    t_grid = np.where(arrival <= duration, arrival, np.inf)
+    nx, ny, _ = spread_directions(t_grid, dx, dy, p)
+    br, bc = burned_idx[:, 0], burned_idx[:, 1]
+    parts = fire_part(nx[br, bc], ny[br, bc], p.hx[br, bc], p.hy[br, bc]) if len(br) else np.array([])
 
     cells: list[BurnedCell] = []
-    for r, c in burned_idx:
+    cfbs: list[float] = []
+    for k, (r, c) in enumerate(burned_idx):
         r, c = int(r), int(c)
         ros = float(cross_ros[r, c])
         cfb = calculate_crown_fraction_burned(ros, p.rso[r, c]) if p.cfl[r, c] > 0.0 else 0.0
         intensity = _INTENSITY_FACTOR * (p.sfc[r, c] + p.cfl[r, c] * cfb) * ros * p.imult[r, c]
         lat, lng = center(r, c)
+        cfbs.append(cfb)
         cells.append(BurnedCell(
             lat=lat, lng=lng, intensity=float(intensity), fuel_type=fuel_grid.fuel_types[r][c].value,
             timestep=int(round(arrival[r, c])), fire_type=classify_fire_type(cfb).value,
+            ros=ros, part=str(parts[k]), arrival_min=float(arrival[r, c]),
         ))
-    times = arrival[burned_idx[:, 0], burned_idx[:, 1]] if len(burned_idx) else np.array([])
-    heads = p.head[burned_idx[:, 0], burned_idx[:, 1]] if len(burned_idx) else np.array([])
+    times = arrival[br, bc] if len(burned_idx) else np.array([])
 
     frames: list[CellularFrame] = []
     snapshot_times = list(np.arange(0.0, duration, snapshot_interval)) + [duration]
-    prev_t, prev_n, mean_ros = -1.0, 0, 0.0
+    prev_t, prev_n, head_ros = -1.0, 0, 0.0
     for t_snap in snapshot_times:
         n = int(np.searchsorted(times, t_snap, side="right"))
-        if n > prev_n:  # mean head ROS of the cells reached since the last frame
-            mean_ros = float(np.mean(heads[prev_n:n]))
+        head = None
+        new_heads = [k for k in range(prev_n, n) if cells[k].part == "head"]
+        if new_heads:
+            k = max(new_heads, key=lambda i: cells[i].ros)
+            r, c = int(br[k]), int(bc[k])
+            cell = cells[k]
+            head = {
+                "lat": cell.lat, "lng": cell.lng, "ros": cell.ros,
+                "raz": math.degrees(math.atan2(p.hx[r, c], p.hy[r, c])) % 360.0,
+                "hfi": cell.intensity, "cfb": cfbs[k], "fuel": cell.fuel_type,
+                "t": cell.arrival_min,
+            }
+            head_ros = cell.ros
         spots = [s for ts, s in spot_events if prev_t < ts <= t_snap]
         frame = _make_frame(
-            float(t_snap), cells[:n], n - prev_n, cell_area_m2, mean_ros=mean_ros,
+            float(t_snap), cells[:n], n - prev_n, cell_area_m2, mean_ros=head_ros,
             spot_fires=spots or None, ignition_snapped_m=snapped_m if not frames else 0.0,
         )
+        frame.head = head
         if compute_perimeter:
             frame.perimeter = burned_outline(
                 arrival <= t_snap, fuel_grid.lat_max, fuel_grid.lng_min, cell_lat, cell_lng

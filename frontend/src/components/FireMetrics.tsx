@@ -96,9 +96,24 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
           <span className="metric-value">{frame.area_ha.toFixed(1)} ha</span>
         </div>
         <div className="metric-row">
-          <span className="metric-label">{isCAMode ? "Mean ROS" : "Head ROS"}</span>
+          <span className="metric-label">Head ROS</span>
           <span className="metric-value">{frame.head_ros_m_min.toFixed(1)} m/min</span>
         </div>
+        {frame.head && (
+          <>
+            <div className="metric-row">
+              <span className="metric-label">Head spreading toward</span>
+              <span className="metric-value">
+                {["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(frame.head.raz / 45) % 8]}{" "}
+                ({frame.head.raz.toFixed(0)}°)
+              </span>
+            </div>
+            <div className="metric-row" title="Albini maximum spotting distance from the head (surface or torching-tree model)">
+              <span className="metric-label">Max spotting distance</span>
+              <span className="metric-value">{frame.head.max_spot_distance_m.toFixed(0)} m</span>
+            </div>
+          </>
+        )}
         <div className="metric-row">
           <span className="metric-label">Max HFI</span>
           <span className="metric-value" style={{ color: intensity.color }}>

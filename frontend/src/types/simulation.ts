@@ -39,6 +39,8 @@ export interface SimulationCreate {
   ignition_lat: number;
   ignition_lng: number;
   weather: WeatherParams;
+  // Grid runs: "incremental" streams only newly burned cells per frame
+  cells_mode?: "cumulative" | "incremental";
   fwi_overrides?: FWIOverrides;
   fuel_modifiers?: FuelModifiers;
   hourly_weather?: HourlyWeatherParams[] | null;
@@ -66,7 +68,18 @@ export interface SimulationFrame {
   fuel_breakdown: Record<string, number>;
   spot_fires?: Array<{ lat: number; lng: number; distance_m: number; hfi_kw_m: number; source_lat?: number; source_lng?: number }> | null;
   num_fronts?: number;
-  burned_cells?: Array<{ lat: number; lng: number; intensity: number; fuel: string; fire_type?: string; t?: number }> | null;
+  burned_cells?: Array<{
+    lat: number; lng: number; intensity: number; fuel: string; fire_type?: string; t?: number;
+    ros?: number; // m/min, front speed when the cell burned
+    part?: "head" | "flank" | "back";
+  }> | null;
+  // Incremental streaming: number of earlier cells not repeated in burned_cells
+  cells_offset?: number;
+  // Grid runs: fastest head cell reached since the previous frame
+  head?: {
+    lat: number; lng: number; ros: number; raz: number; hfi: number; cfb: number;
+    fuel: string; t: number; max_spot_distance_m: number;
+  } | null;
   day?: number | null; // Multi-day scenario: which day (1-based)
   buildings_at_risk?: number; // building centroids inside the perimeter
   ignition_snapped_m?: number;

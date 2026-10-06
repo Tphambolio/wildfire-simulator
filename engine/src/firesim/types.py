@@ -126,3 +126,8 @@ class SimulationFrame:
     building_exposure: dict | None = None
     # Per-building exposure, final frame only, buildings within 500 m of the fire
     building_exposure_detail: list[dict] | None = None
+    # Grid model: fastest head cell reached since the previous frame
+    # {lat, lng, ros (m/min), raz (deg, spread direction), hfi, cfb, fuel, max_spot_distance_m}
+    head: dict | None = None
+    # Grid model, final frame only: arrival minutes per cell (-1 = not burned) and grid bounds
+    arrival_raster: dict | None = None
