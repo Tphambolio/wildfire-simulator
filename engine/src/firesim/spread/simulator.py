@@ -20,6 +20,7 @@ from typing import Generator
 
 import numpy as np
 
+from firesim.exposure import BuildingExposure, building_exposure, summarize
 from firesim.fbp.calculator import calculate_flame_length, calculate_foliar_moisture
 from firesim.fwi.calculator import hourly_ffmc
 from firesim.fbp.constants import FuelType
@@ -69,6 +70,7 @@ class Simulator:
         spotting_intensity: float = 1.0,
         building_centroids: list[tuple[float, float]] | None = None,
         acceleration: bool = True,
+        building_footprints: list | None = None,
     ):
         """Initialize simulator.
 
@@ -83,7 +85,10 @@ class Simulator:
                 More rays = smoother perimeters but slower.
             spread_modifier_grid: Per-cell WUI zone modifiers (None = no modification)
             building_centroids: List of (lat, lng) for buildings in nearby
-                neighbourhoods. Used to count structures at risk per frame.
+                neighbourhoods. Used to count structures inside the perimeter per frame.
+            building_footprints: shapely footprints (lng, lat) of those buildings. With the
+                grid model, used for per-building exposure (distance, timing, radiant heat;
+                ``firesim.exposure``); centroids are used when footprints are not given.
             initial_burned: (lat, lng) centres of already-burned grid cells, used by the
                 grid model to continue a fire (e.g. the next day of a multi-day run).
             acceleration: Apply FBP point-ignition acceleration (ST-X-3 eqs 70-72)
@@ -102,7 +107,10 @@ class Simulator:
         self.initial_burned = initial_burned
         self.enable_spotting = enable_spotting
         self.spotting_intensity = spotting_intensity
+        if building_footprints and not building_centroids:
+            building_centroids = [(g.centroid.y, g.centroid.x) for g in building_footprints]
         self.building_centroids = building_centroids
+        self.building_footprints = building_footprints
         self.acceleration = acceleration
 
     def run(self) -> Generator[SimulationFrame, None, None]:
@@ -266,7 +274,10 @@ class Simulator:
             initial_burned=self.initial_burned,
         )
 
-        for cf in ca_frames:
+        exposure = self._building_exposure(ca_frames[-1].emitters if ca_frames else None,
+                                           config.duration_hours * 60.0)
+
+        for i, cf in enumerate(ca_frames):
             # Outline of the largest burned area (polygon), for export, building counts
             # and multi-day carry-over
             perimeter = cf.perimeter or []
@@ -324,9 +335,44 @@ class Simulator:
                 spot_fires=ca_spot_fires,
                 num_fronts=1,
                 burned_cells=burned_data,
-                buildings_at_risk=self._buildings_inside(perimeter),
+                buildings_at_risk=(inside := self._buildings_inside(perimeter)),
                 ignition_snapped_m=cf.ignition_snapped_m,
+                building_exposure=(
+                    summarize(exposure, cf.time_hours * 60.0 + 1e-9, inside) if exposure else None
+                ),
+                building_exposure_detail=(
+                    _exposure_detail(exposure) if exposure and i == len(ca_frames) - 1 else None
+                ),
             )
+
+    def _building_exposure(self, emitters, duration_min: float):
+        """Per-building exposure records from the grid model's flame panels, or None."""
+        if emitters is None or not (self.building_footprints or self.building_centroids):
+            return None
+        import shapely
+
+        def local(coords):
+            x, y = emitters.to_local(coords[:, 0], coords[:, 1])
+            return np.column_stack([x, y])
+
+        if self.building_footprints:
+            geoms = shapely.transform(
+                np.asarray(self.building_footprints, dtype=object), lambda xy: local(xy[:, ::-1])
+            )
+            cents = shapely.centroid(np.asarray(self.building_footprints, dtype=object))
+            targets = [
+                (float(shapely.get_y(c)), float(shapely.get_x(c)), g) for c, g in zip(cents, geoms)
+            ]
+            use_footprints = True
+        else:
+            lat = np.array([b[0] for b in self.building_centroids])
+            lng = np.array([b[1] for b in self.building_centroids])
+            x, y = emitters.to_local(lat, lng)
+            targets = [(float(a), float(o), shapely.Point(px, py))
+                       for a, o, px, py in zip(lat, lng, x, y)]
+            use_footprints = False
+        return building_exposure(targets, emitters, duration_min=duration_min,
+                                 use_footprints=use_footprints)
 
     def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:
         """Number of building centroids inside a (lat, lng) perimeter polygon."""
@@ -503,3 +549,27 @@ class Simulator:
             num_fronts=num_fronts,
             buildings_at_risk=buildings_at_risk,
         )
+
+
+def _finite(v: float) -> float | None:
+    return round(v, 2) if math.isfinite(v) else None
+
+
+def _exposure_detail(records: list[BuildingExposure]) -> list[dict]:
+    """Per-building exposure for buildings within 500 m of the fire (JSON-friendly)."""
+    return [
+        {
+            "lat": r.lat, "lng": r.lng,
+            "min_distance_m": round(r.min_distance_m, 1),
+            "band": r.band,
+            "first_within_30m_min": _finite(r.first_within_min.get(30.0, math.inf)),
+            "first_within_100m_min": _finite(r.first_within_min.get(100.0, math.inf)),
+            "peak_flux_kw_m2": round(r.peak_flux, 2),
+            "minutes_over_12_5": round(r.minutes_over_12_5, 2),
+            "ftp_index": round(r.ftp_index, 4),
+            "ftp_index_high_emissive": round(r.ftp_index_high, 4),
+        }
+        for r in records
+        if r.min_distance_m <= 500.0
+    ]
+

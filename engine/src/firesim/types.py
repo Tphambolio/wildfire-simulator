@@ -120,5 +120,9 @@ class SimulationFrame:
     spot_fires: list[dict] | None = None  # [{lat, lng, distance_m, hfi_kw_m}, ...]
     num_fronts: int = 1
     burned_cells: list[dict] | None = None  # [{lat, lng, intensity, fuel}, ...] for CA mode
-    buildings_at_risk: int = 0
+    buildings_at_risk: int = 0  # building centroids inside the perimeter
     ignition_snapped_m: float = 0.0  # >0 if ignition was moved to nearest fuel cell
+    # Exposure counts reached by this frame (grid model with buildings; see firesim.exposure)
+    building_exposure: dict | None = None
+    # Per-building exposure, final frame only, buildings within 500 m of the fire
+    building_exposure_detail: list[dict] | None = None

@@ -68,8 +68,35 @@ export interface SimulationFrame {
   num_fronts?: number;
   burned_cells?: Array<{ lat: number; lng: number; intensity: number; fuel: string; fire_type?: string; t?: number }> | null;
   day?: number | null; // Multi-day scenario: which day (1-based)
-  buildings_at_risk?: number;
+  buildings_at_risk?: number; // building centroids inside the perimeter
   ignition_snapped_m?: number;
+  // Exposure (not ignition probability), grid model with building footprints
+  building_exposure?: BuildingExposureSummary | null;
+  building_exposure_detail?: BuildingExposureDetail[] | null; // final frame only
+}
+
+export interface BuildingExposureSummary {
+  inside_perimeter: number;
+  within_10m: number;
+  within_30m: number;
+  within_100m: number;
+  within_500m: number;
+  flux_over_12_5: number; // peak radiant flux >= 12.5 kW/m2 (Cohen worst case)
+  flux_over_25: number;
+  ftp_reached: number; // Cohen (2004) flux-time criterion for piloted ignition of wood reached
+}
+
+export interface BuildingExposureDetail {
+  lat: number;
+  lng: number;
+  min_distance_m: number;
+  band: "flame_contact" | "radiant" | "short_range_ember" | "long_range_ember" | "none";
+  first_within_30m_min: number | null;
+  first_within_100m_min: number | null;
+  peak_flux_kw_m2: number;
+  minutes_over_12_5: number;
+  ftp_index: number;
+  ftp_index_high_emissive: number;
 }
 
 export interface MultiDayWeatherParams {

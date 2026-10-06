@@ -117,9 +117,9 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
             <span className="metric-value">{frame.flame_length_m.toFixed(1)} m</span>
           </div>
         )}
-        {(frame.buildings_at_risk ?? 0) > 0 && (
+        {!frame.building_exposure && (frame.buildings_at_risk ?? 0) > 0 && (
           <div className="metric-row">
-            <span className="metric-label">Structures at Risk</span>
+            <span className="metric-label">Buildings inside perimeter</span>
             <span className="metric-value" style={{ color: "#ff6400" }}>
               {frame.buildings_at_risk}
             </span>
@@ -130,6 +130,31 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
           <span className="metric-value">{totalFrames}</span>
         </div>
       </div>
+
+      {frame.building_exposure && (
+        <div className="fuel-breakdown">
+          <h4>Building exposure</h4>
+          {(
+            [
+              ["Inside perimeter", frame.building_exposure.inside_perimeter],
+              ["Within 30 m of fire", frame.building_exposure.within_30m],
+              ["Within 100 m", frame.building_exposure.within_100m],
+              ["Within 500 m", frame.building_exposure.within_500m],
+              ["Radiant \u2265 12.5 kW/m\u00b2", frame.building_exposure.flux_over_12_5],
+              ["Flux-time criterion reached", frame.building_exposure.ftp_reached],
+            ] as const
+          ).map(([label, n]) => (
+            <div key={label} className="metric-row">
+              <span className="metric-label">{label}</span>
+              <span className="metric-value">{n}</span>
+            </div>
+          ))}
+          <div className="hint" style={{ marginTop: 4 }}>
+            Exposure, not ignition probability. Radiant heat uses Cohen's worst-case flame model
+            (overestimates measured flux); embers and building-to-building fire are not modelled.
+          </div>
+        </div>
+      )}
 
       {Object.keys(frame.fuel_breakdown).length > 0 && (
         <div className="fuel-breakdown">

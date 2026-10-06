@@ -34,6 +34,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
+from firesim.exposure import DEFAULT_RESIDENCE_S, Emitters, flame_length_m
 from firesim.fbp.calculator import calculate_acceleration
 from firesim.fbp.constants import FuelType
 from firesim.fbp.crown_fire import calculate_crown_fraction_burned, classify_fire_type
@@ -89,6 +90,7 @@ class CellularFrame:
     num_fronts: int = 1
     ignition_snapped_m: float = 0.0  # >0 if ignition was moved to nearest fuel cell
     perimeter: list[tuple[float, float]] | None = None  # (lat, lng) outline of the largest burned area
+    emitters: Emitters | None = None  # burned cells as flame panels (last frame only)
 
 
 def wavelet_normal_speed(a, b, c, nh, nk):
@@ -251,9 +253,64 @@ def run_cellular_simulation(
                 slice_start = t
                 next_slice = min(t + slice_len, duration)
 
-    return _frames(
+    frames = _frames(
         arrival, cross_ros, params, fuel_grid, center, duration, snapshot_interval_minutes,
         cell_area_m2, spot_events, snapped_m, cell_lat, cell_lng, compute_perimeter,
+    )
+    if compute_perimeter and frames:
+        frames[-1].emitters = flame_emitters(arrival, cross_ros, params, duration, dx, dy)
+        frames[-1].emitters.lat0, frames[-1].emitters.lng0 = lat_max, lng_min
+        frames[-1].emitters.m_per_deg_lat = dy / cell_lat
+        frames[-1].emitters.m_per_deg_lng = dx / cell_lng
+    return frames
+
+
+def flame_emitters(arrival, cross_ros, p, duration, dx, dy,
+                   residence_s: float = DEFAULT_RESIDENCE_S) -> Emitters:
+    """Burned cells as vertical flame panels for the radiant exposure model.
+
+    Each panel faces the local spread direction (the arrival-time gradient, from earlier-burned
+    neighbours; the cell's head direction where it has none). It is present while the front
+    crosses the cell (cell size / normal speed), so one panel represents the moving flame face
+    and panels are not stacked behind it. Cells where the front stops (no later-burned
+    neighbour: a barrier, the fuel edge or the end of the run) keep flaming for the flaming
+    residence time. Flame height from the cell intensity: Byram, or Thomas when CFB >= 0.1.
+    Positions in metres, x east and y north of the grid's north-west corner.
+    """
+    rows, cols = arrival.shape
+    t = np.where(arrival <= duration, arrival, np.inf)
+    pad = np.pad(t, 1, constant_values=np.inf)
+    gx = np.zeros((rows, cols))
+    gy = np.zeros((rows, cols))
+    later = np.zeros((rows, cols), dtype=bool)
+    for dr, dc in ADJACENT:
+        nb = pad[1 + dr:1 + dr + rows, 1 + dc:1 + dc + cols]
+        dist = math.hypot(dc * dx, dr * dy)
+        earlier = np.isfinite(nb) & np.isfinite(t) & (nb < t)
+        w = np.where(earlier, t - np.where(earlier, nb, 0.0), 0.0) / dist
+        gx += w * (-dc * dx) / dist  # unit vector from the neighbour to this cell
+        gy += w * (dr * dy) / dist
+        later |= np.isfinite(nb) & (nb > t) & np.isfinite(t)
+    burned = np.isfinite(t)
+    r, c = np.nonzero(burned)
+    nx, ny = gx[r, c], gy[r, c]
+    norm = np.hypot(nx, ny)
+    none = norm < 1e-12
+    nx = np.where(none, p.hx[r, c], nx / np.where(none, 1.0, norm))
+    ny = np.where(none, p.hy[r, c], ny / np.where(none, 1.0, norm))
+    norm = np.hypot(nx, ny)
+    nx, ny = nx / np.where(norm > 0, norm, 1.0), ny / np.where(norm > 0, norm, 1.0)
+
+    ros = cross_ros[r, c]
+    rso = p.rso[r, c]
+    cfb = np.where((p.cfl[r, c] > 0.0) & (ros > rso), 1.0 - np.exp(-0.23 * (ros - rso)), 0.0)
+    intensity = _INTENSITY_FACTOR * (p.sfc[r, c] + p.cfl[r, c] * cfb) * ros * p.imult[r, c]
+    size = math.sqrt(dx * dy)
+    crossing = size / np.maximum(ros, 1e-3)
+    end = t[r, c] + crossing + np.where(later[r, c], 0.0, residence_s / 60.0)
+    return Emitters(
+        x=(c + 0.5) * dx, y=-(r + 0.5) * dy, start_min=t[r, c], end_min=end,
+        flame_m=flame_length_m(intensity, cfb >= 0.1), normal_x=nx, normal_y=ny, cell_size=size,
     )
 
 

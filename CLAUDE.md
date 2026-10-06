@@ -61,6 +61,7 @@ docker compose up --build
 | `spread/ellipse.py` | LB ratio (forest + grass), flank ROS, ROS toward theta on the FBP ellipse |
 | `spread/slope.py` | ST-X-3 eq 39 slope factor (slope itself is applied via net effective wind in the FBP calculator) |
 | `spread/spotting.py` | Albini (1979) ember spotting — crown fire → spot distance + probability |
+| `exposure.py` | Building exposure: distance bands, Cohen (2004) radiant flux and flux-time index from the grid run's flame panels (exposure, not ignition; `docs/building-exposure.md`) |
 | `spread/simulator.py` | `Simulator` class — main orchestrator, yields `SimulationFrame` per snapshot |
 | `spread/montecarlo.py` | Stochastic burn probability (jitter wind/RH over N iterations) |
 | `data/fuel_loader.py` | GeoTIFF → `FuelGrid` (FBP type codes) |

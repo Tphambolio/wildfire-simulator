@@ -67,6 +67,15 @@ Fixture and tests: `engine/tests/spread/data/wise_reference.json`,
 `engine/tests/spread/test_wise_reference.py`. Both models share the FBP System, so this checks
 the spread implementation, not the FBP System against reality.
 
+### Building exposure radiant model
+
+The radiant model (`docs/building-exposure.md`) reproduces Cohen's (2004) worked SIAM values for
+a 50 m x 20 m flame at 1200 K: 80.6 / 45.9 / 27.8 kW/m2 at 10 / 20 / 30 m against his
+79 / 45 / 27, and his flux-time example (31 kW/m2 reaches the criterion in 59 s; Cohen: about
+60 s). The same front built from 1 m panels gives the same flux, and a footprint wall 20 m away
+the same as a point. Tests: `engine/tests/test_exposure.py`. This checks the implementation
+against SIAM, which itself overestimates measured crown-fire flux (Cohen 2000).
+
 ## 4. History: what was wrong before 2026-10
 
 An audit on 2026-10-05 (NRES 799 thesis work) found the shipped engine departed from FBP in
