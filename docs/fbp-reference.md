@@ -99,5 +99,6 @@ replaced by the cffdrs comparison.
 
 - Point-ignition acceleration is applied; line ignitions and fires already burning at
   equilibrium (multi-day continuation, RPAS perimeter correction) are treated as established.
-- Buildup effect and SFC use the daily BUI; there is no diurnal FFMC.
+- Buildup effect and SFC use the daily BUI. FFMC is hourly only when an hourly weather stream
+  is given (Van Wagner 1977 hourly FFMC); otherwise the daily value applies all day.
 - Grass fuel load defaults to 0.35 kg/m2 and curing to 60 % unless set.

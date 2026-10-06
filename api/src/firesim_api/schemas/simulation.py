@@ -174,6 +174,11 @@ class SimulationFrame(BaseModel):
     day: int | None = None  # Multi-day scenario: which day (1-based)
     buildings_at_risk: int = 0  # building centroids inside the perimeter
     ignition_snapped_m: float = 0.0  # >0 if the ignition was moved to the nearest fuel cell
+    # Building exposure (grid model with building footprints): counts reached by this frame.
+    # Exposure, not ignition probability; see docs/building-exposure.md.
+    building_exposure: dict[str, int] | None = None
+    # Per-building exposure for buildings within 500 m of the fire (final frame only)
+    building_exposure_detail: list[dict] | None = None
 
 
 class SimulationResponse(BaseModel):

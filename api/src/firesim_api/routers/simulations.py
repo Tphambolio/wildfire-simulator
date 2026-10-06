@@ -48,6 +48,8 @@ def _frame_to_schema(frame: SimulationFrame, day: int | None = None) -> FrameSch
         day=day,
         buildings_at_risk=frame.buildings_at_risk,
         ignition_snapped_m=round(frame.ignition_snapped_m, 1),
+        building_exposure=frame.building_exposure,
+        building_exposure_detail=frame.building_exposure_detail,
     )
 
 

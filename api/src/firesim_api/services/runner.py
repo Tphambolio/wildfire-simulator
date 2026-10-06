@@ -362,6 +362,7 @@ class SimulationRunner:
             # ~5-15K buildings instead of all 334K citywide.
             masked_fuel_grid = fuel_grid
             building_centroids = None
+            building_geoms = None
             buildings_path = getattr(params, "buildings_path", None) or settings.buildings_path
             if buildings_path and fuel_grid is not None and settings.neighbourhoods_path:
                 import dataclasses
@@ -406,6 +407,7 @@ class SimulationRunner:
                 enable_spotting=getattr(params, "enable_spotting", False),
                 spotting_intensity=getattr(params, "spotting_intensity", 1.0),
                 building_centroids=building_centroids,
+                building_footprints=building_geoms or None,
             )
 
             for frame in simulator.run():

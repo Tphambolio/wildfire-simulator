@@ -3,8 +3,9 @@
 ## Overview
 
 FireSim V3 simulates wildfire spread with the Canadian FBP System. It is a planning, training
-and what-if tool: its FBP equations are verified against the cffdrs reference implementation,
-but its spread has not been validated against observed fires or against Prometheus/WISE.
+and what-if tool: its FBP equations are verified against the cffdrs reference implementation and
+its spread on uniform fuel and slope is compared with WISE (`docs/verification.md`); it has not
+been validated against observed fires.
 
 ## Components
 
@@ -73,7 +74,11 @@ An existing fire can be the starting point instead of an ignition: an RPAS-obser
 perimeter (`initial_perimeter`) or the burned cells of the previous day in a multi-day run
 (`initial_burned`). That area starts burned and spreads as an established fire (no
 acceleration). Each frame carries the outline of the largest burned area as a polygon, used
-for GeoJSON export, buildings-at-risk counts and day-to-day carry-over.
+for GeoJSON export, the inside-perimeter building count and day-to-day carry-over.
+
+With building footprints, the burned cells also become flame panels for per-building exposure
+(distance bands, arrival times, Cohen radiant flux and flux-time index); see
+`docs/building-exposure.md`. These are exposure measures, not ignition predictions.
 
 Each burned cell records its arrival time (minutes) and the front's normal speed when it
 crossed; intensity and fire type use that speed, so flanks and backs are not given head-fire
@@ -114,7 +119,9 @@ only if every code in the raster belongs to it, or set explicitly with `code_sch
 
 ## What this is not
 
-- Not validated against observed fires or other fire growth models (see `docs/verification.md`).
+- Not validated against observed fires; compared with WISE only on uniform fuel and slope
+  (see `docs/verification.md`).
+- Not a structure-loss model: building exposure ignores embers and building-to-building spread.
 - Weather is one state per simulation unless an hourly stream is given (`hourly_weather`, or
   "Use hourly forecast weather" in the UI, which fetches the Open-Meteo forecast for the
   ignition point). With a stream, wind changes hourly and FFMC follows the hourly FFMC model
