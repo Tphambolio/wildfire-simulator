@@ -598,3 +598,24 @@ class TestCASpottingIntegration:
         assert all_spots == [], (
             "Expected no spot fires when spotting_intensity=0"
         )
+
+
+class TestHeadSpeed:
+    """The front must advance at the FBP head rate (regression: stale phi outside the
+    computational window made the head lag 6-9 %, worse on finer grids)."""
+
+    @pytest.mark.parametrize("cell_m", [50.0, 25.0])
+    def test_equilibrium_head_rate(self, cell_m):
+        cond = SpreadConditions(wind_speed=20.0, wind_direction=270.0, ffmc=92.0, dmc=40.0,
+                                dc=300.0, fmc=100.0)
+        ros = fbp_for_conditions(cond, FuelType.C2).ros_final
+        n = int(8000 / cell_m)
+        grid = metre_grid(n, cell_m)
+        lng_ign = grid.lng_min + 0.1 * (grid.lng_max - grid.lng_min)
+        frames = run_cellular_simulation(
+            {"ignition_lat": 53.5, "ignition_lng": lng_ign, "duration_hours": 2.0}, grid, cond,
+            acceleration=False, snapshot_interval_minutes=60.0, compute_perimeter=False,
+        )
+        m_per_lng = 111320.0 * math.cos(math.radians(53.5))
+        heads = [(max(c.lng for c in f.burned_cells) - lng_ign) * m_per_lng for f in frames[1:]]
+        assert (heads[1] - heads[0]) / 60.0 == pytest.approx(ros, rel=0.04)

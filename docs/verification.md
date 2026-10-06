@@ -41,7 +41,25 @@ fire wraps through gaps, back cells are less intense than head cells, runs are d
 and `engine/tests/spread/test_grid_continuation.py` (RPAS perimeter and multi-day starts,
 outline encloses the burned cells).
 
-## 3. History: what was wrong before 2026-10
+## 3. Comparison with WISE (independent model)
+
+WISE 1.0.6-beta.6 (successor to Prometheus; official Ubuntu build, run headless) on the same
+uniform-fuel cases: C-2 and O-1a (100 % cured), wind 0, 20 and 30 km/h from the west, FFMC 92,
+BUI 60, FMC 100, flat ground, point ignition, 1 h and 2 h. WISE applies FBP acceleration to
+point ignitions; its 1 m polygon ignition gives the equilibrium case. FireSim / WISE:
+
+| Model | Accelerating cases (12) | Equilibrium cases (4) |
+|---|---|---|
+| Huygens | area 0.97-1.06, head 0.985-1.025, flank 1.01-1.03 | area 0.96-0.99, head 0.98-0.99, flank 1.00 |
+| Level set, 25 m cells | area 0.955-1.04, head 0.99-1.02, flank 0.89-1.01 | — |
+
+WISE's equilibrium rates (head 22.96 m/min, back ~1.48, LB 2.565 for C-2) equal FireSim's FBP
+layer. Back distances on the grid are only a few cells long and are not resolved at 25 m.
+Fixture and tests: `engine/tests/spread/data/wise_reference.json`,
+`engine/tests/spread/test_wise_reference.py`. Both models share the FBP System, so this checks
+the spread implementation, not the FBP System against reality.
+
+## 4. History: what was wrong before 2026-10
 
 An audit on 2026-10-05 (NRES 799 thesis work) found the shipped engine departed from FBP in
 many places. All are fixed and each has a regression test:
@@ -63,17 +81,18 @@ many places. All are fixed and each has a regression test:
 | Grid model ignored the starting perimeter | on fuel grids, RPAS perimeter corrections and multi-day days restarted from the ignition point |
 | Grid-mode "perimeter" was an unordered sample of cell centres | invalid GeoJSON export; buildings at risk always 0 |
 | Synthetic demo landscape unseeded | identical scenarios gave different results (26 vs 35 ha) |
+| Level-set cells joining the computational window kept stale phi | grid-mode head 6-9 % slow, worse on finer grids (found by the WISE comparison) |
 
 Most of these came from the v2 code base, whose fire science was assembled from summaries
 rather than the source reports, and the old tests re-implemented the same formulas, so they
 could not catch the errors.
 
-## 4. Not verified, and known limits
+## 5. Not verified, and known limits
 
 - **No comparison with observed fires.** No historical fire, experimental burn or perimeter
   dataset has been run.
-- **No comparison with Prometheus/WISE, Burn-P3 or Cell2Fire** on the same inputs. Source for
-  these is in `~/dev/wildfire/vendor/` and is the recommended next check.
+- **Compared with WISE only on uniform fuel.** Heterogeneous fuel, slope, barriers and spotting
+  have not been compared with WISE, Burn-P3 or Cell2Fire.
 - **Spotting** is a heuristic, not Albini (1979); treat spot fire output as illustrative.
 - **Burn probability** varies only ignition point, wind speed and RH; it is not a Burn-P3-style
   ensemble over historical weather and ignitions.
