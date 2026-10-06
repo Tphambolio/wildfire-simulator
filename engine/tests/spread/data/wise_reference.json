@@ -1,0 +1,204 @@
+{
+ "source": "WISE 1.0.6-beta.6 (official ubuntu22.04 .deb, run headless in Docker), 2026-10-06",
+ "setup": "Uniform fuel, flat (700 m), 20 x 20 km grid of 25 m cells in EPSG:3400; point ignition at 53.5 N 113.5 W; constant hourly weather 25 C, RH 30 %, no rain, FFMC 92 / DMC 40 / DC 300 supplied each hour (BUI 60); FMC 100; wind from 270 deg; O-1a curing 100 %. Acceleration on (WISE default for point ignitions) except '*_noaccel_poly1m' jobs, which ignite a 1 m polygon (equilibrium). Max time step 2 min during acceleration; spotting off. Distances are along/across the fire's own axis (WISE's axis is 91.2 deg true in EPSG:3400).",
+ "rows": [
+  {
+   "job": "c2_ws20",
+   "hours": 1.0,
+   "area_ha": 48.44,
+   "head_m": 1145.3,
+   "back_m": 73.5,
+   "flank_m": 254.1,
+   "lb": 2.398,
+   "max_ros": 22.92,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws20",
+   "hours": 2.0,
+   "area_ha": 226.83,
+   "head_m": 2522.2,
+   "back_m": 161.6,
+   "flank_m": 539.1,
+   "lb": 2.489,
+   "max_ros": 22.96,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws20_noaccel_poly1m",
+   "hours": 1.0,
+   "area_ha": 65.56,
+   "head_m": 1378.2,
+   "back_m": 89.1,
+   "flank_m": 286.0,
+   "lb": 2.565,
+   "max_ros": 22.96,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws20_noaccel_poly1m",
+   "hours": 2.0,
+   "area_ha": 262.31,
+   "head_m": 2755.5,
+   "back_m": 177.2,
+   "flank_m": 571.0,
+   "lb": 2.568,
+   "max_ros": 22.96,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws20_accel30s",
+   "hours": 1.0,
+   "area_ha": 49.76,
+   "head_m": 1159.7,
+   "back_m": 74.4,
+   "flank_m": 257.7,
+   "lb": 2.395,
+   "max_ros": 22.92,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws20_accel30s",
+   "hours": 2.0,
+   "area_ha": 229.68,
+   "head_m": 2536.5,
+   "back_m": 162.5,
+   "flank_m": 542.7,
+   "lb": 2.487,
+   "max_ros": 22.96,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws0",
+   "hours": 1.0,
+   "area_ha": 26.42,
+   "head_m": 291.1,
+   "back_m": 291.1,
+   "flank_m": 291.1,
+   "lb": 1.0,
+   "max_ros": 6.14,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws0",
+   "hours": 2.0,
+   "area_ha": 136.88,
+   "head_m": 661.1,
+   "back_m": 661.1,
+   "flank_m": 661.1,
+   "lb": 1.0,
+   "max_ros": 6.18,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws30",
+   "hours": 1.0,
+   "area_ha": 93.82,
+   "head_m": 2014.6,
+   "back_m": 35.4,
+   "flank_m": 291.8,
+   "lb": 3.513,
+   "max_ros": 40.14,
+   "bui": 60.0
+  },
+  {
+   "job": "c2_ws30",
+   "hours": 2.0,
+   "area_ha": 432.58,
+   "head_m": 4426.4,
+   "back_m": 77.5,
+   "flank_m": 611.8,
+   "lb": 3.681,
+   "max_ros": 40.2,
+   "bui": 60.0
+  },
+  {
+   "job": "o1a_ws20",
+   "hours": 1.0,
+   "area_ha": 143.16,
+   "head_m": 2518.9,
+   "back_m": 198.6,
+   "flank_m": 335.6,
+   "lb": 4.048,
+   "max_ros": 49.66,
+   "bui": 60.0
+  },
+  {
+   "job": "o1a_ws20",
+   "hours": 2.0,
+   "area_ha": 652.28,
+   "head_m": 5500.9,
+   "back_m": 433.3,
+   "flank_m": 699.8,
+   "lb": 4.24,
+   "max_ros": 49.71,
+   "bui": 60.0
+  },
+  {
+   "job": "o1a_ws20_noaccel_poly1m",
+   "hours": 1.0,
+   "area_ha": 184.11,
+   "head_m": 2983.5,
+   "back_m": 235.8,
+   "flank_m": 365.2,
+   "lb": 4.407,
+   "max_ros": 49.71,
+   "bui": 60.0
+  },
+  {
+   "job": "o1a_ws20_noaccel_poly1m",
+   "hours": 2.0,
+   "area_ha": 736.35,
+   "head_m": 5965.9,
+   "back_m": 470.6,
+   "flank_m": 729.5,
+   "lb": 4.412,
+   "max_ros": 49.71,
+   "bui": 60.0
+  },
+  {
+   "job": "o1a_ws0",
+   "hours": 1.0,
+   "area_ha": 174.95,
+   "head_m": 747.3,
+   "back_m": 747.3,
+   "flank_m": 747.3,
+   "lb": 1.0,
+   "max_ros": 14.84,
+   "bui": 60.0
+  },
+  {
+   "job": "o1a_ws0",
+   "hours": 2.0,
+   "area_ha": 842.44,
+   "head_m": 1638.4,
+   "back_m": 1638.4,
+   "flank_m": 1638.4,
+   "lb": 1.0,
+   "max_ros": 14.86,
+   "bui": 60.0
+  },
+  {
+   "job": "o1a_ws30",
+   "hours": 1.0,
+   "area_ha": 298.61,
+   "head_m": 4196.5,
+   "back_m": 100.3,
+   "flank_m": 442.1,
+   "lb": 4.86,
+   "max_ros": 82.45,
+   "bui": 60.0
+  },
+  {
+   "job": "o1a_ws30",
+   "hours": 2.0,
+   "area_ha": 1350.99,
+   "head_m": 9148.2,
+   "back_m": 218.3,
+   "flank_m": 917.7,
+   "lb": 5.103,
+   "max_ros": 82.53,
+   "bui": 60.0
+  }
+ ]
+}

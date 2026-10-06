@@ -59,6 +59,8 @@ _INTENSITY_FACTOR = 300.0
 START_CELLS = 5.0
 # Courant number for the second-order scheme
 CFL = 0.2
+# Cells of margin around the burned area in which phi is advanced each step
+BAND_CELLS = 6
 
 
 @dataclass
@@ -192,16 +194,23 @@ def run_cellular_simulation(
 
     if phi is not None:
         near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
+        in_band = np.zeros((rows, cols), dtype=bool)
+        in_band[_window(arrival < np.inf, BAND_CELLS)] = True
         slice_len = dt_minutes if enable_spotting and spotting_intensity > 0.0 else duration
         next_slice = min(t + slice_len, duration)
         slice_start = t
         while t < duration - 1e-9:
-            burned = arrival < np.inf
-            r_idx = np.flatnonzero(burned.any(axis=1))
-            c_idx = np.flatnonzero(burned.any(axis=0))
-            r0, r1 = max(r_idx[0] - 3, 0), min(r_idx[-1] + 4, rows)
-            c0, c1 = max(c_idx[0] - 3, 0), min(c_idx[-1] + 4, cols)
-            win = (slice(r0, r1), slice(c0, c1))
+            win = _window(arrival < np.inf, BAND_CELLS)
+            entering = ~in_band[win]
+            if entering.any():
+                # Cells joining the computational window still hold their starting phi,
+                # which has not evolved with the front; reset them to their distance from
+                # the current burned area so the front does not lag behind.
+                dist = ndimage.distance_transform_edt(phi[win] >= 0, sampling=(dy, dx))
+                sub = phi[win]
+                sub[entering] = np.maximum(dist[entering] - 0.5 * h_min, 0.5 * h_min)
+                phi[win] = sub
+                in_band[win] = True
             speed = (params.head[win] + params.b[win]).max()
             if speed <= 1e-9:
                 break
@@ -230,6 +239,15 @@ def run_cellular_simulation(
         arrival, cross_ros, params, fuel_grid, center, duration, snapshot_interval_minutes,
         cell_area_m2, spot_events, snapped_m, cell_lat, cell_lng, compute_perimeter,
     )
+
+
+def _window(burned: np.ndarray, margin: int) -> tuple[slice, slice]:
+    """Bounding box of the burned cells plus ``margin`` cells on each side."""
+    rows, cols = burned.shape
+    r_idx = np.flatnonzero(burned.any(axis=1))
+    c_idx = np.flatnonzero(burned.any(axis=0))
+    return (slice(max(r_idx[0] - margin, 0), min(r_idx[-1] + margin + 1, rows)),
+            slice(max(c_idx[0] - margin, 0), min(c_idx[-1] + margin + 1, cols)))
 
 
 def _initial_region(fuel_grid, fuel, perimeter, burned_points, cell_lat, cell_lng):
