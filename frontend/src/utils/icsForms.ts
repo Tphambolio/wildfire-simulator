@@ -359,7 +359,8 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
     "Monitor changing wind conditions — re-evaluate escape routes if wind shifts > 20°",
   ];
   if (spread?.spotCount) safetyItems.push(RPAS_NOTE);
-  if (spread?.fireType.toLowerCase().includes("crown")) safetyItems.push("Crown fire — no personnel within 2 km of active head without ATGS authorization");
+  // No distance rule here: crew separation from a crown fire head is set by the IC / Operations
+  if (spread?.fireType.toLowerCase().includes("crown")) safetyItems.push("Crown fire modelled: head fire intensity is beyond direct attack; crew positioning per IC / Operations");
 
   const weatherRows: Array<[string, string]> = rp ? [
     ["Wind", `${rp.weather.wind_speed} km/h ${windDirLabel(rp.weather.wind_direction)}`],
