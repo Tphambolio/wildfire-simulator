@@ -93,7 +93,11 @@ could not catch the errors.
   dataset has been run.
 - **Compared with WISE only on uniform fuel.** Heterogeneous fuel, slope, barriers and spotting
   have not been compared with WISE, Burn-P3 or Cell2Fire.
-- **Spotting** is a heuristic, not Albini (1979); treat spot fire output as illustrative.
+- **Spotting**: maximum distance follows Albini/Chase/Morris and reproduces their published
+  worked examples (Chase 1981 torching 0.34 mi; Albini 1983 surface fire 0.45 km;
+  `engine/tests/spread/test_albini.py`). Emission, probability and landing distance are
+  heuristic, stand sizes per fuel type are assumed, terrain is ignored and active crown fires
+  are underestimated, so treat spot fire output as illustrative.
 - **Burn probability** varies only ignition point, wind speed and RH; it is not a Burn-P3-style
   ensemble over historical weather and ignitions.
 - **Weather** is constant through a simulation (no hourly stream, no diurnal FFMC).

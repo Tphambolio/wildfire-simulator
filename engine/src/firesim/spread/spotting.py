@@ -1,9 +1,16 @@
-"""Ember spotting model for fire spread across barriers.
+"""Ember spotting: new ignitions downwind of the fire front.
 
-Port of v2's ember transport model using von Mises directional distribution
-and wind-based lofting distance. Based on:
-- Albini (1979) spot fire distance model
-- Van Wagner (1977) crown fire threshold (4000 kW/m)
+Maximum spotting distance comes from Albini's models (``firesim.spread.albini``): the
+wind-driven surface-fire model (Albini 1983, Morris 1987) for surface fires and the
+torching-tree model (Albini 1979, Chase 1981) when crowns burn.
+
+The rest is heuristic, carried over from v2 and not from Albini, who gives no landing
+distribution, ignition probability or number of spots:
+- embers are emitted only where head fire intensity is at least 4000 kW/m;
+- the chance of a spot per front vertex scales with intensity (capped at 0.15 per 5 min)
+  and the WUI ember multiplier;
+- the landing distance is uniform between 30 % and 100 % of the maximum;
+- the direction is von Mises around the downwind direction, tighter in stronger wind.
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ import random
 from dataclasses import dataclass
 
 from firesim.fbp.constants import FuelType
+from firesim.spread.albini import max_spot_distance
 from firesim.spread.huygens import (
     fbp_for_conditions,
     FireVertex,
@@ -23,7 +31,7 @@ from firesim.spread.huygens import (
     _m_per_deg_lng,
 )
 
-# Crown fire threshold for ember generation (Van Wagner 1977)
+# Head fire intensity below which no embers are emitted (heuristic, not from Albini)
 CROWN_FIRE_THRESHOLD_KW_M = 4000.0
 
 # Maximum spotting probability at extreme intensity
@@ -93,7 +101,7 @@ def check_ember_spotting(
 
         hfi = fbp.hfi  # Head fire intensity (kW/m)
 
-        # Only crown fires generate embers
+        # Only intense fires emit embers (heuristic threshold)
         if hfi < CROWN_FIRE_THRESHOLD_KW_M:
             continue
 
@@ -112,12 +120,8 @@ def check_ember_spotting(
         if random.random() > spot_prob:
             continue  # No spot fire this timestep
 
-        # Spotting distance (meters)
-        # Albini (1979) INT-56: distance scales as U^1.5 for wind-driven lofting.
-        # Calibrated to give 70–930m max at 14–60 km/h wind, matching INT-56 range.
-        wind_distance = conditions.wind_speed ** 1.5
-        intensity_factor = min(2.0, math.sqrt(hfi / CROWN_FIRE_THRESHOLD_KW_M))
-        max_distance = wind_distance * intensity_factor * min(ember_mult, 2.0)
+        # Maximum distance from Albini's models; landing point sampled below it (heuristic)
+        max_distance = max_spot_distance(fuel.value, hfi, fbp.cfb, conditions.wind_speed)
         spot_distance = max_distance * random.uniform(0.3, 1.0)
 
         if spot_distance < 10.0:

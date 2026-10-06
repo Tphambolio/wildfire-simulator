@@ -79,8 +79,14 @@ This replaced a stochastic cellular automaton in 2026-10; see `docs/verification
 
 ### Spotting and burn probability
 
-- Spotting (`spread/spotting.py`) is an opt-in heuristic ported from v2: ember distance scales
-  with wind and intensity and is not an implementation of Albini's (1979) equations.
+- Spotting (`spread/spotting.py`, opt-in): the **maximum** spotting distance comes from
+  Albini's models (`spread/albini.py`): the wind-driven surface-fire model (Albini 1983 with
+  Morris's 1987 fuel-independent thermal strength) when CFB < 0.1, and the torching-tree model
+  (Albini 1979 with Chase's 1981 fits) when crowns burn, with an assumed number of trees that
+  grows with CFB. FBP has no stand height or tree size, so each fuel type has an assumed stand
+  (`STAND_DEFAULTS`). Which vertices emit embers, how likely a spot is, and where below the
+  maximum it lands are heuristics; Albini gives none of these. Flat terrain only; active crown
+  fires (Albini et al. 2012) are approximated by the torching model, an underestimate.
 - Burn probability (`spread/montecarlo.py`) runs the grid model N times with jittered ignition
   point (±100 m), wind speed (±10 %) and RH (±5 %); with the deterministic engine the map
   reflects only that input uncertainty.
