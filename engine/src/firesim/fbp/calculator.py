@@ -519,11 +519,12 @@ def calculate_fbp(
         cfb = 0.0
 
     # Crown fuel consumption (ST-X-3 eq 66; M types scaled by their crown share)
-    cfc = cfl * cfb
+    cfl_available = cfl
     if fuel_type in (FuelType.M1, FuelType.M2):
-        cfc *= pc / 100.0
+        cfl_available *= pc / 100.0
     elif fuel_type in (FuelType.M3, FuelType.M4):
-        cfc *= pdf / 100.0
+        cfl_available *= pdf / 100.0
+    cfc = cfl_available * cfb
     tfc = sfc + cfc
 
     sfi = _INTENSITY_FACTOR * sfc * rss
@@ -557,4 +558,5 @@ def calculate_fbp(
         csi=csi,
         rso=rso,
         fmc=fmc,
+        cfl=cfl_available,
     )

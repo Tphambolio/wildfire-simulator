@@ -1,22 +1,41 @@
-"""Cellular automaton fire spread model.
+"""Grid fire spread: level-set front driven by the FBP fire ellipse.
 
-8-neighbor grid-based spread that naturally wraps around non-fuel obstacles.
-Ported from V2's fire_spread.py. Used when a spatial fuel grid is provided
-(urban/WUI scenarios). The Huygens wavelet model is used for uniform fuel
-(open wildland).
+Used when a spatial fuel grid is provided (urban/WUI scenarios): the front
+lives on the fuel grid, so fire wraps around non-fuel obstacles (water,
+roads, buildings). The Huygens wavelet model is used for uniform fuel.
+
+The fire front is the zero contour of a level-set function phi (burned where
+phi < 0). Each fuel cell carries its FBP fire ellipse (head, flank and back
+rates and spread direction from ST-X-3, including slope and per-cell canopy).
+By Huygens' principle the front moves with velocity U = dH/dp, where
+H(p) = c (p.h) + sqrt(a^2 (p.h)^2 + b^2 (p.k)^2) is the support function of
+the elliptical wavelet (a = (ROS + BROS)/2, b = FROS, c = (ROS - BROS)/2, h the
+head direction, k across it). phi is advected along U with upwind differences
+(second-order ENO, first-order next to non-fuel), the approach of ELMFIRE.
+Until the head has run a few cells the front is the exact FBP point-ignition
+ellipse of the ignition cell, restricted to cells connected to the ignition
+through fuel. On uniform fuel the burned area reproduces the FBP ellipse to
+within a few percent at 25-50 m cells (``engine/tests/spread/test_cellular.py``).
+
+Each burned cell's intensity and fire type use the front's normal speed when it
+crossed the cell (head, flank or back rate as appropriate; ST-X-3 eqs 58, 69),
+so flanks and backs are not labelled with head-fire intensity. Ember spotting
+(opt-in) is evaluated on the newly burned cells every ``dt_minutes`` and seeds
+new ignitions that then spread by the same rule.
 """
 
 from __future__ import annotations
 
 import logging
 import math
-import random
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
+from scipy import ndimage
 
 from firesim.fbp.constants import FuelType
-from firesim.spread.ellipse import calculate_ros_at_theta
+from firesim.fbp.crown_fire import calculate_crown_fraction_burned, classify_fire_type
 from firesim.spread.huygens import (
     FireVertex,
     FuelGrid,
@@ -29,20 +48,16 @@ from firesim.spread.spotting import SpotFire, check_ember_spotting
 
 logger = logging.getLogger(__name__)
 
-# 8-neighbor offsets: (drow, dcol, angle_degrees)
-NEIGHBORS = [
-    (-1, 0, 0),      # N
-    (-1, 1, 45),     # NE
-    (0, 1, 90),      # E
-    (1, 1, 135),     # SE
-    (1, 0, 180),     # S
-    (1, -1, 225),    # SW
-    (0, -1, 270),    # W
-    (-1, -1, 315),   # NW
-]
+ADJACENT = [(-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1)]
 
-# Heat accumulation threshold for ignition override
-HEAT_IGNITION_THRESHOLD = 5.0
+# Search radius for a fuel cell when the ignition lands on non-fuel (about 5 km at 50 m)
+_MAX_SNAP_CELLS = 100
+# Low heat of combustion over 60 s/min: I = 300 * TFC * ROS (ST-X-3 eq 69)
+_INTENSITY_FACTOR = 300.0
+# Head run (in cells) covered by the exact point-ignition ellipse before the level set takes over
+START_CELLS = 5.0
+# Courant number for the second-order scheme
+CFL = 0.2
 
 
 @dataclass
@@ -50,15 +65,15 @@ class BurnedCell:
     """A single burned cell with location and intensity."""
     lat: float
     lng: float
-    intensity: float  # kW/m
+    intensity: float  # kW/m, at the rate the front crossed the cell
     fuel_type: str
-    timestep: int
+    timestep: int  # arrival time (minutes after ignition, rounded)
     fire_type: str = "surface"  # FireType value: surface, surface_with_torching, passive_crown, active_crown
 
 
 @dataclass
 class CellularFrame:
-    """Output frame from cellular automaton simulation."""
+    """Output frame from the grid spread simulation."""
     time_hours: float
     burned_cells: list[BurnedCell]
     total_burned: int
@@ -70,6 +85,22 @@ class CellularFrame:
     spot_fires: list[SpotFire] | None = None
     num_fronts: int = 1
     ignition_snapped_m: float = 0.0  # >0 if ignition was moved to nearest fuel cell
+
+
+def wavelet_normal_speed(a, b, c, nh, nk):
+    """Normal speed of the elliptical wavelet front for unit normal (nh, nk) in the head frame."""
+    return c * nh + np.sqrt(a * a * nh * nh + b * b * nk * nk)
+
+
+def ellipse_arrival_time(u, v, a, b, c):
+    """Time for the FBP point-ignition ellipse to reach (u along head, v across), in minutes.
+
+    Solves ((u - c t)/(a t))^2 + (v/(b t))^2 = 1 for the positive t.
+    """
+    big_a = (u / a) ** 2 + (v / b) ** 2
+    big_b = -2.0 * u * c / (a * a)
+    k = 1.0 - (c / a) ** 2
+    return (big_b + np.sqrt(big_b * big_b + 4.0 * k * big_a)) / (2.0 * k)
 
 
 def run_cellular_simulation(
@@ -84,393 +115,324 @@ def run_cellular_simulation(
     enable_spotting: bool = False,
     spotting_intensity: float = 1.0,
 ) -> list[CellularFrame]:
-    """Run fire spread using cellular automaton on the fuel grid.
+    """Run grid fire spread with a level-set front.
 
     Args:
         config: Dict with ignition_lat, ignition_lng, duration_hours.
-        fuel_grid: Spatial fuel grid (required).
+        fuel_grid: Spatial fuel grid (required); optional per-cell cbh/cfl layers.
         conditions: Weather/FWI conditions.
-        default_fuel: Fallback fuel type.
-        spread_modifier_grid: Optional WUI modifiers.
+        default_fuel: Passed to the spotting model for off-grid lookups.
+        spread_modifier_grid: Optional WUI modifiers (ROS and intensity multipliers).
         terrain_grid: Optional slope/aspect grid. Slope enters FBP through the
             net effective wind (ST-X-3 eqs 39-50), which changes the head, flank
             and back rates and the spread direction per cell.
-        dt_minutes: Timestep in minutes.
+        dt_minutes: Interval at which ember spotting is evaluated. The front's own
+            time step is set by the Courant condition.
         snapshot_interval_minutes: How often to yield frames.
-        enable_spotting: When True, apply Albini (1979) ember spotting model to seed
-            new ignitions from the active fire front at each timestep.
+        enable_spotting: When True, apply Albini (1979) ember spotting from newly
+            burned cells and spread from the landing cells.
         spotting_intensity: Multiplier on spot fire probability (1.0 = baseline;
             0 = disabled). Has no effect when enable_spotting is False.
 
     Returns:
-        List of CellularFrame snapshots.
+        List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
     """
-    rows = fuel_grid.rows
-    cols = fuel_grid.cols
-    lat_min = fuel_grid.lat_min
-    lat_max = fuel_grid.lat_max
-    lng_min = fuel_grid.lng_min
-    lng_max = fuel_grid.lng_max
+    rows, cols = fuel_grid.rows, fuel_grid.cols
+    lat_max, lng_min = fuel_grid.lat_max, fuel_grid.lng_min
+    cell_lat = (fuel_grid.lat_max - fuel_grid.lat_min) / rows
+    cell_lng = (fuel_grid.lng_max - fuel_grid.lng_min) / cols
+    mid_lat = (fuel_grid.lat_max + fuel_grid.lat_min) / 2.0
+    dy = cell_lat * 111320.0  # metres per row (north-south)
+    dx = cell_lng * 111320.0 * math.cos(math.radians(mid_lat))  # metres per column
+    h_min = min(dx, dy)
+    cell_area_m2 = dx * dy
+    duration = config["duration_hours"] * 60.0
 
-    cell_lat = (lat_max - lat_min) / rows
-    cell_lng = (lng_max - lng_min) / cols
-    cell_size_m = cell_lat * 111320.0  # approximate meters per cell
+    def center(r: int, c: int) -> tuple[float, float]:
+        return lat_max - (r + 0.5) * cell_lat, lng_min + (c + 0.5) * cell_lng
 
-    # Convert ignition point to grid coordinates
-    ign_lat = config["ignition_lat"]
-    ign_lng = config["ignition_lng"]
-    ign_row = int((lat_max - ign_lat) / cell_lat)
-    ign_col = int((ign_lng - lng_min) / cell_lng)
-    ign_row = max(0, min(rows - 1, ign_row))
-    ign_col = max(0, min(cols - 1, ign_col))
+    params = _CellParams.build(fuel_grid, conditions, spread_modifier_grid, terrain_grid, center)
+    fuel = params.fuel
 
-    # Check ignition point has fuel; BFS outward to nearest fuel cell if not
-    ign_fuel = fuel_grid.fuel_types[ign_row][ign_col]
-    ignition_snapped_m = 0.0
-    if ign_fuel is None:
-        from collections import deque
-        MAX_SNAP_CELLS = 100  # ~5 km at 50 m cell size
-        visited: set[tuple[int, int]] = {(ign_row, ign_col)}
-        q: deque[tuple[int, int, int]] = deque([(ign_row, ign_col, 0)])
-        snapped_row: int | None = None
-        snapped_col: int | None = None
-        snap_cells = 0
+    ign_row, ign_col, snapped_m = _snap_ignition(
+        fuel_grid, config["ignition_lat"], config["ignition_lng"], cell_lat, cell_lng, dy
+    )
 
-        while q:
-            r, c, dist = q.popleft()
-            if dist >= MAX_SNAP_CELLS:
+    arrival = np.full((rows, cols), np.inf)
+    cross_ros = np.zeros((rows, cols))
+    spot_events: list[tuple[float, SpotFire]] = []
+
+    if ign_row is not None and params.head[ign_row, ign_col] > 1e-6:
+        phi, t = _initial_front(params, ign_row, ign_col, dx, dy, duration, arrival, cross_ros)
+        near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
+        slice_len = dt_minutes if enable_spotting and spotting_intensity > 0.0 else duration
+        next_slice = min(t + slice_len, duration)
+        slice_start = t
+        while t < duration - 1e-9:
+            burned = arrival < np.inf
+            r_idx = np.flatnonzero(burned.any(axis=1))
+            c_idx = np.flatnonzero(burned.any(axis=0))
+            r0, r1 = max(r_idx[0] - 3, 0), min(r_idx[-1] + 4, rows)
+            c0, c1 = max(c_idx[0] - 3, 0), min(c_idx[-1] + 4, cols)
+            win = (slice(r0, r1), slice(c0, c1))
+            speed = (params.head[win] + params.b[win]).max()
+            if speed <= 1e-9:
                 break
-            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
-                nr, nc = r + dr, c + dc
-                if not (0 <= nr < rows and 0 <= nc < cols):
+            step = min(CFL * h_min / speed, next_slice - t)
+            _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros)
+            t += step
+            if t >= next_slice - 1e-9:
+                if enable_spotting and spotting_intensity > 0.0:
+                    newly = np.argwhere((arrival > slice_start) & (arrival <= t))
+                    for spot in _spot_from_front(
+                        newly, center, conditions, fuel_grid, spread_modifier_grid,
+                        default_fuel, t - slice_start, spotting_intensity,
+                    ):
+                        r = int((lat_max - spot.lat) / cell_lat)
+                        c = int((spot.lng - lng_min) / cell_lng)
+                        if 0 <= r < rows and 0 <= c < cols and fuel[r, c] and arrival[r, c] == np.inf:
+                            phi[r, c] = -0.5 * h_min
+                            arrival[r, c] = t
+                            cross_ros[r, c] = params.head[r, c]
+                            spot_events.append((t, spot))
+                slice_start = t
+                next_slice = min(t + slice_len, duration)
+
+    return _frames(
+        arrival, cross_ros, params, fuel_grid, center, duration, snapshot_interval_minutes,
+        cell_area_m2, spot_events, snapped_m,
+    )
+
+
+@dataclass
+class _CellParams:
+    """Per-cell FBP ellipse parameters and the quantities needed for intensity."""
+    fuel: np.ndarray  # bool
+    head: np.ndarray
+    a: np.ndarray
+    b: np.ndarray
+    c: np.ndarray
+    hx: np.ndarray  # head direction, east component
+    hy: np.ndarray  # head direction, north component
+    sfc: np.ndarray
+    cfl: np.ndarray
+    rso: np.ndarray
+    imult: np.ndarray
+
+    @classmethod
+    def build(cls, fuel_grid, conditions, spread_modifier_grid, terrain_grid, center) -> "_CellParams":
+        rows, cols = fuel_grid.rows, fuel_grid.cols
+        names = ("head", "back", "flank", "raz", "sfc", "cfl", "rso", "imult")
+        arr = {n: np.zeros((rows, cols)) for n in names}
+        fuel = np.zeros((rows, cols), dtype=bool)
+        cache: dict[tuple, tuple] = {}
+        has_canopy = fuel_grid.cbh is not None or fuel_grid.cfl is not None
+        for r in range(rows):
+            for c in range(cols):
+                ft = fuel_grid.fuel_types[r][c]
+                if ft is None:
                     continue
-                if (nr, nc) in visited:
-                    continue
-                visited.add((nr, nc))
-                if fuel_grid.fuel_types[nr][nc] is not None:
-                    snapped_row, snapped_col, snap_cells = nr, nc, dist + 1
-                    break
-                q.append((nr, nc, dist + 1))
-            if snapped_row is not None:
-                break
+                fuel[r, c] = True
+                slope, aspect, cbh, cfl, rm, im = 0.0, 0.0, None, None, 1.0, 1.0
+                if terrain_grid is not None or has_canopy or spread_modifier_grid is not None:
+                    lat, lng = center(r, c)
+                    if terrain_grid is not None:
+                        slope, aspect = terrain_grid.get_slope_aspect(lat, lng)
+                        if slope < 1.0:
+                            slope, aspect = 0.0, 0.0
+                    if has_canopy:
+                        cbh, cfl = fuel_grid.get_canopy_at(lat, lng)
+                    if spread_modifier_grid is not None:
+                        rm, im, _ = spread_modifier_grid.get_modifiers_at(lat, lng)
+                key = (ft, round(slope), round(aspect) % 360, cbh, cfl, rm, im)
+                vals = cache.get(key)
+                if vals is None:
+                    f = fbp_for_conditions(conditions, ft, float(key[1]), float(key[2]), cbh, cfl)
+                    vals = (f.ros_final * rm, f.back_ros * rm, f.flank_ros * rm, f.raz,
+                            f.sfc, f.cfl, f.rso, im)
+                    cache[key] = vals
+                for n, v in zip(names, vals):
+                    arr[n][r, c] = v
+        head, back = arr["head"], arr["back"]
+        raz = np.radians(arr["raz"])
+        return cls(
+            fuel=fuel, head=head, a=(head + back) / 2.0, b=arr["flank"], c=(head - back) / 2.0,
+            hx=np.sin(raz), hy=np.cos(raz), sfc=arr["sfc"], cfl=arr["cfl"], rso=arr["rso"],
+            imult=arr["imult"],
+        )
 
-        if snapped_row is not None:
-            ign_row, ign_col = snapped_row, snapped_col
-            ign_fuel = fuel_grid.fuel_types[ign_row][ign_col]
-            ignition_snapped_m = snap_cells * cell_size_m
-            logger.warning(
-                "Ignition in non-fuel zone — snapped %.0fm to nearest fuel cell (%d,%d) fuel=%s",
-                ignition_snapped_m, ign_row, ign_col, ign_fuel.value if ign_fuel else "none",
-            )
-        else:
-            logger.warning(
-                "No fuel within %.0fm of ignition point — simulation will be empty",
-                MAX_SNAP_CELLS * cell_size_m,
-            )
 
-    # Initialize grids
-    burned = np.zeros((rows, cols), dtype=bool)
-    burning = np.zeros((rows, cols), dtype=bool)
-    heat_accumulated = np.zeros((rows, cols), dtype=np.float32)
-    intensity_map = np.zeros((rows, cols), dtype=np.float32)
-    # Burn timer: how many minutes a cell has been burning (0 = not burning)
-    burn_timer = np.zeros((rows, cols), dtype=np.float32)
-    # Burn duration: how long a cell burns before exhausting (cell_size / ROS)
-    burn_duration = np.full((rows, cols), 10.0, dtype=np.float32)  # default 10 min
+def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros):
+    """Exact FBP ellipse of the ignition cell until its head has run START_CELLS cells."""
+    rows, cols = params.fuel.shape
+    a, b, c = params.a[r0, c0], params.b[r0, c0], params.c[r0, c0]
+    hx, hy, head = params.hx[r0, c0], params.hy[r0, c0], params.head[r0, c0]
+    t0 = min(START_CELLS * min(dx, dy) / head, 0.5 * duration)
+    rr, cc = np.mgrid[0:rows, 0:cols]
+    x = (cc - c0) * dx
+    y = (r0 - rr) * dy
+    u = x * hx + y * hy
+    v = -x * hy + y * hx
+    tg = ellipse_arrival_time(u, v, a, b, c)
+    inside = (tg <= t0) & params.fuel
+    labels, _ = ndimage.label(inside)
+    burned = labels == labels[r0, c0]
+    phi = head * (tg - t0)
+    # cells inside the ellipse but cut off from the ignition by non-fuel start unburned
+    phi[inside & ~burned] = 0.5 * min(dx, dy)
+    phi[~params.fuel] = np.maximum(phi[~params.fuel], 0.5 * min(dx, dy))
+    arrival[burned] = tg[burned]
+    dist = np.hypot(u, v)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        nh = np.where(dist > 0, u / dist, 1.0)
+        nk = np.where(dist > 0, v / dist, 0.0)
+    cross_ros[burned] = wavelet_normal_speed(a, b, c, nh, nk)[burned]
+    cross_ros[r0, c0] = head
+    return phi, t0
 
-    # Ignite starting cell
-    burning[ign_row, ign_col] = True
 
-    # FBP per (fuel, slope, aspect, canopy), cached; slope/aspect rounded to 1 % / 1 degree
-    fbp_cache: dict[tuple, tuple] = {}
+def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros):
+    """Advance phi by one time step inside the window ``win`` (in place)."""
+    sub = phi[win]
+    pad = np.pad(sub, 2, mode="edge")
+    C = pad[2:-2, 2:-2]
+    W1, W2, E1, E2 = pad[2:-2, 1:-3], pad[2:-2, :-4], pad[2:-2, 3:-1], pad[2:-2, 4:]
+    S1, S2, N1, N2 = pad[3:-1, 2:-2], pad[4:, 2:-2], pad[1:-3, 2:-2], pad[:-4, 2:-2]  # row+1 is south
+    # Barrier boundary: a non-fuel neighbour takes the cell's own value (zero gradient across
+    # it), so the front slides along walls instead of being turned by their frozen phi.
+    fpad = np.pad(p.fuel[win], 1, mode="edge")
+    W1 = np.where(fpad[1:-1, :-2], W1, C)
+    E1 = np.where(fpad[1:-1, 2:], E1, C)
+    S1 = np.where(fpad[2:, 1:-1], S1, C)
+    N1 = np.where(fpad[:-2, 1:-1], N1, C)
+    dxm, dxp = (C - W1) / dx, (E1 - C) / dx
+    dym, dyp = (C - S1) / dy, (N1 - C) / dy
 
-    def get_fbp(
-        fuel: FuelType,
-        slope_pct: float = 0.0,
-        aspect_deg: float = 0.0,
-        cbh: float | None = None,
-        cfl: float | None = None,
-    ) -> tuple:
-        if slope_pct < 1.0:
-            slope_pct, aspect_deg = 0.0, 0.0
-        key = (fuel.value, round(slope_pct), round(aspect_deg) % 360, cbh, cfl)
-        if key not in fbp_cache:
-            fbp = fbp_for_conditions(conditions, fuel, float(key[1]), float(key[2]), cbh, cfl)
-            fbp_cache[key] = (
-                fbp.ros_final, fbp.hfi, fbp.lb, fbp.fire_type,
-                fbp.back_ros, fbp.flank_ros, fbp.raz,
-            )
-        return fbp_cache[key]
+    # ENO2 correction (smaller second difference), first order next to non-fuel
+    def mm(u, v):
+        return np.where(np.abs(u) < np.abs(v), u, v)
 
-    def site_at(lat: float, lng: float) -> tuple[float, float, float | None, float | None]:
-        """Slope, aspect and canopy (cbh, cfl) for get_fbp at a location."""
-        slope, aspect = (0.0, 0.0) if terrain_grid is None else terrain_grid.get_slope_aspect(lat, lng)
-        return (slope, aspect, *fuel_grid.get_canopy_at(lat, lng))
+    eno = ~near_nonfuel
+    dxm = dxm + eno * 0.5 * mm(C - 2 * W1 + W2, E1 - 2 * C + W1) / dx
+    dxp = dxp - eno * 0.5 * mm(E1 - 2 * C + W1, E2 - 2 * E1 + C) / dx
+    dym = dym + eno * 0.5 * mm(C - 2 * S1 + S2, N1 - 2 * C + S1) / dy
+    dyp = dyp - eno * 0.5 * mm(N1 - 2 * C + S1, N2 - 2 * N1 + C) / dy
 
-    # Simulation loop
-    duration_minutes = config["duration_hours"] * 60.0
-    elapsed = 0.0
-    next_snapshot = 0.0
+    a, b, c = p.a[win], p.b[win], p.c[win]
+    hx, hy, fuel = p.hx[win], p.hy[win], p.fuel[win]
+    gx, gy = 0.5 * (dxm + dxp), 0.5 * (dym + dyp)
+    g = np.hypot(gx, gy) + 1e-12
+    nh = (gx * hx + gy * hy) / g
+    nk = (-gx * hy + gy * hx) / g
+    root = np.sqrt(a * a * nh * nh + b * b * nk * nk) + 1e-12
+    uh = c + a * a * nh / root
+    uk = b * b * nk / root
+    ux = uh * hx - uk * hy
+    uy = uh * hy + uk * hx
+    rate = np.where(ux > 0, ux * dxm, ux * dxp) + np.where(uy > 0, uy * dym, uy * dyp)
+    new = np.where(fuel, C - step * rate, np.maximum(C, 0.5 * min(dx, dy)))
+
+    crossed = fuel & (C >= 0) & (new < 0)
+    if crossed.any():
+        frac = C[crossed] / np.maximum(C[crossed] - new[crossed], 1e-12)
+        arr_win = arrival[win]
+        ros_win = cross_ros[win]
+        arr_win[crossed] = t + frac * step
+        ros_win[crossed] = (c * nh + root)[crossed]
+    phi[win] = new
+
+
+def _frames(arrival, cross_ros, p, fuel_grid, center, duration, snapshot_interval, cell_area_m2,
+            spot_events, snapped_m) -> list[CellularFrame]:
+    """Build cumulative frames from per-cell arrival times."""
+    burned_idx = np.argwhere(arrival <= duration)
+    order = np.argsort(arrival[burned_idx[:, 0], burned_idx[:, 1]], kind="stable")
+    burned_idx = burned_idx[order]
+
+    cells: list[BurnedCell] = []
+    for r, c in burned_idx:
+        r, c = int(r), int(c)
+        ros = float(cross_ros[r, c])
+        cfb = calculate_crown_fraction_burned(ros, p.rso[r, c]) if p.cfl[r, c] > 0.0 else 0.0
+        intensity = _INTENSITY_FACTOR * (p.sfc[r, c] + p.cfl[r, c] * cfb) * ros * p.imult[r, c]
+        lat, lng = center(r, c)
+        cells.append(BurnedCell(
+            lat=lat, lng=lng, intensity=float(intensity), fuel_type=fuel_grid.fuel_types[r][c].value,
+            timestep=int(round(arrival[r, c])), fire_type=classify_fire_type(cfb).value,
+        ))
+    times = arrival[burned_idx[:, 0], burned_idx[:, 1]] if len(burned_idx) else np.array([])
+    heads = p.head[burned_idx[:, 0], burned_idx[:, 1]] if len(burned_idx) else np.array([])
+
     frames: list[CellularFrame] = []
-    all_burned_cells: list[BurnedCell] = []
-    snapshot_burned_cells: list[BurnedCell] = []  # cells since last snapshot
-    iteration = 0
-    last_mean_ros = 0.0  # mean ROS of active burning cells at last timestep
-    all_spot_fires: list[SpotFire] = []
-    snapshot_spot_fires: list[SpotFire] = []
-
-    # Seed ignition cell so the t=0 snapshot is non-empty (ignition cell is burning,
-    # not yet spread-to, so it is never added by the spread loop).
-    if ign_fuel is not None:
-        ign_lat_pos = lat_max - (ign_row + 0.5) * cell_lat
-        ign_lng_pos = lng_min + (ign_col + 0.5) * cell_lng
-        ign_ros, ign_hfi, _ign_lbr, ign_fire_type = get_fbp(
-            ign_fuel, *site_at(ign_lat_pos, ign_lng_pos)
-        )[:4]
-        _ign_cell = BurnedCell(
-            lat=ign_lat_pos,
-            lng=ign_lng_pos,
-            intensity=ign_hfi,
-            fuel_type=ign_fuel.value,
-            timestep=0,
-            fire_type=ign_fire_type.value,
-        )
-        all_burned_cells.append(_ign_cell)
-        snapshot_burned_cells.append(_ign_cell)
+    snapshot_times = list(np.arange(0.0, duration, snapshot_interval)) + [duration]
+    prev_t, prev_n, mean_ros = -1.0, 0, 0.0
+    for t_snap in snapshot_times:
+        n = int(np.searchsorted(times, t_snap, side="right"))
+        if n > prev_n:  # mean head ROS of the cells reached since the last frame
+            mean_ros = float(np.mean(heads[prev_n:n]))
+        spots = [s for ts, s in spot_events if prev_t < ts <= t_snap]
+        frames.append(_make_frame(
+            float(t_snap), cells[:n], n - prev_n, cell_area_m2, mean_ros=mean_ros,
+            spot_fires=spots or None, ignition_snapped_m=snapped_m if not frames else 0.0,
+        ))
+        prev_t, prev_n = t_snap, n
 
     logger.info(
-        "CA simulation: %dx%d grid, cell=%.0fm, ignition=(%d,%d), duration=%.1fh",
-        rows, cols, cell_size_m, ign_row, ign_col, config["duration_hours"],
+        "Grid spread complete: %.1fh, %d cells burned (%.1f ha), %d spot fires",
+        duration / 60.0, len(cells), len(cells) * cell_area_m2 / 10000.0, len(spot_events),
     )
-
-    while elapsed <= duration_minutes:
-        # Snapshot
-        if elapsed >= next_snapshot:
-            frame = _make_frame(
-                elapsed, all_burned_cells, snapshot_burned_cells,
-                rows, cols, cell_size_m, fuel_grid, burned,
-                mean_ros=last_mean_ros,
-                spot_fires=list(snapshot_spot_fires) if snapshot_spot_fires else None,
-                ignition_snapped_m=ignition_snapped_m if not frames else 0.0,
-            )
-            frames.append(frame)
-            snapshot_burned_cells = []  # reset for next interval
-            snapshot_spot_fires = []
-            next_snapshot += snapshot_interval_minutes
-
-        if not np.any(burning):
-            break
-
-        new_burning = np.zeros((rows, cols), dtype=bool)
-
-        # Get all currently burning cell coordinates
-        burn_rows, burn_cols = np.where(burning)
-
-        ros_sum = 0.0
-        ros_count = 0
-
-        for idx in range(len(burn_rows)):
-            row, col = int(burn_rows[idx]), int(burn_cols[idx])
-
-            # Get fuel type at this cell
-            fuel = fuel_grid.fuel_types[row][col]
-            if fuel is None:
-                continue
-
-            # FBP for this cell's fuel and terrain: head/back/flank ROS and direction
-            cell_center_lat = lat_max - (row + 0.5) * cell_lat
-            cell_center_lng = lng_min + (col + 0.5) * cell_lng
-            ros_base, fi, lbr, cell_fire_type, back_ros, flank_ros, raz = get_fbp(
-                fuel, *site_at(cell_center_lat, cell_center_lng)
-            )
-            ros_sum += ros_base
-            ros_count += 1
-
-            # Apply WUI modifiers
-            if spread_modifier_grid is not None:
-                rm, im, _ = spread_modifier_grid.get_modifiers_at(
-                    cell_center_lat, cell_center_lng,
-                )
-                ros_base *= rm
-                back_ros *= rm
-                flank_ros *= rm
-                fi *= im
-
-            if ros_base <= 0.001:
-                continue
-
-            # Store intensity and set burn duration for this cell
-            intensity_map[row, col] = fi
-            if burn_duration[row, col] == 10.0:  # not yet set
-                burn_duration[row, col] = max(2.0, cell_size_m / max(ros_base, 0.1))
-
-            # Try to spread to each of 8 neighbors
-            for dir_idx, (dr, dc_off, angle) in enumerate(NEIGHBORS):
-                nr, nc = row + dr, col + dc_off
-
-                # Boundary check
-                if not (0 <= nr < rows and 0 <= nc < cols):
-                    continue
-
-                # Skip already burned, burning, or newly ignited
-                if burned[nr, nc] or burning[nr, nc] or new_burning[nr, nc]:
-                    continue
-
-                # Check neighbor fuel
-                neighbor_fuel = fuel_grid.fuel_types[nr][nc]
-                if neighbor_fuel is None:
-                    continue  # Non-fuel — fire wraps around
-
-                # Elliptical spread probability (slope already in the FBP rates)
-                spread_prob = _elliptical_spread_prob(
-                    angle, raz, ros_base, flank_ros, back_ros, cell_size_m, dt_minutes,
-                )
-
-                # Heat accumulation for failed ignitions
-                heat_transfer = spread_prob * fi / 1000.0
-                heat_accumulated[nr, nc] += heat_transfer
-
-                # Ignition check
-                if random.random() < spread_prob or heat_accumulated[nr, nc] > HEAT_IGNITION_THRESHOLD:
-                    new_burning[nr, nc] = True
-                    heat_accumulated[nr, nc] = 0.0
-
-                    # Record burned cell
-                    cell_lat_pos = lat_max - (nr + 0.5) * cell_lat
-                    cell_lng_pos = lng_min + (nc + 0.5) * cell_lng
-                    # Determine fire type for the neighbor cell using its own FBP
-                    neighbor_fire_type = get_fbp(
-                        neighbor_fuel, *site_at(cell_lat_pos, cell_lng_pos)
-                    )[3]
-                    cell = BurnedCell(
-                        lat=cell_lat_pos,
-                        lng=cell_lng_pos,
-                        intensity=fi,
-                        fuel_type=neighbor_fuel.value,
-                        timestep=iteration,
-                        fire_type=neighbor_fire_type.value,
-                    )
-                    all_burned_cells.append(cell)
-                    snapshot_burned_cells.append(cell)
-
-        # Update mean ROS for this timestep
-        if ros_count > 0:
-            last_mean_ros = ros_sum / ros_count
-
-        # Update burn timers — cells burn for duration then become burned-out
-        burn_timer[burning] += dt_minutes
-        exhausted = burning & (burn_timer >= burn_duration)
-        burned |= exhausted
-        burning[exhausted] = False
-
-        # Ember spotting: sample front cells and seed new ignitions
-        if enable_spotting and np.any(burning):
-            _apply_spotting(
-                burning=burning,
-                burned=burned,
-                new_burning=new_burning,
-                fuel_grid=fuel_grid,
-                conditions=conditions,
-                spread_modifier_grid=spread_modifier_grid,
-                default_fuel=default_fuel,
-                lat_max=lat_max,
-                lat_min=lat_min,
-                lng_min=lng_min,
-                cell_lat=cell_lat,
-                cell_lng=cell_lng,
-                rows=rows,
-                cols=cols,
-                dt_minutes=dt_minutes,
-                spotting_intensity=spotting_intensity,
-                all_spot_fires=all_spot_fires,
-                snapshot_spot_fires=snapshot_spot_fires,
-                all_burned_cells=all_burned_cells,
-                snapshot_burned_cells=snapshot_burned_cells,
-                iteration=iteration,
-            )
-
-        # Add newly ignited cells to burning
-        burning |= new_burning
-        elapsed += dt_minutes
-        iteration += 1
-
-    # Final snapshot
-    if elapsed > frames[-1].time_hours * 60.0 if frames else True:
-        frame = _make_frame(
-            min(elapsed, duration_minutes), all_burned_cells, snapshot_burned_cells,
-            rows, cols, cell_size_m, fuel_grid, burned,
-            mean_ros=last_mean_ros,
-            spot_fires=list(snapshot_spot_fires) if snapshot_spot_fires else None,
-        )
-        frames.append(frame)
-
-    total_burned = int(np.sum(burned))
-    logger.info(
-        "CA simulation complete: %.1fh, %d cells burned (%.1f ha), %d spot fires, %d iterations",
-        config["duration_hours"], total_burned,
-        total_burned * (cell_size_m ** 2) / 10000.0, len(all_spot_fires), iteration,
-    )
-
     return frames
 
 
-def _apply_spotting(
-    burning: np.ndarray,
-    burned: np.ndarray,
-    new_burning: np.ndarray,
-    fuel_grid: FuelGrid,
+def _snap_ignition(
+    fuel_grid: FuelGrid, lat: float, lng: float, cell_lat: float, cell_lng: float, dy: float
+) -> tuple[int | None, int | None, float]:
+    """Ignition cell, moved to the nearest fuel cell (BFS) if it falls on non-fuel."""
+    rows, cols = fuel_grid.rows, fuel_grid.cols
+    r0 = max(0, min(rows - 1, int((fuel_grid.lat_max - lat) / cell_lat)))
+    c0 = max(0, min(cols - 1, int((lng - fuel_grid.lng_min) / cell_lng)))
+    if fuel_grid.fuel_types[r0][c0] is not None:
+        return r0, c0, 0.0
+    visited = {(r0, c0)}
+    q: deque[tuple[int, int, int]] = deque([(r0, c0, 0)])
+    while q:
+        r, c, dist = q.popleft()
+        if dist >= _MAX_SNAP_CELLS:
+            break
+        for dr, dc in ADJACENT:
+            nr, nc = r + dr, c + dc
+            if not (0 <= nr < rows and 0 <= nc < cols) or (nr, nc) in visited:
+                continue
+            visited.add((nr, nc))
+            if fuel_grid.fuel_types[nr][nc] is not None:
+                snapped = (dist + 1) * dy
+                logger.warning(
+                    "Ignition in non-fuel zone — snapped %.0fm to nearest fuel cell (%d,%d) fuel=%s",
+                    snapped, nr, nc, fuel_grid.fuel_types[nr][nc].value,
+                )
+                return nr, nc, snapped
+            q.append((nr, nc, dist + 1))
+    logger.warning("No fuel within %.0fm of ignition point — simulation will be empty", _MAX_SNAP_CELLS * dy)
+    return None, None, 0.0
+
+
+def _spot_from_front(
+    front: np.ndarray,
+    center,
     conditions: SpreadConditions,
+    fuel_grid: FuelGrid,
     spread_modifier_grid: SpreadModifierGrid | None,
     default_fuel: FuelType,
-    lat_max: float,
-    lat_min: float,
-    lng_min: float,
-    cell_lat: float,
-    cell_lng: float,
-    rows: int,
-    cols: int,
     dt_minutes: float,
     spotting_intensity: float,
-    all_spot_fires: list[SpotFire],
-    snapshot_spot_fires: list[SpotFire],
-    all_burned_cells: list[BurnedCell],
-    snapshot_burned_cells: list[BurnedCell],
-    iteration: int,
-) -> None:
-    """Apply ember spotting from the CA fire front.
-
-    Identifies cells on the fire perimeter (burning cells adjacent to unburned
-    fuel), converts them to FireVertex objects, and calls check_ember_spotting.
-    Spot fire landing locations are seeded as new ignitions in new_burning.
-    """
-    # Extract fire front: burning cells that border unburned fuel
-    front_vertices: list[FireVertex] = []
-    burn_rows, burn_cols = np.where(burning)
-
-    # Cap front sample for performance — every 3rd burning cell
-    FRONT_SAMPLE_INTERVAL = 3
-    for idx in range(0, len(burn_rows), FRONT_SAMPLE_INTERVAL):
-        row, col = int(burn_rows[idx]), int(burn_cols[idx])
-        # Only include cells with at least one unburned fuel neighbor (true front)
-        is_front = False
-        for dr, dc, _ in [(-1, 0, 0), (0, 1, 0), (1, 0, 0), (0, -1, 0)]:
-            nr, nc = row + dr, col + dc
-            if 0 <= nr < rows and 0 <= nc < cols:
-                if not burned[nr, nc] and not burning[nr, nc]:
-                    neighbor_fuel = fuel_grid.fuel_types[nr][nc]
-                    if neighbor_fuel is not None:
-                        is_front = True
-                        break
-        if is_front:
-            cell_center_lat = lat_max - (row + 0.5) * cell_lat
-            cell_center_lng = lng_min + (col + 0.5) * cell_lng
-            front_vertices.append(FireVertex(lat=cell_center_lat, lng=cell_center_lng))
-
-    if not front_vertices:
-        return
-
-    spots = check_ember_spotting(
-        front=front_vertices,
+) -> list[SpotFire]:
+    """Ember spotting (Albini 1979) from cells the front reached in the last interval."""
+    if len(front) == 0:
+        return []
+    # Cap the sample for performance — every 3rd front cell
+    vertices = [FireVertex(*center(int(r), int(c))) for r, c in front[::3]]
+    return check_ember_spotting(
+        front=vertices,
         conditions=conditions,
         fuel_grid=fuel_grid,
         spread_modifier_grid=spread_modifier_grid,
@@ -480,99 +442,29 @@ def _apply_spotting(
         intensity_multiplier=spotting_intensity,
     )
 
-    for spot in spots:
-        # Convert spot landing lat/lng to grid coordinates
-        spot_row = int((lat_max - spot.lat) / cell_lat)
-        spot_col = int((spot.lng - lng_min) / cell_lng)
-
-        if not (0 <= spot_row < rows and 0 <= spot_col < cols):
-            continue  # Outside grid bounds
-        if burned[spot_row, spot_col] or burning[spot_row, spot_col] or new_burning[spot_row, spot_col]:
-            continue  # Already burning
-
-        spot_fuel = fuel_grid.fuel_types[spot_row][spot_col]
-        if spot_fuel is None:
-            continue  # Non-fuel landing cell
-
-        new_burning[spot_row, spot_col] = True
-        cell_lat_pos = lat_max - (spot_row + 0.5) * cell_lat
-        cell_lng_pos = lng_min + (spot_col + 0.5) * cell_lng
-        cell = BurnedCell(
-            lat=cell_lat_pos,
-            lng=cell_lng_pos,
-            intensity=spot.hfi_kw_m,
-            fuel_type=spot_fuel.value,
-            timestep=iteration,
-            fire_type="surface",  # Spot fire ignitions begin as surface fires
-        )
-        all_burned_cells.append(cell)
-        snapshot_burned_cells.append(cell)
-        all_spot_fires.append(spot)
-        snapshot_spot_fires.append(spot)
-
-
-def _elliptical_spread_prob(
-    neighbor_angle: float,
-    spread_dir: float,
-    head_ros: float,
-    flank_ros: float,
-    back_ros: float,
-    cell_size: float,
-    dt: float,
-) -> float:
-    """Spread probability to a neighbour from the FBP fire ellipse.
-
-    The directional rate is the distance from the ignition point to the FBP
-    fire ellipse toward angle theta, built from the head, flank (ST-X-3 eq 89)
-    and back (back ISI, eqs 75-76) rates. It equals the head rate along the
-    spread direction and the back rate opposite it.
-
-    Probability = fraction of the cell the fire front covers in one step.
-    """
-    if head_ros < 1e-10:
-        return 0.0  # no spread
-
-    raw_diff = (neighbor_angle - spread_dir) % 360.0
-    if raw_diff > 180.0:
-        raw_diff = 360.0 - raw_diff
-    dir_ros = calculate_ros_at_theta(head_ros, flank_ros, back_ros, math.radians(raw_diff))
-
-    return max(0.0, min(1.0, dir_ros * dt / cell_size))
-
 
 def _make_frame(
     elapsed_minutes: float,
-    all_burned_cells: list[BurnedCell],
-    new_burned_cells: list[BurnedCell],
-    rows: int,
-    cols: int,
-    cell_size_m: float,
-    fuel_grid: FuelGrid,
-    burned: np.ndarray,
+    burned_cells: list[BurnedCell],
+    new_cells: int,
+    cell_area_m2: float,
     mean_ros: float = 0.0,
     spot_fires: list[SpotFire] | None = None,
     ignition_snapped_m: float = 0.0,
 ) -> CellularFrame:
-    """Create a frame snapshot with all cumulative cells + timestamps."""
-    total = int(np.sum(burned))
-    area_ha = total * (cell_size_m ** 2) / 10000.0
-
-    # Fuel breakdown from all cells
+    """Create a frame snapshot with all cells burned by ``elapsed_minutes``."""
+    total = len(burned_cells)
     fuel_counts: dict[str, int] = {}
-    for cell in all_burned_cells:
+    for cell in burned_cells:
         fuel_counts[cell.fuel_type] = fuel_counts.get(cell.fuel_type, 0) + 1
-    total_fuel = sum(fuel_counts.values()) or 1
-    fuel_breakdown = {k: v / total_fuel for k, v in fuel_counts.items()}
-
-    max_intensity = max((c.intensity for c in all_burned_cells), default=0.0)
-
+    fuel_breakdown = {k: v / total for k, v in fuel_counts.items()} if total else {}
     return CellularFrame(
         time_hours=elapsed_minutes / 60.0,
-        burned_cells=list(all_burned_cells),  # snapshot copy — list grows after this call
+        burned_cells=list(burned_cells),
         total_burned=total,
-        new_cells=len(new_burned_cells),
-        area_ha=area_ha,
-        max_intensity=max_intensity,
+        new_cells=new_cells,
+        area_ha=total * cell_area_m2 / 10000.0,
+        max_intensity=max((c.intensity for c in burned_cells), default=0.0),
         mean_ros=mean_ros,
         fuel_breakdown=fuel_breakdown,
         spot_fires=spot_fires,
