@@ -200,5 +200,104 @@
    "max_ros": 82.53,
    "bui": 60.0
   }
+ ],
+ "slope_setup": "Same as the flat cases but a uniform plane DEM (10-20 km, 25 m cells) rising toward upslope_az (grid degrees), terrain effect on. WISE stores slope as a truncated integer percent, so planes of 30.5/40.5 % give exactly 30/40 %. head_m / head_az: distance and bearing (true) of the perimeter point farthest from the ignition; WISE's grid north is ~1.2 deg off true north in EPSG:3400.",
+ "slope_rows": [
+  {
+   "job": "c2_ws0_s30_up90",
+   "hours": 1,
+   "area_ha": 32.01,
+   "head_m": 683.8,
+   "head_az": 91.2,
+   "fuel": "C2",
+   "cure": 60.0,
+   "wind_kmh": 0,
+   "slope_pct": 30,
+   "upslope_az": 90
+  },
+  {
+   "job": "c2_ws0_s30_up90",
+   "hours": 2,
+   "area_ha": 153.14,
+   "head_m": 1510.3,
+   "head_az": 91.2,
+   "fuel": "C2",
+   "cure": 60.0,
+   "wind_kmh": 0,
+   "slope_pct": 30,
+   "upslope_az": 90
+  },
+  {
+   "job": "c2_ws20_s30_up90",
+   "hours": 1,
+   "area_ha": 106.31,
+   "head_m": 2190.3,
+   "head_az": 91.2,
+   "fuel": "C2",
+   "cure": 60.0,
+   "wind_kmh": 20,
+   "slope_pct": 30,
+   "upslope_az": 90
+  },
+  {
+   "job": "c2_ws20_s30_up90",
+   "hours": 2,
+   "area_ha": 489.72,
+   "head_m": 4811.7,
+   "head_az": 91.2,
+   "fuel": "C2",
+   "cure": 60.0,
+   "wind_kmh": 20,
+   "slope_pct": 30,
+   "upslope_az": 90
+  },
+  {
+   "job": "c2_ws20_s30_up0",
+   "hours": 1,
+   "area_ha": 58.17,
+   "head_m": 1397.5,
+   "head_az": 58.3,
+   "fuel": "C2",
+   "cure": 60.0,
+   "wind_kmh": 20,
+   "slope_pct": 30,
+   "upslope_az": 0
+  },
+  {
+   "job": "c2_ws20_s30_up0",
+   "hours": 2,
+   "area_ha": 270.93,
+   "head_m": 3077.8,
+   "head_az": 59.4,
+   "fuel": "C2",
+   "cure": 60.0,
+   "wind_kmh": 20,
+   "slope_pct": 30,
+   "upslope_az": 0
+  },
+  {
+   "job": "o1a_ws10_s40_up0",
+   "hours": 1,
+   "area_ha": 153.8,
+   "head_m": 2658.1,
+   "head_az": 28.2,
+   "fuel": "O1a",
+   "cure": 100.0,
+   "wind_kmh": 10,
+   "slope_pct": 40,
+   "upslope_az": 0
+  },
+  {
+   "job": "o1a_ws10_s40_up0",
+   "hours": 2,
+   "area_ha": 701.19,
+   "head_m": 5806.3,
+   "head_az": 28.4,
+   "fuel": "O1a",
+   "cure": 100.0,
+   "wind_kmh": 10,
+   "slope_pct": 40,
+   "upslope_az": 0
+  }
  ]
 }

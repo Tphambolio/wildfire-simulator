@@ -115,3 +115,18 @@ class TestSimulations:
         }
         resp = await client.post("/api/v1/simulations", json=payload)
         assert resp.status_code == 422
+
+
+def test_frame_schema_carries_buildings_and_snap():
+    """Engine frame fields the frontend displays must survive the API schema."""
+    from firesim.types import FireType, SimulationFrame
+    from firesim_api.routers.simulations import _frame_to_schema
+
+    frame = SimulationFrame(
+        time_hours=1.0, perimeter=[(53.5, -113.5)] * 3, area_ha=1.0, head_ros_m_min=1.0,
+        max_hfi_kw_m=1.0, fire_type=FireType.SURFACE, flame_length_m=1.0, fuel_breakdown={},
+        buildings_at_risk=7, ignition_snapped_m=402.0,
+    )
+    out = _frame_to_schema(frame).model_dump()
+    assert out["buildings_at_risk"] == 7
+    assert out["ignition_snapped_m"] == 402.0

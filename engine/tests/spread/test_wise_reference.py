@@ -76,3 +76,54 @@ def test_grid_matches_wise(job):
     area, head = res[2]
     assert area == pytest.approx(ref["area_ha"], rel=0.08)
     assert head == pytest.approx(ref["head_m"], rel=0.04)
+
+
+SLOPE = {(r["job"], int(r["hours"])): r for r in REF["slope_rows"]}
+
+
+def _run_slope(job: str, grid_m: float | None):
+    from firesim.spread.huygens import TerrainGrid
+
+    r = SLOPE[(job, 1)]
+    fuel = FuelType(r["fuel"])
+    n, cm = 400, (grid_m or 25.0)
+    dlat = n * cm / 111320.0
+    dlng = n * cm / (111320.0 * math.cos(math.radians(LAT0)))
+    bounds = (LAT0 - dlat / 2, LAT0 + dlat / 2, LNG0 - dlng / 2, LNG0 + dlng / 2)
+    terrain = TerrainGrid([[float(r["slope_pct"])] * n for _ in range(n)],
+                          [[float(r["upslope_az"])] * n for _ in range(n)], *bounds, n, n)
+    fg = FuelGrid([[fuel] * n for _ in range(n)], *bounds, n, n) if grid_m else None
+    cfg = SimulationConfig(LAT0, LNG0, WeatherInput(25.0, 30.0, r["wind_kmh"], 270.0, 0.0), 2.0,
+                           snapshot_interval_minutes=60.0, ffmc=92.0, dmc=40.0, dc=300.0,
+                           grass_cure=r["cure"], fmc=100.0)
+    out = {}
+    for f in Simulator(cfg, fuel_grid=fg, terrain_grid=terrain, default_fuel=fuel).run():
+        h = round(f.time_hours)
+        if h in (1, 2) and abs(f.time_hours - h) < 1e-6:
+            pts = [(c["lat"], c["lng"]) for c in f.burned_cells] if grid_m else f.perimeter
+            p = np.array(pts)
+            x = (p[:, 1] - LNG0) * 111320.0 * math.cos(math.radians(LAT0))
+            y = (p[:, 0] - LAT0) * 111320.0
+            k = np.hypot(x, y).argmax()
+            out[h] = (f.area_ha, math.hypot(x[k], y[k]), math.degrees(math.atan2(x[k], y[k])) % 360)
+    return out
+
+
+@pytest.mark.parametrize("job", ["c2_ws0_s30_up90", "c2_ws20_s30_up90", "c2_ws20_s30_up0", "o1a_ws10_s40_up0"])
+def test_huygens_slope_matches_wise(job):
+    res = _run_slope(job, None)
+    ref = SLOPE[(job, 2)]
+    area, head, az = res[2]
+    assert area == pytest.approx(ref["area_ha"], rel=0.08)
+    assert head == pytest.approx(ref["head_m"], rel=0.06)
+    assert abs((az - ref["head_az"] + 180) % 360 - 180) < 2.5
+
+
+@pytest.mark.parametrize("job", ["c2_ws20_s30_up0", "o1a_ws10_s40_up0"])
+def test_grid_slope_matches_wise(job):
+    res = _run_slope(job, 50.0)
+    ref = SLOPE[(job, 2)]
+    area, head, az = res[2]
+    assert area == pytest.approx(ref["area_ha"], rel=0.08)
+    assert head == pytest.approx(ref["head_m"], rel=0.06)
+    assert abs((az - ref["head_az"] + 180) % 360 - 180) < 4.0

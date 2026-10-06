@@ -53,6 +53,14 @@ point ignitions; its 1 m polygon ignition gives the equilibrium case. FireSim / 
 | Huygens | area 0.97-1.06, head 0.985-1.025, flank 1.01-1.03 | area 0.96-0.99, head 0.98-0.99, flank 1.00 |
 | Level set, 25 m cells | area 0.955-1.04, head 0.99-1.02, flank 0.89-1.01 | — |
 
+On uniform slopes (C-2 30 % with no wind, wind aligned, and wind across the slope; O-1a 40 %
+across a 10 km/h wind), FireSim / WISE at 1-2 h: Huygens area 1.02-1.09, head 1.01-1.05; level
+set area 0.96-1.04, head 0.99-1.05; head direction within 1-2 degrees (cross-slope C-2: 59.0 vs
+59.4). WISE stores slope as a truncated integer percent (`CWFGM_Grid.cpp`,
+`(std::uint16_t)slope_factor`), so a 30 % DEM plane becomes 29 %; the WISE planes were built at
+30.5 / 40.5 % to compare like with like. FireSim's slope calculation is identical to cffdrs; the
+remaining 3-5 % on pure upslope runs is within WISE's own implementation differences.
+
 WISE's equilibrium rates (head 22.96 m/min, back ~1.48, LB 2.565 for C-2) equal FireSim's FBP
 layer. Back distances on the grid are only a few cells long and are not resolved at 25 m.
 Fixture and tests: `engine/tests/spread/data/wise_reference.json`,
@@ -91,8 +99,8 @@ could not catch the errors.
 
 - **No comparison with observed fires.** No historical fire, experimental burn or perimeter
   dataset has been run.
-- **Compared with WISE only on uniform fuel.** Heterogeneous fuel, slope, barriers and spotting
-  have not been compared with WISE, Burn-P3 or Cell2Fire.
+- **Compared with WISE only on uniform fuel**, flat and on uniform slopes. Heterogeneous fuel,
+  real terrain, barriers and spotting have not been compared with WISE, Burn-P3 or Cell2Fire.
 - **Spotting**: maximum distance follows Albini/Chase/Morris and reproduces their published
   worked examples (Chase 1981 torching 0.34 mi; Albini 1983 surface fire 0.45 km;
   `engine/tests/spread/test_albini.py`). Emission, probability and landing distance are
