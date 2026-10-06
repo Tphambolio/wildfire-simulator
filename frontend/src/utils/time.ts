@@ -47,3 +47,21 @@ export function zoneAbbrev(d: Date): string {
 export function formatDate(d: Date): string {
   return dateFmt.format(d);
 }
+
+/** The instant `hours` after the scenario start. */
+export function clockAt(start: Date, hours: number): Date {
+  return new Date(start.getTime() + hours * 3_600_000);
+}
+
+/** "14:05" wall-clock time `hours` after the scenario start, in America/Edmonton. */
+export function formatClockAt(start: Date, hours: number): string {
+  return formatClock(clockAt(start, hours));
+}
+
+/** Elapsed time as "T+1:05" (hours:minutes, rounded to the minute; hours may exceed 24). */
+export function formatElapsed(hours: number): string {
+  const totalMin = Math.max(0, Math.round(hours * 60));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `T+${h}:${String(m).padStart(2, "0")}`;
+}

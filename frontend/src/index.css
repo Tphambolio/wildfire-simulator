@@ -80,19 +80,40 @@ input[type="radio"] {
   }
 }
 
+/* ── Map-first grid (§2.1): top bar; Setup | map | Situation; timeline ──────── */
 .app {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  grid-template-columns: var(--setup-width) minmax(0, 1fr) var(--situation-width);
+  grid-template-rows: var(--topbar-height) minmax(0, 1fr) var(--bottombar-height);
+  grid-template-areas:
+    "top top top"
+    "setup map situation"
+    "timeline timeline timeline";
 }
+
+/* EOC tab: the console replaces map, Situation panel and timeline; Setup stays */
+.app-eoc {
+  grid-template-areas:
+    "top top top"
+    "setup eoc eoc"
+    "setup eoc eoc";
+}
+
+.top-bar { grid-area: top; }
+.setup-panel { grid-area: setup; }
+.map-area { grid-area: map; }
+.situation-panel { grid-area: situation; }
+.bottom-bar { grid-area: timeline; }
+.eoc-tab-wrapper { grid-area: eoc; }
+
 
 /* ── Top bar (§2.1): product, incident, tabs, limits badge, run status, clock ── */
 .top-bar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: var(--topbar-height);
+  min-width: 0;
+  overflow: hidden;
   background: var(--chrome);
   color: var(--chrome-text);
   display: flex;
@@ -286,52 +307,271 @@ input[type="radio"] {
 .status-paused { color: var(--warning-text); background: var(--warning-soft); }
 .status-cancelled { color: var(--text-2); background: var(--surface-2); }
 
-/* ── Setup sidebar ─────────────────────────────────────────────────────────── */
-.sidebar {
-  position: fixed;
-  left: 0;
-  top: var(--topbar-height);
-  bottom: 0;
-  width: var(--sidebar-width);
-  background: var(--surface);
-  border-right: 1px solid var(--border);
+/* ── Setup column (§2.2): scrolling sections + sticky Run bar ───────────────── */
+.setup-panel {
   display: flex;
   flex-direction: column;
-  z-index: 50;
-  overflow: hidden;
+  min-height: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
 }
 
-.sidebar-content {
+.setup-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.sidebar-content::-webkit-scrollbar { width: 8px; }
-.sidebar-content::-webkit-scrollbar-track { background: transparent; }
-.sidebar-content::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 8px; }
+.setup-scroll::-webkit-scrollbar,
+.situation-panel::-webkit-scrollbar { width: 8px; }
+.setup-scroll::-webkit-scrollbar-thumb,
+.situation-panel::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 8px; }
 
-/* ── Map and timeline areas ────────────────────────────────────────────────── */
+.setup-preset {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.setup-preset-label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-1);
+  font-weight: 600;
+  margin-bottom: var(--sp-1);
+}
+
+.setup-section {
+  border-bottom: 1px solid var(--border);
+}
+
+.setup-section-h {
+  margin: 0;
+  font-size: inherit;
+}
+
+.setup-section-toggle {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  grid-template-areas:
+    "chev num title"
+    ".    .   summary";
+  align-items: center;
+  column-gap: var(--sp-2);
+  row-gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-4);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.setup-section-toggle:hover {
+  background: var(--surface-2);
+}
+
+.setup-chev {
+  grid-area: chev;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.setup-num {
+  grid-area: num;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.setup-title {
+  grid-area: title;
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.setup-section-toggle:not(:has(.setup-num)) .setup-title {
+  grid-column: 2 / 4;
+}
+
+.setup-summary {
+  grid-area: summary;
+  grid-column: 2 / 4;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setup-summary.attention {
+  color: var(--warning-text);
+  font-weight: 600;
+}
+
+.setup-section-body {
+  padding: 0 var(--sp-4) var(--sp-3);
+}
+
+.setup-section-body > .panel {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.setup-section-body > .panel:last-child {
+  border-bottom: none;
+}
+
+.setup-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--sp-3);
+  margin-bottom: var(--sp-1);
+}
+
+.setup-more-label {
+  padding: var(--sp-4) var(--sp-4) var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Sticky Run bar: always in the viewport, says why it is disabled */
+.run-bar {
+  flex: none;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border-strong);
+  background: var(--surface);
+  box-shadow: 0 -6px 12px rgba(0, 0, 0, 0.25);
+}
+
+.run-bar .run-button {
+  margin-top: 0;
+}
+
+.run-bar-reason {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  line-height: 1.35;
+}
+
+.run-bar-reason.attention {
+  color: var(--warning-text);
+  font-weight: 600;
+}
+
+/* ── Map ───────────────────────────────────────────────────────────────────── */
 .map-area {
-  position: fixed;
-  top: var(--topbar-height);
-  left: var(--sidebar-width);
-  right: 0;
-  bottom: var(--bottombar-height);
+  position: relative;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: var(--bg);
 }
 
-.bottom-bar {
-  position: fixed;
-  bottom: 0;
-  left: var(--sidebar-width);
-  right: 0;
-  height: var(--bottombar-height);
+/* ── Situation panel (fixed right) ─────────────────────────────────────────── */
+.situation-panel {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface);
-  border-top: 1px solid var(--border);
-  z-index: 40;
+  border-left: 1px solid var(--border);
+}
+
+.situation-panel:focus-visible {
+  outline-offset: -3px;
+}
+
+.situation-header {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.situation-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  margin: 0;
+}
+
+.situation-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+.situation-status {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.situation-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border);
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.kpi:nth-child(odd) {
+  border-right: 1px solid var(--border);
+}
+
+.kpi:nth-last-child(-n + 2) {
+  border-bottom: none;
+}
+
+.kpi-label {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.kpi-value {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.kpi-value small {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.kpi-value-sm {
+  font-size: var(--fs-sm);
+  text-transform: none;
+}
+
+/* ── Timeline (bottom) ─────────────────────────────────────────────────────── */
+.bottom-bar {
   display: flex;
   align-items: center;
+  min-width: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 
 /* ── Panels ────────────────────────────────────────────────────────────────── */
@@ -2323,22 +2563,6 @@ input[type="number"] {
   margin-bottom: 0;
 }
 
-.ts-timeline-labels {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 2px;
-  margin-top: 1px;
-}
-
-.ts-tl-start,
-.ts-tl-end {
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-2);
-  font-family: 'Inter', monospace;
-}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    EOC COMMAND CONSOLE
@@ -2347,11 +2571,8 @@ input[type="number"] {
 
 /* Wrapper occupies the space where map-area + bottom-bar normally live */
 .eoc-tab-wrapper {
-  position: fixed;
-  top: var(--topbar-height);
-  left: var(--sidebar-width);
-  right: 0;
-  bottom: 0;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -3243,7 +3464,8 @@ input[type="number"] {
 /* ── Print media ───────────────────────────────────────────── */
 
 @media print {
-  .sidebar,
+  .setup-panel,
+  .situation-panel,
   .top-bar,
   .bottom-bar,
   .eoc-console-header,
@@ -3416,4 +3638,107 @@ input[type="number"] {
 
 .eoc-sublabel {
   margin: var(--sp-1) 0;
+}
+
+/* ── Timeline: clock time first, T+ second (§2.3) ───────────────────────────── */
+.time-slider {
+  gap: var(--sp-4);
+  padding: 0 var(--sp-4);
+}
+
+.time-slider-empty {
+  justify-content: center;
+}
+
+.ts-controls {
+  display: flex;
+  gap: var(--sp-1);
+  flex: none;
+}
+
+.ts-btn {
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.ts-now {
+  display: flex;
+  flex-direction: column;
+  min-width: 92px;
+  flex: none;
+  line-height: 1.2;
+}
+
+.ts-now-clock {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ts-now-clock small {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-2);
+  margin-left: 3px;
+}
+
+.ts-now-elapsed {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.ts-range-wrap {
+  align-self: stretch;
+  justify-content: center;
+  padding-bottom: 30px;
+  padding-top: 6px;
+}
+
+.ts-ticks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 30px;
+  pointer-events: none;
+}
+
+.ts-tick {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.ts-tick.first {
+  transform: none;
+  align-items: flex-start;
+}
+
+.ts-tick.last {
+  transform: translateX(-100%);
+  align-items: flex-end;
+}
+
+.ts-tick-clock {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ts-tick-elapsed {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.ts-day-tick {
+  bottom: 30px;
+}
+
+.ts-frame-count {
+  flex: none;
 }
