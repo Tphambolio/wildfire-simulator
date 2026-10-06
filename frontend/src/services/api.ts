@@ -1,6 +1,6 @@
 /** API client for the FireSim backend. */
 
-import type { SimulationCreate, MultiDaySimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse, PerimeterOverrideRequest } from "../types/simulation";
+import type { SimulationCreate, MultiDaySimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse, PerimeterOverrideRequest, HourlyWeatherParams } from "../types/simulation";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -114,6 +114,37 @@ export async function fetchFuelGridImage(fuelGridPath: string): Promise<{ image:
   const res = await fetch(`${API_BASE}/api/v1/simulations/fuel-grid-image?${params}`);
   if (!res.ok) throw new Error(`Fuel grid image failed: ${res.status}`);
   return res.json();
+}
+
+/**
+ * Hourly forecast for the next `hours` hours at a point (Open-Meteo, no key), as an hourly
+ * weather stream starting at the current hour.
+ */
+export async function fetchHourlyForecast(
+  lat: number,
+  lng: number,
+  hours: number,
+): Promise<HourlyWeatherParams[]> {
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
+    "&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation" +
+    "&wind_speed_unit=kmh&timezone=UTC&forecast_days=3";
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Forecast request failed: ${resp.status}`);
+  const data = await resp.json();
+  const h = data.hourly;
+  const now = Date.now();
+  const start = h.time.findIndex((t: string) => Date.parse(t + "Z") + 3600_000 > now);
+  if (start < 0) throw new Error("Forecast has no hours ahead of now");
+  const n = Math.min(Math.ceil(hours), h.time.length - start);
+  return Array.from({ length: n }, (_, k) => ({
+    hours_from_start: k,
+    temperature: h.temperature_2m[start + k],
+    relative_humidity: h.relative_humidity_2m[start + k],
+    wind_speed: h.wind_speed_10m[start + k],
+    wind_direction: h.wind_direction_10m[start + k] % 360,
+    precipitation: h.precipitation[start + k] ?? 0,
+  }));
 }
 
 export function getWebSocketUrl(simId: string): string {

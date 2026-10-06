@@ -14,7 +14,7 @@ from typing import Callable
 
 from firesim.fbp.constants import FuelType
 from firesim.spread.simulator import Simulator
-from firesim.types import SimulationConfig, SimulationFrame, WeatherInput
+from firesim.types import HourlyWeather, SimulationConfig, SimulationFrame, WeatherInput
 
 from firesim_api.schemas.simulation import (
     MultiDaySimulationCreate,
@@ -66,6 +66,21 @@ class SimulationRun:
         self.status = SimulationStatus.CANCELLED
         self._cancel_event.set()
         self._pause_event.set()  # Unblock if paused
+
+
+def _hourly_weather(params) -> tuple[HourlyWeather, ...] | None:
+    """Engine hourly weather records from an API request, if it has a stream."""
+    records = getattr(params, "hourly_weather", None)
+    if not records:
+        return None
+    return tuple(
+        HourlyWeather(
+            hours_from_start=r.hours_from_start, temperature=r.temperature,
+            relative_humidity=r.relative_humidity, wind_speed=r.wind_speed,
+            wind_direction=r.wind_direction, precipitation=r.precipitation,
+        )
+        for r in records
+    )
 
 
 def _synthetic_seed(lat: float, lng: float) -> int:
@@ -284,6 +299,7 @@ class SimulationRunner:
                 dmc=fwi.dmc if fwi else 40.0,
                 dc=fwi.dc if fwi else 200.0,
                 **params.fuel_modifiers.config_kwargs(),
+                hourly_weather=_hourly_weather(params),
             )
 
             from firesim_api.settings import settings

@@ -122,6 +122,7 @@ def run_cellular_simulation(
     initial_perimeter: list[tuple[float, float]] | None = None,
     initial_burned: list[tuple[float, float]] | None = None,
     compute_perimeter: bool = True,
+    weather_schedule: list[tuple[float, SpreadConditions]] | None = None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -150,6 +151,8 @@ def run_cellular_simulation(
             multi-day run). With either, the fire is treated as established (no
             acceleration) and spreads from that area instead of the ignition point.
         compute_perimeter: Build each frame's outline polygon (skip for ensembles).
+        weather_schedule: (start minute, conditions) periods, e.g. from an hourly weather
+            stream; FBP rates are recomputed at each change. Default: ``conditions`` throughout.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -168,7 +171,11 @@ def run_cellular_simulation(
     def center(r: int, c: int) -> tuple[float, float]:
         return lat_max - (r + 0.5) * cell_lat, lng_min + (c + 0.5) * cell_lng
 
-    params = _CellParams.build(fuel_grid, conditions, spread_modifier_grid, terrain_grid, center)
+    schedule = sorted(weather_schedule, key=lambda e: e[0]) if weather_schedule else [(0.0, conditions)]
+    conditions = schedule[0][1]
+    cell_keys = _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center)
+    params = _CellParams.evaluate(cell_keys, conditions)
+    period = 0
     fuel = params.fuel
 
     arrival = np.full((rows, cols), np.inf)
@@ -199,7 +206,16 @@ def run_cellular_simulation(
         slice_len = dt_minutes if enable_spotting and spotting_intensity > 0.0 else duration
         next_slice = min(t + slice_len, duration)
         slice_start = t
+
+        def next_change() -> float:
+            return schedule[period + 1][0] if period + 1 < len(schedule) else math.inf
+
         while t < duration - 1e-9:
+            if t >= next_change() - 1e-9:  # weather period changes: new FBP rates everywhere
+                while t >= next_change() - 1e-9:
+                    period += 1
+                conditions = schedule[period][1]
+                params = _CellParams.evaluate(cell_keys, conditions)
             win = _window(arrival < np.inf, BAND_CELLS)
             entering = ~in_band[win]
             if entering.any():
@@ -214,7 +230,7 @@ def run_cellular_simulation(
             speed = (params.head[win] + params.b[win]).max()
             if speed <= 1e-9:
                 break
-            step = min(CFL * h_min / speed, next_slice - t)
+            step = min(CFL * h_min / speed, next_slice - t, next_change() - t)
             _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros,
                      acceleration)
             t += step
@@ -320,45 +336,60 @@ class _CellParams:
 
     @classmethod
     def build(cls, fuel_grid, conditions, spread_modifier_grid, terrain_grid, center) -> "_CellParams":
-        rows, cols = fuel_grid.rows, fuel_grid.cols
-        names = ("head", "back", "flank", "raz", "sfc", "cfl", "rso", "imult", "alpha", "lb")
-        arr = {n: np.zeros((rows, cols)) for n in names}
-        fuel = np.zeros((rows, cols), dtype=bool)
-        cache: dict[tuple, tuple] = {}
-        has_canopy = fuel_grid.cbh is not None or fuel_grid.cfl is not None
-        for r in range(rows):
-            for c in range(cols):
-                ft = fuel_grid.fuel_types[r][c]
-                if ft is None:
-                    continue
-                fuel[r, c] = True
-                slope, aspect, cbh, cfl, rm, im = 0.0, 0.0, None, None, 1.0, 1.0
-                if terrain_grid is not None or has_canopy or spread_modifier_grid is not None:
-                    lat, lng = center(r, c)
-                    if terrain_grid is not None:
-                        slope, aspect = terrain_grid.get_slope_aspect(lat, lng)
-                        if slope < 1.0:
-                            slope, aspect = 0.0, 0.0
-                    if has_canopy:
-                        cbh, cfl = fuel_grid.get_canopy_at(lat, lng)
-                    if spread_modifier_grid is not None:
-                        rm, im, _ = spread_modifier_grid.get_modifiers_at(lat, lng)
-                key = (ft, round(slope), round(aspect) % 360, cbh, cfl, rm, im)
-                vals = cache.get(key)
-                if vals is None:
-                    f = fbp_for_conditions(conditions, ft, float(key[1]), float(key[2]), cbh, cfl)
-                    vals = (f.ros_final * rm, f.back_ros * rm, f.flank_ros * rm, f.raz,
-                            f.sfc, f.cfl, f.rso, im, calculate_acceleration(ft, f.cfb), f.lb)
-                    cache[key] = vals
-                for n, v in zip(names, vals):
-                    arr[n][r, c] = v
-        head, back = arr["head"], arr["back"]
-        raz = np.radians(arr["raz"])
+        return cls.evaluate(_cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center), conditions)
+
+    @classmethod
+    def evaluate(cls, cell_keys, conditions) -> "_CellParams":
+        """FBP for each distinct cell type under ``conditions``, spread back onto the grid."""
+        fuel, index, keys = cell_keys
+        table = np.zeros((max(len(keys), 1), 10))
+        for k, (ft, slope, aspect, cbh, cfl, rm, im) in enumerate(keys):
+            f = fbp_for_conditions(conditions, ft, float(slope), float(aspect), cbh, cfl)
+            table[k] = (f.ros_final * rm, f.back_ros * rm, f.flank_ros * rm, f.raz, f.sfc, f.cfl,
+                        f.rso if math.isfinite(f.rso) else 1e12, im,
+                        calculate_acceleration(ft, f.cfb), f.lb)
+        vals = np.where(fuel[..., None], table[np.maximum(index, 0)], 0.0)
+        head, back, flank, raz_deg, sfc, cfl, rso, imult, alpha, lb = np.moveaxis(vals, -1, 0)
+        raz = np.radians(raz_deg)
         return cls(
-            fuel=fuel, head=head, a=(head + back) / 2.0, b=arr["flank"], c=(head - back) / 2.0,
-            hx=np.sin(raz), hy=np.cos(raz), sfc=arr["sfc"], cfl=arr["cfl"], rso=arr["rso"],
-            imult=arr["imult"], alpha=np.where(fuel, arr["alpha"], 0.115), lb=np.maximum(arr["lb"], 1.0),
+            fuel=fuel, head=head, a=(head + back) / 2.0, b=flank, c=(head - back) / 2.0,
+            hx=np.sin(raz), hy=np.cos(raz), sfc=sfc, cfl=cfl, rso=rso, imult=imult,
+            alpha=np.where(fuel, alpha, 0.115), lb=np.maximum(lb, 1.0),
         )
+
+
+def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
+    """(fuel mask, per-cell index into the distinct cell types, the distinct types).
+
+    A cell type is (fuel, slope % rounded, upslope azimuth rounded, CBH, CFL, ROS and
+    intensity multipliers): everything FBP needs apart from the weather, so FBP runs once
+    per type and weather period instead of once per cell.
+    """
+    rows, cols = fuel_grid.rows, fuel_grid.cols
+    fuel = np.zeros((rows, cols), dtype=bool)
+    index = np.full((rows, cols), -1, dtype=np.int32)
+    lookup: dict[tuple, int] = {}
+    has_canopy = fuel_grid.cbh is not None or fuel_grid.cfl is not None
+    for r in range(rows):
+        for c in range(cols):
+            ft = fuel_grid.fuel_types[r][c]
+            if ft is None:
+                continue
+            fuel[r, c] = True
+            slope, aspect, cbh, cfl, rm, im = 0.0, 0.0, None, None, 1.0, 1.0
+            if terrain_grid is not None or has_canopy or spread_modifier_grid is not None:
+                lat, lng = center(r, c)
+                if terrain_grid is not None:
+                    slope, aspect = terrain_grid.get_slope_aspect(lat, lng)
+                    if slope < 1.0:
+                        slope, aspect = 0.0, 0.0
+                if has_canopy:
+                    cbh, cfl = fuel_grid.get_canopy_at(lat, lng)
+                if spread_modifier_grid is not None:
+                    rm, im, _ = spread_modifier_grid.get_modifiers_at(lat, lng)
+            key = (ft, round(slope), round(aspect) % 360, cbh, cfl, rm, im)
+            index[r, c] = lookup.setdefault(key, len(lookup))
+    return fuel, index, list(lookup)
 
 
 def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceleration=True):

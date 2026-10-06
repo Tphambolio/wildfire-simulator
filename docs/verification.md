@@ -108,7 +108,9 @@ could not catch the errors.
   are underestimated, so treat spot fire output as illustrative.
 - **Burn probability** varies only ignition point, wind speed and RH; it is not a Burn-P3-style
   ensemble over historical weather and ignitions.
-- **Weather** is constant through a simulation (no hourly stream, no diurnal FFMC).
+- **Weather**: an hourly stream is supported; hourly FFMC matches cffdrs `hffmc` (5,760 cases,
+  max difference 3e-11). DMC and DC are held fixed within a run, and the forecast option depends
+  on Open-Meteo's forecast quality. Without a stream, weather is constant.
 - **Huygens perimeters are convex**; heterogeneous landscapes should use the grid model.
 - **Fuel grids**: the Edmonton grid is the City canopy-LiDAR product at 20 m (simulated at 50 m).
   Outside Edmonton only a uniform fuel type or a synthetic demo landscape is available.

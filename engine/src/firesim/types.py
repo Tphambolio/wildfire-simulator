@@ -67,6 +67,18 @@ class WeatherInput:
 
 
 @dataclass(frozen=True)
+class HourlyWeather:
+    """Weather for one hour of a simulation, applied from ``hours_from_start`` to the next record."""
+
+    hours_from_start: float
+    temperature: float  # Celsius
+    relative_humidity: float  # percent
+    wind_speed: float  # km/h at 10 m
+    wind_direction: float  # degrees, meteorological (FROM)
+    precipitation: float = 0.0  # mm in the hour
+
+
+@dataclass(frozen=True)
 class SimulationConfig:
     """Configuration for a fire spread simulation."""
 
@@ -88,6 +100,9 @@ class SimulationConfig:
     fmc: float | None = None
     day_of_year: int | None = None
     elevation_m: float | None = None
+    # Hourly weather stream. When set, wind and FFMC change hour by hour: FFMC starts from
+    # ``ffmc`` and follows the hourly FFMC model (Van Wagner 1977); DMC and DC stay fixed.
+    hourly_weather: tuple[HourlyWeather, ...] | None = None
 
 
 @dataclass(frozen=True)

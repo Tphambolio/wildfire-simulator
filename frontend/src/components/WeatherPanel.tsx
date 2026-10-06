@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
-import { fetchCurrentWeather, calculateFWI } from "../services/api";
+import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast } from "../services/api";
 import MultiDayPanel from "./MultiDayPanel";
 
 // ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
@@ -129,6 +129,7 @@ export default function WeatherPanel({
   const [fuelType, setFuelType] = useState("C2");
   const [grassCure, setGrassCure] = useState(60);
   const [percentConifer, setPercentConifer] = useState(50);
+  const [useHourlyForecast, setUseHourlyForecast] = useState(false);
   const [useEdmontonGrid, setUseEdmontonGrid] = useState(true);
   const [useSyntheticCA, setUseSyntheticCA] = useState(false);
   const [enableSpotting, setEnableSpotting] = useState(false);
@@ -324,8 +325,17 @@ export default function WeatherPanel({
     });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!ignitionPoint || hasErrors) return;
+    let hourly = null;
+    if (useHourlyForecast) {
+      try {
+        hourly = await fetchHourlyForecast(ignitionPoint.lat, ignitionPoint.lng, durationHours);
+        setWeatherMessage(`Hourly forecast: ${hourly.length} h from Open-Meteo`);
+      } catch (err) {
+        setWeatherMessage(`Hourly forecast unavailable (${(err as Error).message}); using constant weather`);
+      }
+    }
     onRunParams?.({
       weather,
       fwi,
@@ -343,6 +353,7 @@ export default function WeatherPanel({
       weather,
       fwi_overrides: fwi,
       fuel_modifiers: fuelModifiers(),
+      hourly_weather: hourly,
       duration_hours: durationHours,
       snapshot_interval_minutes: snapshotMinutes,
       fuel_type: fuelType,
@@ -715,6 +726,17 @@ export default function WeatherPanel({
             value={snapshotMinutes}
             onChange={(e) => setSnapshotMinutes(Number(e.target.value))}
           />
+        </label>
+        <label
+          style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}
+          title="Wind, temperature, RH and rain change hour by hour (Open-Meteo forecast for the ignition point); FFMC follows the hourly FFMC model from the FFMC above."
+        >
+          <input
+            type="checkbox"
+            checked={useHourlyForecast}
+            onChange={(e) => setUseHourlyForecast(e.target.checked)}
+          />
+          Use hourly forecast weather
         </label>
       </div>
 

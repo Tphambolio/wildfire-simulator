@@ -542,3 +542,29 @@ class TestSyntheticGridReproducible:
                 assert result["status"] == "completed", result.get("error")
                 areas.append(result["frames"][-1]["area_ha"])
         assert areas[0] == areas[1] > 0
+
+
+class TestHourlyWeatherAPI:
+    def test_hourly_weather_stream_accepted_and_used(self):
+        """A wind shift in the hourly stream must change the result."""
+        base = {
+            "ignition_lat": 53.5, "ignition_lng": -113.5,
+            "weather": {"wind_speed": 20.0, "wind_direction": 270.0},
+            "fwi_overrides": {"ffmc": 90.0, "dmc": 40.0, "dc": 300.0},
+            "duration_hours": 2.0, "snapshot_interval_minutes": 60.0,
+        }
+        shifted = dict(base, hourly_weather=[
+            {"hours_from_start": 0, "temperature": 25, "relative_humidity": 25,
+             "wind_speed": 20, "wind_direction": 270},
+            {"hours_from_start": 1, "temperature": 25, "relative_humidity": 25,
+             "wind_speed": 20, "wind_direction": 180},
+        ])
+        north = []
+        with TestClient(create_app()) as tc:
+            for payload in (base, shifted):
+                resp = tc.post("/api/v1/simulations", json=payload)
+                assert resp.status_code == 200, resp.text
+                result = _sync_wait_for_completion(tc, resp.json()["simulation_id"])
+                assert result["status"] == "completed", result.get("error")
+                north.append(max(p[0] for p in result["frames"][-1]["perimeter"]))
+        assert north[1] > north[0]
