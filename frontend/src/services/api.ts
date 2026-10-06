@@ -117,34 +117,54 @@ export async function fetchFuelGridImage(fuelGridPath: string): Promise<{ image:
 }
 
 /**
- * Hourly forecast for the next `hours` hours at a point (Open-Meteo, no key), as an hourly
- * weather stream starting at the current hour.
+ * Hourly forecast at a point (Open-Meteo, no key) as an hourly weather stream for a scenario
+ * that starts at ``startMs`` (default now) and runs ``hours`` hours. See forecastStream.
  */
 export async function fetchHourlyForecast(
   lat: number,
   lng: number,
   hours: number,
+  startMs: number = Date.now(),
 ): Promise<HourlyWeatherParams[]> {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
     "&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation" +
-    "&wind_speed_unit=kmh&timezone=UTC&forecast_days=3";
+    "&wind_speed_unit=kmh&timezone=UTC&past_days=1&forecast_days=3";
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Forecast request failed: ${resp.status}`);
   const data = await resp.json();
-  const h = data.hourly;
-  const now = Date.now();
-  const start = h.time.findIndex((t: string) => Date.parse(t + "Z") + 3600_000 > now);
-  if (start < 0) throw new Error("Forecast has no hours ahead of now");
-  const n = Math.min(Math.ceil(hours), h.time.length - start);
-  return Array.from({ length: n }, (_, k) => ({
-    hours_from_start: k,
-    temperature: h.temperature_2m[start + k],
-    relative_humidity: h.relative_humidity_2m[start + k],
-    wind_speed: h.wind_speed_10m[start + k],
-    wind_direction: h.wind_direction_10m[start + k] % 360,
-    precipitation: h.precipitation[start + k] ?? 0,
-  }));
+  return forecastStream(data.hourly, startMs, hours);
+}
+
+/**
+ * Slice Open-Meteo hourly data (UTC hour starts) into records for a scenario starting at
+ * ``startMs``: the hour containing the start applies from 0, and each later hour from its
+ * own start (fractional hours after the scenario start), up to the end of the run.
+ */
+export function forecastStream(
+  h: {
+    time: string[]; temperature_2m: number[]; relative_humidity_2m: number[];
+    wind_speed_10m: number[]; wind_direction_10m: number[]; precipitation: Array<number | null>;
+  },
+  startMs: number,
+  hours: number,
+): HourlyWeatherParams[] {
+  const t0 = h.time.map((t) => Date.parse(t.endsWith("Z") ? t : t + "Z"));
+  const first = t0.findIndex((t) => t + 3600_000 > startMs);
+  if (first < 0) throw new Error("Forecast has no hours at or after the scenario start");
+  const endMs = startMs + hours * 3600_000;
+  const out: HourlyWeatherParams[] = [];
+  for (let i = first; i < t0.length && t0[i] < endMs; i++) {
+    out.push({
+      hours_from_start: Math.max(0, (t0[i] - startMs) / 3600_000),
+      temperature: h.temperature_2m[i],
+      relative_humidity: h.relative_humidity_2m[i],
+      wind_speed: h.wind_speed_10m[i],
+      wind_direction: h.wind_direction_10m[i] % 360,
+      precipitation: h.precipitation[i] ?? 0,
+    });
+  }
+  return out;
 }
 
 export function getWebSocketUrl(simId: string): string {
