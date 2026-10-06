@@ -1,6 +1,7 @@
 /** Fire metrics display panel showing current frame statistics. */
 
 import type { SimulationFrame } from "../types/simulation";
+import HfiClassChip from "./HfiClassChip";
 
 interface FireMetricsProps {
   frame: SimulationFrame | null;
@@ -8,14 +9,6 @@ interface FireMetricsProps {
   totalFrames: number;
 }
 
-function classifyIntensity(hfi: number): { label: string; color: string } {
-  if (hfi < 10) return { label: "Low", color: "#4caf50" };
-  if (hfi < 500) return { label: "Moderate", color: "#ffeb3b" };
-  if (hfi < 2000) return { label: "High", color: "#ff9800" };
-  if (hfi < 4000) return { label: "Very High", color: "#f44336" };
-  if (hfi < 10000) return { label: "Extreme", color: "#d32f2f" };
-  return { label: "Ultra-Extreme", color: "#b71c1c" };
-}
 
 function formatFireType(ft: string): string {
   return ft
@@ -35,7 +28,6 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
     );
   }
 
-  const intensity = classifyIntensity(frame.max_hfi_kw_m);
   const isCAMode = Array.isArray(frame.burned_cells);
 
   return (
@@ -116,8 +108,8 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
         )}
         <div className="metric-row">
           <span className="metric-label">Max HFI</span>
-          <span className="metric-value" style={{ color: intensity.color }}>
-            {frame.max_hfi_kw_m.toFixed(0)} kW/m
+          <span className="metric-value">
+            {frame.max_hfi_kw_m.toFixed(0)} kW/m <HfiClassChip hfi={frame.max_hfi_kw_m} />
           </span>
         </div>
         {!isCAMode && (

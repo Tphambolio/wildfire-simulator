@@ -11,6 +11,9 @@ import type { RunParams } from "./WeatherPanel";
 import { buildGeoJSON, buildKML, downloadFile } from "../utils/geoExport";
 import type { EvacZone } from "../utils/evacZones";
 import { openICS209Report } from "../utils/ics209";
+import HfiClassChip from "./HfiClassChip";
+import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
+import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
 
 interface EOCSummaryProps {
   frames: SimulationFrame[];
@@ -124,142 +127,7 @@ function extractBurnAreaStats(data: BurnProbabilityResponse): BurnAreaStats {
   };
 }
 
-// ── Suppression & RPAS advisory ─────────────────────────────────────────────
 
-/**
- * FBP fire intensity class definitions and suppression guidance.
- *
- * Intensity thresholds from Alexander & de Groot (1988) as used in the
- * Canadian FBP System. Suppression feasibility based on CIFFC and BCWS
- * initial-attack decision matrices.
- *
- * Class I   HFI < 200 kW/m   — Direct ground attack feasible
- * Class II  HFI 200–500      — Flanking; aerial support beneficial
- * Class III HFI 500–2000     — Indirect attack; aerial primary
- * Class IV  HFI 2000–4000    — Defensive; structure protection
- * Class V   HFI > 4000       — Life safety only; no direct attack
- */
-export interface SuppressionAdvisory {
-  intensityClass: "I" | "II" | "III" | "IV" | "V";
-  intensityLabel: string;
-  color: string;
-  strategy: string;
-  strategyDetail: string;
-  resources: string[];
-  suppressionFeasible: boolean;
-  rpasStandoffM: number;
-  rpasNotes: string[];
-}
-
-export function buildSuppressionAdvisory(spread: SpreadStats): SuppressionAdvisory {
-  const hfi = spread.peakHfiKwM;
-  const isCrownFire = spread.fireType.toLowerCase().includes("crown");
-  const hasSpotting = spread.spotCount > 0;
-  const maxSpotM = spread.maxSpotDistM;
-
-  // RPAS safe standoff: greater of 500 m buffer or 1.5× max spotfire throw.
-  // Add 1 km if active crown fire (extreme ember cast, unpredictable blow-up).
-  const baseStandoffM = hasSpotting ? Math.max(500, maxSpotM * 1.5) : 500;
-  const rpasStandoffM = isCrownFire ? baseStandoffM + 1000 : baseStandoffM;
-
-  const rpasNotes: string[] = [
-    `Minimum safe standoff: ${rpasStandoffM.toFixed(0)} m from active perimeter`,
-    "IC/ATGS authorization required before any RPAS flight near active fire",
-    "Maintain visual line of sight; assign dedicated observer",
-  ];
-  if (isCrownFire) rpasNotes.push("Crown fire — extreme smoke column turbulence; increased loss-of-control risk");
-  if (hasSpotting) rpasNotes.push(`Spotfire detected (max ${maxSpotM.toFixed(0)} m) — check for ember ignitions beyond perimeter before flying`);
-
-  if (hfi < 200) {
-    return {
-      intensityClass: "I",
-      intensityLabel: "Class I (Low)",
-      color: "#4caf50",
-      strategy: "Direct Attack",
-      strategyDetail: "Ground crews can work fire edge directly. Hose lay and hand tools effective.",
-      resources: [
-        "1–2 Type 2 initial attack crews (IHC or CFS)",
-        "1–2 Type 3 engines (water tender support)",
-        "1 helicopter (sling-load water or crew transport)",
-      ],
-      suppressionFeasible: true,
-      rpasStandoffM,
-      rpasNotes,
-    };
-  }
-  if (hfi < 500) {
-    return {
-      intensityClass: "II",
-      intensityLabel: "Class II (Moderate)",
-      color: "#8bc34a",
-      strategy: "Flanking / Direct on Flanks",
-      strategyDetail: "Direct attack on flanks; head too intense for direct. Single airtanker drop to slow head spread.",
-      resources: [
-        "2–3 Type 2 IA crews",
-        "2–3 Type 3 engines",
-        "1 airtanker (single engine AT) for head suppression",
-        "1 helicopter (water bucket or logistics)",
-      ],
-      suppressionFeasible: true,
-      rpasStandoffM,
-      rpasNotes,
-    };
-  }
-  if (hfi < 2000) {
-    return {
-      intensityClass: "III",
-      intensityLabel: "Class III (High)",
-      color: "#ff9800",
-      strategy: "Indirect Attack",
-      strategyDetail: "No direct attack on head. Build indirect lines ahead of fire; aerial water/retardant on flanks and head. Ground crews on black edge only.",
-      resources: [
-        "3–5 crews (indirect line construction)",
-        "3+ Type 3 engines (structure/value protection)",
-        "2 airtankers (SEAT or LAAT) for retardant line",
-        "1–2 helicopters (water bucket, recon, crew insert)",
-        "1 dozer (anchor point construction if terrain allows)",
-      ],
-      suppressionFeasible: true,
-      rpasStandoffM,
-      rpasNotes,
-    };
-  }
-  if (hfi < 4000) {
-    return {
-      intensityClass: "IV",
-      intensityLabel: "Class IV (Very High)",
-      color: "#f44336",
-      strategy: "Defensive — Structure & Value Protection",
-      strategyDetail: "No direct or indirect attack. Focus on protecting communities, structures, and critical infrastructure. Evacuation support is primary mission.",
-      resources: [
-        "Structure protection units (engines assigned to defensible properties)",
-        "Heavy airtanker (LAT/VLAT) for tactical holding if available",
-        "Evacuation support resources (RCMP/municipal liaison)",
-        "Bulldozers for emergency mineral soil guard",
-      ],
-      suppressionFeasible: false,
-      rpasStandoffM,
-      rpasNotes,
-    };
-  }
-  // Class V: hfi >= 4000
-  return {
-    intensityClass: "V",
-    intensityLabel: "Class V (Extreme)",
-    color: "#b71c1c",
-    strategy: "Life Safety Only — No Suppression",
-    strategyDetail: "Ultra-extreme fire behavior. No suppression resources safe to deploy. Evacuate all personnel from fire zone. Activate mass evacuation protocols.",
-    resources: [
-      "All suppression resources withdrawn to safe zones",
-      "VLAT (if available) for tactical pauses only when safe",
-      "Emergency evacuation infrastructure (transit, traffic control)",
-      "Mass casualty / evacuation reception planning",
-    ],
-    suppressionFeasible: false,
-    rpasStandoffM,
-    rpasNotes,
-  };
-}
 
 // ── ICS text export ──────────────────────────────────────────────────────────
 
@@ -416,14 +284,6 @@ function windDirLabel(deg: number): string {
   return WIND_DIRS[Math.round(deg / 22.5) % 16];
 }
 
-function intensityClass(hfi: number): { label: string; color: string } {
-  if (hfi < 10) return { label: "Low", color: "#4caf50" };
-  if (hfi < 500) return { label: "Moderate", color: "#ffeb3b" };
-  if (hfi < 2000) return { label: "High", color: "#ff9800" };
-  if (hfi < 4000) return { label: "Very High", color: "#f44336" };
-  if (hfi < 10000) return { label: "Extreme", color: "#d32f2f" };
-  return { label: "Ultra-Extreme", color: "#b71c1c" };
-}
 
 // ── Per-day stats (multi-day scenarios) ─────────────────────────────────────
 
@@ -517,7 +377,6 @@ export default function EOCSummary({
     downloadFile(kml, `firesim_${timestamp}.kml`, "application/vnd.google-earth.kml+xml");
   };
 
-  const intClass = spread ? intensityClass(spread.peakHfiKwM) : null;
   const suppAdvisory = suppAdvisoryEarly;
 
   return (
@@ -621,13 +480,12 @@ export default function EOCSummary({
               <span>Peak HFI</span>
             </div>
             {dayStats.map(({ day, finalAreaHa, peakHfi }) => {
-              const intClass = intensityClass(peakHfi);
               return (
                 <div className="eoc-bp-row" key={day}>
                   <span className="eoc-bp-label">Day {day}</span>
                   <span className="eoc-bp-val">{finalAreaHa.toFixed(0)}</span>
-                  <span className="eoc-bp-val" style={{ color: intClass.color }}>
-                    {peakHfi.toFixed(0)}
+                  <span className="eoc-bp-val">
+                    {peakHfi.toFixed(0)} <HfiClassChip hfi={peakHfi} />
                   </span>
                 </div>
               );
@@ -655,9 +513,8 @@ export default function EOCSummary({
             <span className="eoc-value">{spread.peakRosMMmin.toFixed(1)} m/min</span>
 
             <span className="eoc-label">Peak HFI</span>
-            <span className="eoc-value" style={{ color: intClass?.color }}>
-              {spread.peakHfiKwM.toFixed(0)} kW/m
-              <span className="eoc-sublabel"> {intClass?.label}</span>
+            <span className="eoc-value">
+              {spread.peakHfiKwM.toFixed(0)} kW/m <HfiClassChip hfi={spread.peakHfiKwM} />
             </span>
 
             {spread.flameLengthM > 0 && (

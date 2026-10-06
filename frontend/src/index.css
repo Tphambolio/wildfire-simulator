@@ -3272,3 +3272,15 @@ input[type="number"]:focus-visible { outline: 2px solid var(--accent); outline-o
 .run-hint { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
 
 .burn-prob-legend-meta { max-width: 190px; }
+
+/* Head fire intensity class chip (colours from utils/fireClasses.ts) */
+.hfi-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  vertical-align: middle;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}

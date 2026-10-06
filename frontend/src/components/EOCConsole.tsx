@@ -37,8 +37,8 @@ import {
   buildFullIAPHTML,
 } from "../utils/icsForms";
 import { openICS209Report } from "../utils/ics209";
-import type { SuppressionAdvisory } from "./EOCSummary";
-import { buildSuppressionAdvisory } from "./EOCSummary";
+import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
+import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
 import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation } from "../types/incident";
 import { SYMBOL_DEFS } from "../types/incident";
 
@@ -406,21 +406,8 @@ export default function EOCConsole({
   const getSuppressionAdvisory = useCallback((): SuppressionAdvisory | null => {
     if (frames.length === 0) return null;
     const final = frames[frames.length - 1];
-    const perimeterLengthKm = (perim: number[][]): number => {
-      let t = 0;
-      for (let i = 0; i < perim.length; i++) {
-        const a = perim[i], b = perim[(i + 1) % perim.length];
-        const dLat = ((b[0] - a[0]) * Math.PI) / 180;
-        const dLng = ((b[1] - a[1]) * Math.PI) / 180;
-        const x = Math.sin(dLat / 2) ** 2 +
-          Math.cos((a[0] * Math.PI) / 180) * Math.cos((b[0] * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-        t += 6371 * 2 * Math.asin(Math.sqrt(x));
-      }
-      return t;
-    };
-    let peakRos = 0, peakHfi = 0, maxSpotDist = 0, spotCount = 0;
+    let peakHfi = 0, maxSpotDist = 0, spotCount = 0;
     for (const f of frames) {
-      if (f.head_ros_m_min > peakRos) peakRos = f.head_ros_m_min;
       if (f.max_hfi_kw_m > peakHfi) peakHfi = f.max_hfi_kw_m;
       for (const s of f.spot_fires ?? []) {
         if (s.distance_m > maxSpotDist) maxSpotDist = s.distance_m;
@@ -428,14 +415,10 @@ export default function EOCConsole({
       }
     }
     return buildSuppressionAdvisory({
-      peakRosMMmin: peakRos,
       peakHfiKwM: peakHfi,
-      finalAreaHa: final.area_ha,
-      perimeterKm: perimeterLengthKm(final.perimeter ?? []),
       maxSpotDistM: maxSpotDist,
       spotCount,
       fireType: final.fire_type,
-      flameLengthM: final.flame_length_m,
     });
   }, [frames]);
 
