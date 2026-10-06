@@ -1,73 +1,60 @@
-# React + TypeScript + Vite
+# FireSim frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + TypeScript + Vite 7 + MapLibre GL 5. Development: `npm run dev` (Vite on :3000,
+proxying `/api` to the FastAPI backend on :8000). Production bundle: `npm run build`.
 
-Currently, two official plugins are available:
+## Testing
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Node 22 or later (Vitest 5 needs it).
 
-## React Compiler
+### Unit tests (Vitest + React Testing Library + jsdom)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm test             # run once (CI)
+npm run test:watch   # watch mode
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Tests sit next to the code as `src/**/*.test.ts(x)`; shared helpers are in `src/test/`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### End-to-end tests (Playwright + axe-core)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npx playwright install chromium   # once
+npm run test:e2e                  # builds, serves with `vite preview` on :4173, runs tests/e2e
+E2E_SKIP_BUILD=1 npm run test:e2e # reuse an existing dist/
 ```
+
+No backend is needed. `tests/e2e/mockApi.ts` mocks the API inside the browser:
+
+- HTTP calls (`POST /api/v1/simulations`, `GET /api/v1/simulations/{id}`, fuel-grid image,
+  current weather) are answered with `page.route` from the recorded fixture.
+- The simulation WebSocket is intercepted with `page.routeWebSocket` and replays the fixture
+  frames as `simulation.frame` events, then `simulation.completed`, as the API does.
+  `mockApi(page, { mode: "poll" })` closes the socket instead, to test the polling fallback.
+- All external requests (map tiles, fonts, Open-Meteo, Nominatim, Overpass) are blocked; tiles
+  get a transparent PNG. Chromium runs WebGL on SwiftShader (no GPU needed).
+
+The suite:
+
+| Spec | Checks |
+|---|---|
+| `smoke.spec.ts` | App loads, ignition by map click, Run, frames replay to "completed", metrics show the final area; polling fallback. |
+| `performance.spec.ts` | 0 WebGL draw calls in 3 s of idle (no spot fires), before and after a run. |
+| `a11y.spec.ts` | axe (WCAG 2.x A/AA): fails only on serious/critical violations that are not in `tests/e2e/axe-baseline.json`. After fixing violations, re-record with `UPDATE_AXE_BASELINE=1 npx playwright test a11y` and commit the baseline. |
+| `layout.spec.ts` | Reports (does not enforce yet) the number of visible text nodes below 12 px, in the console and as an attachment. |
+
+### Regenerating the fixture
+
+`tests/fixtures/terwillegar_grass_4h.json` is a real engine run (grass fire west of
+Terwillegar on the Edmonton fuel grid, 4 h, 15 min snapshots, W 20 km/h, FFMC 92 / DMC 40 /
+DC 300) serialised by the API's own routes in the `cells_mode: "incremental"` format the app requests, plus `fuel_grid_image.json` and `arrival.json`. When the engine or
+the frame format changes, regenerate both from the repo root with the engine and API
+dependencies installed:
+
+```bash
+PYTHONPATH=engine/src:api/src python frontend/tests/fixtures/record_fixture.py
+# or, from frontend/:  PYTHON=/path/to/venv/bin/python npm run fixture:record
+```
+
+The run is deterministic (same inputs, same bytes). If the file would exceed 3 MB the script
+thins `burned_cells` on intermediate frames and records the factor in `_fixture`.

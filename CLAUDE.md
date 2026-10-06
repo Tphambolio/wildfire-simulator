@@ -174,7 +174,8 @@ VITE_MAPBOX_TOKEN=        Satellite tiles (optional, defaults to OSM)
 
 - **Triggers:** Push to `master`, all PRs to `master`
 - **engine-tests:** Python 3.11 + 3.12 → `pytest engine/tests/ api/tests/`
-- **frontend:** Node 20 → `tsc --noEmit` + `npm run build`
+- **frontend:** Node 22 → `tsc --noEmit` + `npm run build` + `npm test` (Vitest)
+- **frontend-e2e** (not required): Playwright + axe against `vite preview` with a mocked API replaying `frontend/tests/fixtures/terwillegar_grass_4h.json` (see frontend/README.md)
 - **Rule:** Every test file must contain at least one `def test_` function
 
 ---
