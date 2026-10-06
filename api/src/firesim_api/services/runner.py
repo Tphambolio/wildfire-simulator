@@ -491,6 +491,7 @@ class SimulationRunner:
             )
 
             initial_front: list[FireVertex] | None = None
+            initial_burned: list[tuple[float, float]] | None = None
             time_offset = 0.0  # cumulative hours added to frame timestamps
 
             for day_idx, day_weather in enumerate(params.days):
@@ -530,6 +531,7 @@ class SimulationRunner:
                     default_fuel=fuel_type,
                     spread_modifier_grid=spread_modifier_grid,
                     initial_front=initial_front,
+                    initial_burned=initial_burned,
                 )
 
                 last_frame: SimulationFrame | None = None
@@ -557,13 +559,19 @@ class SimulationRunner:
                 if run._cancel_event.is_set():
                     break
 
-                # Carry fire front forward to next day
+                # Carry the fire forward to the next day: the perimeter for the Huygens
+                # model, and every burned cell for the grid model (which may hold
+                # several separate burned areas, e.g. from spot fires)
                 if last_frame is not None and len(last_frame.perimeter) >= 3:
                     initial_front = [
                         FireVertex(lat=lat, lng=lng) for lat, lng in last_frame.perimeter
                     ]
                 else:
                     initial_front = None
+                initial_burned = (
+                    [(c["lat"], c["lng"]) for c in last_frame.burned_cells]
+                    if last_frame is not None and last_frame.burned_cells else None
+                )
 
                 time_offset += 24.0
                 logger.info(
