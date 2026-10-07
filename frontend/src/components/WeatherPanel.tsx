@@ -265,7 +265,10 @@ function WeatherPanel({
   const [useSyntheticCA, setUseSyntheticCA] = useState(false);
   const [enableSpotting, setEnableSpotting] = useState(false);
   const [spottingIntensity, setSpottingIntensity] = useState(1.0);
-  const [includeWater, setIncludeWater] = useState(true);
+  // Off by default: the OSM water layer covers ~13,900 ha of the city incl. ~3,700 ha of
+  // LiDAR-mapped vegetation (429 invalid polygons) and masks 17-21 % of forest cells; the
+  // Edmonton LiDAR fuel grid already maps water as non-fuel (docs/verification.md).
+  const [includeWater, setIncludeWater] = useState(false);
   const [includeBuildings, setIncludeBuildings] = useState(true);
   // Off by default: the bundled WUI multipliers have no documented source (see docs/verification.md)
   const [includeWUI, setIncludeWUI] = useState(false);
@@ -935,6 +938,13 @@ function WeatherPanel({
             {liveDanger}
           </span>
         </div>
+        {liveBUI < 80 && (
+          <div className="hint-sm" role="note">
+            BUI {liveBUI.toFixed(0)} is below 80: green aspen (D-2) does not carry fire in the FBP
+            System (Alexander 2010). Raise DMC/DC for a drier scenario, or use D-1 (leafless) for
+            spring.
+          </div>
+        )}
 
         <div className="setup-links">
           <button
@@ -1100,7 +1110,7 @@ function WeatherPanel({
                 checked={includeWater}
                 onChange={(e) => setIncludeWater(e.target.checked)}
               />
-              Water bodies (rivers, lakes)
+              Extra water mask (OpenStreetMap; known to cover land, off by default)
             </label>
             <label className="check-row-indent">
               <input

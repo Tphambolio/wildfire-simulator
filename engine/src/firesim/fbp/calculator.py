@@ -109,7 +109,7 @@ def calculate_bui_effect(bui: float, q: float, bui0: float) -> float:
 def _fuel_bui_effect(spec: FuelTypeSpec, bui: float | None) -> float:
     """Buildup effect for a fuel type; ``bui=None`` disables it.
 
-    D-2 (green aspen) does not carry fire below BUI 80 (Wotton et al. 2009).
+    D-2 (green aspen) does not carry fire below BUI 80 (Alexander 2010, as in cffdrs).
     """
     if bui is None:
         return 1.0
@@ -252,7 +252,7 @@ def calculate_sfc(
         sfc = 1.5 * (1.0 - math.exp(-0.0183 * bui))
     elif fuel == FuelType.D2:
         if bui < 80.0:
-            return 0.0  # green aspen does not burn below BUI 80 (Wotton 2009)
+            return 0.0  # green aspen does not burn below BUI 80 (Alexander 2010, as in cffdrs)
         sfc = 1.5 * (1.0 - math.exp(-0.0183 * bui))
     elif fuel in (FuelType.M1, FuelType.M2):
         sfc = pc / 100.0 * 5.0 * (1.0 - math.exp(-0.0115 * bui)) + (

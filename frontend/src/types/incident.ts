@@ -212,7 +212,7 @@ export function makeIncident(name: string): IncidentSession {
     fuelType: "C2",
     enableSpotting: false,
     spottingIntensity: 1.0,
-    includeWater: true,
+    includeWater: false,
     includeBuildings: true,
     includeWUI: true,
     includeDEM: true,
