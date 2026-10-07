@@ -13,6 +13,112 @@ sources are the burn window, treating the whole perimeter as active, and wind. I
 preparedness, training and what-if planning now. It is not an operational growth forecast (see
 "What this means for EOC use").
 
+**Second round (same day):** marking only the recently active parts of the perimeter as
+active, starting the hourly FFMC the previous afternoon and burning 10:00-20:00 raised the
+one-day F1 on **held-out fires** (fires never used to choose any setting) from 0.12 to 0.21
+(+0.09, 95 % CI +0.06 to +0.13) and cut the area over-prediction from +0.72 to +0.27. That
+puts FireSim's operational set-up level with W.I.S.E. defaults (0.26 nationally; 0.19 on the
+nine shared Alberta days), still well short of tuned W.I.S.E. (0.54). See "Skill
+improvements and held-out results".
+
+## Skill improvements and held-out results (second round, 2026-10-07)
+
+Three changes were tested on the same 143 fire-days, each separately and combined, after
+splitting the **fires** (not days) into a calibration half and a held-out test half. Every
+choice (which active-edge rule, whether to spin up FFMC, which burning period) was made on
+the calibration fires only; the test fires were scored once with the chosen set-up.
+
+**Split.** Fires ranked by a seeded SHA-256 hash of their CFSDS id, first half calibration
+(`firesim.validation.report.split_fires`, seed `firesim-skill-2026`, fixed before any run):
+16 calibration fires / 64 fire-days (including the 2016 Horse River fire) and 16 test fires /
+79 fire-days. Differences are paired by fire-day; 95 % confidence intervals come from a
+bootstrap that resamples whole fires (2,000 draws), so days of one fire are not treated as
+independent.
+
+**What changed (all opt-in in the engine; defaults unchanged).**
+
+1. **Active and inactive perimeter edges** (`active_edges` in the grid model and in the
+   perimeter-override API; a GeoJSON line, polygon or point geometry with a buffer). Only
+   starting cells within the buffer of the active geometry burn; the rest of the observed
+   fire is burned out and cannot spread or burn again, so an inactive edge holds until fire
+   from an active edge reaches the fuel beyond it. Operationally the geometry comes from an
+   RPAS thermal flight. In the harness (`--ignition active`) it is derived **without the
+   burn day's outcome**: the cells CFSDS shows burning on the previous day (or two days) are
+   the active zone. Across the 143 fire-days that zone is a median 33 % of the starting
+   perimeter's edge cells and contains a median 84 % of the edge cells that the next day's
+   growth actually touches (precision 39 %, against 12 % if edge cells were picked at
+   random). Bennett's ignition (edge cells touching the next day's growth) is kept as the
+   oracle upper bound.
+2. **Diurnal burning.** (a) *FFMC spin-up:* the daily FFMC describes mid-afternoon moisture
+   (about 16:00 LST; Lawson et al. 1996, Van Wagner 1987), so the hourly FFMC model (Van
+   Wagner 1977) now starts at 17:00 MDT the previous day and runs through the night on the
+   ERA5 hourly weather instead of starting the 06:00 run at yesterday's afternoon value.
+   Hourly FFMC and wind then give the diurnal rate of spread, as in Beck et al. (2002). No
+   parameter is fitted. (b) *Burning period:* fire spreads only between set local hours each
+   day (Prometheus / W.I.S.E. "burning conditions", Tymstra et al. 2010), ROS x 0 outside.
+   Candidates 10-20, 12-20 and 10-18 h were compared on the calibration fires.
+3. **Performance:** the grid model's per-cell FBP table is vectorised (below); results are
+   unchanged.
+
+**Results on the held-out test fires** (16 fires, 79 fire-days). "End of day" scores all
+growth simulated from 06:00 to 23:00 (Bennett's 17 h window; with a burning period the fire
+stops at 20:00). ΔF1 is against the first-round operational set-up.
+
+| Set-up (operational: no burn-day information) | F1 mean (median) | Precision | Recall | IoU | Area diff | Over-predicted days | ΔF1 [95 % CI] |
+|---|---|---|---|---|---|---|---|
+| Whole perimeter active, 06-23 h (first round) | 0.118 (0.076) | 0.09 | 0.70 | 0.07 | +0.72 | 91 % | – |
+| + FFMC spin-up only | 0.125 (0.065) | 0.10 | 0.64 | 0.07 | +0.66 | 89 % | +0.007 [-0.001, +0.014] |
+| + burning period 10-20 h only (with spin-up) | 0.146 (0.091) | 0.14 | 0.56 | 0.09 | +0.54 | 84 % | +0.028 [+0.013, +0.042] |
+| + active edges only (previous day's growth) | 0.154 (0.118) | 0.13 | 0.58 | 0.09 | +0.52 | 85 % | +0.036 [+0.018, +0.057] |
+| + active edges (previous 2 days) and spin-up | 0.164 (0.113) | 0.13 | 0.55 | 0.10 | +0.47 | 84 % | +0.046 [+0.026, +0.067] |
+| **Chosen: active edges (2 days) + spin-up + burning period 10-20 h** | **0.208 (0.184)** | 0.21 | 0.47 | 0.13 | **+0.27** | 75 % | **+0.091 [+0.056, +0.125]** |
+| Oracle start (Bennett ignition) + spin-up, 06-23 h | 0.245 (0.215) | 0.28 | 0.51 | 0.15 | +0.22 | 70 % | +0.127 [+0.089, +0.166] |
+
+On the calibration fires the same rows score 0.191, 0.202, 0.216, 0.213, 0.219, **0.224** and
+0.258. Averaged per fire first (Bennett's Table 2 style) the chosen set-up scores 0.224 on the
+test fires (first round 0.137). With the chosen set-up the median predicted/observed forward
+spread distance is 1.14 (first round 2.74), 24 % of days are within ±35 % (10 %), and the
+median absolute head-bearing error is 44° (53°). The best-hour ("oracle duration") F1 on the
+test fires rises from 0.191 to 0.265; with Bennett's ignition it is 0.368.
+
+**How the choice was made.** Calibration F1 at the end of the day: active edges 1 day 0.213,
+2 days 0.219, 1 day with a 1 km buffer 0.210 (so the default one-cell buffer); spin-up made
+no difference to calibration F1 (0.213 with and without, on active edges) but reduced the
+area over-prediction, and it is physically required, so it was kept. Burning periods with
+active edges (2 days) and spin-up: 10-20 h 0.224, 12-20 h 0.222, 10-18 h 0.219; 10-20 h was
+chosen. These calibration differences (0.219-0.224 across six active-edge / burning-period
+variants) are far smaller than their uncertainty, and the held-out F1 of the same six
+variants ranges 0.208-0.229, so the gain comes from the three ideas, not from the exact
+setting; the chosen one happens to be the lowest of the six on the test fires.
+
+**What did not help.** FFMC spin-up alone changes F1 by less than 0.01 (it mostly trims
+morning spread and the area bias). Widening the active zone to 1 km lowered calibration skill.
+A shorter window from 06:00 without the other changes helps less: the best fixed window on the
+calibration fires is 10 h (F1 0.219 vs 0.191 at 17 h), and on the test fires the first-round
+set-up scores 0.148 at 10 h. The burning period makes the **under-prediction of the biggest
+runs worse**: on the Horse River fire's 4-5 May runs the predicted head reaches 16-22 % of the
+observed distance (first round 27-37 %); F1 on those two days goes from 0.33 / 0.59 to 0.34 / 0.53.
+By fuel (all 143 days, chosen set-up vs first round) M-2 days improve most (F1 0.06 to 0.16,
+area difference +0.92 to +0.60) and D-2 days least (0.08 to 0.11); small days (< 100 ha of
+growth) remain near zero (0.02 to 0.08).
+
+**Run time.** Vectorising the per-cell FBP evaluation made the first-round runs about three
+times faster with **identical scores**: re-running the 143 perimeter-start fire-days gave the
+same true/false positive and negative areas in every fire-day and window (maximum difference
+0), with model run time falling from 4.0 to 2.05 CPU-hours (median 37 s to 11 s per fire-day,
+largest Horse River day 12 to 9 min; same machine, not otherwise controlled for load). What
+remains is mostly the level-set update on the largest fires. The chosen set-up takes 0.57
+CPU-hours (median 4 s per fire-day) because fire spreads for 10 h instead of 17.
+
+**Caveats.** 16 test fires is few: the confidence intervals above are wide and treat fires,
+not days, as the unit. The active zone comes from CFSDS's interpolated day of burning, which
+is cleaner than a real thermal flight in some ways (whole perimeter, no smoke or canopy
+occlusion) and coarser in others (MODIS/VIIRS timing, 90 m); real RPAS edges should be
+validated separately. The burning period is a fixed clock window, so it cannot represent
+overnight runs or days that burn late; it is set per run in the engine and is not a default.
+The deterministic skill above is reported alone; ensemble and RPAS-corrected (mid-day
+re-start) skill are not yet measured.
+
 ## Results (first run, 2026-10-07)
 
 143 fire-days from 32 Alberta fires (2014-2024), including six days of the 2016 Horse River
@@ -80,8 +186,9 @@ from FireSim's spread algorithm. Nine days are too few to rank the models.
 
 Run time on a shared 12-core workstation: median 37 s per fire-day (90th percentile 5 min,
 largest Horse River day 12 min), about 4 CPU-hours for the 143 fire-days, mostly FBP
-re-evaluation at each weather hour (see "Known engine issues"). W.I.S.E. took a median of
-about 3 min on the same days with 4 cores.
+re-evaluation at each weather hour (see "Known engine issues"; now vectorised, about three
+times faster with identical results). W.I.S.E. took a median of about 3 min on the same days
+with 4 cores.
 
 ## What this means for EOC use
 
@@ -93,12 +200,16 @@ about 3 min on the same days with 4 cores.
   observed growth overlap. Default 17 h runs over-state the area that will burn by several
   times; they should be read as an upper envelope (where the fire could get), not as tomorrow's
   perimeter. The biggest wind-driven runs can still go farther than predicted.
-- **What would improve it** (in order of expected gain): mark which parts of the RPAS perimeter
-  are active (or give inactive edges a lower rate), use a shorter default burn period with a
-  diurnal ROS curve, run wind-direction and wind-speed ensembles and present burn probability
-  rather than one perimeter, use the current fuel grid with per-cell percent conifer and burn
-  scars, and calibrate per fuel type against this harness. Each change can now be measured
-  with `scripts/validate.py` against the same fire-days.
+- **Use the RPAS active edges and a burning period.** Marking the active edges from a thermal
+  flight (`active_edges` in the perimeter override), starting FFMC from the previous afternoon
+  and burning 10:00-20:00 roughly halves the area over-prediction and raises one-day F1 to
+  about 0.21 on held-out fires (second round). The biggest wind-driven runs are then
+  under-predicted further, so keep a full 06-23 h run as the upper envelope alongside it.
+- **What would improve it next:** run wind-direction and wind-speed ensembles and present burn
+  probability rather than one perimeter, use the current fuel grid with per-cell percent
+  conifer and burn scars, calibrate per fuel type (D-2 and small days remain poor), and
+  measure RPAS-corrected mid-day restarts. Each change can be measured with
+  `scripts/validate.py` against the same fire-days.
 
 ## Data
 
@@ -134,6 +245,12 @@ python scripts/validate.py prepare --n-fires 32 --days-per-fire 6   # domains, f
 python scripts/validate.py run --ignition perimeter --workers 8     # one JSON line per fire-day
 python scripts/validate.py run --ignition bennett --workers 8
 python scripts/validate.py report                                   # report.md + fire_days.csv
+# second round: active edges, FFMC spin-up, burning period; calibration vs held-out test fires
+R=--runs-dir=$FIRESIM_VALIDATION_DATA/skill/runs
+python scripts/validate.py $R run --name perimeter_base --windows 4 6 8 10 12 14 17 24
+python scripts/validate.py $R run --name active2_spin_bp1020 --ignition active --active-days 2 \
+    --ffmc-spinup --burning-period 10 20 --windows 4 6 8 10 12 14 17 24
+python scripts/validate.py $R compare perimeter_base active2_spin_bp1020 --ref perimeter_base
 python3 scripts/validation/wise_fireday.py 2019_177:168 ...         # optional WISE runs (Docker)
 ```
 
@@ -213,13 +330,19 @@ Alberta sample, so the numbers carry wide uncertainty.
   is uint8). Fixed in this PR (cast to int32 before writing the -9999 fill).
 - The spotting model draws from Python's unseeded global `random`, so spotting runs are not
   repeatable. The harness seeds it per fire-day; the engine itself is unchanged.
-- Run time: about 80 % of a fire-day run is re-evaluating FBP for every distinct cell type
-  (fuel x slope x aspect) at each hourly weather change (`_CellParams.evaluate`). With real
-  terrain there are thousands of distinct types, so a 24 h hourly run takes about a minute on a
-  500 x 500 grid. Caching by (fuel, slope, aspect) and vectorising FBP would make this much
-  faster; spread behaviour would not change.
+- Run time: about 80 % of a fire-day run was re-evaluating FBP for every distinct cell type
+  (fuel x slope x aspect) at each hourly weather change (`_CellParams.evaluate`, about 18,000
+  `calculate_fbp` calls per hour on a real fire-day). Fixed in the second round: each fuel /
+  canopy group is evaluated at once with `fbp_ellipse_arrays` (same equations and operation
+  order, slope-equivalent wind once per distinct slope). Results equal the scalar path to
+  floating-point rounding (`engine/tests/fbp/test_vectorised.py`,
+  `engine/tests/spread/test_cellular_fbp_table.py`) and the 143 fire-day scores were identical.
+- A weather period in which nothing can spread (e.g. outside a burning period) used to end the
+  grid run; it now waits for the next weather change. FBP floors ROS above zero, so default
+  runs were not affected.
 
-No engine spread behaviour was changed for these measurements.
+No default engine spread behaviour was changed for these measurements: active edges, FFMC
+spin-up and the burning period are opt-in.
 
 ## References
 
@@ -235,5 +358,17 @@ No engine spread behaviour was changed for these measurements.
   and crown fire rates of spread. *Environmental Modelling & Software* 47, 16-28.
 - Fox-Hughes, P., et al. (2024). *Int. J. Wildland Fire*, doi:10.1071/WF23028 (four
   simulators on ten Australian fires; threat score, bearing and forward-spread error).
+- Beck, J.A., Alexander, M.E., Harvey, S.D., Beaver, A.K. (2002). Forecasting diurnal
+  variations in fire intensity to enhance wildland firefighter safety. *Int. J. Wildland Fire*
+  11, 173-182.
 - Hersbach, H., et al. (2020). The ERA5 global reanalysis. *Q. J. R. Meteorol. Soc.* 146,
   1999-2049.
+- Lawson, B.D., Armitage, O.B., Hoskins, W.D. (1996). *Diurnal variation in the Fine Fuel
+  Moisture Code: tables and computer source code.* FRDA Report 245.
+- Tymstra, C., Bryce, R.W., Wotton, B.M., Taylor, S.W., Armitage, O.B. (2010). *Development and
+  structure of Prometheus: the Canadian wildland fire growth simulation model.* Inf. Rep.
+  NOR-X-417.
+- Van Wagner, C.E. (1977). *A method of computing fine fuel moisture content throughout the
+  diurnal cycle.* Inf. Rep. PS-X-69.
+- Van Wagner, C.E. (1987). *Development and structure of the Canadian Forest Fire Weather Index
+  System.* Forestry Tech. Rep. 35.
