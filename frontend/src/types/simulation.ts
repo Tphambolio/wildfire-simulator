@@ -57,6 +57,17 @@ export interface SimulationCreate {
   use_ca_mode?: boolean;
   enable_spotting?: boolean;
   spotting_intensity?: number;
+  /** Grid runs: run an ensemble after the deterministic run (GET /simulations/{id}/ensemble) */
+  ensemble?: EnsembleParams | null;
+}
+
+/**
+ * Ensemble request (API EnsembleParams). Only n_members is set by the UI; the perturbation
+ * sizes stay at the API defaults, which are not yet calibrated on observed fires.
+ */
+export interface EnsembleParams {
+  n_members: number;
+  seed?: number;
 }
 
 export interface SimulationFrame {
@@ -239,6 +250,8 @@ export interface ScenarioConfig {
   simMode: "single" | "multiday";
   multiDayDays: MultiDayWeatherParams[];
   mcIterations: number;
+  /** Range of outcomes (ensemble) members for grid runs; null = off (absent in older saves) */
+  ensembleMembers?: number | null;
   lastRunStats?: {
     areaHa: number;
     timeHours: number;

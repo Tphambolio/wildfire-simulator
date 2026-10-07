@@ -1,0 +1,230 @@
+/* ── Range of outcomes (ensemble) ──────────────────────────────────────────── */
+/* Loaded after index.css (main.tsx); colours and sizes from tokens.css. */
+
+/* Setup: the ensemble option in Run options */
+.ensemble-option {
+  border: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.ensemble-option .hint-sm {
+  margin: var(--sp-1) 0 0;
+}
+
+/* Situation panel: the headline card */
+.ens-card {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.ens-h {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-lg);
+  color: var(--text);
+}
+
+.ens-progress-text {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ens-progress-track {
+  margin-top: var(--sp-1);
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ens-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ens-progress-fill { transition: none; }
+}
+
+.ens-error {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--danger-text);
+}
+
+.ens-headline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ens-kicker {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.ens-big {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.ens-big small {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.ens-sub {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ens-range {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-sm);
+}
+
+.ens-range dt {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.ens-range dd {
+  margin: 2px 0 0;
+  display: flex;
+  gap: var(--sp-3);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ens-range-k {
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.ens-def {
+  margin: var(--sp-2) 0 0;
+}
+
+.ens-toggles {
+  border: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ens-toggles legend {
+  padding: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  margin-bottom: 2px;
+}
+
+.ens-caveat {
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-2);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--warning-soft);
+  border-left: 3px solid var(--warning-text);
+  border-radius: var(--radius-sm);
+}
+
+.ens-caveat strong {
+  color: var(--warning-text);
+}
+
+.situation-kpi-caption {
+  padding: var(--sp-2) var(--sp-4) 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+/* Neighbourhoods: the worst-credible time leads, the single run is secondary */
+.evac-arrival-worst {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.evac-arrival-single {
+  color: var(--text-2);
+}
+
+/* Map: ensemble legend (top right) and clock-time labels on the P10 lines */
+/* Below the telemetry chips, right of the map */
+.burn-prob-legend.ens-legend {
+  top: 100px;
+  right: 10px;
+  bottom: auto;
+  left: auto;
+  max-width: 250px;
+}
+
+.ens-legend .burn-prob-legend-row {
+  line-height: 1.3;
+}
+
+/* Swatches on the dark legend (the map draws these in ink on a white casing) */
+.ens-swatch {
+  display: inline-block;
+  width: 28px;
+  height: 0;
+  flex-shrink: 0;
+  border-top: 2px solid var(--text);
+}
+
+.ens-swatch-now { border-top-width: 4px; }
+.ens-swatch-p50 { border-top: 3px dashed var(--text); }
+.ens-swatch-future { border-top: 2px dashed var(--text-3); }
+.ens-swatch-p90 { border-top: 3px dotted var(--text); }
+
+.ens-legend-sub {
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+
+.ens-ramp {
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ens-ramp-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+/* Light basemap underneath: ink on white, like the neighbourhood labels */
+.map-iso-label {
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1f2937;
+  border: 1px solid #1f2937;
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.map-iso-label-future {
+  color: #4a5360;
+  border-style: dashed;
+  border-color: #6b7787;
+  font-weight: 600;
+}

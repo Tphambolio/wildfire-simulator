@@ -20,6 +20,7 @@ import {
   arrivalsToGeoJSON,
   featureName,
   neighbourhoodArrivals,
+  neighbourhoodArrivalsFromPoints,
   planningZones,
   planningZonesToGeoJSON,
   upsertTier,
@@ -39,6 +40,16 @@ import { fwiClassColor, fwiClassTextColor } from "./utils/fwiClass";
 import TopBar from "./components/TopBar";
 import SetupSection from "./components/SetupSection";
 import SituationPanel from "./components/SituationPanel";
+import EnsemblePanel, { type EnsembleToggles } from "./components/EnsemblePanel";
+import { useEnsemble } from "./hooks/useEnsemble";
+import {
+  arrivalLevels,
+  arrivalLines,
+  arrivalPoints,
+  arrivalRings,
+  probabilityPixels,
+  type EnsembleMapLayers,
+} from "./utils/ensemble";
 
 /**
  * Export burn probability contour polygons as GeoJSON.
@@ -402,9 +413,13 @@ export default function App() {
   // Setup ("now" by default), sent as start_time; the engine stays time-agnostic (hours after it).
   const [scenarioStart, setScenarioStart] = useState<Date | null>(null);
 
+  // Ensemble size requested with the current run (null = none: multi-day, perimeter restart)
+  const [ensembleMembers, setEnsembleMembers] = useState<number | null>(null);
+
   const handlePerimeterOverride = useCallback(
     (req: PerimeterOverrideRequest) => {
       setScenarioStart(new Date());
+      setEnsembleMembers(null);
       startPerimeterOverride(req);
     },
     [startPerimeterOverride]
@@ -413,6 +428,7 @@ export default function App() {
   const handleStartMultiDay = useCallback(
     (req: Parameters<typeof startMultiDaySimulation>[0], startMs: number) => {
       setScenarioStart(new Date(startMs));
+      setEnsembleMembers(null);
       startMultiDaySimulation(req);
     },
     [startMultiDaySimulation]
@@ -440,13 +456,56 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
-  // Neighbourhoods: modelled earliest fire arrival within 500 m (a model fact, whole run)
+  // ── Ensemble (range of outcomes): polled after the single run, the headline once in ──
+  const ensemble = useEnsemble(simulationId, ensembleMembers, status);
+  const ensGrids = ensemble.grids;
+  const [ensToggles, setEnsToggles] = useState<EnsembleToggles>({ lines: true, p50: true, p90: false, prob: false });
+  const handleEnsToggle = useCallback(
+    (key: keyof EnsembleToggles, value: boolean) => setEnsToggles((t) => ({ ...t, [key]: value })),
+    [],
+  );
+  const selectedMinutes = currentFrame ? currentFrame.time_hours * 60 : null;
+  const ensLines = useMemo(
+    () => (ensGrids ? arrivalLines(ensGrids, arrivalLevels(ensGrids.durationMinutes, scenarioStart), scenarioStart) : []),
+    [ensGrids, scenarioStart],
+  );
+  const ensStatic = useMemo(
+    () => (ensGrids ? { p90: arrivalRings(ensGrids, "p90", ensGrids.durationMinutes), prob: probabilityPixels(ensGrids) } : null),
+    [ensGrids],
+  );
+  const ensAt = ensGrids ? (selectedMinutes ?? ensGrids.durationMinutes) : 0;
+  const ensNow = useMemo(
+    () => (ensGrids ? { p10: arrivalRings(ensGrids, "p10", ensAt), p50: arrivalRings(ensGrids, "p50", ensAt) } : null),
+    [ensGrids, ensAt],
+  );
+  const ensembleMap = useMemo<EnsembleMapLayers | null>(
+    () =>
+      ensGrids && ensStatic && ensNow
+        ? {
+            lines: ensLines,
+            selectedMinutes: ensAt,
+            nowP10: ensNow.p10,
+            nowP50: ensNow.p50,
+            p90: ensStatic.p90,
+            prob: ensStatic.prob,
+            show: ensToggles,
+          }
+        : null,
+    [ensGrids, ensStatic, ensNow, ensLines, ensAt, ensToggles],
+  );
+
+  // Neighbourhoods: modelled earliest fire arrival within 500 m (a model fact, whole run).
+  // With an ensemble, the worst-credible (P10) arrival leads and the single run is secondary.
   const communities = overlayLayers.communities.data;
   const arrivals = useMemo(() => neighbourhoodArrivals(frames, communities), [frames, communities]);
-  const arrivalOutlines = useMemo(
-    () => (arrivals.length ? arrivalsToGeoJSON(arrivals, scenarioStart) : null),
-    [arrivals, scenarioStart],
+  const worstArrivals = useMemo(
+    () => (ensGrids ? neighbourhoodArrivalsFromPoints(arrivalPoints(ensGrids, "p10"), communities) : null),
+    [ensGrids, communities],
   );
+  const arrivalOutlines = useMemo(() => {
+    if (worstArrivals?.length) return arrivalsToGeoJSON(worstArrivals, scenarioStart, true);
+    return arrivals.length ? arrivalsToGeoJSON(arrivals, scenarioStart) : null;
+  }, [arrivals, worstArrivals, scenarioStart]);
   const neighbourhoodNames = useMemo(
     () => [...new Set((communities?.features ?? []).map(featureName))].sort((a, b) => a.localeCompare(b)),
     [communities],
@@ -535,6 +594,7 @@ export default function App() {
       setDismissedError(null);
       const start = params.start_time ? Date.parse(params.start_time) : NaN;
       setScenarioStart(new Date(Number.isFinite(start) ? start : Date.now()));
+      setEnsembleMembers(params.ensemble?.n_members ?? null);
       startSimulation(params);
     },
     [startSimulation]
@@ -824,6 +884,7 @@ export default function App() {
             arrivalOutlinesVisible={arrivalOutlinesVisible}
             onSetEvacTier={handleSetEvacTier}
             evacTierRecords={evacTierRecords}
+            ensemble={ensembleMap}
           />
         </MapErrorBoundary>
       </main>
@@ -837,6 +898,16 @@ export default function App() {
           totalFrames={frames.length}
           status={status}
           scenarioStart={scenarioStart}
+          headline={
+            <EnsemblePanel
+              state={ensemble}
+              selectedMinutes={selectedMinutes}
+              scenarioStart={scenarioStart}
+              toggles={ensToggles}
+              onToggle={handleEnsToggle}
+            />
+          }
+          kpiCaption={ensemble.phase !== "off" ? "Single run (P50-like)" : null}
         >
           <FireMetrics
             frame={currentFrame}
@@ -845,6 +916,7 @@ export default function App() {
           />
           <EvacStatusPanel
             arrivals={arrivals}
+            worstArrivals={worstArrivals}
             scenarioStart={scenarioStart}
             hasRun={frames.length > 0}
             records={evacTierRecords}

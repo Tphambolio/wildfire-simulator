@@ -49,7 +49,7 @@ The suite:
 
 `tests/fixtures/terwillegar_grass_4h.json` is a real engine run (grass fire west of
 Terwillegar on the Edmonton fuel grid, 4 h, 15 min snapshots, W 20 km/h, FFMC 92 / DMC 40 /
-DC 300) serialised by the API's own routes in the `cells_mode: "incremental"` format the app requests, plus `fuel_grid_image.json` and `arrival.json`. When the engine or
+DC 300) serialised by the API's own routes in the `cells_mode: "incremental"` format the app requests, plus `fuel_grid_image.json`, `arrival.json` and the 30-member ensemble of the same run (`ensemble.json.gz`, served by the mock only with `mockApi(page, { ensemble: true })`). When the engine or
 the frame format changes, regenerate both from the repo root with the engine and API
 dependencies installed:
 

@@ -13,6 +13,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 import type { Page, Route } from "@playwright/test";
 
 const FIXTURES = fileURLToPath(new URL("../fixtures/", import.meta.url));
@@ -28,6 +29,13 @@ export interface Fixture {
 export const fixture: Fixture = JSON.parse(readFileSync(FIXTURES + "terwillegar_grass_4h.json", "utf8"));
 const fuelGridImage = readFileSync(FIXTURES + "fuel_grid_image.json", "utf8");
 const arrival = readFileSync(FIXTURES + "arrival.json", "utf8");
+/** The completed 30-member ensemble of the same run (GET /simulations/{id}/ensemble) */
+export const ensembleFixture = JSON.parse(gunzipSync(readFileSync(FIXTURES + "ensemble.json.gz")).toString("utf8")) as {
+  total: number;
+  area_ha: { min: number; p50: number; max: number };
+  note: string;
+};
+const ensembleBody = JSON.stringify(ensembleFixture);
 
 // 1x1 transparent PNG
 const BLANK_PNG = Buffer.from(
@@ -59,12 +67,20 @@ export interface MockOptions {
   mode?: "ws" | "poll";
   /** Delay between replayed frames (ms). */
   frameDelayMs?: number;
+  /**
+   * Serve the recorded ensemble: "pending" on the first poll, then "running" with `done`
+   * rising by `ensembleStep` members per poll, then the completed fixture. Off (default):
+   * GET /ensemble answers 404 "No ensemble requested", as the API does for a run without one.
+   */
+  ensemble?: boolean;
+  ensembleStep?: number;
 }
 
 export interface MockState {
   posts: Array<Record<string, unknown>>;
   wsConnections: number;
   polls: number;
+  ensemblePolls: number;
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -73,7 +89,8 @@ const json = (route: Route, body: unknown, status = 200) =>
 export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockState> {
   const mode = opts.mode ?? "ws";
   const frameDelayMs = opts.frameDelayMs ?? 40;
-  const state: MockState = { posts: [], wsConnections: 0, polls: 0 };
+  const state: MockState = { posts: [], wsConnections: 0, polls: 0, ensemblePolls: 0 };
+  const ensembleStep = opts.ensembleStep ?? 8;
 
   // External requests: tiles get a blank PNG, everything else is aborted
   await page.route(
@@ -99,6 +116,15 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return json(route, { simulation_id: fixture.simulation_id, status: "running", config: fixture.config, frames: [], error: null });
     }
     if (path === `/api/v1/simulations/${fixture.simulation_id}/arrival`) return json(route, arrival);
+    if (path === `/api/v1/simulations/${fixture.simulation_id}/ensemble`) {
+      if (!opts.ensemble) return json(route, { detail: "No ensemble requested for this run" }, 404);
+      const n = ++state.ensemblePolls;
+      const total = ensembleFixture.total;
+      if (n === 1) return json(route, { status: "pending", done: 0, total });
+      const done = (n - 1) * ensembleStep;
+      if (done < total) return json(route, { status: "running", done, total, error: null });
+      return json(route, ensembleBody);
+    }
     if (path === `/api/v1/simulations/${fixture.simulation_id}` && req.method() === "GET") {
       state.polls++;
       return json(route, fixture);

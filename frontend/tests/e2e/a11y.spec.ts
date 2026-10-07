@@ -88,4 +88,15 @@ test.describe("accessibility (axe)", () => {
     await runToCompletion(page);
     await check(page, "completed", testInfo);
   });
+
+  test("range of outcomes (ensemble, burn probability on) has no new serious/critical violations", async ({ page }, testInfo) => {
+    await mockApi(page, { ensemble: true });
+    await openApp(page);
+    await setIgnitionAtMapCentre(page);
+    await runToCompletion(page);
+    await expect(page.getByTestId("ensemble-p10-area")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("ensemble-card").getByLabel("Burn probability").check();
+    await page.getByTestId("ensemble-card").getByLabel(/P90/).check();
+    await check(page, "ensemble", testInfo);
+  });
 });

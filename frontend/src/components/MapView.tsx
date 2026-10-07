@@ -13,6 +13,16 @@ import type { EvacTier, EvacTierRecord, PlanningEvacZone } from "../utils/evacZo
 import { EVAC_COLOR, EVAC_TIERS, TIER_STYLE, featureName, labelPoint, planningZonesToGeoJSON } from "../utils/evacZones";
 import type { Isochrone } from "../utils/isochrones";
 import { isochronesToGeoJSON, isochroneLabelsGeoJSON } from "../utils/isochrones";
+import { PROB_STOPS, probCss, ringsFeature, type EnsembleMapLayers } from "../utils/ensemble";
+
+/** Ensemble line colour: ink, one colour for every arrival line (design spec §3.3, §6.2) */
+const ENS_INK = "#1f2937";
+/** Ensemble layers (bottom to top); the burn-probability raster goes below the first */
+const ENS_LINE_LAYERS = [
+  "ens-p90-casing", "ens-p90-line",
+  "ens-lines-casing", "ens-lines-future", "ens-lines-past",
+  "ens-now-casing", "ens-now-p50", "ens-now-p10",
+];
 
 /** Minimum spot fire HFI (kW/m) to render on the map. Weak spots below this are hidden. */
 const SPOT_HFI_MIN = 300;
@@ -207,6 +217,8 @@ interface MapViewProps {
   spotFiresVisible?: boolean;
   /** Increment to fit the map to the final frame (e.g. when a run completes) */
   fitRequest?: number;
+  /** Ensemble (range of outcomes): P10 arrival lines, P10/P50 extent now, P90, burn probability */
+  ensemble?: EnsembleMapLayers | null;
 }
 
 export default function MapView({
@@ -237,6 +249,7 @@ export default function MapView({
   mapRefCallback,
   spotFiresVisible: spotFiresVisibleProp,
   fitRequest = 0,
+  ensemble = null,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -807,6 +820,58 @@ export default function MapView({
       },
     });
 
+    // ── Ensemble (range of outcomes): ink lines on a white casing, labels are DOM markers ──
+    if (m.getLayer("ens-prob-layer")) m.removeLayer("ens-prob-layer");
+    if (m.getSource("ens-prob")) m.removeSource("ens-prob");
+    for (const id of ENS_LINE_LAYERS) if (m.getLayer(id)) m.removeLayer(id);
+    for (const src of ["ens-p90", "ens-lines", "ens-now"]) if (m.getSource(src)) m.removeSource(src);
+    const emptyFc: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+    m.addSource("ens-p90", { type: "geojson", data: emptyFc });
+    m.addSource("ens-lines", { type: "geojson", data: emptyFc });
+    m.addSource("ens-now", { type: "geojson", data: emptyFc });
+    const casing = (id: string, source: string, width: number, filter?: maplibregl.FilterSpecification) =>
+      m.addLayer({
+        id, type: "line", source,
+        ...(filter ? { filter } : {}),
+        layout: { "line-join": "round" },
+        paint: { "line-color": "#ffffff", "line-width": width, "line-opacity": 0.75 },
+      });
+    // P90 footprint (cells 9 in 10 members reach): dotted
+    casing("ens-p90-casing", "ens-p90", 3.5);
+    m.addLayer({
+      id: "ens-p90-line", type: "line", source: "ens-p90",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": ENS_INK, "line-width": 2, "line-dasharray": [0.1, 2] },
+    });
+    // P10 arrival lines: solid up to the selected time, dashed and lighter after it (projected)
+    casing("ens-lines-casing", "ens-lines", 3.5, ["==", ["get", "phase"], "past"]);
+    m.addLayer({
+      id: "ens-lines-future", type: "line", source: "ens-lines",
+      filter: ["==", ["get", "phase"], "future"],
+      layout: { "line-join": "round" },
+      paint: { "line-color": ENS_INK, "line-width": 1.2, "line-opacity": 0.5, "line-dasharray": [2, 3] },
+    });
+    m.addLayer({
+      id: "ens-lines-past", type: "line", source: "ens-lines",
+      filter: ["==", ["get", "phase"], "past"],
+      layout: { "line-join": "round" },
+      paint: { "line-color": ENS_INK, "line-width": 1.5 },
+    });
+    // Extent at the selected time: P10 bold, P50 long dashes
+    casing("ens-now-casing", "ens-now", 6);
+    m.addLayer({
+      id: "ens-now-p50", type: "line", source: "ens-now",
+      filter: ["==", ["get", "kind"], "p50"],
+      layout: { "line-join": "round" },
+      paint: { "line-color": ENS_INK, "line-width": 2.5, "line-dasharray": [4, 2] },
+    });
+    m.addLayer({
+      id: "ens-now-p10", type: "line", source: "ens-now",
+      filter: ["==", ["get", "kind"], "p10"],
+      layout: { "line-join": "round" },
+      paint: { "line-color": ENS_INK, "line-width": 3.5 },
+    });
+
     // Click a neighbourhood: its name, the modelled arrival, and its evacuation status, which
     // Planning can set here (None / Watch / Alert / Order). FireSim never sets it.
     m.on("click", "overlay-communities-fill", (e) => {
@@ -1314,6 +1379,7 @@ export default function MapView({
   }, [showSpotFires, spotFiresVisibleProp, mapReady]);
 
   // Toggle between burn probability view and fire spread view
+  const ensProbOn = !!ensemble?.show.prob;
   useEffect(() => {
     if (!map.current || !mapReady) return;
     const m = map.current;
@@ -1330,10 +1396,12 @@ export default function MapView({
     burnLayers.forEach((id) => {
       if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", hasBurnData ? "visible" : "none");
     });
+    // The single run's fire is also hidden while the ensemble burn probability is shown
+    const hideFire = hasBurnData || ensProbOn;
     fireLayers.forEach((id) => {
-      if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", hasBurnData ? "none" : "visible");
+      if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", hideFire ? "none" : "visible");
     });
-  }, [showBurnProbView, burnProbabilityData, mapReady, fireLayersVersion]);
+  }, [showBurnProbView, burnProbabilityData, mapReady, fireLayersVersion, ensProbOn]);
 
   const hasFire = frames.length > 0;
 
@@ -1548,6 +1616,145 @@ export default function MapView({
     }
   }, [isochronesVisible, mapReady, fireLayersVersion]);
 
+  // ── Ensemble layers ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady) return;
+    const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+    const set = (id: string, fc: GeoJSON.FeatureCollection) =>
+      (m.getSource(id) as maplibregl.GeoJSONSource | undefined)?.setData(fc);
+    if (!ensemble) {
+      for (const id of ["ens-p90", "ens-lines", "ens-now"]) set(id, empty);
+      mapContainer.current?.removeAttribute("data-ens-lines");
+      return;
+    }
+    const t = ensemble.selectedMinutes;
+    set("ens-lines", {
+      type: "FeatureCollection",
+      features: ensemble.lines.map((l) =>
+        ringsFeature(l.rings, { minutes: l.minutes, label: l.label, phase: l.minutes <= t + 1e-6 ? "past" : "future" }),
+      ),
+    });
+    set("ens-now", {
+      type: "FeatureCollection",
+      features: [
+        ringsFeature(ensemble.nowP10, { kind: "p10" }),
+        ...(ensemble.show.p50 ? [ringsFeature(ensemble.nowP50, { kind: "p50" })] : []),
+      ],
+    });
+    set("ens-p90", { type: "FeatureCollection", features: [ringsFeature(ensemble.p90, { kind: "p90" })] });
+    // What is drawn, for tests and debugging (the map itself is a canvas)
+    mapContainer.current?.setAttribute(
+      "data-ens-lines",
+      JSON.stringify(ensemble.lines.map((l) => [l.label, l.minutes <= t + 1e-6 ? "past" : "future", l.rings.length])),
+    );
+  }, [ensemble, mapReady, fireLayersVersion]);
+
+  // Burn probability raster (cells any member reached), as an image source under the lines
+  const probUrl = useRef<{ key: unknown; url: string } | null>(null);
+  const ensProb = ensemble?.prob ?? null;
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady) return;
+    const prob = ensProb;
+    if (!prob) {
+      if (m.getLayer("ens-prob-layer")) m.removeLayer("ens-prob-layer");
+      if (m.getSource("ens-prob")) m.removeSource("ens-prob");
+      return;
+    }
+    if (probUrl.current?.key !== prob) {
+      const canvas = document.createElement("canvas");
+      canvas.width = prob.width;
+      canvas.height = prob.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(prob.data), prob.width, prob.height), 0, 0);
+      probUrl.current = { key: prob, url: canvas.toDataURL("image/png") };
+    }
+    const url = probUrl.current.url;
+    const src = m.getSource("ens-prob") as maplibregl.ImageSource | undefined;
+    if (src) {
+      src.updateImage({ url, coordinates: prob.coordinates });
+    } else {
+      m.addSource("ens-prob", { type: "image", url, coordinates: prob.coordinates });
+      m.addLayer(
+        { id: "ens-prob-layer", type: "raster", source: "ens-prob", paint: { "raster-opacity": 0.8, "raster-resampling": "nearest" } },
+        m.getLayer("ens-p90-casing") ? "ens-p90-casing" : undefined,
+      );
+    }
+  }, [ensProb, mapReady, fireLayersVersion]);
+
+  // When an ensemble arrives, widen the view to its last P10 line if that is not in view
+  // (the worst-credible extent is usually larger than the single run the map was fitted to)
+  const ensFittedRef = useRef<unknown>(null);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady || !ensemble || ensemble.lines.length === 0) return;
+    if (ensFittedRef.current === ensemble.lines) return;
+    ensFittedRef.current = ensemble.lines;
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+    for (const ring of ensemble.lines[ensemble.lines.length - 1].rings) {
+      for (const [lng, lat] of ring) {
+        if (lng < w) w = lng;
+        if (lng > e) e = lng;
+        if (lat < s) s = lat;
+        if (lat > n) n = lat;
+      }
+    }
+    if (!Number.isFinite(w)) return;
+    const view = m.getBounds();
+    if (view.contains([w, s]) && view.contains([e, n])) return;
+    m.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 15, duration: 800 });
+  }, [ensemble, mapReady]);
+
+  // Ensemble layer visibility
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady) return;
+    const show = ensemble?.show;
+    const setVis = (ids: string[], v: boolean) => {
+      for (const id of ids) if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", v ? "visible" : "none");
+    };
+    setVis(["ens-lines-casing", "ens-lines-future", "ens-lines-past", "ens-now-casing", "ens-now-p10", "ens-now-p50"], !!ensemble && !!show?.lines);
+    setVis(["ens-p90-casing", "ens-p90-line"], !!ensemble && !!show?.p90);
+    setVis(["ens-prob-layer"], !!ensemble && !!show?.prob);
+  }, [ensemble, mapReady, fireLayersVersion]);
+
+  // Clock-time labels on the P10 lines (DOM markers: the basemaps have no glyphs, and these
+  // stay >= 12 px). Labels that would overlap an earlier one are hidden, re-checked on zoom.
+  const ensLabelMarkersRef = useRef<maplibregl.Marker[]>([]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady) return;
+    for (const mk of ensLabelMarkersRef.current) mk.remove();
+    ensLabelMarkersRef.current = [];
+    if (!ensemble || !ensemble.show.lines) return;
+    const t = ensemble.selectedMinutes;
+    for (const l of ensemble.lines) {
+      if (!l.anchor) continue;
+      const el = document.createElement("div");
+      el.className = `map-iso-label${l.minutes <= t + 1e-6 ? "" : " map-iso-label-future"}`;
+      el.setAttribute("aria-hidden", "true");
+      el.textContent = l.label;
+      ensLabelMarkersRef.current.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(l.anchor).addTo(m));
+    }
+    const declutter = () => {
+      const placed: Array<{ x: number; y: number }> = [];
+      // Latest line first: the outermost labels win, inner ones give way when crowded
+      for (const mk of [...ensLabelMarkersRef.current].reverse()) {
+        const p = m.project(mk.getLngLat());
+        const clash = placed.some((q) => Math.abs(q.x - p.x) < 46 && Math.abs(q.y - p.y) < 22);
+        mk.getElement().style.visibility = clash ? "hidden" : "";
+        if (!clash) placed.push(p);
+      }
+    };
+    declutter();
+    m.on("zoomend", declutter);
+    return () => {
+      m.off("zoomend", declutter);
+    };
+  }, [ensemble, mapReady]);
+
   const flyTo = useCallback((lat: number, lng: number, zoom = 12) => {
     map.current?.flyTo({ center: [lng, lat], zoom, duration: 1500 });
   }, []);
@@ -1580,9 +1787,39 @@ export default function MapView({
           </div>
         </div>
       )}
+      {/* Ensemble legend: line styles, and the burn-probability ramp when shown */}
+      {ensemble && (ensemble.show.lines || ensemble.show.p90 || ensemble.show.prob) && (
+        <div className="burn-prob-legend ens-legend" data-testid="ensemble-legend">
+          <div className="burn-prob-legend-title">Range of outcomes</div>
+          <div className="burn-prob-legend-scale">
+            {ensemble.show.lines && (
+              <>
+                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-line" aria-hidden="true" /> Worst-credible arrival (P10), clock time</div>
+                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-now" aria-hidden="true" /> Worst-credible extent now</div>
+                {ensemble.show.p50 && (
+                  <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-p50" aria-hidden="true" /> Median extent now (P50)</div>
+                )}
+                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-future" aria-hidden="true" /> Later (projected)</div>
+              </>
+            )}
+            {ensemble.show.p90 && (
+              <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-p90" aria-hidden="true" /> Reached by 9 in 10 members (P90)</div>
+            )}
+          </div>
+          {ensemble.show.prob && (
+            <>
+              <div className="burn-prob-legend-meta ens-legend-sub">Burn probability, share of members (single run hidden)</div>
+              <div className="ens-ramp" aria-hidden="true" style={{
+                background: `linear-gradient(to right, ${PROB_STOPS.map(([p]) => `${probCss(p)} ${p}%`).join(", ")})`,
+              }} />
+              <div className="ens-ramp-labels"><span>1%</span><span>50%</span><span>100%</span></div>
+            </>
+          )}
+        </div>
+      )}
       {/* Grid-run legend: the per-cell crown-state circles are drawn only from zoom 14;
           below that the heatmap shows intensity-weighted density */}
-      {frames.length > 0 && frames[currentFrameIndex]?.burned_cells && frames[currentFrameIndex].burned_cells!.length > 0 && (
+      {!ensProbOn && frames.length > 0 && frames[currentFrameIndex]?.burned_cells && frames[currentFrameIndex].burned_cells!.length > 0 && (
         <div className="burn-prob-legend fire-legend">
           <div className="burn-prob-legend-title">{mapZoom >= 14 ? "Crown Fire State" : "Fire Intensity"}</div>
           {mapZoom < 14 && (

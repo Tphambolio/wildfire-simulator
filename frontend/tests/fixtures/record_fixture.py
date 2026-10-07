@@ -6,8 +6,10 @@ Terwillegar-like grass fire on the Edmonton fuel grid, polls GET /api/v1/simulat
 until it completes, and writes the API response (SimulationResponse with frames, exactly as
 the API serialises it) to ``terwillegar_grass_4h.json`` next to this script. The request asks
 for ``cells_mode: "incremental"`` as the app does, so frames carry only newly burned cells plus
-``cells_offset``. It also records GET /simulations/fuel-grid-image (``fuel_grid_image.json``)
-and GET /simulations/{id}/arrival (``arrival.json``).
+``cells_offset``. It also records GET /simulations/fuel-grid-image (``fuel_grid_image.json``),
+GET /simulations/{id}/arrival (``arrival.json``) and, as the app asks for a 30-member ensemble,
+GET /simulations/{id}/ensemble once complete (``ensemble.json.gz``, gzipped: the rasters are
+mostly -1 and compress well).
 
 Because it goes through the API's own routes and schemas, the fixture follows any change to
 the frame format (e.g. PR 6 incremental frames): re-run this script and commit the result.
@@ -21,6 +23,7 @@ or ``npm run fixture:record`` from frontend/ (uses ``python3`` on PATH; set PYTH
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import sys
@@ -40,6 +43,7 @@ from firesim_api.main import app  # noqa: E402
 OUT = HERE / "terwillegar_grass_4h.json"
 FUEL_IMG_OUT = HERE / "fuel_grid_image.json"
 ARRIVAL_OUT = HERE / "arrival.json"
+ENSEMBLE_OUT = HERE / "ensemble.json.gz"
 DATA = REPO / "data"
 
 # Paths the frontend sends by default (WeatherPanel), mapped to the repo's data/ folder.
@@ -76,6 +80,8 @@ REQUEST = {
     "use_ca_mode": False,
     "enable_spotting": False,
     "spotting_intensity": 1.0,
+    # The app's default "Range of outcomes" (ensemble) option
+    "ensemble": {"n_members": 30},
 }
 
 # Size budget: keep the committed JSON small. If it is over, burned_cells are thinned (every
@@ -134,6 +140,21 @@ def main() -> int:
         arr = client.get(f"/api/v1/simulations/{sim_id}/arrival")
         if arr.status_code == 200:
             ARRIVAL_OUT.write_text(json.dumps(arr.json(), separators=(",", ":")) + "\n")
+        # Ensemble (runs after the deterministic frames; 404 if the API predates it)
+        while True:
+            ens = client.get(f"/api/v1/simulations/{sim_id}/ensemble")
+            if ens.status_code != 200 or ens.json()["status"] not in ("pending", "running"):
+                break
+            if time.time() - t0 > 1800:
+                print("timed out waiting for the ensemble", file=sys.stderr)
+                return 1
+            time.sleep(1.0)
+        if ens.status_code == 200 and ens.json()["status"] == "completed":
+            # mtime=0 so re-recording an identical ensemble gives an identical file
+            with gzip.GzipFile(ENSEMBLE_OUT, "wb", mtime=0) as gz:
+                gz.write((json.dumps(ens.json(), separators=(",", ":")) + "\n").encode())
+        else:
+            print(f"no ensemble recorded: {ens.status_code} {ens.text[:200]}", file=sys.stderr)
     if data["status"] != "completed":
         print(f"simulation {data['status']}: {data.get('error')}", file=sys.stderr)
         return 1
