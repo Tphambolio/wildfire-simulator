@@ -1,6 +1,6 @@
 # Verification and limits
 
-What has been checked, against what, and what has not. Last updated 2026-10-06.
+What has been checked, against what, and what has not. Last updated 2026-10-07.
 
 FireSim is a **planning, training and what-if tool**. Verification here means the code solves
 the FBP System's equations correctly and the spread models reproduce FBP's fire shape on
@@ -76,6 +76,34 @@ a 50 m x 20 m flame at 1200 K: 80.6 / 45.9 / 27.8 kW/m2 at 10 / 20 / 30 m agains
 the same as a point. Tests: `engine/tests/test_exposure.py`. This checks the implementation
 against SIAM, which itself overestimates measured crown-fire flux (Cohen 2000).
 
+### Head, flank and back (deployment data)
+
+Each burned cell of a grid run carries the front's normal speed and a head / flank / back tag
+(the angle between its spread direction, from the arrival-time gradient, and the cell's FBP
+head direction RAZ: within 45° head, within 45° of the opposite back). On uniform fuel at
+equilibrium (`engine/tests/spread/test_deployment_data.py`):
+
+| Fuel | FBP ROS / BROS (m/min) | Fastest head cell | Rearmost back cell | Head direction vs RAZ |
+|---|---|---|---|---|
+| C-2, 20 km/h, FFMC 92 | 22.96 / 1.47 | 22.96 | 1.47 | 90° vs 90° |
+| O-1a 100 % cured | 49.71 / 3.91 | 49.71 | 3.91 | 90° vs 90° |
+| C-2 on a 40 % slope, wind across it | — | — | — | within 2° of the slope-adjusted RAZ |
+
+The frame's `head_ros_m_min` is the fastest head cell's speed (before 2026-10-06 it was the mean
+FBP head rate of newly burned cells, which is not the front's speed).
+
+### Classes shown in the UI
+
+- **Head fire intensity classes 1-6** (10 / 500 / 2,000 / 4,000 / 10,000 kW/m): limits as on the
+  CWFIS head fire intensity map (GeoServer layer `public:hfi`, read 2026-10-06); meanings and
+  equipment paraphrased from Cole & Alexander (1995), written for C-2 on level ground (class 6 is
+  their "explosive" upper portion of class 5). `frontend/src/utils/fireClasses.ts`.
+- **FWI classes** (0-5 / 6-15 / 16-22 / 23-29 / 30+): CWFIS national FWI map intervals
+  (GeoServer `public:fwi` legend). An FWI map class, not an official fire danger rating.
+  `engine/src/firesim/fwi/classes.py`, `frontend/src/utils/fwiClass.ts`.
+- Removed as unsourced (2026-10-06): an I-V intensity scheme with US resource typing, an RPAS
+  stand-off distance rule and a 2 km crown-fire personnel rule.
+
 ## 4. History: what was wrong before 2026-10
 
 An audit on 2026-10-05 (NRES 799 thesis work) found the shipped engine departed from FBP in
@@ -106,8 +134,9 @@ could not catch the errors.
 
 ## 5. Not verified, and known limits
 
-- **No comparison with observed fires.** No historical fire, experimental burn or perimeter
-  dataset has been run.
+- **No comparison with observed fires yet.** A validation harness on the Canadian Fire Spread
+  Dataset (Alberta fires, Bennett et al. 2026 protocol) is in progress; until it reports,
+  FireSim is for preparedness, training and what-if planning (see `docs/model-card.md`).
 - **Compared with WISE only on uniform fuel**, flat and on uniform slopes. Heterogeneous fuel,
   real terrain, barriers and spotting have not been compared with WISE, Burn-P3 or Cell2Fire.
 - **Spotting**: maximum distance follows Albini/Chase/Morris and reproduces their published
@@ -124,6 +153,9 @@ could not catch the errors.
 - **Fuel grids**: the Edmonton grid is the City canopy-LiDAR product at 20 m (simulated at 50 m).
   Outside Edmonton only a uniform fuel type or a synthetic demo landscape is available.
 - Urban trees in the Edmonton grid are non-fuel; structure-to-structure spread is not modelled.
+- **Time zone**: times are America/Edmonton. Alberta moved to permanent UTC-6 on 2026-06-18
+  (IANA tzdata 2026c); software with older time zone data shows MST (UTC-7) after 2026-11-01.
+  `frontend/src/utils/time.ts` handles both.
 - **WUI zone modifiers** (`data/wui_zones.geojson.gz`: 425 park buffers with spread x0.7,
   intensity x1.2, embers x3.0) have no documented source or generating script. They are off by
   default in the UI and should not be used for results presented as measured.
