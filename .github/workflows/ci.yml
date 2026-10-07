@@ -4,7 +4,8 @@ on:
   push:
     branches: [master]
   pull_request:
-    branches: [master]
+    # feat/** too, so stacked PRs (base = another feature branch) get CI
+    branches: [master, "feat/**"]
 
 jobs:
   engine-tests:

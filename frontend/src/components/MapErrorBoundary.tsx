@@ -30,16 +30,7 @@ export default class MapErrorBoundary extends Component<Props, State> {
       return (
         <div
           role="alert"
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "24px",
-            color: "#f5f5f5",
-            textAlign: "center",
-            lineHeight: 1.5,
-          }}
+          className="map-error"
         >
           {this.state.error}
         </div>

@@ -27,7 +27,8 @@ import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
-import { fwiClassColor } from "./utils/fwiClass";
+import { fwiClassColor, fwiClassTextColor } from "./utils/fwiClass";
+import TopBar from "./components/TopBar";
 
 /**
  * Export burn probability contour polygons as GeoJSON.
@@ -236,6 +237,7 @@ function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
           className="eoc-start-input"
           type="text"
           placeholder="e.g. River Valley Fire"
+          aria-label="Incident name"
           value={name}
           autoFocus
           onChange={(e) => setName(e.target.value)}
@@ -245,7 +247,7 @@ function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
         <button className="eoc-start-btn" onClick={submit} disabled={!name.trim()}>
           Open EOC Console
         </button>
-        <p className="eoc-start-hint" style={{ marginTop: 8 }}>
+        <p className="eoc-start-hint">
           Or resume an existing incident from the <strong>Incidents</strong> panel in the sidebar.
         </p>
       </div>
@@ -523,16 +525,6 @@ export default function App() {
     <div className="app">
       {/* ── Fixed sidebar ───────────────────────────────────── */}
       <aside className="sidebar">
-        <div className="sidebar-brand">
-          <h1>FIRESIM</h1>
-          <span className="sidebar-subtitle">Canadian FBP Simulator</span>
-          <span
-            className="sidebar-status"
-            title="FBP equations match the cffdrs reference implementation; spread has not been validated against observed fires or Prometheus/WISE. Use for planning, training and what-if analysis, not as an operational forecast."
-          >
-            Planning &amp; training tool — not validated against observed fires
-          </span>
-        </div>
         <div className="sidebar-content">
           <WeatherPanel
             onStartSimulation={handleStartSimulation}
@@ -633,35 +625,27 @@ export default function App() {
             onImport={importScenario}
           />
         </div>
-        <footer className="sidebar-footer">
-          <a
-            className="sidebar-footer-btn"
-            href="https://github.com/Tphambolio/wildfire-simulator/blob/master/docs/verification.md"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Methods &amp; limits
-          </a>
-        </footer>
       </aside>
 
-      {/* ── Fixed top bar ───────────────────────────────────── */}
-      <header className="top-bar">
-        <div className="top-bar-left">
-          <span className="top-bar-title">Wildfire Tactical Navigator</span>
-          <nav className="top-bar-nav">
-            <button className={`nav-link${activeTab === "simulation" ? " active" : ""}`} onClick={() => setActiveTab("simulation")}>Simulation</button>
-            <button className={`nav-link${activeTab === "eoc" ? " active" : ""}`} onClick={() => setActiveTab("eoc")}>EOC Console</button>
-          </nav>
-        </div>
-        <div className="top-bar-right">
+      {/* ── Top bar: incident, tabs, run status, limits badge, clock ── */}
+      <TopBar
+        incidentName={incident?.name ?? null}
+        incidentSub={
+          incident && activePeriod
+            ? `Operational period ${incident.activePeriodIndex + 1}`
+            : "Scenario not saved · open an incident in the EOC Console"
+        }
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        status={status}
+        actions={<>
           {isRunning && !isPaused && (
-            <button className="btn-control btn-pause" onClick={pauseSimulation}>&#9646;&#9646; Pause</button>
+            <button className="btn-control btn-pause" onClick={pauseSimulation}>Pause</button>
           )}
           {isPaused && (
             <>
-              <button className="btn-control btn-resume" onClick={resumeSimulation}>&#9654; Resume</button>
-              <button className="btn-control btn-cancel" onClick={cancelSimulation}>&#9632; Cancel</button>
+              <button className="btn-control btn-resume" onClick={resumeSimulation}>Resume</button>
+              <button className="btn-control btn-cancel" onClick={cancelSimulation}>Cancel</button>
             </>
           )}
           {status === "completed" && frames.length > 0 && (
@@ -672,9 +656,10 @@ export default function App() {
           {burnProbabilityData && (
             <button
               className={`btn-control btn-view-toggle${showBurnProbView ? " active" : ""}`}
+              aria-pressed={showBurnProbView}
               onClick={() => setShowBurnProbView((v) => !v)}
             >
-              {showBurnProbView ? "Prob View" : "Spread View"}
+              {showBurnProbView ? "Prob view" : "Spread view"}
             </button>
           )}
           {burnProbabilityData && !burnProbRunning && (
@@ -689,12 +674,12 @@ export default function App() {
               <span>FWI {lastRunParams.fwi_value.toFixed(1)}</span>
               <span className="run-params-danger" style={{
                 background: fwiClassColor(lastRunParams.fwi_value),
+                color: fwiClassTextColor(lastRunParams.fwi_value),
               }}>{lastRunParams.danger_rating}</span>
             </div>
           )}
-          {status && <span className={`status-badge status-${status}`}>{status}</span>}
-        </div>
-      </header>
+        </>}
+      />
 
       {/* ── EOC Console tab (replaces map area + bottom bar) ─────── */}
       {activeTab === "eoc" && !incident && (
@@ -711,7 +696,7 @@ export default function App() {
             onAdvancePeriod={advancePeriod}
             onUpdateName={(name) => updateIncidentField("name", name)}
           />
-          <Suspense fallback={<div className="hint" style={{ padding: 16 }}>Loading EOC console…</div>}>
+          <Suspense fallback={<div className="hint eoc-loading">Loading EOC console…</div>}>
           <EOCConsole
             frames={frames}
             currentFrameIndex={currentFrameIndex}
@@ -770,10 +755,15 @@ export default function App() {
               <span className="tel-label">Temp</span>
               <span className="tel-value">{lastRunParams.weather.temperature}<span className="tel-unit">°C</span></span>
             </div>
-            <div className={`tel-chip tel-chip-danger ${lastRunParams.danger_rating.toLowerCase().replace(/\s+/g, "-")}`}>
+            <div className="tel-chip tel-chip-danger">
               <span className="tel-label">FWI</span>
               <span className="tel-value">{lastRunParams.fwi_value.toFixed(0)}</span>
-              <span className="tel-danger">{lastRunParams.danger_rating}</span>
+              <span
+                className="tel-danger"
+                style={{ background: fwiClassColor(lastRunParams.fwi_value), color: fwiClassTextColor(lastRunParams.fwi_value) }}
+              >
+                {lastRunParams.danger_rating}
+              </span>
             </div>
           </div>
         )}

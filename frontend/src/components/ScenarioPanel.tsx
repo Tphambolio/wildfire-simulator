@@ -84,10 +84,10 @@ function ScenarioPanel({
       {open && (
         <div className="scenario-body">
           {/* Save current config */}
-          <div className="section" style={{ paddingTop: 0 }}>
+          <div className="section">
             <h4>Save Current Config</h4>
             {!hasIgnition && (
-              <div className="hint" style={{ color: "#e57373" }}>
+              <div className="hint-sm text-danger">
                 Set an ignition point before saving.
               </div>
             )}
@@ -95,6 +95,7 @@ function ScenarioPanel({
               className="scenario-name-input"
               type="text"
               placeholder="Scenario name (e.g. Terwillegar Aug extreme)"
+              aria-label="Scenario name"
               value={saveName}
               onChange={(e) => setSaveName(e.target.value)}
               maxLength={60}
@@ -104,16 +105,15 @@ function ScenarioPanel({
               className="scenario-name-input"
               type="text"
               placeholder="Location description (optional)"
+              aria-label="Location description (optional)"
               value={saveDesc}
               onChange={(e) => setSaveDesc(e.target.value)}
               maxLength={120}
-              style={{ marginTop: 4 }}
               disabled={!hasIgnition}
             />
-            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+            <div className="button-row">
               <button
-                className="btn-primary"
-                style={{ flex: 1, padding: "6px 0", fontSize: "0.85em" }}
+                className="btn-primary btn-inline grow"
                 onClick={handleSave}
                 disabled={!hasIgnition || !saveName.trim() || saving || scenarios.length >= 10}
                 title={scenarios.length >= 10 ? "Maximum 10 scenarios — delete one first" : "Save current simulation config"}
@@ -121,8 +121,7 @@ function ScenarioPanel({
                 Save Scenario
               </button>
               <button
-                className="btn-secondary"
-                style={{ padding: "6px 10px", fontSize: "0.85em" }}
+                className="btn-secondary btn-inline"
                 onClick={handleImportClick}
                 title="Import scenario from JSON file"
               >
@@ -132,17 +131,17 @@ function ScenarioPanel({
                 ref={fileInputRef}
                 type="file"
                 accept=".json,application/json"
-                style={{ display: "none" }}
+                hidden
                 onChange={handleFileChange}
               />
             </div>
             {importError && (
-              <div className="hint" style={{ color: "#e57373", marginTop: 4 }}>
+              <div className="hint-sm text-danger">
                 {importError}
               </div>
             )}
             {scenarios.length >= 10 && (
-              <div className="hint" style={{ color: "#ffb74d", marginTop: 4 }}>
+              <div className="hint-sm text-warning">
                 Limit reached (10). Delete a scenario to save new ones.
               </div>
             )}
@@ -150,7 +149,7 @@ function ScenarioPanel({
 
           {/* Saved scenarios list */}
           {scenarios.length === 0 ? (
-            <div className="hint" style={{ marginTop: 4 }}>
+            <div className="hint">
               No saved scenarios yet.
             </div>
           ) : (
@@ -180,29 +179,21 @@ function ScenarioPanel({
                   </div>
                   <div className="scenario-item-actions">
                     <button
-                      className="btn-secondary"
-                      style={{ fontSize: "0.8em", padding: "3px 8px" }}
+                      className="btn-secondary btn-inline btn-small"
                       onClick={() => onLoad(s)}
                       title="Restore this scenario config"
                     >
                       Load
                     </button>
                     <button
-                      className="btn-secondary"
-                      style={{ fontSize: "0.8em", padding: "3px 8px" }}
+                      className="btn-secondary btn-inline btn-small"
                       onClick={() => onExport(s)}
                       title="Export scenario as JSON for sharing"
                     >
                       Export
                     </button>
                     <button
-                      className="btn-secondary"
-                      style={{
-                        fontSize: "0.8em",
-                        padding: "3px 8px",
-                        borderColor: "#8b2020",
-                        color: "#e57373",
-                      }}
+                      className="btn-secondary btn-inline btn-small btn-danger-outline"
                       onClick={() => {
                         if (confirm(`Delete scenario "${s.name}"?`)) onDelete(s.id);
                       }}

@@ -53,7 +53,7 @@ describe("FireMetrics", () => {
     render(<FireMetrics frame={f} status="completed" totalFrames={2} />);
     expect(screen.getByText("Head ROS")).toBeInTheDocument();
     expect(screen.getByText("CA Grid")).toBeInTheDocument();
-    expect(screen.getByText(/Ignition snapped 120m/)).toBeInTheDocument();
+    expect(screen.getByText(/Ignition snapped 120 m/)).toBeInTheDocument();
     expect(screen.queryByText("Head spreading toward")).not.toBeInTheDocument();
   });
 

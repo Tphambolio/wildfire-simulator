@@ -147,13 +147,16 @@ function LayerPanel({ type, data, visible, atRiskCount, onLoad, onToggle, onClea
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
             onClick={() => fileRef.current?.click()}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileRef.current?.click(); } }}
+            role="button"
+            tabIndex={0}
           >
             Drop GeoJSON or click to browse
             <input
               ref={fileRef}
               type="file"
               accept=".geojson,.json"
-              style={{ display: "none" }}
+              hidden
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
             />
           </div>
@@ -162,6 +165,7 @@ function LayerPanel({ type, data, visible, atRiskCount, onLoad, onToggle, onClea
               type="text"
               className="ov-url-input"
               placeholder="…or GeoJSON URL"
+              aria-label={`GeoJSON URL for ${type}`}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleFetch(); }}

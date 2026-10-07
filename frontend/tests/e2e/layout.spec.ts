@@ -1,9 +1,11 @@
 /**
- * Layout metrics. The design spec (§7, WCAG 1.4.3 note) targets no visible text below 12 px;
- * the app does not meet that yet (PR 2 / PR 14), so this test REPORTS the count (console and
- * an attached JSON) and does not fail on it. Turn it into an assertion once PR 14 lands.
+ * Layout metrics (design spec §6.3, §7).
+ * On the main screen, before and after a run (enforced since PR 2):
+ * - no visible text below 12 px;
+ * - no visible interactive target (button, link, input, select, slider) below 24 x 24 px.
+ * The counts and examples are logged and attached as small-text.json.
  */
-import { test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mockApi } from "./mockApi";
 import { openApp, runToCompletion, setIgnitionAtMapCentre } from "./app";
 
@@ -48,21 +50,61 @@ async function smallText(page: import("@playwright/test").Page): Promise<SmallTe
   });
 }
 
-test.describe("layout metrics (reported, not enforced)", () => {
-  test("visible text below 12 px", async ({ page }, testInfo) => {
+interface SmallTargetReport {
+  targets: number;
+  below24px: number;
+  examples: Array<{ w: number; h: number; selector: string }>;
+}
+
+async function smallTargets(page: import("@playwright/test").Page): Promise<SmallTargetReport> {
+  return page.evaluate(() => {
+    const out: SmallTargetReport = { targets: 0, below24px: 0, examples: [] };
+    const els = document.querySelectorAll<HTMLElement>(
+      "button, a[href], input:not([type=hidden]), select, textarea, [role=button], [role=slider], [tabindex]:not([tabindex='-1'])",
+    );
+    for (const el of els) {
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || cs.display === "none") continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      if (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) continue;
+      out.targets++;
+      if (r.width < 24 || r.height < 24) {
+        out.below24px++;
+        if (out.examples.length < 25) {
+          const cls = typeof el.className === "string" && el.className.trim() ? "." + el.className.trim().split(/\s+/).join(".") : "";
+          out.examples.push({ w: Math.round(r.width), h: Math.round(r.height), selector: el.tagName.toLowerCase() + cls });
+        }
+      }
+    }
+    return out;
+  });
+}
+
+test.describe("layout metrics", () => {
+  test("no visible text below 12 px and no target below 24 px", async ({ page }, testInfo) => {
     await mockApi(page);
     await openApp(page);
     const shell = await smallText(page);
+    const shellTargets = await smallTargets(page);
     await setIgnitionAtMapCentre(page);
     await runToCompletion(page);
     const completed = await smallText(page);
+    const completedTargets = await smallTargets(page);
     await testInfo.attach("small-text.json", {
-      body: JSON.stringify({ shell, completed }, null, 2),
+      body: JSON.stringify({ shell, completed, shellTargets, completedTargets }, null, 2),
       contentType: "application/json",
     });
     for (const [name, r] of Object.entries({ shell, completed })) {
       console.log(`[layout] ${name}: ${r.below12px} of ${r.textNodes} visible text nodes are below 12 px`);
       testInfo.annotations.push({ type: `small-text-${name}`, description: `${r.below12px}/${r.textNodes} below 12 px` });
     }
+    for (const [name, r] of Object.entries({ shell: shellTargets, completed: completedTargets })) {
+      console.log(`[layout] ${name}: ${r.below24px} of ${r.targets} visible targets are below 24 px`, JSON.stringify(r.examples.slice(0, 8)));
+    }
+    expect(shell.examples, "visible text below 12 px before a run").toEqual([]);
+    expect(completed.examples, "visible text below 12 px after a run").toEqual([]);
+    expect(shellTargets.examples, "targets below 24 px before a run").toEqual([]);
+    expect(completedTargets.examples, "targets below 24 px after a run").toEqual([]);
   });
 });
