@@ -519,13 +519,16 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceler
     u = x * hx + y * hy
     v = -x * hy + y * hx
     tg = ellipse_arrival_time(u, v, a, b, c)
-    inside = (tg <= t0) & params.fuel
+    # Only fuel that carries fire under the current conditions can be inside the starting
+    # ellipse (e.g. D-2 below BUI 80 has zero spread and must not be painted burned)
+    carries = params.fuel & (params.head > 1e-5)  # FBP floors ROS at 1e-6 m/min (cffdrs)
+    inside = (tg <= t0) & carries
     labels, _ = ndimage.label(inside)
     burned = labels == labels[r0, c0]
     phi = head * (tg - t0)
     # cells inside the ellipse but cut off from the ignition by non-fuel start unburned
     phi[inside & ~burned] = 0.5 * min(dx, dy)
-    phi[~params.fuel] = np.maximum(phi[~params.fuel], 0.5 * min(dx, dy))
+    phi[~carries] = np.maximum(phi[~carries], 0.5 * min(dx, dy))
     arrival[burned] = tg[burned]
     dist = np.hypot(u, v)
     with np.errstate(invalid="ignore", divide="ignore"):
