@@ -160,6 +160,11 @@ could not catch the errors.
 - **Time zone**: times are America/Edmonton. Alberta moved to permanent UTC-6 on 2026-06-18
   (IANA tzdata 2026c); software with older time zone data shows MST (UTC-7) after 2026-11-01.
   `frontend/src/utils/time.ts` handles both.
+- **Water mask**: the optional OpenStreetMap water layer (`data/edmonton_water_bodies.geojson.gz`,
+  2,275 polygons, 429 invalid) covers about 13,900 ha of the city, including about 3,700 ha
+  that the LiDAR fuel grid maps as vegetation, and masked 17-21 % of C-2, D-2 and M-2 cells.
+  It is off by default (2026-10-07); the LiDAR grid already maps water as non-fuel. A
+  replacement from authoritative hydrography (City, CanVec) is pending.
 - **WUI zone modifiers** (`data/wui_zones.geojson.gz`: 425 park buffers with spread x0.7,
   intensity x1.2, embers x3.0) have no documented source or generating script. They are off by
   default in the UI and should not be used for results presented as measured.

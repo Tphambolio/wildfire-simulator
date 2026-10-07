@@ -691,7 +691,7 @@ export default function App() {
                 useSyntheticCA: false,
                 enableSpotting: false,
                 spottingIntensity: 1.0,
-                includeWater: true,
+                includeWater: false,
                 includeBuildings: true,
                 includeWUI: true,
                 includeDEM: true,

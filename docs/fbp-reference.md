@@ -19,7 +19,8 @@ implementation is checked. Code: `engine/src/firesim/fbp/` (`calculator.py`, `cr
 
 All 18 ST-X-3 fuel types (`constants.py`), with Table 6 spread parameters, Table 7 buildup
 parameters and Table 8 default crown base height (CBH) and crown fuel load (CFL), plus the
-GLC-X-10 revisions (M-4 `c` = 1.48; D-2 spreads at 0.2 x D-1 and not at all below BUI 80).
+GLC-X-10 revisions (M-4 `c` = 1.48). D-2 spreads at 0.2 x D-1 and not at all below BUI 80
+(as in cffdrs, which cites Alexander 2010).
 
 | Code | Name | Code | Name |
 |------|------|------|------|
