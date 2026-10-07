@@ -24,7 +24,7 @@ import type { SimulationFrame } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { EvacZone } from "./evacZones";
 import type { IncidentAnnotation } from "../types/incident";
-import { buildSuppressionAdvisory } from "./suppressionAdvisory";
+import { RPAS_NOTE, buildSuppressionAdvisory } from "./suppressionAdvisory";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -104,13 +104,11 @@ function extractSpreadStats(frames: SimulationFrame[]): SpreadStats | null {
 
 // ── Suppression advisory logic ────────────────────────────────────────────────
 
-// One source for intensity classes and their meaning (utils/fireClasses.ts); the RPAS
-// stand-off is the same FireSim rule of thumb as in EOCSummary's advisory.
+// One source for intensity classes and their meaning (utils/fireClasses.ts).
 interface SuppressionSummary {
   strategy: string;
   strategyDetail: string;
   resources: string[];
-  rpasStandoffM: number;
   intensityClass: string;
   feasible: boolean;
 }
@@ -121,7 +119,6 @@ function buildSuppressionSummary(spread: SpreadStats): SuppressionSummary {
     strategy: adv.strategy,
     strategyDetail: adv.strategyDetail,
     resources: adv.resources,
-    rpasStandoffM: adv.rpasStandoffM,
     intensityClass: String(adv.intensityClass),
     feasible: adv.suppressionFeasible,
   };
@@ -361,8 +358,9 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
     "Maintain LACES: Lookouts, Anchor points, Communications, Escape routes, Safety zones",
     "Monitor changing wind conditions — re-evaluate escape routes if wind shifts > 20°",
   ];
-  if (spread?.spotCount) safetyItems.push(`RPAS minimum standoff: ${suppression?.rpasStandoffM.toFixed(0)} m from active perimeter`);
-  if (spread?.fireType.toLowerCase().includes("crown")) safetyItems.push("Crown fire — no personnel within 2 km of active head without ATGS authorization");
+  if (spread?.spotCount) safetyItems.push(RPAS_NOTE);
+  // No distance rule here: crew separation from a crown fire head is set by the IC / Operations
+  if (spread?.fireType.toLowerCase().includes("crown")) safetyItems.push("Crown fire modelled: crew positioning near the head per IC / Operations");
 
   const weatherRows: Array<[string, string]> = rp ? [
     ["Wind", `${rp.weather.wind_speed} km/h ${windDirLabel(rp.weather.wind_direction)}`],
@@ -492,11 +490,11 @@ export function buildICS204HTML(opts: ICSFormOptions): string {
       objectives: [
         `Monitor Watch zone communities: ${watchZone.communitiesAtRisk.join(", ")}`,
         "Continuous situational awareness — report any spot fire activity to IC immediately",
-        spread?.spotCount ? `RPAS monitoring — maintain ${suppression?.rpasStandoffM.toFixed(0)} m standoff` : "Ground patrol and weather monitoring",
+        spread?.spotCount ? "RPAS monitoring where authorized" : "Ground patrol and weather monitoring",
       ],
       resources: ["1 Patrol crew or vehicle", spread?.spotCount ? "RPAS unit (ATGS authorization required)" : "Weather observation post"],
       safety: spread?.spotCount
-        ? `RPAS minimum standoff ${suppression?.rpasStandoffM.toFixed(0)} m. IC authorization before any RPAS flight.`
+        ? RPAS_NOTE
         : "LACES required. Report wind shifts > 20° immediately.",
     });
   }
@@ -916,7 +914,6 @@ function buildObjectives(
     objectives.push(`Pre-position evacuation resources for ${alertZone.communitiesAtRisk.length} community(ies) on Evacuation Alert (${alertZone.communitiesAtRisk.join(", ")})`);
   }
   if (suppression) {
-    objectives.push(`Maintain RPAS safe standoff of ${suppression.rpasStandoffM.toFixed(0)} m from active perimeter per IC/ATGS authorization`);
     objectives.push(`Execute ${suppression.strategy} tactics per suppression advisory (Intensity Class ${suppression.intensityClass})`);
   }
   if (opts.atRiskCounts?.infrastructure) {

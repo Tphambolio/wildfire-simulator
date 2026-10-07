@@ -68,6 +68,13 @@ class SimulationRun:
         self._pause_event.set()  # Unblock if paused
 
 
+def _fuel_kwargs(params) -> dict:
+    """Fuel modifiers for SimulationConfig (day of year from start_time when the request has one)."""
+    if hasattr(params, "fuel_config_kwargs"):
+        return params.fuel_config_kwargs()
+    return params.fuel_modifiers.config_kwargs()
+
+
 def _hourly_weather(params) -> tuple[HourlyWeather, ...] | None:
     """Engine hourly weather records from an API request, if it has a stream."""
     records = getattr(params, "hourly_weather", None)
@@ -298,7 +305,7 @@ class SimulationRunner:
                 ffmc=fwi.ffmc if fwi else 85.0,
                 dmc=fwi.dmc if fwi else 40.0,
                 dc=fwi.dc if fwi else 200.0,
-                **params.fuel_modifiers.config_kwargs(),
+                **_fuel_kwargs(params),
                 hourly_weather=_hourly_weather(params),
             )
 
@@ -708,7 +715,7 @@ class SimulationRunner:
                 ffmc=fwi.ffmc if fwi and fwi.ffmc is not None else 85.0,
                 dmc=fwi.dmc if fwi and fwi.dmc is not None else 40.0,
                 dc=fwi.dc if fwi and fwi.dc is not None else 200.0,
-                **params.fuel_modifiers.config_kwargs(),
+                **_fuel_kwargs(params),
             )
 
             dem_path = params.dem_path or settings.dem_path

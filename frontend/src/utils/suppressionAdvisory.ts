@@ -10,10 +10,16 @@ import { HFI_CLASS_CAVEAT, HFI_CLASS_SOURCE, hfiClass } from "./fireClasses";
  * Cole & Alexander 1995; CWFIS HFI map limits). These are generalised interpretations,
  * not a resource order.
  *
- * The RPAS stand-off is a FireSim rule of thumb (500 m, or 1.5 x the longest modelled spot
- * distance, plus 1 km for crown fire). It has no published source; the IC or air operations
- * set the actual stand-off.
+ * There is no RPAS stand-off distance: FireSim used to print one (500 m, 1.5 x spot distance,
+ * +1 km for crown fire) that had no source and sat inside the regulatory restrictions on
+ * operating near forest fires. RPAS notes are a generic reminder only.
  */
+
+/** Generic RPAS reminder for outputs (no distances: those come from the SFOC and CARs). */
+export const RPAS_NOTE =
+  "RPAS near an active wildfire: operate only with the fire authority's authorization and " +
+  "within the applicable SFOC and Canadian Aviation Regulations restrictions on forest fire " +
+  "areas; coordinate with air operations.";
 export interface SuppressionAdvisory {
   intensityClass: HfiClass["num"];
   intensityLabel: string;
@@ -23,7 +29,6 @@ export interface SuppressionAdvisory {
   strategyDetail: string;
   resources: string[];
   suppressionFeasible: boolean; // direct attack at the head
-  rpasStandoffM: number;
   rpasNotes: string[];
   source: string;
 }
@@ -38,19 +43,11 @@ export interface AdvisoryInput {
 
 export function buildSuppressionAdvisory(spread: AdvisoryInput): SuppressionAdvisory {
   const cls = hfiClass(spread.peakHfiKwM);
-  const isCrownFire = spread.fireType.toLowerCase().includes("crown");
   const hasSpotting = spread.spotCount > 0;
-  const maxSpotM = spread.maxSpotDistM;
-
-  const baseStandoffM = hasSpotting ? Math.max(500, maxSpotM * 1.5) : 500;
-  const rpasStandoffM = isCrownFire ? baseStandoffM + 1000 : baseStandoffM;
-  const rpasNotes: string[] = [
-    `Suggested stand-off ${rpasStandoffM.toFixed(0)} m from the active perimeter (FireSim rule of thumb, not a published standard)`,
-    "IC / air operations authorization required before any RPAS flight near active fire",
-    "Maintain visual line of sight; assign a dedicated observer",
-  ];
-  if (isCrownFire) rpasNotes.push("Crown fire: strong smoke-column turbulence; higher loss-of-control risk");
-  if (hasSpotting) rpasNotes.push(`Modelled spotting up to ${maxSpotM.toFixed(0)} m: check for new ignitions beyond the perimeter before flying`);
+  const rpasNotes: string[] = [RPAS_NOTE];
+  if (hasSpotting) {
+    rpasNotes.push(`Modelled spotting up to ${spread.maxSpotDistM.toFixed(0)} m: new ignitions may appear beyond the perimeter`);
+  }
 
   return {
     intensityClass: cls.num,
@@ -61,7 +58,6 @@ export function buildSuppressionAdvisory(spread: AdvisoryInput): SuppressionAdvi
     strategyDetail: `${cls.meaning} ${HFI_CLASS_CAVEAT}`,
     resources: cls.equipment,
     suppressionFeasible: cls.directAttackAtHead,
-    rpasStandoffM,
     rpasNotes,
     source: HFI_CLASS_SOURCE,
   };
