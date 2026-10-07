@@ -35,6 +35,11 @@ class SimulationRun:
         self.status: SimulationStatus = SimulationStatus.PENDING
         self.frames: list[SimulationFrame] = []
         self.error: str | None = None
+        # Ensemble (optional, runs after the deterministic frames)
+        self.ensemble = None
+        self.ensemble_status: str | None = None  # running / completed / failed
+        self.ensemble_progress: tuple[int, int] = (0, 0)
+        self.ensemble_error: str | None = None
         self._lock = threading.Lock()
         # Pause/cancel control
         self._pause_event = threading.Event()
@@ -429,6 +434,10 @@ class SimulationRunner:
             if not run._cancel_event.is_set():
                 run.status = SimulationStatus.COMPLETED
                 logger.info("Simulation %s completed: %d frames", run.id, len(run.frames))
+                ens = getattr(params, "ensemble", None)
+                if ens is not None and masked_fuel_grid is not None:
+                    self._run_ensemble(run, config, masked_fuel_grid, terrain_grid,
+                                       spread_modifier_grid, ens)
             else:
                 logger.info("Simulation %s cancelled after %d frames", run.id, len(run.frames))
 
@@ -436,6 +445,25 @@ class SimulationRunner:
             run.status = SimulationStatus.FAILED
             run.error = str(e)
             logger.exception("Simulation %s failed: %s", run.id, e)
+
+    @staticmethod
+    def _run_ensemble(run, config, fuel_grid, terrain_grid, spread_modifier_grid, ens) -> None:
+        """Run the ensemble for a completed grid run; results on ``run.ensemble``."""
+        from firesim.spread.ensemble import EnsembleConfig, run_ensemble
+
+        run.ensemble_status = "running"
+        run.ensemble_progress = (0, ens.n_members)
+        try:
+            run.ensemble = run_ensemble(
+                config, fuel_grid, EnsembleConfig(**ens.model_dump()),
+                terrain_grid=terrain_grid, spread_modifier_grid=spread_modifier_grid,
+                progress=lambda done, total: setattr(run, "ensemble_progress", (done, total)),
+            )
+            run.ensemble_status = "completed"
+        except Exception as exc:  # noqa: BLE001 - surface any failure to the client
+            run.ensemble_status = "failed"
+            run.ensemble_error = str(exc)
+            logger.exception("Ensemble for %s failed", run.id)
 
     # ── Multi-day scenario ──────────────────────────────────────────────────
 
