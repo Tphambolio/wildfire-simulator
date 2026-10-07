@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class WeatherParams(BaseModel):
@@ -94,6 +95,15 @@ class SimulationCreate(BaseModel):
             "FFMC model. DMC and DC stay fixed. Without it, `weather` applies throughout."
         ),
     )
+    start_time: datetime | None = Field(
+        default=None,
+        description=(
+            "Scenario start (ignition) time, ISO 8601 with a UTC offset, e.g. "
+            "2026-04-28T13:40:00-06:00. Frame times are hours after it. When "
+            "fuel_modifiers.day_of_year is not set, its local date sets the day of year for the "
+            "foliar moisture model. hourly_weather records count hours from this time."
+        ),
+    )
     cells_mode: Literal["cumulative", "incremental"] = Field(
         default="cumulative",
         description=(
@@ -155,6 +165,20 @@ class SimulationCreate(BaseModel):
         ),
     )
 
+
+    @field_validator("start_time")
+    @classmethod
+    def _start_time_has_offset(cls, v: datetime | None) -> datetime | None:
+        if v is not None and v.tzinfo is None:
+            raise ValueError("start_time needs a UTC offset (e.g. -06:00 or Z)")
+        return v
+
+    def fuel_config_kwargs(self) -> dict:
+        """Fuel modifiers for SimulationConfig, with the day of year from start_time if unset."""
+        kw = self.fuel_modifiers.config_kwargs()
+        if kw.get("day_of_year") is None and self.start_time is not None:
+            kw["day_of_year"] = self.start_time.timetuple().tm_yday
+        return kw
 
 class SimulationStatus(str, Enum):
     """Simulation run status."""

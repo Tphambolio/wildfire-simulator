@@ -267,7 +267,6 @@ function buildICSText(
     for (const note of suppAdvisory.rpasNotes) {
       lines.push(`  • ${note}`);
     }
-    lines.push("  Ref: TC RPAS Near Wildfire Guidance | IC authorization required for all RPAS ops at fire");
     lines.push("");
   }
 
@@ -626,13 +625,7 @@ export default function EOCSummary({
       {/* RPAS operational advisory */}
       {suppAdvisory && (
         <section className="eoc-section eoc-rpas-section">
-          <h4>RPAS Operational Advisory</h4>
-          <div className="eoc-grid">
-            <span className="eoc-label">Min standoff</span>
-            <span className="eoc-value eoc-highlight">
-              {suppAdvisory.rpasStandoffM.toFixed(0)} m
-            </span>
-          </div>
+          <h4>RPAS</h4>
           <ul className="eoc-resource-list eoc-rpas-notes">
             {suppAdvisory.rpasNotes.map((n, i) => (
               <li key={i}>{n}</li>

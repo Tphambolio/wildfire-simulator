@@ -34,6 +34,10 @@ Start a new fire spread simulation.
 
 - `fwi_overrides` is optional. If omitted, FWI components are computed from weather.
 - `fuel_type` must be one of the 18 FBP fuel type codes (C1-C7, D1-D2, M1-M4, O1a, O1b, S1-S3).
+- `start_time` (optional): scenario start (ignition) time, ISO 8601 with a UTC offset, e.g.
+  `"2026-04-28T13:40:00-06:00"` (a time without an offset is rejected with 422). Frame
+  `time_hours` and `hourly_weather[].hours_from_start` count from it, and when
+  `fuel_modifiers.day_of_year` is not set its local date sets the foliar moisture day of year.
 - `cells_mode` (grid runs): `"cumulative"` (default) repeats every burned cell in each frame;
   `"incremental"` sends only the cells burned since the previous frame (a 24 h run: about
   1.6 MB instead of 35 MB). Multi-day runs are always cumulative.
