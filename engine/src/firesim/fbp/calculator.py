@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 from firesim.fbp.constants import FuelType, FuelTypeSpec, FUEL_TYPES, get_fuel_spec
 from firesim.fbp.crown_fire import (
     calculate_critical_surface_intensity,
@@ -386,6 +388,36 @@ def calculate_slope_adjustment(
         (wsv km/h, raz degrees toward, 0=N). Falls back to the wind alone
         when the slope-equivalent ISI is undefined.
     """
+    wse = slope_equivalent_wind(spec, ffmc, slope_pct, fmc, sfc, pc, pdf, cc, cbh)
+    if wse is None:
+        return wind_speed, wind_to_deg % 360.0
+
+    waz = math.radians(wind_to_deg)
+    saz = math.radians(upslope_deg)
+    wsx = wind_speed * math.sin(waz) + wse * math.sin(saz)
+    wsy = wind_speed * math.cos(waz) + wse * math.cos(saz)
+    wsv = math.hypot(wsx, wsy)
+    raz = math.degrees(math.atan2(wsx, wsy)) % 360.0 if wsv > 0.0 else wind_to_deg % 360.0
+    return wsv, raz
+
+
+def slope_equivalent_wind(
+    spec: FuelTypeSpec,
+    ffmc: float,
+    slope_pct: float,
+    fmc: float,
+    sfc: float,
+    pc: float,
+    pdf: float,
+    cc: float,
+    cbh: float,
+) -> float | None:
+    """Slope-equivalent wind speed WSE (km/h, ST-X-3 eqs 39-44), or None when the
+    slope-equivalent ISI is undefined (the caller then uses the wind alone).
+
+    WSE depends on the fuel, slope and fuel moisture but not on the wind or the aspect, so the
+    grid model computes it once per (fuel, slope) and weather period.
+    """
     sf = 10.0 if slope_pct >= 70.0 else math.exp(3.533 * (slope_pct / 100.0) ** 1.2)
     isz = calculate_isi(ffmc, 0.0)
 
@@ -409,7 +441,7 @@ def calculate_slope_adjustment(
         isf = _isf_from_rsf(spec, rsz(spec, pdf) * sf)
 
     if not isf > 0.0:
-        return wind_speed, wind_to_deg % 360.0
+        return None
 
     ff = _fine_fuel_moisture_function(ffmc)
     wse = 1.0 / 0.05039 * math.log(isf / (0.208 * ff))
@@ -418,14 +450,7 @@ def calculate_slope_adjustment(
             wse = 28.0 - (1.0 / 0.0818 * math.log(1.0 - isf / (2.496 * ff)))
         else:
             wse = 112.45
-
-    waz = math.radians(wind_to_deg)
-    saz = math.radians(upslope_deg)
-    wsx = wind_speed * math.sin(waz) + wse * math.sin(saz)
-    wsy = wind_speed * math.cos(waz) + wse * math.cos(saz)
-    wsv = math.hypot(wsx, wsy)
-    raz = math.degrees(math.atan2(wsx, wsy)) % 360.0 if wsv > 0.0 else wind_to_deg % 360.0
-    return wsv, raz
+    return wse
 
 
 # Fuels whose point-ignition acceleration uses the open-fuel constant (ST-X-3 eq 70)
@@ -601,3 +626,150 @@ def calculate_fbp(
         fmc=fmc,
         cfl=cfl_available,
     )
+
+
+# --------------------------------------------------------------------------------------------
+# Vectorised fire ellipse for many (slope, aspect) cells of one fuel type
+# --------------------------------------------------------------------------------------------
+
+def _basic_rsi_v(spec: FuelTypeSpec, isi):
+    return spec.a * (1.0 - np.exp(-spec.b * isi)) ** spec.c
+
+
+def _floored_rsi_v(code: FuelType, isi):
+    rsi = _basic_rsi_v(FUEL_TYPES[code], isi)
+    return np.where(rsi > 0.0, rsi, 0.000001)
+
+
+def _rsi_v(spec: FuelTypeSpec, isi, pc: float, grass_cure: float, pdf: float):
+    """``calculate_rsi`` on an array of ISI (same branches and operation order)."""
+    fuel = spec.code
+    if fuel == FuelType.M1:
+        return pc / 100.0 * _floored_rsi_v(FuelType.C2, isi) + (100.0 - pc) / 100.0 * _floored_rsi_v(
+            FuelType.D1, isi
+        )
+    if fuel == FuelType.M2:
+        return pc / 100.0 * _floored_rsi_v(FuelType.C2, isi) + 0.2 * (
+            100.0 - pc
+        ) / 100.0 * _floored_rsi_v(FuelType.D1, isi)
+    if fuel == FuelType.M3:
+        return pdf / 100.0 * _basic_rsi_v(spec, isi) + (1.0 - pdf / 100.0) * _floored_rsi_v(
+            FuelType.D1, isi
+        )
+    if fuel == FuelType.M4:
+        return pdf / 100.0 * _basic_rsi_v(spec, isi) + 0.2 * (1.0 - pdf / 100.0) * _floored_rsi_v(
+            FuelType.D1, isi
+        )
+    if fuel in _GRASS:
+        return _basic_rsi_v(spec, isi) * calculate_grass_curing_factor(grass_cure)
+    if fuel == FuelType.D2:
+        return 0.2 * _basic_rsi_v(spec, isi)
+    return _basic_rsi_v(spec, isi)
+
+
+def _rate_of_spread_v(spec, isi, be, fmc, rso, pc, pdf, cc):
+    """``_rate_of_spread`` on an array of ISI: (ros, rss, cfb)."""
+    rss = np.maximum(0.0, _rsi_v(spec, isi, pc, cc, pdf) * be)
+    cfb = np.where(rss > rso, 1.0 - np.exp(-0.23 * np.maximum(rss - rso, 0.0)), 0.0)
+    if spec.code == FuelType.C6:
+        fme = 1000.0 * (1.5 - 0.00275 * fmc) ** 4.0 / (460.0 + 25.9 * fmc)
+        rsc = 60.0 * (1.0 - np.exp(-0.0497 * isi)) * fme / 0.778
+        crown = rsc > rss
+        cfb = np.where(crown, cfb, 0.0)
+        ros = np.where(crown, rss + cfb * (rsc - rss), rss)
+    else:
+        ros = rss
+    ros = np.where(ros <= 0.0, 0.000001, ros)
+    return ros, rss, cfb
+
+
+def fbp_ellipse_arrays(
+    fuel_type: FuelType | str,
+    wind_speed: float,
+    wind_direction: float,
+    ffmc: float,
+    dmc: float,
+    dc: float,
+    slope,
+    slope_aspect,
+    pc: float = 50.0,
+    grass_cure: float = 60.0,
+    fmc: float = 100.0,
+    pdf: float = 35.0,
+    gfl: float = 0.35,
+    cbh: float | None = None,
+    cfl: float | None = None,
+) -> dict:
+    """The fire-ellipse outputs of ``calculate_fbp`` for many cells of one fuel type at once.
+
+    ``slope`` (%, as passed to ``calculate_fbp``) and ``slope_aspect`` (upslope azimuth,
+    degrees) are arrays; everything else is shared. Returns arrays ``ros`` (head), ``bros``,
+    ``fros``, ``raz``, ``cfb``, ``lb`` and scalars ``sfc``, ``cfl`` (available crown fuel) and
+    ``rso``. Same equations, branches and operation order as ``calculate_fbp``; the
+    slope-equivalent wind is computed once per distinct slope with the scalar code. Results
+    agree with ``calculate_fbp`` to floating-point rounding (numpy and ``math`` transcendental
+    functions may differ in the last bit; ``engine/tests/fbp/test_vectorised.py``). Used by the
+    grid model, which re-evaluates FBP for every distinct (fuel, slope, aspect) cell type at
+    each weather change.
+    """
+    if isinstance(fuel_type, str):
+        fuel_type = FuelType(fuel_type)
+    spec = get_fuel_spec(fuel_type)
+    slope = np.asarray(slope, dtype=float)
+    slope_aspect = np.broadcast_to(np.asarray(slope_aspect, dtype=float), slope.shape)
+
+    bui = calculate_bui(dmc, dc)
+    cbh = spec.cbh if cbh is None else cbh
+    cfl = spec.cfl if cfl is None or cfl <= 0.0 else cfl
+    if fuel_type in _NO_CROWN_FMC:
+        fmc = 0.0
+    sfc = calculate_sfc(spec, ffmc, bui, pc, gfl)
+
+    # Net effective wind (ST-X-3 eqs 39-50), as calculate_slope_adjustment
+    wind_to = (wind_direction + 180.0) % 360.0
+    wsv = np.full(slope.shape, float(wind_speed))
+    raz = np.full(slope.shape, float(wind_to))
+    sloped = slope > 0.0
+    if ffmc > 0.0 and sloped.any():
+        s_u, s_inv = np.unique(slope[sloped], return_inverse=True)
+        wse_u = [slope_equivalent_wind(spec, ffmc, float(s), fmc, sfc, pc, pdf, grass_cure, cbh)
+                 for s in s_u]
+        ok = np.array([w is not None for w in wse_u])[s_inv]
+        wse = np.array([0.0 if w is None else w for w in wse_u])[s_inv]
+        a_u, a_inv = np.unique(slope_aspect[sloped], return_inverse=True)
+        sin_a = np.array([math.sin(math.radians(float(a))) for a in a_u])[a_inv]
+        cos_a = np.array([math.cos(math.radians(float(a))) for a in a_u])[a_inv]
+        waz = math.radians(wind_to)
+        wsx = wind_speed * math.sin(waz) + wse * sin_a
+        wsy = wind_speed * math.cos(waz) + wse * cos_a
+        v = np.hypot(wsx, wsy)
+        r = np.where(v > 0.0, np.degrees(np.arctan2(wsx, wsy)) % 360.0, wind_to % 360.0)
+        wsv[sloped] = np.where(ok, v, wind_speed)
+        raz[sloped] = np.where(ok, r, wind_to % 360.0)
+
+    ff = _fine_fuel_moisture_function(ffmc)
+    f_w = np.where(wsv >= 40.0, 12.0 * (1.0 - np.exp(-0.0818 * (wsv - 28.0))),
+                   np.exp(0.05039 * np.minimum(wsv, 40.0)))
+    isi = 0.208 * f_w * ff
+    be = _fuel_bui_effect(spec, bui)
+    csi = calculate_critical_surface_intensity(cbh, fmc)
+    rso = calculate_critical_surface_ros(csi, sfc)
+    ros, _, cfb = _rate_of_spread_v(spec, isi, be, fmc, rso, pc, pdf, grass_cure)
+    if cfl <= 0.0:
+        cfb = np.zeros_like(cfb)
+    cfl_available = cfl
+    if fuel_type in (FuelType.M1, FuelType.M2):
+        cfl_available *= pc / 100.0
+    elif fuel_type in (FuelType.M3, FuelType.M4):
+        cfl_available *= pdf / 100.0
+
+    if fuel_type in _GRASS:
+        lb = np.where(wsv >= 1.0, 1.1 * np.maximum(wsv, 1.0) ** 0.464, 1.0)
+    else:
+        lb = np.where(wsv <= 0.0, 1.0,
+                      1.0 + 8.729 * (1.0 - np.exp(-0.030 * np.maximum(wsv, 0.0))) ** 2.155)
+    bisi = 0.208 * np.exp(-0.05039 * wsv) * ff
+    bros = _rate_of_spread_v(spec, bisi, be, fmc, rso, pc, pdf, grass_cure)[0]
+    fros = (ros + bros) / lb / 2.0
+    return {"ros": ros, "bros": bros, "fros": fros, "raz": raz, "cfb": cfb, "lb": lb,
+            "sfc": sfc, "cfl": cfl_available, "rso": rso}

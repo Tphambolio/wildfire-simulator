@@ -35,7 +35,7 @@ import numpy as np
 from scipy import ndimage
 
 from firesim.exposure import DEFAULT_RESIDENCE_S, Emitters, flame_length_m
-from firesim.fbp.calculator import calculate_acceleration
+from firesim.fbp.calculator import _OPEN_ACCELERATION, fbp_ellipse_arrays
 from firesim.fbp.constants import FuelType
 from firesim.fbp.crown_fire import calculate_crown_fraction_burned, classify_fire_type
 from firesim.spread.huygens import (
@@ -44,7 +44,6 @@ from firesim.spread.huygens import (
     SpreadConditions,
     SpreadModifierGrid,
     TerrainGrid,
-    fbp_for_conditions,
 )
 from firesim.spread.spotting import SpotFire, check_ember_spotting
 
@@ -431,16 +430,35 @@ class _CellParams:
 
     @classmethod
     def evaluate(cls, cell_keys, conditions) -> "_CellParams":
-        """FBP for each distinct cell type under ``conditions``, spread back onto the grid."""
-        fuel, index, keys = cell_keys
-        table = np.zeros((max(len(keys), 1), 10))
-        for k, (ft, slope, aspect, cbh, cfl, rm, im) in enumerate(keys):
-            f = fbp_for_conditions(conditions, ft, float(slope), float(aspect), cbh, cfl)
+        """FBP for each distinct cell type under ``conditions``, spread back onto the grid.
+
+        Cell types sharing fuel and canopy are evaluated together with the vectorised FBP
+        ellipse (``fbp_ellipse_arrays``); results equal one ``fbp_for_conditions`` call per type
+        to floating-point rounding (``engine/tests/spread/test_cellular_fbp_table.py``).
+        """
+        fuel, index, keys, *groups = cell_keys  # groups: _key_groups(keys), precomputed
+        table = np.zeros((len(keys) + 1, 10))  # last row: non-fuel (index -1)
+        groups = groups[0] if groups else _key_groups(keys)
+        for (ft, cbh, cfl), (rows, slope, aspect, rm, im) in groups.items():
+            f = fbp_ellipse_arrays(
+                ft, conditions.wind_speed, conditions.wind_direction, conditions.ffmc,
+                conditions.dmc, conditions.dc, np.where(slope >= 1.0, slope, 0.0), aspect,
+                pc=conditions.pc, grass_cure=conditions.grass_cure, fmc=conditions.fmc,
+                pdf=conditions.pdf, gfl=conditions.gfl, cbh=cbh, cfl=cfl,
+            )
             m = rm * conditions.ros_multiplier
-            table[k] = (f.ros_final * m, f.back_ros * m, f.flank_ros * m, f.raz, f.sfc, f.cfl,
-                        f.rso if math.isfinite(f.rso) else 1e12, im,
-                        calculate_acceleration(ft, f.cfb), f.lb)
-        vals = np.where(fuel[..., None], table[np.maximum(index, 0)], 0.0)
+            if ft in _OPEN_ACCELERATION:
+                alpha = np.full(len(rows), 0.115)
+            else:
+                cfb = np.maximum(f["cfb"], 0.0)
+                alpha = 0.115 - 18.8 * cfb ** 2.5 * np.exp(-8.0 * cfb)
+            table[rows] = np.column_stack((
+                f["ros"] * m, f["bros"] * m, f["fros"] * m, f["raz"],
+                np.full(len(rows), f["sfc"]), np.full(len(rows), f["cfl"]),
+                np.full(len(rows), f["rso"] if math.isfinite(f["rso"]) else 1e12), im,
+                alpha, f["lb"],
+            ))
+        vals = table[index]
         head, back, flank, raz_deg, sfc, cfl, rso, imult, alpha, lb = np.moveaxis(vals, -1, 0)
         raz = np.radians(raz_deg)
         return cls(
@@ -450,8 +468,22 @@ class _CellParams:
         )
 
 
+def _key_groups(keys) -> dict:
+    """Cell types grouped by (fuel, CBH, CFL): row numbers and slope, aspect, multiplier arrays."""
+    groups: dict[tuple, list] = {}
+    for k, (ft, slope, aspect, cbh, cfl, rm, im) in enumerate(keys):
+        groups.setdefault((ft, cbh, cfl), []).append((k, slope, aspect, rm, im))
+    out = {}
+    for g, items in groups.items():
+        arr = np.array([it[1:] for it in items], dtype=float).reshape(-1, 4)
+        out[g] = (np.array([it[0] for it in items], dtype=np.intp),
+                  arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3])
+    return out
+
+
 def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
-    """(fuel mask, per-cell index into the distinct cell types, the distinct types).
+    """(fuel mask, per-cell index into the distinct cell types, the distinct types, the types
+    grouped by fuel and canopy for the vectorised FBP).
 
     A cell type is (fuel, slope % rounded, upslope azimuth rounded, CBH, CFL, ROS and
     intensity multipliers): everything FBP needs apart from the weather, so FBP runs once
@@ -481,7 +513,8 @@ def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
                     rm, im, _ = spread_modifier_grid.get_modifiers_at(lat, lng)
             key = (ft, round(slope), round(aspect) % 360, cbh, cfl, rm, im)
             index[r, c] = lookup.setdefault(key, len(lookup))
-    return fuel, index, list(lookup)
+    keys = list(lookup)
+    return fuel, index, keys, _key_groups(keys)
 
 
 def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceleration=True):
