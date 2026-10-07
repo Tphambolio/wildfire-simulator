@@ -119,13 +119,91 @@ TERRA_PIPELINE_CODES: dict[int, FuelType | None] = {
     42: FuelType.M2,
 }
 
+# National FBP fuel type grids from the CFS / CWFIS
+# (https://cwfis.cfs.nrcan.gc.ca/downloads/fuels/).
+#
+# ``cfs_national``: the CIFFC standard codes used by the current national grids
+# (FBP_fueltypes_Canada_100m/30m_EPSG3978_2024, Canadian_Forest_FBP_Fuel_Types_v20191114).
+# Codes per FBPfueltypes_sample_colour_classification.xlsx (CIFFC Geospatial Working Group).
+# Mixedwood codes carry percent conifer / percent dead fir in the last two digits
+# (e.g. 650 = M-1/M-2 with 50 % conifer, 835 = M-4 with 35 % dead fir); see
+# ``cfs_national_modifier``. Seasonal pairs (13 = D-1/D-2, 60 and 6xx = M-1/M-2,
+# 90 and 9xx = M-3/M-4) map to the leafless type; the caller picks the green type
+# for the season (FireSim has no per-cell season or percent conifer).
+CFS_NATIONAL_CODES: dict[int, FuelType | None] = {
+    -9999: None,
+    0: None,
+    1: FuelType.C1, 2: FuelType.C2, 3: FuelType.C3, 4: FuelType.C4,
+    5: FuelType.C5, 6: FuelType.C6, 7: FuelType.C7,
+    11: FuelType.D1, 12: FuelType.D2, 13: FuelType.D1,
+    21: FuelType.S1, 22: FuelType.S2, 23: FuelType.S3,
+    31: FuelType.O1a, 32: FuelType.O1b,
+    40: FuelType.M1, 50: FuelType.M2, 60: FuelType.M1,
+    70: FuelType.M3, 80: FuelType.M4, 90: FuelType.M3,
+    100: None,  # not available
+    101: None,  # non-fuel
+    102: None,  # water
+    103: None,  # unknown
+    104: None,  # unclassified
+    105: None,  # vegetated non-fuel
+    106: None,  # urban or built-up
+    **{400 + p: FuelType.M1 for p in range(5, 100, 5)},
+    **{500 + p: FuelType.M2 for p in range(5, 100, 5)},
+    **{600 + p: FuelType.M1 for p in range(5, 100, 5)},
+    **{700 + p: FuelType.M3 for p in range(5, 100, 5)},
+    **{800 + p: FuelType.M4 for p in range(5, 100, 5)},
+    **{900 + p: FuelType.M3 for p in range(5, 100, 5)},
+}
+
+# ``cfs_national_2014``: National FBP fuels grid version 2014b (nat_fbpfuels_2014b.tif, 250 m,
+# Canada Lambert; Beaudoin et al. 2014 kNN forest attributes + LCC2011), codes per
+# nat_fbpfuels_2014b_metadata.pdf. 108 is labelled D-1 and 109 M-1 (no percent conifer);
+# the caller swaps in D-2 / M-2 after green-up. 120 (wetland, FBP type unknown) is non-fuel here.
+CFS_NATIONAL_2014_CODES: dict[int, FuelType | None] = {
+    0: None,
+    101: FuelType.C1, 102: FuelType.C2, 103: FuelType.C3, 104: FuelType.C4,
+    105: FuelType.C5, 106: FuelType.C6, 107: FuelType.C7,
+    108: FuelType.D1,
+    109: FuelType.M1, 110: FuelType.M2, 111: FuelType.M3, 112: FuelType.M4,
+    113: FuelType.S1, 114: FuelType.S2, 115: FuelType.S3,
+    116: FuelType.O1a, 117: FuelType.O1b,
+    118: None,  # water
+    119: None,  # non-fuel
+    120: None,  # wetland (FBP fuel type unknown)
+    121: None,  # urban or built-up
+    122: None,  # vegetated non-fuel
+}
+
+
+def cfs_national_modifier(code: int) -> tuple[str, float] | None:
+    """("pc", percent conifer) or ("pdf", percent dead fir) carried by a CIFFC mixedwood code.
+
+    ``cfs_national_modifier(650) == ("pc", 50.0)``; ``cfs_national_modifier(835) == ("pdf", 35.0)``.
+    None for codes without a modifier (including the plain 40/50/60/70/80/90 classes).
+    """
+    group, pct = divmod(int(code), 100)
+    if pct == 0 or pct % 5 or not 5 <= pct <= 95:
+        return None
+    if group in (4, 5, 6):
+        return "pc", float(pct)
+    if group in (7, 8, 9):
+        return "pdf", float(pct)
+    return None
+
+
 # Named schemes, in tie-break priority order (earlier wins when a raster's codes fit several).
 CODE_SCHEMES: dict[str, dict[int, FuelType | None]] = {
     "edmonton_fbp": FBP_RASTER_CODES,
     "uplvi": UPLVI_RASTER_CODES,
     "canopy_lidar": CANOPY_RASTER_CODES,
     "terra_pipeline": TERRA_PIPELINE_CODES,
+    "cfs_national_2014": CFS_NATIONAL_2014_CODES,
+    "cfs_national": CFS_NATIONAL_CODES,
 }
+
+# Schemes only used when named explicitly: the CIFFC codes reuse 1-7, 11-13, 21-23, 31/32
+# with meanings that differ from the local schemes, so auto-detection would mislabel them.
+_EXPLICIT_ONLY_SCHEMES = {"cfs_national"}
 
 # Codes that mean "no data" in every scheme; ignored when matching a raster to a scheme.
 _NODATA_CODES = {-9999, 0}
@@ -161,7 +239,8 @@ def normalize_fuel_codes(data: np.ndarray, nodata: float | None, fill: int = -99
         if nodata is not None and np.isfinite(nodata):
             invalid |= data == nodata
         return np.where(invalid, fill, np.rint(data)).astype(np.int32)
-    data = data.copy()
+    # int32 so the -9999 fill fits unsigned/8-bit rasters (the national 2014b grid is uint8)
+    data = data.astype(np.int32)
     if nodata is not None:
         data[data == int(nodata)] = fill
     return data
@@ -193,7 +272,8 @@ def _detect_code_map(
     codes = set(unique_codes) - _NODATA_CODES
     if not codes:
         return ALL_CODES  # all no-data: nothing to map
-    candidates = [name for name, cmap in CODE_SCHEMES.items() if codes <= set(cmap)]
+    candidates = [name for name, cmap in CODE_SCHEMES.items()
+                  if name not in _EXPLICIT_ONLY_SCHEMES and codes <= set(cmap)]
     if len(candidates) == 1:
         logger.info("Detected %s raster code scheme", candidates[0])
         return CODE_SCHEMES[candidates[0]]
@@ -226,7 +306,8 @@ def load_fuel_grid(
         water_path: Optional path to water body GeoJSON for masking.
         buildings_path: Optional path to building footprint GeoJSON for masking.
         code_scheme: Raster code table: "auto" (detect from the codes present) or a
-            key of CODE_SCHEMES ("edmonton_fbp", "uplvi", "canopy_lidar", "terra_pipeline").
+            key of CODE_SCHEMES ("edmonton_fbp", "uplvi", "canopy_lidar", "terra_pipeline",
+            "cfs_national_2014", "cfs_national"; the last is never auto-detected).
 
     Returns:
         FuelGrid ready for use with Simulator.
