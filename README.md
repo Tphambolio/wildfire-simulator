@@ -41,8 +41,10 @@ preparedness and training in the wildland-urban interface.
   per building (exposure, not ignition).
 - **Burn probability** (Monte Carlo over ignition point, wind speed and RH).
 - **EOC console**: incidents and operational periods, ICS forms and an ICS-209 situation
-  report built from the run. Evacuation zones are being changed so that tiers are set by
-  Planning and never suggested by the model (in progress).
+  report built from the run.
+- **Neighbourhoods**: the modelled time the fire is first within 500 m of each
+  neighbourhood. The evacuation status (Order / Alert / Watch) is set by Planning and drawn as
+  blue outlines with line styles and labels. The model never suggests a tier.
 - **Classes from published sources**: head fire intensity classes 1-6 (Cole & Alexander 1995;
   CWFIS map limits) and FWI classes (CWFIS national FWI map intervals).
 

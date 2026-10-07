@@ -24,7 +24,7 @@ const dark = tokens(/:root/);
 const light = { ...dark, ...tokens(/\.theme-light/) };
 
 const SURFACES = ["bg", "surface", "surface-2", "surface-3"];
-const TEXT = ["text", "text-2", "text-3", "accent-text", "danger-text", "warning-text", "success-text"];
+const TEXT = ["text", "text-2", "text-3", "accent-text", "evac-text", "danger-text", "warning-text", "success-text"];
 const UI = ["border-strong", "focus"]; // control borders and the focus ring (non-text, 3:1)
 
 describe.each([

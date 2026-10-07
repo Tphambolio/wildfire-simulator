@@ -9,7 +9,7 @@
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "./WeatherPanel";
 import { buildGeoJSON, buildKML, downloadFile } from "../utils/geoExport";
-import type { EvacZone } from "../utils/evacZones";
+import type { PlanningEvacZone } from "../utils/evacZones";
 import { openICS209Report } from "../utils/ics209";
 import HfiClassChip from "./HfiClassChip";
 import { fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
@@ -29,8 +29,8 @@ interface EOCSummaryProps {
   overlayRoads?: GeoJSON.FeatureCollection | null;
   overlayCommunities?: GeoJSON.FeatureCollection | null;
   overlayInfrastructure?: GeoJSON.FeatureCollection | null;
-  /** ICS evacuation zones for export and ICS report */
-  evacZones?: EvacZone[];
+  /** Evacuation status set by Planning (never generated), for export and the ICS report */
+  evacZones?: PlanningEvacZone[];
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ function buildICSText(
   fuelTypeLabel?: string,
   atRiskCounts?: { roads: number; communities: number; infrastructure: number },
   dayStats?: DayStats[] | null,
-  evacZones?: EvacZone[],
+  evacZones?: PlanningEvacZone[],
   suppAdvisory?: SuppressionAdvisory | null
 ): string {
   const now = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
@@ -223,7 +223,7 @@ function buildICSText(
   if (hasAtRisk && atRiskCounts) {
     const n = sectionBase + (spread ? 1 : 0) + (burnArea ? 1 : 0);
     lines.push(`${n}. INFRASTRUCTURE AT RISK (within P ≥ 50% zone)`);
-    if (atRiskCounts.communities > 0) lines.push(`  Communities:       ${atRiskCounts.communities}  — consider evacuation assessment`);
+    if (atRiskCounts.communities > 0) lines.push(`  Communities:       ${atRiskCounts.communities}`);
     if (atRiskCounts.roads > 0) lines.push(`  Road segments:     ${atRiskCounts.roads}  — assess route closures`);
     if (atRiskCounts.infrastructure > 0) lines.push(`  Critical infra:    ${atRiskCounts.infrastructure}  — coordinate with utilities`);
     lines.push("");
@@ -231,18 +231,11 @@ function buildICSText(
 
   if (evacZones && evacZones.length > 0) {
     const n = sectionBase + (spread ? 1 : 0) + (burnArea ? 1 : 0) + (hasAtRisk ? 1 : 0);
-    lines.push(`${n}. ICS EVACUATION TRIGGER ZONES`);
-    lines.push("  Zone              Time Range   Area (ha)   Communities at Risk");
+    lines.push(`${n}. EVACUATION STATUS (set by Planning)`);
     for (const z of evacZones) {
-      const zLabel = z.label.padEnd(17);
-      const zTime = z.timeRangeLabel.padEnd(12);
-      const zArea = z.areaHa.toFixed(0).padEnd(11);
-      const zComm = z.communitiesAtRisk.length > 0
-        ? z.communitiesAtRisk.slice(0, 3).join(", ") + (z.communitiesAtRisk.length > 3 ? ` +${z.communitiesAtRisk.length - 3} more` : "")
-        : "None identified";
-      lines.push(`  ${zLabel} ${zTime} ${zArea} ${zComm}`);
+      lines.push(`  ${z.tier.padEnd(7)} ${z.neighbourhoods.join(", ")}`);
     }
-    lines.push("  NOTE: Zone boundaries are modelled projections. Confirm with IC/Lookout.");
+    lines.push("  Entered by Planning. FireSim does not recommend evacuation tiers.");
     lines.push("");
   }
 

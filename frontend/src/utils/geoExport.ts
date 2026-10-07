@@ -7,8 +7,8 @@
 
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
-import type { EvacZone } from "./evacZones";
-import { evacZonesToGeoJSON } from "./evacZones";
+import type { PlanningEvacZone } from "./evacZones";
+import { planningZonesToGeoJSON } from "./evacZones";
 
 // ── Geometry helpers ────────────────────────────────────────────────────────
 
@@ -41,8 +41,8 @@ export interface ExportOptions {
   overlayRoads?: GeoJSON.FeatureCollection | null;
   overlayCommunities?: GeoJSON.FeatureCollection | null;
   overlayInfrastructure?: GeoJSON.FeatureCollection | null;
-  /** ICS evacuation zones (Order / Alert / Watch) */
-  evacZones?: EvacZone[];
+  /** Evacuation status set by Planning (Order / Alert / Watch), as entered */
+  evacZones?: PlanningEvacZone[];
 }
 
 function scenarioMeta(runParams: RunParams | null, fuelTypeLabel?: string): Record<string, unknown> {
@@ -211,11 +211,11 @@ export function buildGeoJSON(opts: ExportOptions): object {
     }
   }
 
-  // 6. Evacuation zones as named layers (Order / Alert / Watch)
+  // 6. Evacuation status set by Planning (neighbourhood polygons tagged with the tier)
   if (opts.evacZones && opts.evacZones.length > 0) {
-    const zoneFc = evacZonesToGeoJSON(opts.evacZones);
+    const zoneFc = planningZonesToGeoJSON(opts.evacZones);
     for (const feat of zoneFc.features) {
-      features.push({ ...feat, properties: { ...feat.properties, layer: "evacuation_zone" } });
+      features.push({ ...feat, properties: { ...feat.properties, layer: "evacuation_status_planning" } });
     }
   }
 
@@ -258,17 +258,18 @@ export function buildKML(opts: ExportOptions): string {
     '        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/ylw-circle.png</href></Icon>',
     '      </IconStyle>',
     '    </Style>',
+    // Evacuation status (Planning): blue outlines, no fill; width differs by tier (KML has no dashes)
     '    <Style id="style_evac_order">',
-    '      <LineStyle><color>ff2f2fd3</color><width>2</width></LineStyle>',
-    '      <PolyStyle><color>302f2fd3</color><fill>1</fill><outline>1</outline></PolyStyle>',
+    '      <LineStyle><color>ffd84e1d</color><width>4</width></LineStyle>',
+    '      <PolyStyle><fill>0</fill><outline>1</outline></PolyStyle>',
     '    </Style>',
     '    <Style id="style_evac_alert">',
-    '      <LineStyle><color>ff007cf5</color><width>2</width></LineStyle>',
-    '      <PolyStyle><color>30007cf5</color><fill>1</fill><outline>1</outline></PolyStyle>',
+    '      <LineStyle><color>ffd84e1d</color><width>3</width></LineStyle>',
+    '      <PolyStyle><fill>0</fill><outline>1</outline></PolyStyle>',
     '    </Style>',
     '    <Style id="style_evac_watch">',
-    '      <LineStyle><color>ff25a8f9</color><width>2</width></LineStyle>',
-    '      <PolyStyle><color>3025a8f9</color><fill>1</fill><outline>1</outline></PolyStyle>',
+    '      <LineStyle><color>ffd84e1d</color><width>2</width></LineStyle>',
+    '      <PolyStyle><fill>0</fill><outline>1</outline></PolyStyle>',
     '    </Style>',
   ];
 
@@ -363,27 +364,28 @@ export function buildKML(opts: ExportOptions): string {
     lines.push('    </Folder>');
   }
 
-  // Evacuation zones
+  // Evacuation status set by Planning: one placemark per neighbourhood polygon
   if (opts.evacZones && opts.evacZones.length > 0) {
-    lines.push('    <Folder><name>Evacuation Zones</name>');
-    for (const zone of opts.evacZones) {
-      if (zone.perimeter.length < 3) continue;
-      const coordStr = zone.perimeter
-        .map(([lat, lng]) => `${lng},${lat},0`)
-        .join(" ");
-      const styleId = `style_evac_${zone.label.toLowerCase()}`;
-      const commStr = zone.communitiesAtRisk.length > 0
-        ? ` | Communities: ${zone.communitiesAtRisk.join(", ")}`
-        : "";
+    lines.push('    <Folder><name>Evacuation status (set by Planning)</name>');
+    for (const feat of planningZonesToGeoJSON(opts.evacZones).features) {
+      const p = feat.properties as { neighbourhood: string; evac_tier: string; set_at: string | null };
+      const g = feat.geometry;
+      const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+      if (polys.length === 0) continue;
       lines.push('      <Placemark>');
-      lines.push(`        <name>Evacuation ${zone.label} (${zone.timeRangeLabel})</name>`);
-      lines.push(`        <styleUrl>#${styleId}</styleUrl>`);
+      lines.push(`        <name>${escapeXml(`Evacuation ${p.evac_tier}: ${p.neighbourhood}`)}</name>`);
+      lines.push(`        <styleUrl>#style_evac_${p.evac_tier.toLowerCase()}</styleUrl>`);
       lines.push(`        <description>${escapeXml(
-        `Zone: ${zone.label} | Time range: ${zone.timeRangeLabel} | Area: ${zone.areaHa.toFixed(0)} ha${commStr}`
+        `Set by Planning${p.set_at ? ` at ${p.set_at}` : ""}. FireSim does not recommend evacuation tiers.`
       )}</description>`);
-      lines.push('        <Polygon><outerBoundaryIs><LinearRing>');
-      lines.push(`          <coordinates>${coordStr}</coordinates>`);
-      lines.push('        </LinearRing></outerBoundaryIs></Polygon>');
+      lines.push('        <MultiGeometry>');
+      for (const poly of polys) {
+        const coordStr = poly[0].map(([lng, lat]) => `${lng},${lat},0`).join(" ");
+        lines.push('          <Polygon><outerBoundaryIs><LinearRing>');
+        lines.push(`            <coordinates>${coordStr}</coordinates>`);
+        lines.push('          </LinearRing></outerBoundaryIs></Polygon>');
+      }
+      lines.push('        </MultiGeometry>');
       lines.push('      </Placemark>');
     }
     lines.push('    </Folder>');

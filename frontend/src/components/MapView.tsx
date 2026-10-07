@@ -9,8 +9,8 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
-import type { EvacZone } from "../utils/evacZones";
-import { evacZonesToGeoJSON } from "../utils/evacZones";
+import type { EvacTier, EvacTierRecord, PlanningEvacZone } from "../utils/evacZones";
+import { EVAC_COLOR, EVAC_TIERS, TIER_STYLE, featureName, labelPoint, planningZonesToGeoJSON } from "../utils/evacZones";
 import type { Isochrone } from "../utils/isochrones";
 import { isochronesToGeoJSON, isochroneLabelsGeoJSON } from "../utils/isochrones";
 
@@ -184,9 +184,15 @@ interface MapViewProps {
   overlayCommunitiesVisible?: boolean;
   overlayInfrastructure?: GeoJSON.FeatureCollection | null;
   overlayInfrastructureVisible?: boolean;
-  /** ICS evacuation zones derived from simulation frames */
-  evacZones?: EvacZone[];
+  /** Evacuation status set by Planning (never generated): blue outlines by tier */
+  evacZones?: PlanningEvacZone[];
   evacZonesVisible?: boolean;
+  /** Modelled fire arrival near neighbourhoods: outlines labelled "Fire within 500 m by 15:32" */
+  arrivalOutlines?: GeoJSON.FeatureCollection | null;
+  arrivalOutlinesVisible?: boolean;
+  /** Set a neighbourhood's evacuation status from its map popup (Planning) */
+  onSetEvacTier?: (neighbourhood: string, tier: EvacTier | null) => void;
+  evacTierRecords?: EvacTierRecord[];
   /** Fire arrival time isochrone contours */
   isochrones?: Isochrone[];
   isochronesVisible?: boolean;
@@ -219,6 +225,10 @@ export default function MapView({
   overlayInfrastructureVisible = true,
   evacZones = [],
   evacZonesVisible = true,
+  arrivalOutlines = null,
+  arrivalOutlinesVisible = true,
+  onSetEvacTier,
+  evacTierRecords = [],
   isochrones = [],
   isochronesVisible = false,
   fuelGridImage = null,
@@ -279,6 +289,19 @@ export default function MapView({
     pulseAnimRef.current = requestAnimationFrame(animatePulse);
   }, []);
   const spotPopupRef = useRef<maplibregl.Popup | null>(null);
+  // Latest evac status / arrival data and setter for the neighbourhood popup (built in addFireLayers)
+  const evacPopupDataRef = useRef<{
+    records: EvacTierRecord[];
+    arrivals: Map<string, string>;
+    onSet?: (neighbourhood: string, tier: EvacTier | null) => void;
+  }>({ records: [], arrivals: new Map() });
+  useEffect(() => {
+    const arrivals = new Map<string, string>();
+    for (const f of arrivalOutlines?.features ?? []) {
+      arrivals.set(String(f.properties?.neighbourhood), String(f.properties?.arrival_label));
+    }
+    evacPopupDataRef.current = { records: evacTierRecords, arrivals, onSet: onSetEvacTier };
+  }, [evacTierRecords, arrivalOutlines, onSetEvacTier]);
 
   const addFireLayers = useCallback((m: maplibregl.Map) => {
     // Remove stale sources if they somehow survived (defensive)
@@ -689,29 +712,46 @@ export default function MapView({
     m.on("mouseenter", "overlay-infra-circle", () => { m.getCanvas().style.cursor = "pointer"; });
     m.on("mouseleave", "overlay-infra-circle", () => { m.getCanvas().style.cursor = ""; });
 
-    // ── Evacuation zone layers ─────────────────────────────────────────────
-    // Three zones rendered outermost→innermost so Order is on top.
-    for (const [zoneId, color] of [
-      ["evac-watch",  "#f9a825"],
-      ["evac-alert",  "#f57c00"],
-      ["evac-order",  "#d32f2f"],
-    ] as Array<[string, string]>) {
-      if (m.getSource(zoneId)) {
-        if (m.getLayer(`${zoneId}-fill`))    m.removeLayer(`${zoneId}-fill`);
-        if (m.getLayer(`${zoneId}-outline`)) m.removeLayer(`${zoneId}-outline`);
-        m.removeSource(zoneId);
-      }
-      m.addSource(zoneId, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    // ── Neighbourhood layers: modelled arrival (ink) and evacuation status set by Planning (blue) ──
+    for (const id of ["nbhd-arrival-line", "nbhd-arrival-casing",
+      ...EVAC_TIERS.map((t) => `evac-${t.toLowerCase()}-line`), "evac-tier-casing"]) {
+      if (m.getLayer(id)) m.removeLayer(id);
+    }
+    for (const src of ["nbhd-arrival", "evac-tiers"]) if (m.getSource(src)) m.removeSource(src);
+    m.addSource("nbhd-arrival", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    m.addLayer({
+      id: "nbhd-arrival-casing",
+      type: "line",
+      source: "nbhd-arrival",
+      paint: { "line-color": "#ffffff", "line-width": 3.5, "line-opacity": 0.7 },
+    });
+    m.addLayer({
+      id: "nbhd-arrival-line",
+      type: "line",
+      source: "nbhd-arrival",
+      paint: { "line-color": "#1f2937", "line-width": 1.5 },
+    });
+    // Evacuation status (Planning): blue outlines, Order solid / Alert dashed / Watch dotted,
+    // on a white casing, never a fill (spec §3.6, §6.2). Text labels are DOM markers (below).
+    m.addSource("evac-tiers", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    m.addLayer({
+      id: "evac-tier-casing",
+      type: "line",
+      source: "evac-tiers",
+      paint: { "line-color": "#ffffff", "line-width": 6.5, "line-opacity": 0.85 },
+    });
+    for (const tier of [...EVAC_TIERS].reverse()) {
+      const st = TIER_STYLE[tier];
       m.addLayer({
-        id: `${zoneId}-fill`,
-        type: "fill",
-        source: zoneId,
+        id: `evac-${tier.toLowerCase()}-line`,
+        type: "line",
+        source: "evac-tiers",
+        filter: ["==", ["get", "evac_tier"], tier],
+        layout: { "line-cap": tier === "Watch" ? "round" : "butt" },
         paint: {
-          "fill-color": color,
-          "fill-opacity": 0.28,
-          // Suppress the auto 1px outline — self-intersecting Huygens vertices
-          // cause it to render as a dense orange web across the map.
-          "fill-outline-color": "transparent",
+          "line-color": EVAC_COLOR,
+          "line-width": st.width,
+          ...(st.dash ? { "line-dasharray": st.dash } : {}),
         },
       });
     }
@@ -767,21 +807,51 @@ export default function MapView({
       },
     });
 
-    // Click handler for community polygons
+    // Click a neighbourhood: its name, the modelled arrival, and its evacuation status, which
+    // Planning can set here (None / Watch / Alert / Order). FireSim never sets it.
     m.on("click", "overlay-communities-fill", (e) => {
       if (e.originalEvent === ignitionClickRef.current) return;
       if (!e.features || !e.features.length) return;
-      const props = e.features[0].properties as Record<string, unknown>;
-      const name = (props.name ?? props.NAME ?? props.label ?? "Community") as string;
-      const atRisk = props._at_risk === 1;
-      new maplibregl.Popup({ closeButton: true, maxWidth: "200px" })
+      const name = featureName(e.features[0] as unknown as GeoJSON.Feature);
+      const data = evacPopupDataRef.current;
+      const el = document.createElement("div");
+      el.className = "map-popup evac-popup";
+      const title = document.createElement("strong");
+      title.className = "map-popup-title";
+      title.textContent = name;
+      el.appendChild(title);
+      const arrival = document.createElement("div");
+      arrival.className = "map-popup-muted";
+      arrival.textContent = data.arrivals.get(name) ?? "No modelled fire within 500 m in this run";
+      el.appendChild(arrival);
+      if (data.onSet) {
+        const fs = document.createElement("fieldset");
+        fs.className = "evac-popup-status";
+        const legend = document.createElement("legend");
+        legend.textContent = "Evacuation status (set by Planning)";
+        fs.appendChild(legend);
+        const row = document.createElement("div");
+        row.className = "evac-popup-buttons";
+        const current = data.records.find((r) => r.neighbourhood === name)?.tier ?? null;
+        const buttons: HTMLButtonElement[] = [];
+        for (const tier of [null, "Watch", "Alert", "Order"] as Array<EvacTier | null>) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = tier ?? "None";
+          b.setAttribute("aria-pressed", String(tier === current));
+          b.addEventListener("click", () => {
+            evacPopupDataRef.current.onSet?.(name, tier);
+            for (const x of buttons) x.setAttribute("aria-pressed", String(x === b));
+          });
+          buttons.push(b);
+          row.appendChild(b);
+        }
+        fs.appendChild(row);
+        el.appendChild(fs);
+      }
+      new maplibregl.Popup({ closeButton: true, maxWidth: "260px" })
         .setLngLat(e.lngLat)
-        .setHTML(
-          `<div class="map-popup">
-            <strong class="map-popup-title">${name}</strong><br/>
-            ${atRisk ? '<span class="map-popup-warn">⚠ At-risk (P ≥ 50%)</span>' : ""}
-          </div>`
-        )
+        .setDOMContent(el)
         .addTo(m);
     });
 
@@ -1370,49 +1440,84 @@ export default function MapView({
     setVis("overlay-infra-circle", overlayInfrastructureVisible);
   }, [overlayRoadsVisible, overlayCommunitiesVisible, overlayInfrastructureVisible, mapReady, fireLayersVersion]);
 
-  // Sync evacuation zone GeoJSON sources
+  // Sync the evacuation status (Planning) and modelled arrival sources
   useEffect(() => {
     if (!map.current || !mapReady) return;
     const m = map.current;
-    // Remove stale outline layers — they may still exist if the map was initialized
-    // with an older version of addFireLayers before this session's code changes.
-    for (const id of ["evac-watch-outline", "evac-alert-outline", "evac-order-outline"]) {
-      if (m.getLayer(id)) m.removeLayer(id);
-    }
-    const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-    const zoneMap: Record<string, string> = { Watch: "evac-watch", Alert: "evac-alert", Order: "evac-order" };
-    // Clear all first, then populate from props
-    for (const srcId of Object.values(zoneMap)) {
-      const src = m.getSource(srcId) as maplibregl.GeoJSONSource | undefined;
-      if (src) src.setData(empty);
-    }
-    if (evacZones && evacZones.length > 0) {
-      const fc = evacZonesToGeoJSON(evacZones);
-      for (const zone of evacZones) {
-        const srcId = zoneMap[zone.label];
-        if (!srcId) continue;
-        const src = m.getSource(srcId) as maplibregl.GeoJSONSource | undefined;
-        if (!src) continue;
-        const zoneFc: GeoJSON.FeatureCollection = {
-          type: "FeatureCollection",
-          features: fc.features.filter((f) => f.properties?.zone_label === zone.label),
-        };
-        src.setData(zoneFc);
-      }
-    }
+    const fc = planningZonesToGeoJSON(evacZones ?? []);
+    (m.getSource("evac-tiers") as maplibregl.GeoJSONSource | undefined)?.setData(fc);
+    // What is drawn, for tests and debugging (the map itself is a canvas)
+    mapContainer.current?.setAttribute(
+      "data-evac-tiers",
+      JSON.stringify(fc.features.map((f) => [f.properties?.neighbourhood, f.properties?.map_label])),
+    );
   }, [evacZones, mapReady, fireLayersVersion]);
 
-  // Evacuation zone visibility
   useEffect(() => {
     if (!map.current || !mapReady) return;
     const m = map.current;
-    const vis = evacZonesVisible ? "visible" : "none";
-    for (const id of [
-      "evac-watch-fill", "evac-alert-fill", "evac-order-fill",
-    ]) {
-      if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", vis);
+    const fc = arrivalOutlines ?? { type: "FeatureCollection" as const, features: [] };
+    (m.getSource("nbhd-arrival") as maplibregl.GeoJSONSource | undefined)?.setData(fc);
+    mapContainer.current?.setAttribute("data-arrival-count", String(fc.features.length));
+  }, [arrivalOutlines, mapReady, fireLayersVersion]);
+
+  // Visibility of the two neighbourhood layer groups
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const m = map.current;
+    const setVis = (ids: string[], v: boolean) => {
+      for (const id of ids) if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", v ? "visible" : "none");
+    };
+    setVis(["evac-tier-casing", ...EVAC_TIERS.map((t) => `evac-${t.toLowerCase()}-line`)], evacZonesVisible);
+    setVis(["nbhd-arrival-casing", "nbhd-arrival-line"], arrivalOutlinesVisible);
+  }, [evacZonesVisible, arrivalOutlinesVisible, mapReady, fireLayersVersion]);
+
+  // On-map text labels for neighbourhoods (DOM markers, so they need no map glyphs and stay
+  // >= 12 px): "ORDER · set by Planning" for a status Planning set, and the modelled arrival
+  // "Fire within 500 m by 15:32". Decorative duplicates of the Neighbourhoods card (aria-hidden).
+  const nbhdLabelMarkersRef = useRef<maplibregl.Marker[]>([]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady) return;
+    for (const mk of nbhdLabelMarkersRef.current) mk.remove();
+    nbhdLabelMarkersRef.current = [];
+    const entries = new Map<string, { feature: GeoJSON.Feature; tier?: EvacTier; arrival?: string }>();
+    if (evacZonesVisible) {
+      for (const z of evacZones ?? []) for (const f of z.features) entries.set(featureName(f), { feature: f, tier: z.tier });
     }
-  }, [evacZonesVisible, mapReady, fireLayersVersion]);
+    if (arrivalOutlinesVisible) {
+      for (const f of arrivalOutlines?.features ?? []) {
+        const name = String(f.properties?.neighbourhood);
+        const e = entries.get(name) ?? { feature: f };
+        e.arrival = String(f.properties?.arrival_label);
+        entries.set(name, e);
+      }
+    }
+    for (const [name, e] of entries) {
+      const at = labelPoint(e.feature);
+      if (!at) continue;
+      const el = document.createElement("div");
+      el.className = `map-nbhd-label${e.tier ? ` map-nbhd-label-${TIER_STYLE[e.tier].css}` : ""}`;
+      el.setAttribute("aria-hidden", "true");
+      if (e.tier) {
+        const t = document.createElement("div");
+        t.className = "map-nbhd-label-tier";
+        t.textContent = `${TIER_STYLE[e.tier].mapLabel} · set by Planning`;
+        el.appendChild(t);
+      }
+      const n = document.createElement("div");
+      n.className = "map-nbhd-label-name";
+      n.textContent = name;
+      el.appendChild(n);
+      if (e.arrival) {
+        const a = document.createElement("div");
+        a.className = "map-nbhd-label-arrival";
+        a.textContent = e.arrival;
+        el.appendChild(a);
+      }
+      nbhdLabelMarkersRef.current.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(at).addTo(m));
+    }
+  }, [evacZones, arrivalOutlines, evacZonesVisible, arrivalOutlinesVisible, mapReady]);
 
   // Sync isochrone GeoJSON sources — only show isochrones up to current frame time
   useEffect(() => {

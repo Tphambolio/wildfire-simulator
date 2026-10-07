@@ -10,14 +10,22 @@ import TimeSlider from "./components/TimeSlider";
 import OverlayPanel from "./components/OverlayPanel";
 import type { OverlayLayers, LayerType } from "./components/OverlayPanel";
 import ScenarioPanel from "./components/ScenarioPanel";
-import EvacZonesPanel from "./components/EvacZonesPanel";
+import EvacStatusPanel from "./components/EvacStatusPanel";
 import { FUEL_TYPES } from "./types/simulation";
 import { useSimulation } from "./hooks/useSimulation";
 import { useScenarios } from "./hooks/useScenarios";
 import { computeBurnProbability, fetchFuelGridImage } from "./services/api";
 import type { SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
-import { computeEvacZones, applyZoneHistory } from "./utils/evacZones";
-import type { EvacZoneLabel } from "./utils/evacZones";
+import {
+  arrivalsToGeoJSON,
+  featureName,
+  neighbourhoodArrivals,
+  planningZones,
+  planningZonesToGeoJSON,
+  upsertTier,
+  type EvacTier,
+  type EvacTierRecord,
+} from "./utils/evacZones";
 // The EOC console (and its ICS forms) loads only when its tab is opened
 const EOCConsole = lazy(() => import("./components/EOCConsole"));
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
@@ -276,13 +284,11 @@ export default function App() {
   const [showBurnProbView, setShowBurnProbView] = useState(false);
   const [lastRunParams, setLastRunParams] = useState<RunParams | null>(null);
   const [overlayLayers, setOverlayLayers] = useState<OverlayLayers>(DEFAULT_OVERLAY_LAYERS);
+  // Evacuation status outlines (set by Planning) and modelled-arrival outlines on the map
   const [evacZonesVisible, setEvacZonesVisible] = useState(true);
-  const [evacZoneScales, setEvacZoneScales] = useState<Record<EvacZoneLabel, number>>({
-    Order: 1, Alert: 1, Watch: 1,
-  });
-  // Committed zone history: tracks the highest tier each neighbourhood has ever reached
-  // (Order + Alert only — Watch is always dynamic)
-  const [committedEvacHistory, setCommittedEvacHistory] = useState<Map<string, EvacZoneLabel>>(new Map());
+  const [arrivalOutlinesVisible, setArrivalOutlinesVisible] = useState(true);
+  // Evacuation status set by Planning when no incident is open (kept in this browser)
+  const [scratchEvacTiers, setScratchEvacTiers] = useState<EvacTierRecord[]>(loadScratchEvacTiers);
   // Active top-level tab
   const [activeTab, setActiveTab] = useState<"simulation" | "eoc">("simulation");
   const [isochronesVisible, setIsochronesVisible] = useState(false);
@@ -314,6 +320,7 @@ export default function App() {
     saveFrameData,
     exportIncident,
     importIncident,
+    setEvacTier,
   } = useIncident();
   const currentConfigRef = useRef<Omit<ScenarioConfig, "id" | "createdAt" | "name" | "description"> | null>(null);
 
@@ -353,10 +360,6 @@ export default function App() {
     setFuelGridImage(null);
   }, []);
 
-  const handleEvacScaleChange = useCallback((label: EvacZoneLabel, scale: number) => {
-    setEvacZoneScales((prev) => ({ ...prev, [label]: scale }));
-  }, []);
-
   const handleOverlayLoad = useCallback((type: LayerType, data: GeoJSON.FeatureCollection) => {
     setOverlayLayers((prev) => ({ ...prev, [type]: { ...prev[type], data } }));
   }, []);
@@ -369,7 +372,7 @@ export default function App() {
     setOverlayLayers((prev) => ({ ...prev, [type]: { data: null, visible: true } }));
   }, []);
 
-  // Pre-load Edmonton neighbourhoods on startup so evac zones work immediately.
+  // Pre-load Edmonton neighbourhoods on startup (arrival outlines and evacuation status).
   useEffect(() => {
     fetch("./edmonton/neighbourhoods.geojson")
       .then((r) => (r.ok ? r.json() : null))
@@ -429,22 +432,6 @@ export default function App() {
     }
   }, [status, frames.length, activeTab]);
 
-  // Compute evac zones from frames up to the current scrubber position — time-aware.
-  // Only communities threatened by fire up to currentFrameIndex are shown.
-  const evacZones = useMemo(
-    () => computeEvacZones(
-      frames.slice(0, currentFrameIndex + 1),
-      overlayLayers.communities.data,
-      evacZoneScales,
-    ),
-    [frames, currentFrameIndex, overlayLayers.communities.data, evacZoneScales],
-  );
-
-  // Reset committed history when a new simulation starts (frames array resets to empty)
-  useEffect(() => {
-    if (frames.length === 0) setCommittedEvacHistory(new Map());
-  }, [frames.length]);
-
   // Auto-save completed simulation into active incident period
   useEffect(() => {
     if (status === "completed" && frames.length > 0 && simulationId && incident) {
@@ -453,32 +440,56 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
-  // Accumulate Order + Alert zones into committed history (Watch is never committed)
-  useEffect(() => {
-    if (evacZones.length === 0) return;
-    const TIER_RANK: Record<EvacZoneLabel, number> = { Order: 3, Alert: 2, Watch: 1 };
-    setCommittedEvacHistory((prev) => {
-      const next = new Map(prev);
-      let changed = false;
-      for (const zone of evacZones) {
-        if (zone.label === "Watch") continue;
-        for (const name of zone.communitiesAtRisk) {
-          const prevRank = TIER_RANK[next.get(name) ?? "Watch"];
-          if (TIER_RANK[zone.label] > prevRank) {
-            next.set(name, zone.label);
-            changed = true;
-          }
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [evacZones]);
-
-  // Apply committed history so Order/Alert zones persist across scrubber movement
-  const persistedEvacZones = useMemo(
-    () => applyZoneHistory(evacZones, committedEvacHistory, overlayLayers.communities.data),
-    [evacZones, committedEvacHistory, overlayLayers.communities.data],
+  // Neighbourhoods: modelled earliest fire arrival within 500 m (a model fact, whole run)
+  const communities = overlayLayers.communities.data;
+  const arrivals = useMemo(() => neighbourhoodArrivals(frames, communities), [frames, communities]);
+  const arrivalOutlines = useMemo(
+    () => (arrivals.length ? arrivalsToGeoJSON(arrivals, scenarioStart) : null),
+    [arrivals, scenarioStart],
   );
+  const neighbourhoodNames = useMemo(
+    () => [...new Set((communities?.features ?? []).map(featureName))].sort((a, b) => a.localeCompare(b)),
+    [communities],
+  );
+
+  // Evacuation status: only what Planning sets, saved with the incident (or in this browser)
+  const evacTierRecords = useMemo(
+    () => (incident ? incident.evacTiers ?? [] : scratchEvacTiers),
+    [incident, scratchEvacTiers],
+  );
+  const handleSetEvacTier = useCallback(
+    (neighbourhood: string, tier: EvacTier | null) => {
+      if (incident) {
+        setEvacTier(neighbourhood, tier);
+        return;
+      }
+      setScratchEvacTiers((prev) => {
+        const next = upsertTier(prev, neighbourhood, tier);
+        saveScratchEvacTiers(next);
+        return next;
+      });
+    },
+    [incident, setEvacTier],
+  );
+  const evacZones = useMemo(() => planningZones(evacTierRecords, communities), [evacTierRecords, communities]);
+  const exportEvacStatus = useCallback(() => {
+    const fc = planningZonesToGeoJSON(evacZones);
+    const geojson = {
+      ...fc,
+      metadata: {
+        source: "FireSim V3: evacuation status set by Planning (not generated by the model)",
+        incident: incident?.name ?? null,
+        exported_at: new Date().toISOString(),
+      },
+    };
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: "application/geo+json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `evacuation-status-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-")}.geojson`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [evacZones, incident]);
 
   // Compute arrival time isochrones from simulation frames
   const isochrones = useMemo(
@@ -627,8 +638,8 @@ export default function App() {
           />
           <div className="setup-more-label">More</div>
           <SetupSection
-            title="Map overlays, evacuation & isochrones"
-            summary={`Evac zones ${evacZonesVisible ? "on" : "off"} · isochrones ${isochronesVisible ? "on" : "off"}`}
+            title="Map overlays & isochrones"
+            summary={`Isochrones ${isochronesVisible ? "on" : "off"}`}
           >
             <OverlayPanel
               layers={overlayLayers}
@@ -636,13 +647,6 @@ export default function App() {
               onLayerLoad={handleOverlayLoad}
               onLayerToggle={handleOverlayToggle}
               onLayerClear={handleOverlayClear}
-            />
-            <EvacZonesPanel
-              zones={persistedEvacZones}
-              visible={evacZonesVisible}
-              scales={evacZoneScales}
-              onToggleVisible={setEvacZonesVisible}
-              onScaleChange={handleEvacScaleChange}
             />
             <IsochronePanel
               isochrones={isochrones}
@@ -739,7 +743,7 @@ export default function App() {
             overlayInfrastructure={overlayAnnotated.infrastructure.annotated as GeoJSON.FeatureCollection | null}
             overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
             atRiskCounts={overlayAtRiskCounts}
-            evacZones={persistedEvacZones}
+            evacZones={evacZones}
             evacZonesVisible={evacZonesVisible}
             isochrones={isochrones}
             isochronesVisible={isochronesVisible}
@@ -809,13 +813,17 @@ export default function App() {
             overlayCommunitiesVisible={overlayLayers.communities.visible}
             overlayInfrastructure={overlayAnnotated.infrastructure.annotated as GeoJSON.FeatureCollection | null}
             overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
-            evacZones={persistedEvacZones}
+            evacZones={evacZones}
             evacZonesVisible={evacZonesVisible}
             isochrones={isochrones}
             isochronesVisible={isochronesVisible}
             fuelGridImage={fuelGridImage}
             fuelGridVisible={fuelGridVisible}
             fitRequest={fitRequest}
+            arrivalOutlines={arrivalOutlines}
+            arrivalOutlinesVisible={arrivalOutlinesVisible}
+            onSetEvacTier={handleSetEvacTier}
+            evacTierRecords={evacTierRecords}
           />
         </MapErrorBoundary>
       </main>
@@ -835,6 +843,20 @@ export default function App() {
             status={status}
             totalFrames={frames.length}
           />
+          <EvacStatusPanel
+            arrivals={arrivals}
+            scenarioStart={scenarioStart}
+            hasRun={frames.length > 0}
+            records={evacTierRecords}
+            neighbourhoodNames={neighbourhoodNames}
+            onSetTier={handleSetEvacTier}
+            arrivalsVisible={arrivalOutlinesVisible}
+            onArrivalsVisible={setArrivalOutlinesVisible}
+            tiersVisible={evacZonesVisible}
+            onTiersVisible={setEvacZonesVisible}
+            onExport={exportEvacStatus}
+            incidentName={incident?.name ?? null}
+          />
           <EOCSummary
             frames={frames}
             burnProbData={burnProbabilityData}
@@ -849,7 +871,7 @@ export default function App() {
             overlayRoads={overlayAnnotated.roads.annotated as GeoJSON.FeatureCollection | null}
             overlayCommunities={overlayAnnotated.communities.annotated as GeoJSON.FeatureCollection | null}
             overlayInfrastructure={overlayAnnotated.infrastructure.annotated as GeoJSON.FeatureCollection | null}
-            evacZones={persistedEvacZones}
+            evacZones={evacZones}
           />
         </SituationPanel>
       )}
@@ -888,6 +910,26 @@ export default function App() {
       )}
     </div>
   );
+}
+
+const SCRATCH_EVAC_KEY = "firesim-v3-evac-tiers";
+
+function loadScratchEvacTiers(): EvacTierRecord[] {
+  try {
+    const raw = localStorage.getItem(SCRATCH_EVAC_KEY);
+    const parsed = raw ? (JSON.parse(raw) as EvacTierRecord[]) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveScratchEvacTiers(records: EvacTierRecord[]): void {
+  try {
+    localStorage.setItem(SCRATCH_EVAC_KEY, JSON.stringify(records));
+  } catch {
+    // storage full or blocked: the statuses stay for this session
+  }
 }
 
 /** A readable message for common server and network failures (raw text kept as detail). */

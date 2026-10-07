@@ -10,7 +10,7 @@
 
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
-import type { EvacZone } from "./evacZones";
+import type { PlanningEvacZone } from "./evacZones";
 import type { SuppressionAdvisory } from "./suppressionAdvisory";
 import { fwiClassColor } from "./fwiClass";
 
@@ -270,7 +270,8 @@ export interface ICS209Options {
   ignitionPoint: { lat: number; lng: number } | null;
   fuelTypeLabel?: string;
   atRiskCounts?: { roads: number; communities: number; infrastructure: number };
-  evacZones?: EvacZone[];
+  /** Evacuation status set by Planning (never generated) */
+  evacZones?: PlanningEvacZone[];
   suppAdvisory?: SuppressionAdvisory | null;
 }
 
@@ -466,37 +467,31 @@ export function buildICS209HTML(opts: ICS209Options): string {
 
   // ── Section: Evacuations ─────────────────────────────────────────────────
 
+  // Evacuation status as set by Planning: reported, never generated (Travis, 2026-10-06)
   let evacBlock = "";
   if (evacZones && evacZones.length > 0) {
-    const zRows = evacZones.map(z => {
-      const comm = z.communitiesAtRisk.length > 0
-        ? z.communitiesAtRisk.slice(0, 4).join(", ") + (z.communitiesAtRisk.length > 4 ? ` +${z.communitiesAtRisk.length - 4} more` : "")
-        : "None identified";
-      return `<tr>
-        <td><strong>${esc(z.label)}</strong></td>
-        <td>${esc(z.timeRangeLabel)}</td>
-        <td>${z.areaHa.toFixed(0)}</td>
-        <td>${esc(comm)}</td>
-      </tr>`;
-    }).join("");
+    const zRows = evacZones.map(z => `<tr>
+        <td><strong>${esc(z.tier)}</strong></td>
+        <td>${esc(z.neighbourhoods.join(", "))}</td>
+        <td>Planning</td>
+      </tr>`).join("");
 
     evacBlock = `
-    ${sectionHeader("SECTION E — ICS EVACUATION TRIGGER ZONES")}
+    ${sectionHeader("SECTION E — EVACUATION STATUS (SET BY PLANNING)")}
     <div class="row">
       <div class="block" style="flex:1; padding:4px 6px;">
         <table class="inner">
           <thead>
             <tr>
-              <th>Zone</th>
-              <th>Time Window</th>
-              <th>Area (ha)</th>
-              <th>Communities at Risk</th>
+              <th>Status</th>
+              <th>Neighbourhoods</th>
+              <th>Set by</th>
             </tr>
           </thead>
           <tbody>${zRows}</tbody>
         </table>
-        <div style="font-size:7pt; margin-top:3px; color:#b71c1c; font-style:italic;">
-          Zone boundaries are modelled projections. Confirm with IC/Lookout before issuing public orders.
+        <div style="font-size:7pt; margin-top:3px; font-style:italic;">
+          Entered by Planning. FireSim does not recommend evacuation tiers.
         </div>
       </div>
     </div>`;
@@ -512,7 +507,6 @@ export function buildICS209HTML(opts: ICS209Options): string {
       ${block("Communities", `<span class="big" style="color:#e65100">${atRiskCounts.communities}</span>`, "w2")}
       ${block("Road Segments", `<span class="big" style="color:#e65100">${atRiskCounts.roads}</span>`, "w2")}
       ${block("Critical Infrastructure", `<span class="big" style="color:#e65100">${atRiskCounts.infrastructure}</span>`, "w2")}
-      ${block("Actions Required", "Assess evacuation routes. Coordinate with utilities. Confirm defensible space.", "w4", "", false)}
     </div>`;
   }
 
@@ -556,12 +550,12 @@ export function buildICS209HTML(opts: ICS209Options): string {
       <div class="block-label">Significant Events &amp; Current Threats (auto-populated)</div>
       <div class="block-value" style="font-size:8pt;">
         ${peakHfi >= 4000
-          ? "⚠ EXTREME fire behavior — Class IV/V intensity. Life-safety only response. Immediate evacuation of all operational personnel from fire zone."
+          ? "⚠ EXTREME fire behavior — Class IV/V intensity. Life-safety only response. Withdraw all operational personnel from the fire zone."
           : peakHfi >= 2000
-            ? "⚠ VERY HIGH fire behavior — Class IV intensity. No direct attack. Structure protection and evacuation support are primary missions."
+            ? "⚠ VERY HIGH fire behavior — Class IV intensity. No direct attack."
             : "Fire behavior within operational suppression range. Monitor continuously for escalation."}
         ${spotCount > 0 ? `<br>Ember spotting detected (${spotCount} events, max ${maxSpotDist.toFixed(0)} m). Scout for ignitions ahead of main perimeter.` : ""}
-        ${evacZones && evacZones.some(z => z.label === "Order") ? "<br>Evacuation Order zone active. Confirm public notification through EM/EOC." : ""}
+        ${evacZones && evacZones.some(z => z.tier === "Order") ? `<br>Evacuation Order set by Planning: ${esc(evacZones.find(z => z.tier === "Order")!.neighbourhoods.join(", "))}.` : ""}
       </div>
     </div>
   </div>

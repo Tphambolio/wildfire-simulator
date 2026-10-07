@@ -9,7 +9,7 @@
  *   ICS-201  Incident Briefing            (landscape, fully auto-populated)
  *   ICS-202  Incident Objectives          (portrait, fully auto-populated)
  *   ICS-203  Organization Assignment List (portrait, structured template)
- *   ICS-204  Assignment List              (portrait, auto-divisions from evac zones)
+ *   ICS-204  Assignment List              (portrait)
  *   ICS-205  Communications Plan          (portrait, structured template)
  *   ICS-206  Medical Plan                 (portrait, structured template)
  *   ICS-214  Activity Log                 (portrait, blank template)
@@ -22,7 +22,7 @@
 
 import type { SimulationFrame } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
-import type { EvacZone } from "./evacZones";
+import type { PlanningEvacZone } from "./evacZones";
 import type { IncidentAnnotation } from "../types/incident";
 import { RPAS_NOTE, buildSuppressionAdvisory } from "./suppressionAdvisory";
 
@@ -35,7 +35,8 @@ export interface ICSFormOptions {
   ignitionPoint: { lat: number; lng: number } | null;
   fuelTypeLabel?: string;
   atRiskCounts?: { roads: number; communities: number; infrastructure: number };
-  evacZones?: EvacZone[];
+  /** Evacuation status set by Planning (reported as entered, never generated) */
+  evacZones?: PlanningEvacZone[];
   /** base64 PNG from maplibregl canvas.toDataURL() */
   mapSnapshotDataUrl?: string;
   /** ICS map annotations from the incident store — used to populate form tables */
@@ -169,9 +170,9 @@ function renderMapSnapshot(dataUrl: string | undefined, title: string): string {
   <h3 style="margin-top:0">${esc(title)}</h3>
   <img src="${dataUrl}" alt="${esc(title)}" />
   <ul class="map-legend">
-    <li><span style="background:#d32f2f"></span>Evacuation Order (0–2 h)</li>
-    <li><span style="background:#f57c00"></span>Evacuation Alert (2–6 h)</li>
-    <li><span style="background:#f9a825"></span>Evacuation Watch (6–12 h)</li>
+    <li><span style="background:none;border-top:3px solid #1d4ed8;height:0"></span>Evacuation Order, set by Planning (solid blue outline)</li>
+    <li><span style="background:none;border-top:3px dashed #1d4ed8;height:0"></span>Evacuation Alert, set by Planning (dashed)</li>
+    <li><span style="background:none;border-top:3px dotted #1d4ed8;height:0"></span>Evacuation Watch, set by Planning (dotted)</li>
     <li><span style="background:#ff3d00"></span>Fire Perimeter</li>
   </ul>
 </div>`;
@@ -289,12 +290,7 @@ export function buildICS201HTML(opts: ICSFormOptions): string {
   } else {
     situationItems.push("Simulation results not yet available.");
   }
-  const orderZone = opts.evacZones?.find((z) => z.label === "Order");
-  const alertZone = opts.evacZones?.find((z) => z.label === "Alert");
-  const watchZone = opts.evacZones?.find((z) => z.label === "Watch");
-  if (orderZone?.communitiesAtRisk.length) situationItems.push(`Evacuation Order issued: ${orderZone.communitiesAtRisk.join(", ")}`);
-  if (alertZone?.communitiesAtRisk.length) situationItems.push(`Evacuation Alert: ${alertZone.communitiesAtRisk.join(", ")}`);
-  if (watchZone?.communitiesAtRisk.length) situationItems.push(`Evacuation Watch: ${watchZone.communitiesAtRisk.join(", ")}`);
+  situationItems.push(...evacStatusItems(opts));
 
   const weatherRows: Array<[string, string]> = rp ? [
     ["Wind Speed", `${rp.weather.wind_speed} km/h ${windDirLabel(rp.weather.wind_direction)}`],
@@ -349,8 +345,7 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
     if (spread.spotCount > 0) awarenessItems.push(`Active spotting — ${spread.spotCount} events detected, max ${spread.maxSpotDistM.toFixed(0)} m throw`);
     if (spread.fireType.toLowerCase().includes("crown")) awarenessItems.push("Crown fire conditions — unpredictable rate of spread, extreme ember cast");
   }
-  const orderZone = opts.evacZones?.find((z) => z.label === "Order");
-  if (orderZone?.communitiesAtRisk.length) awarenessItems.push(`${orderZone.communitiesAtRisk.length} community(ies) under Evacuation Order — confirm evacuation complete`);
+  awarenessItems.push(...evacStatusItems(opts));
   if (opts.atRiskCounts?.infrastructure) awarenessItems.push(`${opts.atRiskCounts.infrastructure} infrastructure features at risk`);
   if (awarenessItems.length === 0) awarenessItems.push("No additional situational awareness items. Maintain LACES protocol.");
 
@@ -368,13 +363,8 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
     ["FWI", `${rp.fwi_value.toFixed(1)} — ${rp.danger_rating}`],
   ] : [["Status", "Weather not yet entered."]];
 
-  const controlItems: string[] = [];
-  opts.evacZones?.forEach((z) => {
-    if (z.communitiesAtRisk.length) {
-      controlItems.push(`${z.label} zone trigger: ${z.timeRangeLabel} fire arrival horizon — ${z.communitiesAtRisk.join(", ")}`);
-    }
-  });
-  if (controlItems.length === 0) controlItems.push("Evacuation triggers: based on AEMA time-horizon model (Order 0–2h, Alert 2–6h, Watch 6–12h)");
+  const controlItems = evacStatusItems(opts);
+  if (controlItems.length === 0) controlItems.push("Evacuation status: none set by Planning.");
 
   return wrapForm("ICS 202 – Incident Objectives", [
     icsBlock("1", "Incident Information", incidentInfoBlock(opts)),
@@ -383,7 +373,7 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
     icsBlock("4", "General Situational Awareness", renderList(awarenessItems)),
     icsBlock("5", "Safety Message / Analysis", renderList(safetyItems)),
     icsBlock("6", "Weather Outlook", kvTable(weatherRows)),
-    icsBlock("7", "Control Measures & Evacuation Triggers", renderList(controlItems)),
+    icsBlock("7", "Control Measures & Evacuation Status (set by Planning)", renderList(controlItems)),
     icsBlock("8", "Attachments / References", renderList([
       "ICS-209 Incident Status Summary (attached)",
       "FireSim V3 GeoJSON perimeter export",
@@ -451,58 +441,14 @@ export function buildICS203HTML(opts: ICSFormOptions): string {
 export function buildICS204HTML(opts: ICSFormOptions): string {
   const spread = extractSpreadStats(opts.frames);
   const suppression = spread ? buildSuppressionSummary(spread) : null;
-  const orderZone = opts.evacZones?.find((z) => z.label === "Order");
-  const alertZone = opts.evacZones?.find((z) => z.label === "Alert");
-  const watchZone = opts.evacZones?.find((z) => z.label === "Watch");
-
   type Division = { name: string; objectives: string[]; resources: string[]; safety: string };
+  // Divisions are Operations' to define; FireSim does not derive them from evacuation status
   const divisions: Division[] = [];
-
-  if (orderZone?.communitiesAtRisk.length) {
-    divisions.push({
-      name: "Division A — Structure Protection",
-      objectives: [
-        `Protect structures in Evacuation Order zone: ${orderZone.communitiesAtRisk.join(", ")}`,
-        "Confirm evacuation complete in Order zone prior to defensive deployment",
-        "Establish defensible space around critical infrastructure",
-      ],
-      resources: suppression?.resources.slice(0, 2) ?? ["Structure protection crews", "Water tenders"],
-      safety: "No structure protection operations without confirmed civilian evacuation. LACES mandatory.",
-    });
-  }
-
-  if (alertZone?.communitiesAtRisk.length) {
-    divisions.push({
-      name: "Division B — Evacuation Support",
-      objectives: [
-        `Support evacuation of Alert zone communities: ${alertZone.communitiesAtRisk.join(", ")}`,
-        "Coordinate with EPS for traffic control and resident notification",
-        "Establish reception centre(s) — confirm location with EOC Director",
-      ],
-      resources: ["Law enforcement (EPS)", "Municipal transit / transport", "Alberta Health Services EMS", "Community Engagement"],
-      safety: "Maintain communication with IC before any zone status upgrade.",
-    });
-  }
-
-  if (watchZone?.communitiesAtRisk.length) {
-    divisions.push({
-      name: "Division C — Perimeter Monitoring",
-      objectives: [
-        `Monitor Watch zone communities: ${watchZone.communitiesAtRisk.join(", ")}`,
-        "Continuous situational awareness — report any spot fire activity to IC immediately",
-        spread?.spotCount ? "RPAS monitoring where authorized" : "Ground patrol and weather monitoring",
-      ],
-      resources: ["1 Patrol crew or vehicle", spread?.spotCount ? "RPAS unit (ATGS authorization required)" : "Weather observation post"],
-      safety: spread?.spotCount
-        ? RPAS_NOTE
-        : "LACES required. Report wind shifts > 20° immediately.",
-    });
-  }
 
   if (divisions.length === 0) {
     divisions.push({
       name: "Division A — General Operations",
-      objectives: ["Run simulation to generate specific division assignments based on evac zones and fire behaviour."],
+      objectives: ["Division assignments are entered by Operations."],
       resources: suppression?.resources ?? ["Resources to be determined"],
       safety: "LACES protocol mandatory. Verify escape routes and safety zones before deployment.",
     });
@@ -894,6 +840,13 @@ export function buildFullIAPHTML(opts: ICSFormOptions): string {
 </html>`;
 }
 
+// ── Evacuation status (set by Planning) ───────────────────────────────────────
+
+/** "Evacuation Order (set by Planning): A, B" lines, as entered; nothing when none is set. */
+function evacStatusItems(opts: ICSFormOptions): string[] {
+  return (opts.evacZones ?? []).map((z) => `Evacuation ${z.tier} (set by Planning): ${z.neighbourhoods.join(", ")}`);
+}
+
 // ── Shared objectives builder ─────────────────────────────────────────────────
 
 function buildObjectives(
@@ -904,14 +857,6 @@ function buildObjectives(
   const objectives: string[] = [];
   if (spread) {
     objectives.push(`Contain fire within ${(spread.finalAreaHa * 1.2).toFixed(0)} ha by end of operational period`);
-  }
-  const orderZone = opts.evacZones?.find((z) => z.label === "Order");
-  const alertZone = opts.evacZones?.find((z) => z.label === "Alert");
-  if (orderZone?.communitiesAtRisk.length) {
-    objectives.push(`Confirm evacuation complete for ${orderZone.communitiesAtRisk.length} community(ies) under Evacuation Order (${orderZone.communitiesAtRisk.join(", ")})`);
-  }
-  if (alertZone?.communitiesAtRisk.length) {
-    objectives.push(`Pre-position evacuation resources for ${alertZone.communitiesAtRisk.length} community(ies) on Evacuation Alert (${alertZone.communitiesAtRisk.join(", ")})`);
   }
   if (suppression) {
     objectives.push(`Execute ${suppression.strategy} tactics per suppression advisory (Intensity Class ${suppression.intensityClass})`);

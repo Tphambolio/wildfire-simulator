@@ -145,7 +145,9 @@ FIRESIM_GIT_SHA           Set by the Docker build (CI passes the commit); served
 ### Layout
 Top bar (incident, status, limits badge, America/Edmonton clock) · Setup column (sections with
 summaries, sticky Run bar) · map (`MapView.tsx`) · Situation panel (`FireMetrics.tsx`, exposure,
-`EOCSummary.tsx`) · clock-time timeline (`TimeSlider.tsx`). EOC console tab: `EOCConsole.tsx`
+Neighbourhoods card `EvacStatusPanel.tsx`, `EOCSummary.tsx`) · clock-time timeline
+(`TimeSlider.tsx`). Neighbourhoods: modelled fire arrival within 500 m and evacuation status set by
+Planning (`utils/evacZones.ts`); FireSim never suggests Order/Alert/Watch. EOC console tab: `EOCConsole.tsx`
 (ICS forms `utils/icsForms.ts`, ICS-209 `utils/ics209.ts`). Shared tables: `utils/fireClasses.ts`
 (HFI classes, Cole & Alexander 1995), `utils/fwiClass.ts`, `utils/time.ts`,
 `utils/suppressionAdvisory.ts`. Design tokens: `src/styles/tokens.css` (dark default).

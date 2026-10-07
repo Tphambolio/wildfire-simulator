@@ -63,6 +63,7 @@
   --fuel-conifer: #7f9e86;
   --fuel-slash: #b3aca3;
   --evac: #1d4ed8;
+  --evac-text: #6b9bff;    /* evac labels and line swatches on panels */
   --watched-line: #0e7490;
   --isochrone: #1f2937;
 
@@ -128,6 +129,7 @@
   --accent-hover: #1e40af;
   --on-accent: #ffffff;
   --accent-text: #1d4ed8;
+  --evac-text: #1d4ed8;
   --accent-soft: rgba(29, 78, 216, 0.1);
   --danger: #b42318;
   --on-danger: #ffffff;
@@ -159,6 +161,7 @@
     --border-strong: #6e7887;
     --accent: #1d4ed8;
     --accent-text: #1d4ed8;
+    --evac-text: #1d4ed8;
     --danger-text: #b42318;
     --warning-text: #8a4b00;
     --success-text: #1e6b3a;

@@ -11,6 +11,7 @@ import type {
   FrameSummary,
 } from "../types/incident";
 import { makeIncident, makeOperationalPeriod } from "../types/incident";
+import { upsertTier, type EvacTier } from "../utils/evacZones";
 
 const STORAGE_KEY = "firesim-v3-incidents";
 const MAX_INCIDENTS = 20;
@@ -208,6 +209,15 @@ export function useIncident() {
     [updateActivePeriod]
   );
 
+  // ── Evacuation status set by Planning (incident-wide, carried across periods) ──
+
+  const setEvacTier = useCallback(
+    (neighbourhood: string, tier: EvacTier | null) => {
+      updateActiveIncident((i) => ({ ...i, evacTiers: upsertTier(i.evacTiers ?? [], neighbourhood, tier) }));
+    },
+    [updateActiveIncident]
+  );
+
   // ── Frame data ────────────────────────────────────────────────────────────
 
   const saveFrameData = useCallback(
@@ -352,6 +362,7 @@ export function useIncident() {
     fetchAndPlaceFacilities,
     // Evac
     commitEvacDecision,
+    setEvacTier,
     // Frames
     saveFrameData,
     setSimulationId,
