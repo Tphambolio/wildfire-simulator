@@ -619,3 +619,23 @@ class TestHeadSpeed:
         m_per_lng = 111320.0 * math.cos(math.radians(53.5))
         heads = [(max(c.lng for c in f.burned_cells) - lng_ign) * m_per_lng for f in frames[1:]]
         assert (heads[1] - heads[0]) / 60.0 == pytest.approx(ros, rel=0.04)
+
+
+def test_starting_ellipse_does_not_burn_fuel_that_cannot_spread():
+    """Regression: the exact starting ellipse used to mark every fuel cell inside it as
+    burned, including fuel with zero spread (D-2 below BUI 80, Alexander 2010)."""
+    n = 41
+    lat_span = n * 0.0004
+    lng_span = n * 0.0006
+    fuel = [[FuelType.D2] * n for _ in range(n)]
+    fuel[n // 2][n // 2] = FuelType.C2  # only the ignition cell can carry fire
+    g = FuelGrid(fuel, 53.5 - lat_span / 2, 53.5 + lat_span / 2, -113.5 - lng_span / 2,
+                 -113.5 + lng_span / 2, n, n)
+    cond = SpreadConditions(wind_speed=30.0, wind_direction=180.0, ffmc=94.0, dmc=40.0, dc=300.0)
+    assert fbp_for_conditions(cond, FuelType.D2).ros_final <= 1e-6  # BUI ~60 (cffdrs floor)
+    frames = run_cellular_simulation(
+        dict(ignition_lat=53.5, ignition_lng=-113.5, duration_hours=1.0), g, cond,
+        snapshot_interval_minutes=60.0,
+    )
+    fuels = [c.fuel_type for c in frames[-1].burned_cells]
+    assert fuels == ["C2"]
