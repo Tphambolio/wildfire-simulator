@@ -69,7 +69,7 @@ intensity and fire type, spot fires, building exposure, burn probability.
 | Head / flank / back | Fastest head cell = FBP ROS; rearmost back cell = BROS; head direction within 2° of RAZ incl. slope | engine/tests/spread/test_deployment_data.py |
 | Spotting maximum distance | Reproduces published worked examples | engine/tests/spread/test_albini.py |
 | Radiant exposure | Reproduces Cohen (2004) worked values within 3.5 % | engine/tests/test_exposure.py |
-| **Observed fires** | **None yet.** A validation harness on the Canadian Fire Spread Dataset (Alberta fires) using the Bennett et al. (2026) protocol is in progress; results will be reported here as F1, IoU, Hausdorff distance and area/ROS error, not as a single "accuracy" figure. | (pending) |
+| **Observed fires (first results)** | 143 fire-days, 32 Alberta fires 2014-2024 (CFSDS), one burn day from the observed perimeter, Bennett et al. (2026) protocol. F1 at the default 06-23 h window: 0.15 started from the whole perimeter (operational), 0.24 with Bennett's ignition (WISE: 0.26); best burn hour 0.22 / 0.38 (WISE 0.50). Growth over-predicted on 73-93 % of days (normalised area difference +0.29 to +0.67); head direction error median about 50°; spread distance within ±35 % on about 20 % of days. Head runs on the largest Horse River days under-predicted. | docs/validation.md |
 
 For context, published single-day skill of operational FBP growth models on observed fires
 is modest (WISE: F1 about 0.26 with default settings, about 0.54 tuned; Bennett et al. 2026),
@@ -77,7 +77,9 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
 
 ## Known limitations and biases
 
-- Not validated on observed fires (above).
+- Only a first, small validation on observed fires (above): one-day overlap is low and growth
+  is usually over-predicted when the whole perimeter is treated as active and the fire burns
+  06-23 h; the largest wind-driven runs can be under-predicted. Show it as a range, not a line.
 - No suppression is modelled.
 - Weather: constant or hourly; DMC and DC fixed within a run; forecast quality is
   Open-Meteo's. Wind direction is the dominant source of error in fire growth models.
