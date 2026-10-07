@@ -39,6 +39,7 @@ The suite:
 | Spec | Checks |
 |---|---|
 | `smoke.spec.ts` | App loads, ignition by map click, Run, frames replay to "completed", metrics show the final area; polling fallback. |
+| `ignition.spec.ts` | Keyboard-only ignition (Tab to the map, arrow keys, Enter, Ctrl+Enter runs); typed DMS coordinates and start date/time (`start_time` with the Edmonton offset, timeline from the start); pasted coordinate pair; hourly forecast sliced from the scenario start. |
 | `performance.spec.ts` | 0 WebGL draw calls in 3 s of idle (no spot fires), before and after a run. |
 | `a11y.spec.ts` | axe (WCAG 2.x A/AA): fails only on serious/critical violations that are not in `tests/e2e/axe-baseline.json`. After fixing violations, re-record with `UPDATE_AXE_BASELINE=1 npx playwright test a11y` and commit the baseline. |
 | `layout.spec.ts` | Reports (does not enforce yet) the number of visible text nodes below 12 px, in the console and as an attachment. |

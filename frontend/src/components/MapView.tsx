@@ -156,6 +156,19 @@ if (MAPBOX_TOKEN) {
   };
 }
 
+interface KbCursor {
+  x: number;
+  y: number;
+  lat: number;
+  lng: number;
+}
+
+/** Arrow-key step for the keyboard crosshair, px (Shift: larger steps). */
+const KB_STEP = 10;
+const KB_STEP_LARGE = 50;
+/** The crosshair stays this far inside the map; beyond it the map pans instead. */
+const KB_EDGE = 24;
+
 interface MapViewProps {
   frames: SimulationFrame[];
   currentFrameIndex: number;
@@ -226,6 +239,13 @@ export default function MapView({
   const ignitionModeRef = useRef(!ignitionPoint);
   // The click that placed the ignition point; feature popups ignore it
   const ignitionClickRef = useRef<MouseEvent | null>(null);
+  // Keyboard ignition (design spec §7, 2.1.1): with the map focused, a crosshair moves with the
+  // arrow keys and Enter sets the ignition there. Position in px within the map container.
+  const [kbCursor, setKbCursor] = useState<KbCursor | null>(null);
+  const kbCursorRef = useRef<KbCursor | null>(null);
+  const [kbAnnounce, setKbAnnounce] = useState("");
+  const onMapClickRef = useRef(onMapClick);
+  useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
   const [mapZoom, setMapZoom] = useState(11);
   const [toast, setToast] = useState<string | null>(null);
   // Counter incremented each time fire layers are (re-)added to the map.
@@ -807,12 +827,108 @@ export default function MapView({
       m.getCanvas().style.cursor = "";
     });
 
+    // ── Keyboard ignition: crosshair + arrow keys + Enter (not in the read-only EOC map) ──
+    const canvas = m.getCanvas();
+    const setKb = (c: KbCursor | null) => {
+      kbCursorRef.current = c;
+      setKbCursor(c);
+    };
+    const kbAt = (x: number, y: number): KbCursor => {
+      const ll = m.unproject([x, y]);
+      return { x, y, lat: ll.lat, lng: ll.lng };
+    };
+    const centre = () => kbAt(canvas.clientWidth / 2, canvas.clientHeight / 2);
+    const onKbFocus = () => {
+      // Keyboard focus only: a mouse click on the map does not show the crosshair
+      if (canvas.matches(":focus-visible")) setKb(kbCursorRef.current ?? centre());
+    };
+    const onKbBlur = () => {
+      kbCursorRef.current = null;
+      setKbCursor(null);
+    };
+    const onKbKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // Ctrl+Enter runs (handled by the Run bar)
+      const step = e.shiftKey ? KB_STEP_LARGE : KB_STEP;
+      let dx = 0;
+      let dy = 0;
+      switch (e.key) {
+        case "ArrowLeft": dx = -step; break;
+        case "ArrowRight": dx = step; break;
+        case "ArrowUp": dy = -step; break;
+        case "ArrowDown": dy = step; break;
+        case "+":
+        case "=":
+          e.preventDefault();
+          m.zoomIn();
+          return;
+        case "-":
+        case "_":
+          e.preventDefault();
+          m.zoomOut();
+          return;
+        case "Escape":
+          setKb(null);
+          return;
+        case "Enter": {
+          e.preventDefault();
+          const c = kbCursorRef.current;
+          if (!c) {
+            setKb(centre());
+            setKbAnnounce("Crosshair at the map centre. Arrow keys move it, Enter sets the ignition.");
+            return;
+          }
+          const at = kbAt(c.x, c.y);
+          onMapClickRef.current(at.lat, at.lng);
+          ignitionModeRef.current = false;
+          setIgnitionMode(false);
+          setKbAnnounce(`Ignition set ${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`);
+          return;
+        }
+        default:
+          return;
+      }
+      e.preventDefault();
+      const p = kbCursorRef.current ?? centre();
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      let x = p.x + dx;
+      let y = p.y + dy;
+      // At the edge the map pans instead, so the crosshair can reach anywhere
+      let panX = 0;
+      let panY = 0;
+      if (x < KB_EDGE) { panX = x - KB_EDGE; x = KB_EDGE; }
+      else if (x > w - KB_EDGE) { panX = x - (w - KB_EDGE); x = w - KB_EDGE; }
+      if (y < KB_EDGE) { panY = y - KB_EDGE; y = KB_EDGE; }
+      else if (y > h - KB_EDGE) { panY = y - (h - KB_EDGE); y = h - KB_EDGE; }
+      if (panX || panY) m.panBy([panX, panY], { duration: 0 });
+      setKb(kbAt(x, y));
+    };
+    // Keep the crosshair's coordinates current when the map moves under it
+    const onKbMove = () => {
+      const c = kbCursorRef.current;
+      if (c) setKb(kbAt(c.x, c.y));
+    };
+    if (!readOnlyRef.current) {
+      m.keyboard.disable(); // arrows move the crosshair; +/- zoom is handled above
+      canvas.setAttribute(
+        "aria-label",
+        "Map. Arrow keys move the ignition crosshair, Shift for larger steps; Enter sets the ignition; plus and minus zoom.",
+      );
+      canvas.addEventListener("focus", onKbFocus);
+      canvas.addEventListener("blur", onKbBlur);
+      canvas.addEventListener("keydown", onKbKey);
+      m.on("move", onKbMove);
+    }
+
     map.current = m;
 
     const resizeTimer = setTimeout(() => m.resize(), 200);
 
     return () => {
       clearTimeout(resizeTimer);
+      canvas.removeEventListener("focus", onKbFocus);
+      canvas.removeEventListener("blur", onKbBlur);
+      canvas.removeEventListener("keydown", onKbKey);
       if (pulseAnimRef.current) { cancelAnimationFrame(pulseAnimRef.current); pulseAnimRef.current = null; }
       if (spotPopupRef.current) { spotPopupRef.current.remove(); spotPopupRef.current = null; }
       m.remove();
@@ -1470,12 +1586,26 @@ export default function MapView({
         </button>
       </div>}
 
-      {/* Placement mode hint overlay (hidden in readOnly mode) */}
-      {!readOnly && ignitionMode && (
+      {/* Placement mode hint overlay (hidden in readOnly mode and while the keyboard crosshair is up) */}
+      {!readOnly && ignitionMode && !kbCursor && (
         <div className="mcp-placement-hint">
           Click map to set ignition point
         </div>
       )}
+
+      {/* Keyboard crosshair (map focused): arrows move it, Enter sets the ignition */}
+      {!readOnly && kbCursor && (
+        <>
+          <div className="kb-crosshair" style={{ left: kbCursor.x, top: kbCursor.y }} aria-hidden="true" />
+          <div className="kb-crosshair-label" style={{ left: kbCursor.x, top: kbCursor.y }} aria-hidden="true">
+            {kbCursor.lat.toFixed(4)}, {kbCursor.lng.toFixed(4)}
+          </div>
+          <div className="kb-hint" aria-hidden="true">
+            Arrow keys move · Shift: larger steps · Enter sets the ignition · +/− zoom · Esc hides
+          </div>
+        </>
+      )}
+      <div className="visually-hidden" role="status" aria-live="polite">{kbAnnounce}</div>
 
       {toast && (
         <MapToast message={toast} onDone={() => setToast(null)} />
