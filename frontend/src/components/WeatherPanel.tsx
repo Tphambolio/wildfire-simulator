@@ -1,13 +1,14 @@
 /** Weather and simulation parameter controls. */
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast } from "../services/api";
 import MultiDayPanel from "./MultiDayPanel";
 import SetupSection from "./SetupSection";
-import { formatClock, zoneAbbrev } from "../utils/time";
+import { edmontonDayOfYear, formatClock, formatDate, roundToMinute, toDateTimeInputs, toEdmontonIso, zonedWallTimeToMs, zoneAbbrev } from "../utils/time";
+import { formatDecimal, parseCanadaCoordinate, parseCoordinatePair, splitPair } from "../utils/coords";
 import { fwiClass, fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
 
 // ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
@@ -136,10 +137,13 @@ export interface RunParams {
 
 interface WeatherPanelProps {
   onStartSimulation: (params: SimulationCreate) => void;
-  onStartMultiDaySimulation?: (params: MultiDaySimulationCreate) => void;
+  /** Multi-day runs: the API has no start_time, so the scenario start is passed alongside */
+  onStartMultiDaySimulation?: (params: MultiDaySimulationCreate, startMs: number) => void;
   onComputeBurnProbability?: (params: BurnProbabilityRequest) => void;
   onRunParams?: (params: RunParams) => void;
   ignitionPoint: { lat: number; lng: number } | null;
+  /** Set the ignition from the typed or pasted coordinates */
+  onIgnitionChange?: (point: { lat: number; lng: number }) => void;
   isRunning: boolean;
   burnProbRunning?: boolean;
   /** When set, load this scenario config into the panel's local state. */
@@ -150,8 +154,6 @@ interface WeatherPanelProps {
   onEdmontonGridChange?: (fuelGridPath: string | null) => void;
   /** Element at the bottom of the Setup column that holds the sticky Run bar */
   runBarTarget?: HTMLElement | null;
-  /** When the last run started (scenario start, America/Edmonton display) */
-  scenarioStart?: Date | null;
 }
 
 function WeatherPanel({
@@ -160,14 +162,89 @@ function WeatherPanel({
   onComputeBurnProbability,
   onRunParams,
   ignitionPoint,
+  onIgnitionChange,
   isRunning,
   burnProbRunning,
   scenarioToLoad,
   onConfigSnapshot,
   onEdmontonGridChange,
   runBarTarget,
-  scenarioStart,
 }: WeatherPanelProps) {
+  const fieldId = useId();
+
+  // ── Ignition coordinates typed or pasted (DD or DMS), synced from map clicks ──
+  const [latText, setLatText] = useState(ignitionPoint ? formatDecimal(ignitionPoint.lat) : "");
+  const [lngText, setLngText] = useState(ignitionPoint ? formatDecimal(ignitionPoint.lng) : "");
+  const [coordErrors, setCoordErrors] = useState<{ lat?: string; lng?: string }>({});
+  const [syncedPoint, setSyncedPoint] = useState(ignitionPoint);
+  if (ignitionPoint !== syncedPoint) {
+    // The ignition moved (map click, keyboard crosshair, scenario load): show it in the fields
+    setSyncedPoint(ignitionPoint);
+    setLatText(ignitionPoint ? formatDecimal(ignitionPoint.lat) : "");
+    setLngText(ignitionPoint ? formatDecimal(ignitionPoint.lng) : "");
+    setCoordErrors({});
+  }
+
+  const applyCoords = (latRaw: string, lngRaw: string) => {
+    const lat = parseCanadaCoordinate(latRaw, "lat");
+    const lng = parseCanadaCoordinate(lngRaw, "lng");
+    setCoordErrors({ lat: lat.ok ? undefined : lat.error, lng: lng.ok ? undefined : lng.error });
+    if (lat.ok && lng.ok) onIgnitionChange?.({ lat: lat.value, lng: lng.value });
+  };
+
+  const onCoordKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      applyCoords(latText, lngText);
+    }
+  };
+
+  // A pasted pair ("53°27'38\"N 113°39'35\"W", "53.46, -113.66") fills both fields and applies
+  const onCoordPaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text");
+    const parts = splitPair(text);
+    if (!parts) return; // a single value: the field takes it as typed
+    e.preventDefault();
+    const pair = parseCoordinatePair(text);
+    if (pair.ok) {
+      setLatText(formatDecimal(pair.lat));
+      setLngText(formatDecimal(pair.lng));
+      applyCoords(String(pair.lat), String(pair.lng));
+    } else {
+      const lngFirst = /[EWew]/.test(parts[0]) && /[NSns]/.test(parts[1]);
+      const [a, b] = lngFirst ? [parts[1], parts[0]] : parts;
+      setLatText(a);
+      setLngText(b);
+      applyCoords(a, b);
+    }
+  };
+
+  // ── Scenario start (design spec §2.3): wall clock in America/Edmonton ─────
+  // Follows the clock (now, to the minute) until the user sets a date or time; "Now" resets.
+  const [startFollowsNow, setStartFollowsNow] = useState(true);
+  const [nowMs, setNowMs] = useState(() => roundToMinute());
+  useEffect(() => {
+    if (!startFollowsNow) return;
+    const t = setInterval(() => setNowMs(roundToMinute()), 15_000);
+    return () => clearInterval(t);
+  }, [startFollowsNow]);
+  const [startInputs, setStartInputs] = useState(() => toDateTimeInputs(nowMs));
+  const shownStart = startFollowsNow ? toDateTimeInputs(nowMs) : startInputs;
+  const startMs = startFollowsNow ? nowMs : zonedWallTimeToMs(startInputs.date, startInputs.time);
+  const startDate = startMs !== null ? new Date(startMs) : null;
+  const startError = startMs === null ? "Enter a valid start date and time" : null;
+  const setStartField = (field: "date" | "time", value: string) => {
+    setStartInputs({ ...shownStart, [field]: value });
+    setStartFollowsNow(false);
+  };
+  const startNow = () => {
+    setNowMs(roundToMinute());
+    setStartFollowsNow(true);
+  };
+  /** The start used for a run: when following the clock, the minute Run is pressed. */
+  const runStartMs = () => (startFollowsNow ? roundToMinute() : startMs);
+  const startLabel = startDate ? `${formatDate(startDate)} ${formatClock(startDate)} ${zoneAbbrev(startDate)}` : "start time not set";
+
   const [weather, setWeather] = useState<WeatherParams>({
     wind_speed: 20,
     wind_direction: 270,
@@ -340,18 +417,17 @@ function WeatherPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // FBP fuel modifiers; foliar moisture is computed server-side from today's date (ST-X-3 eqs 1-8)
-  const fuelModifiers = (): FuelModifiers => {
-    const now = new Date();
-    const dayOfYear = Math.floor(
-      (Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.UTC(now.getFullYear(), 0, 0)) /
-        86400000,
-    );
-    return { grass_cure: grassCure, percent_conifer: percentConifer, day_of_year: dayOfYear };
-  };
+  // FBP fuel modifiers; foliar moisture is computed server-side from the scenario start's
+  // Edmonton calendar date (ST-X-3 eqs 1-8)
+  const fuelModifiers = (atMs: number): FuelModifiers => ({
+    grass_cure: grassCure,
+    percent_conifer: percentConifer,
+    day_of_year: edmontonDayOfYear(atMs),
+  });
 
   const handleMonteCarlo = () => {
-    if (!ignitionPoint || !onComputeBurnProbability || hasErrors) return;
+    const atMs = runStartMs();
+    if (!ignitionPoint || !onComputeBurnProbability || hasErrors || atMs === null) return;
     onRunParams?.({
       weather,
       fwi,
@@ -368,7 +444,7 @@ function WeatherPanel({
       ignition_lng: ignitionPoint.lng,
       weather,
       fwi_overrides: fwi,
-      fuel_modifiers: fuelModifiers(),
+      fuel_modifiers: fuelModifiers(atMs),
       duration_hours: durationHours,
       n_iterations: mcIterations,
       fuel_grid_path: useEdmontonGrid ? EDMONTON_FUEL_GRID_PATH : null,
@@ -379,12 +455,15 @@ function WeatherPanel({
   };
 
   const handleSubmit = async () => {
-    if (!ignitionPoint || hasErrors) return;
+    const atMs = runStartMs();
+    if (!ignitionPoint || hasErrors || atMs === null) return;
     let hourly = null;
     if (useHourlyForecast) {
       try {
-        hourly = await fetchHourlyForecast(ignitionPoint.lat, ignitionPoint.lng, durationHours);
-        setWeatherMessage(`Hourly forecast: ${hourly.length} h from Open-Meteo`);
+        // Forecast hours aligned to the scenario start, not to now (design spec §2.3)
+        hourly = await fetchHourlyForecast(ignitionPoint.lat, ignitionPoint.lng, durationHours, atMs);
+        const at = new Date(atMs);
+        setWeatherMessage(`Hourly forecast: ${hourly.length} h from Open-Meteo, from ${formatClock(at)} ${zoneAbbrev(at)}`);
       } catch (err) {
         setWeatherMessage(`Hourly forecast unavailable (${(err as Error).message}); using constant weather`);
       }
@@ -404,8 +483,9 @@ function WeatherPanel({
       ignition_lat: ignitionPoint.lat,
       ignition_lng: ignitionPoint.lng,
       weather,
+      start_time: toEdmontonIso(atMs),
       fwi_overrides: fwi,
-      fuel_modifiers: fuelModifiers(),
+      fuel_modifiers: fuelModifiers(atMs),
       hourly_weather: hourly,
       duration_hours: durationHours,
       snapshot_interval_minutes: snapshotMinutes,
@@ -422,21 +502,22 @@ function WeatherPanel({
   };
 
   const handleMultiDaySubmit = () => {
-    if (!ignitionPoint || !onStartMultiDaySimulation) return;
+    const atMs = runStartMs();
+    if (!ignitionPoint || !onStartMultiDaySimulation || atMs === null) return;
     onStartMultiDaySimulation({
       ignition_lat: ignitionPoint.lat,
       ignition_lng: ignitionPoint.lng,
       days: multiDayDays,
       fwi_overrides: fwi,
-      fuel_modifiers: fuelModifiers(),
-      month: new Date().getMonth() + 1,
+      fuel_modifiers: fuelModifiers(atMs),
+      month: Number(toDateTimeInputs(atMs).date.slice(5, 7)),
       snapshot_interval_minutes: snapshotMinutes,
       fuel_type: fuelType,
       fuel_grid_path: useEdmontonGrid ? EDMONTON_FUEL_GRID_PATH : null,
       water_path: useEdmontonGrid && includeWater ? EDMONTON_WATER_PATH : null,
       buildings_path: useEdmontonGrid && includeBuildings ? EDMONTON_BUILDINGS_PATH : null,
       dem_path: useEdmontonGrid && includeDEM ? EDMONTON_DEM_PATH : null,
-    });
+    }, atMs);
   };
 
   const handleLoadWeather = async () => {
@@ -518,10 +599,12 @@ function WeatherPanel({
   const disabledReason = isRunning
     ? "A run is in progress; see the Situation panel."
     : !ignitionPoint
-      ? "Set an ignition point: click the map."
-      : simMode === "single" && hasErrors
-        ? `Fix the inputs: ${errorList.join("; ")}`
-        : null;
+      ? "Set an ignition point: click the map or enter coordinates."
+      : startError
+        ? `Fix the start time: ${startError}`
+        : simMode === "single" && hasErrors
+          ? `Fix the inputs: ${errorList.join("; ")}`
+          : null;
   const canRun = disabledReason === null && (simMode === "single" || !!onStartMultiDaySimulation);
 
   // Ctrl+Enter runs from anywhere (spec §2.2)
@@ -571,7 +654,7 @@ function WeatherPanel({
         </button>
       )}
       <div id="run-bar-reason" className={`run-bar-reason${disabledReason && !isRunning ? " attention" : ""}`}>
-        {disabledReason ?? `${simMode === "single" ? `${durationHours} h` : `${multiDayDays.length} days`} from the time you press Run · Ctrl+Enter`}
+        {disabledReason ?? `${simMode === "single" ? `${durationHours} h` : `${multiDayDays.length} days`} from ${startFollowsNow ? "now" : startDate ? `${formatClock(startDate)} ${zoneAbbrev(startDate)}` : "the start"} · Ctrl+Enter`}
       </div>
     </div>
   );
@@ -599,24 +682,106 @@ function WeatherPanel({
         title="Ignition & time"
         summary={
           ignitionPoint
-            ? `${ignitionPoint.lat.toFixed(4)}, ${ignitionPoint.lng.toFixed(4)} · starts at Run`
-            : "Not set · click the map"
+            ? `${formatDecimal(ignitionPoint.lat)}, ${formatDecimal(ignitionPoint.lng)} · ${startLabel}`
+            : `Not set · click the map or enter coordinates · ${startLabel}`
         }
-        attention={!ignitionPoint}
+        attention={!ignitionPoint || !!startError}
         defaultOpen
       >
-        {ignitionPoint ? (
-          <div className="ignition-info">
-            Ignition: {ignitionPoint.lat.toFixed(4)}, {ignitionPoint.lng.toFixed(4)}
-          </div>
-        ) : (
-          <div className="hint">Click the map to set ignition point</div>
-        )}
-        <div className="hint-sm">
-          Click the map to place or move the ignition (map tools: Arm / Move). The scenario starts
-          at the time you press Run{scenarioStart ? `; the last run started ${formatClock(scenarioStart)} ${zoneAbbrev(scenarioStart)}` : ""}.
-          All times are America/Edmonton.
+        <fieldset className="field-group">
+        <legend>Ignition point</legend>
+        <div className="field-row">
+          <label className="field">
+            Latitude
+            <input
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="53.4606"
+              value={latText}
+              onChange={(e) => setLatText(e.target.value)}
+              onKeyDown={onCoordKey}
+              onPaste={onCoordPaste}
+              aria-invalid={!!coordErrors.lat}
+              aria-describedby={`${fieldId}-coord-hint${coordErrors.lat ? ` ${fieldId}-lat-err` : ""}`}
+            />
+          </label>
+          <label className="field">
+            Longitude
+            <input
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="-113.6597"
+              value={lngText}
+              onChange={(e) => setLngText(e.target.value)}
+              onKeyDown={onCoordKey}
+              onPaste={onCoordPaste}
+              aria-invalid={!!coordErrors.lng}
+              aria-describedby={`${fieldId}-coord-hint${coordErrors.lng ? ` ${fieldId}-lng-err` : ""}`}
+            />
+          </label>
         </div>
+        {coordErrors.lat && <div className="input-error" id={`${fieldId}-lat-err`} role="alert">{coordErrors.lat}</div>}
+        {coordErrors.lng && <div className="input-error" id={`${fieldId}-lng-err`} role="alert">{coordErrors.lng}</div>}
+        <div className="field-row field-row-nowrap">
+          <button type="button" className="btn-secondary btn-inline" onClick={() => applyCoords(latText, lngText)}>
+            Set ignition
+          </button>
+          <span className="hint-sm" id={`${fieldId}-coord-hint`}>
+            Decimal (53.4606, -113.6597) or DMS (53°27&apos;38&quot;N 113°39&apos;35&quot;W); paste a pair into either field.
+          </span>
+        </div>
+        <div className="hint-sm">
+          Or click the map; or Tab to the map, move the crosshair with the arrow keys (Shift: larger
+          steps) and press Enter. Ctrl+Enter runs.
+        </div>
+        </fieldset>
+
+        <fieldset className="field-group">
+        <legend>Scenario start <span className="legend-sub">America/Edmonton</span></legend>
+        <div className="field-row field-row-nowrap">
+          <label className="field field-date">
+            Date
+            <input
+              type="date"
+              value={shownStart.date}
+              onChange={(e) => setStartField("date", e.target.value)}
+              aria-invalid={!!startError}
+              aria-describedby={`${fieldId}-start-hint${startError ? ` ${fieldId}-start-err` : ""}`}
+            />
+          </label>
+          <label className="field field-time">
+            Time ({startDate ? zoneAbbrev(startDate) : "local"})
+            <input
+              type="time"
+              value={shownStart.time}
+              onChange={(e) => setStartField("time", e.target.value)}
+              aria-invalid={!!startError}
+              aria-describedby={`${fieldId}-start-hint${startError ? ` ${fieldId}-start-err` : ""}`}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-secondary btn-inline"
+            onClick={startNow}
+            aria-pressed={startFollowsNow}
+            title="Start at the current time (follows the clock until you change the date or time)"
+          >
+            Now
+          </button>
+        </div>
+        {startError && <div className="input-error" id={`${fieldId}-start-err`} role="alert">{startError}</div>}
+        <div className="hint-sm" id={`${fieldId}-start-hint`}>
+          Ignition time; the timeline and Situation times count from it.{" "}
+          {startFollowsNow ? "Now follows the clock until you set a date or time." : ""}
+          {useHourlyForecast && simMode === "single" && startMs !== null && startMs < nowMs - 3_600_000 && (
+            <> The start is in the past, so the hourly forecast is used as a hindcast (Open-Meteo keeps one past day).</>
+          )}
+        </div>
+        </fieldset>
       </SetupSection>
 
       {/* 2 ── Weather & FWI ─────────────────────────────────────────────── */}

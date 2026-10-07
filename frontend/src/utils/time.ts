@@ -71,3 +71,94 @@ export function formatElapsed(hours: number): string {
   const m = totalMin % 60;
   return `T+${h}:${String(m).padStart(2, "0")}`;
 }
+
+// ── Scenario start entry (design spec §2.3, §4.1) ────────────────────────────
+
+/** Minutes east of UTC for an instant (e.g. -360 for UTC-6). */
+export type OffsetFn = (ms: number) => number;
+
+const partsFmt = new Intl.DateTimeFormat("en-CA", {
+  timeZone: TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/** Wall-clock fields in America/Edmonton for an instant. */
+function wallParts(ms: number): { y: number; mo: number; d: number; h: number; mi: number; s: number } {
+  const p: Record<string, number> = {};
+  for (const x of partsFmt.formatToParts(new Date(ms))) {
+    if (x.type !== "literal") p[x.type] = Number(x.value);
+  }
+  return { y: p.year, mo: p.month, d: p.day, h: p.hour === 24 ? 0 : p.hour, mi: p.minute, s: p.second };
+}
+
+/** UTC offset of America/Edmonton at `ms`, in minutes, from the platform's tz data (Intl). */
+export const edmontonOffsetMinutes: OffsetFn = (ms) => {
+  const w = wallParts(ms);
+  const asUtc = Date.UTC(w.y, w.mo - 1, w.d, w.h, w.mi, w.s);
+  return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / 60_000);
+};
+
+/**
+ * The instant at wall-clock `date` ("YYYY-MM-DD") `time` ("HH:MM") in America/Edmonton, or
+ * null if malformed. A repeated time (fall-back) resolves to its first occurrence; a time
+ * skipped by a spring-forward resolves to the instant an hour later on the wall clock.
+ * `offsetAt` defaults to the platform tz data (injectable for tests of other tz rules).
+ */
+export function zonedWallTimeToMs(date: string, time: string, offsetAt: OffsetFn = edmontonOffsetMinutes): number | null {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const tm = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!dm || !tm) return null;
+  const [y, mo, d, h, mi] = [+dm[1], +dm[2], +dm[3], +tm[1], +tm[2]];
+  if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59) return null;
+  const wall = Date.UTC(y, mo - 1, d, h, mi);
+  if (new Date(wall).getUTCDate() !== d) return null; // e.g. 31 April
+  // The offsets in force half a day either side; the earliest consistent instant wins
+  const candidates = [offsetAt(wall - 12 * 3_600_000), offsetAt(wall + 12 * 3_600_000)];
+  const consistent = candidates
+    .map((o) => wall - o * 60_000)
+    .filter((t) => offsetAt(t) === (wall - t) / 60_000);
+  if (consistent.length) return Math.min(...consistent);
+  // In a spring-forward gap: apply the offset from before the change (lands after the gap)
+  return wall - candidates[0] * 60_000;
+}
+
+const pad2 = (n: number) => String(Math.abs(n)).padStart(2, "0");
+
+/**
+ * ISO 8601 with the America/Edmonton offset in force at that instant, to the second, e.g.
+ * "2026-07-15T14:05:00-06:00" (the API's `start_time`). The offset comes from the tz data,
+ * never a hard-coded -06/-07.
+ */
+export function toEdmontonIso(ms: number, offsetAt: OffsetFn = edmontonOffsetMinutes): string {
+  const off = offsetAt(ms);
+  const local = new Date(Math.floor(ms / 1000) * 1000 + off * 60_000);
+  const sign = off < 0 ? "-" : "+";
+  return (
+    `${local.getUTCFullYear()}-${pad2(local.getUTCMonth() + 1)}-${pad2(local.getUTCDate())}` +
+    `T${pad2(local.getUTCHours())}:${pad2(local.getUTCMinutes())}:${pad2(local.getUTCSeconds())}` +
+    `${sign}${pad2(Math.trunc(off / 60))}:${pad2(off % 60)}`
+  );
+}
+
+/** {date: "YYYY-MM-DD", time: "HH:MM"}: the wall clock in America/Edmonton, for date/time inputs. */
+export function toDateTimeInputs(ms: number, offsetAt: OffsetFn = edmontonOffsetMinutes): { date: string; time: string } {
+  const iso = toEdmontonIso(ms, offsetAt);
+  return { date: iso.slice(0, 10), time: iso.slice(11, 16) };
+}
+
+/** The instant rounded to the nearest minute. */
+export function roundToMinute(ms: number = Date.now()): number {
+  return Math.round(ms / 60_000) * 60_000;
+}
+
+/** Day of year (1-366) of the wall-clock date in America/Edmonton (for foliar moisture). */
+export function edmontonDayOfYear(ms: number): number {
+  const w = wallParts(ms);
+  return Math.round((Date.UTC(w.y, w.mo - 1, w.d) - Date.UTC(w.y, 0, 0)) / 86_400_000);
+}
