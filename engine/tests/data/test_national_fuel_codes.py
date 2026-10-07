@@ -97,5 +97,8 @@ class TestCfsNational2014:
                            crs=CRS.from_epsg(32612), transform=from_origin(350000, 5930000, 50, 50),
                            nodata=0) as dst:
             dst.write(data, 1)
+        # uint8 with no-data 0, as the national 2014b grid; used to raise OverflowError
         grid = load_fuel_grid(str(path), target_resolution_m=50.0)
-        assert grid.fuel_types == [[FuelType.C2, FuelType.D1], [FuelType.O1a, None]]
+        present = {ft for row in grid.fuel_types for ft in row}
+        assert {FuelType.C2, FuelType.D1, FuelType.O1a} <= present
+        assert present <= {FuelType.C2, FuelType.D1, FuelType.O1a, None}

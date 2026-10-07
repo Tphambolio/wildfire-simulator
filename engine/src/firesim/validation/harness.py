@@ -27,9 +27,7 @@ default member the run is the deterministic forecast.
 from __future__ import annotations
 
 import math
-import os
 import random
-import tempfile
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -181,25 +179,25 @@ def fuel_grid_for(domain: FireDomain, doy: int, opts: RunOptions,
 
 
 def terrain_grid_for(domain: FireDomain) -> TerrainGrid | None:
-    """Slope/aspect through FireSim's own DEM loader (a temporary EPSG:4326 GeoTIFF)."""
+    """Slope (%) and upslope aspect (deg from true north) on exactly the simulation grid.
+
+    Same finite-difference formula as ``firesim.data.dem_loader`` (central differences,
+    aspect 0 where slope < 0.1 %), applied to the domain's elevation without resampling so
+    terrain cells coincide with fuel cells.
+    """
     if domain.elevation is None:
         return None
-    import rasterio
-    from rasterio.transform import from_origin
-
-    from firesim.data.dem_loader import load_terrain_grid
-
-    fd, path = tempfile.mkstemp(suffix=".tif")
-    os.close(fd)
-    try:
-        with rasterio.open(path, "w", driver="GTiff", width=domain.cols, height=domain.rows,
-                           count=1, dtype="float32", crs="EPSG:4326",
-                           transform=from_origin(domain.lng_min, domain.lat_max,
-                                                 domain.cell_lng, domain.cell_lat)) as dst:
-            dst.write(domain.elevation.astype(np.float32), 1)
-        return load_terrain_grid(path, target_resolution_m=min(domain.dx, domain.dy))
-    finally:
-        os.unlink(path)
+    elev = domain.elevation.astype(np.float64)
+    dz_south, dz_east = np.gradient(elev, domain.dy, domain.dx)
+    dz_north = -dz_south
+    slope = np.sqrt(dz_north ** 2 + dz_east ** 2) * 100.0
+    aspect = np.degrees(np.arctan2(dz_east, dz_north)) % 360.0
+    aspect[slope < 0.1] = 0.0
+    return TerrainGrid(
+        slope=slope.tolist(), aspect=aspect.tolist(), lat_min=domain.lat_min,
+        lat_max=domain.lat_max, lng_min=domain.lng_min, lng_max=domain.lng_max,
+        rows=domain.rows, cols=domain.cols,
+    )
 
 
 def _cell_centres(mask: np.ndarray, domain: FireDomain) -> list[tuple[float, float]]:

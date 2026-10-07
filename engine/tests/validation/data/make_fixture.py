@@ -7,8 +7,8 @@ Weather: ERA5 hourly via the Open-Meteo archive API (CC BY 4.0), 16-17 July 2016
 FWI codes: the CFSDS summary rows for DOB 198-199.
 
 Fuel and terrain are SYNTHETIC: uniform C-2 (2014b code 102) with a non-fuel lake (code 118) and
-a 2 % south-facing slope. The national FBP fuel grid is licensed for internal use only, so it is
-not committed.
+a plane rising 2 % toward the south (north-facing). The national FBP fuel grid is licensed for
+internal use only, so it is not committed.
 
     PYTHONPATH=engine/src python engine/tests/validation/data/make_fixture.py
 """
@@ -34,7 +34,7 @@ dom = crop_for_day(dom, DAY + 1, margin_m=2000.0)
 fuel = np.full(dom.dob.shape, 102, dtype=np.int32)
 rr, cc = np.mgrid[0:dom.rows, 0:dom.cols]
 fuel[(rr - 0.8 * dom.rows) ** 2 + (cc - 0.2 * dom.cols) ** 2 < (0.08 * dom.rows) ** 2] = 118
-elevation = (600.0 - 0.02 * dom.dy * (dom.rows - rr)).astype(np.float32)  # rises to the north
+elevation = (600.0 - 0.02 * dom.dy * (dom.rows - rr)).astype(np.float32)  # rises toward the south
 fix = FireDomain(fire_id=FIRE, year=2016, dob=dom.dob, fuel=fuel, elevation=elevation,
                  lat_max=dom.lat_max, lng_min=dom.lng_min, cell_lat=dom.cell_lat,
                  cell_lng=dom.cell_lng, fuel_scheme="cfs_national_2014",

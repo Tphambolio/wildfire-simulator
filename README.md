@@ -7,7 +7,8 @@ preparedness and training in the wildland-urban interface.
 - Live app: https://wildfire-simulator.vercel.app (API: https://firesim-api.fly.dev/api/v1/health)
 - **Intended use (now): preparedness, training, exercises and what-if planning.** FireSim's FBP
   equations are verified against the CFS reference implementation and its spread against WISE
-  on uniform fuel, but its spread **has not yet been validated against observed fires**. Do not
+  on uniform fuel. A first validation against observed Alberta fires ([docs/validation.md](docs/validation.md))
+  shows modest one-day skill with over-prediction, like WISE with default settings. Do not
   use its output as an operational prediction or as the basis for evacuation decisions. See the
   [model card](docs/model-card.md) and [verification and limits](docs/verification.md).
 
@@ -21,7 +22,7 @@ preparedness and training in the wildland-urban interface.
 | Head / flank / back, head summary | Fastest head cell spreads at FBP ROS and rearmost back cell at BROS on uniform fuel; head direction within 2° of RAZ | `engine/tests/spread/test_deployment_data.py` |
 | Spotting | Maximum distance (Albini/Chase/Morris) reproduces published examples; emission and landing are heuristic (illustrative only) | [docs/verification.md](docs/verification.md) |
 | Building exposure | Reproduces Cohen's (2004) SIAM worked values; exposure, not ignition probability | [docs/building-exposure.md](docs/building-exposure.md) |
-| Observed fires | **Not yet validated** (validation harness in progress) | [docs/model-card.md](docs/model-card.md) |
+| Observed fires | First validation on 143 Alberta fire-days (CFSDS, Bennett et al. 2026 protocol): one-day F1 0.15-0.24 at the default 17 h window, over-predicts growth on most days; in the same low band as WISE, not an operational forecast | [docs/validation.md](docs/validation.md) |
 
 ## What it does
 

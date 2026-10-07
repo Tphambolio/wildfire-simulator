@@ -4,7 +4,8 @@ What has been checked, against what, and what has not. Last updated 2026-10-07.
 
 FireSim is a **planning, training and what-if tool**. Verification here means the code solves
 the FBP System's equations correctly and the spread models reproduce FBP's fire shape on
-simple cases. It does not mean the predictions match real fires; that has not been tested.
+simple cases. It does not mean the predictions match real fires; the comparison with observed
+fires is in [validation.md](validation.md).
 
 ## 1. FBP equations: verified against cffdrs
 
@@ -135,9 +136,11 @@ could not catch the errors.
 
 ## 5. Not verified, and known limits
 
-- **No comparison with observed fires yet.** A validation harness on the Canadian Fire Spread
-  Dataset (Alberta fires, Bennett et al. 2026 protocol) is in progress; until it reports,
-  FireSim is for preparedness, training and what-if planning (see `docs/model-card.md`).
+- **Observed fires: first results only.** [docs/validation.md](validation.md) compares one-day
+  growth with 143 observed fire-days from 32 Alberta fires (Canadian Fire Spread Dataset,
+  Bennett et al. 2026 protocol). Skill is modest (F1 0.15-0.24 at the default 17 h window,
+  depending on initialisation) and growth is over-predicted on most days, in the same band as
+  WISE. FireSim remains a preparedness, training and what-if tool (see `docs/model-card.md`).
 - **Compared with WISE only on uniform fuel**, flat and on uniform slopes. Heterogeneous fuel,
   real terrain, barriers and spotting have not been compared with WISE, Burn-P3 or Cell2Fire.
 - **Spotting**: maximum distance follows Albini/Chase/Morris and reproduces their published

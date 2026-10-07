@@ -27,6 +27,7 @@ from firesim.validation.harness import (
     fuel_grid_for,
     initial_state,
     run_fire_day,
+    terrain_grid_for,
     wind_direction_members,
 )
 from firesim.validation.report import flatten, growth_class, per_fire_means, summarize
@@ -151,6 +152,13 @@ class TestPieces:
         assert fuel_grid_for(small, 120, RunOptions()).fuel_types[0][0] is FuelType.D1
         assert fuel_grid_for(small, 200, RunOptions()).fuel_types[0][0] is FuelType.D2
         assert fuel_grid_for(small, 280, RunOptions()).fuel_types[0][0] is FuelType.D1
+
+    def test_terrain_on_simulation_grid(self, fixture):
+        dom = fixture[0]
+        t = terrain_grid_for(dom)
+        assert (t.rows, t.cols) == (dom.rows, dom.cols)
+        assert t.slope[40][40] == pytest.approx(2.0, rel=1e-3)
+        assert t.aspect[40][40] == pytest.approx(180.0)  # upslope toward the south
 
     def test_member_apply(self):
         h = (HourlyWeather(0.0, 20, 30, 10, 350), HourlyWeather(1.0, 20, 30, 20, 20))

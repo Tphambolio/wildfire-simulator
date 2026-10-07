@@ -304,6 +304,8 @@ def cmd_report(args) -> None:
     for name, recs in runs.items():
         ok = [r for r in recs if "error" not in r]
         errors = [r for r in recs if "error" in r]
+        if not ok:
+            continue
         members = sorted({m for r in ok for m in r["members"]})
         n_fires = len({r["fire_id"] for r in ok})
         run_s = [m["run_s"] for r in ok for m in r["members"].values()]
@@ -312,7 +314,11 @@ def cmd_report(args) -> None:
                   f"members: {', '.join(members)}; model run time per member median "
                   f"{np.median(run_s):.0f} s, max {np.max(run_s):.0f} s; "
                   f"edge of working area reached on "
-                  f"{sum(r['members'][members[0]].get('edge_hit', False) for r in ok)} fire-days.", ""]
+                  f"{sum(r['members'][members[0]].get('edge_hit', False) for r in ok)} fire-days; "
+                  f"observed growth on cells the fuel grid calls non-fuel: mean "
+                  f"{100 * np.mean([r['obs_growth_fuel'].get('NF', 0.0) for r in ok]):.0f} %; "
+                  f"observed growth per fire-day median "
+                  f"{np.median([r['obs_growth_ha'] for r in ok]):,.0f} ha.", ""]
         member = "det" if "det" in members else None
         if member is None:  # wind ensemble: best member per fire-day (Bennett scenario 3)
             best = []
@@ -375,6 +381,36 @@ def cmd_report(args) -> None:
                 lines += [f"By {title}, window {w}:", "",
                           _table([key, "n", "F1 mean", "F1 median", "IoU mean", "area diff mean"],
                                  grows), ""]
+    wise_path = ROOT / "runs_wise" / "wise_vs_firesim.jsonl"
+    if wise_path.exists():
+        wrows = []
+        acc: dict[str, list[float]] = {}
+        for line in wise_path.read_text().splitlines():
+            r = json.loads(line)
+            w = r["wise"] if isinstance(r["wise"], dict) else {}
+            if "17h" not in w:
+                continue
+            vals = {"wise_f1_17": w["17h"]["f1"], "fs_f1_17": r["firesim"]["17h"]["f1"],
+                    "wise_ad_17": w["17h"]["area_diff_norm"],
+                    "fs_ad_17": r["firesim"]["17h"]["area_diff_norm"],
+                    "wise_f1_best": (w.get("oracle") or {}).get("f1", math.nan),
+                    "fs_f1_best": r["firesim"]["oracle"]["f1"],
+                    "wise_s": r["wise_run_s"], "fs_s": r["firesim_run_s"]}
+            for k, v in vals.items():
+                acc.setdefault(k, []).append(v)
+            wrows.append([f"{r['fire_id']} day {r['day']}", f"{r['obs_growth_ha']:,.0f}"]
+                         + [_f(vals[k]) for k in ("wise_f1_17", "fs_f1_17", "wise_ad_17",
+                                                  "fs_ad_17", "wise_f1_best", "fs_f1_best")]
+                         + [f"{vals['wise_s']:.0f}", f"{vals['fs_s']:.0f}"])
+        if wrows:
+            wrows.append(["mean", ""] + [_f(float(np.nanmean(acc[k]))) for k in
+                                         ("wise_f1_17", "fs_f1_17", "wise_ad_17", "fs_ad_17",
+                                          "wise_f1_best", "fs_f1_best")]
+                         + [f"{np.mean(acc['wise_s']):.0f}", f"{np.mean(acc['fs_s']):.0f}"])
+            lines += ["## WISE vs FireSim on identical inputs (perimeter start, 06-23 h, no spotting)",
+                      "", _table(["fire-day", "obs growth ha", "WISE F1 17h", "FireSim F1 17h",
+                                  "WISE area diff", "FireSim area diff", "WISE F1 best h",
+                                  "FireSim F1 best h", "WISE s", "FireSim s"], wrows), ""]
     lines += ["## Bennett et al. (2026) W.I.S.E. benchmark (fire-day means)", "",
               _table(["scenario", *METRICS],
                      [[k] + [fmt(v[m], m) for m in METRICS] for k, v in BENNETT_WISE.items()]), ""]
