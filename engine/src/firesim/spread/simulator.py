@@ -71,6 +71,8 @@ class Simulator:
         building_centroids: list[tuple[float, float]] | None = None,
         acceleration: bool = True,
         building_footprints: list | None = None,
+        active_edges: dict | None = None,
+        active_edge_buffer_m: float | None = None,
     ):
         """Initialize simulator.
 
@@ -95,6 +97,12 @@ class Simulator:
                 from each front's ignition. Fronts supplied via ``initial_front``
                 (multi-day continuation, RPAS perimeter correction) are treated as
                 established fires at equilibrium spread.
+            active_edges: Grid model with an observed starting fire (``initial_front`` /
+                ``initial_burned``): GeoJSON geometry (lng/lat) of the parts that are still
+                active, e.g. from an RPAS thermal flight. Starting cells within
+                ``active_edge_buffer_m`` (default one cell) are burning; the rest of the
+                starting fire is burned out and does not spread. See
+                ``run_cellular_simulation``. Ignored by the Huygens model.
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -112,6 +120,10 @@ class Simulator:
         self.building_centroids = building_centroids
         self.building_footprints = building_footprints
         self.acceleration = acceleration
+        self.active_edges = active_edges
+        self.active_edge_buffer_m = active_edge_buffer_m
+        if active_edges is not None and fuel_grid is None:
+            logger.warning("active_edges needs the grid model (a fuel grid); ignored")
 
     def run(self) -> Generator[SimulationFrame, None, None]:
         """Run the simulation, yielding frames at snapshot intervals.
@@ -272,6 +284,8 @@ class Simulator:
                 if self.initial_front and len(self.initial_front) >= 3 else None
             ),
             initial_burned=self.initial_burned,
+            active_edges=self.active_edges,
+            active_edge_buffer_m=self.active_edge_buffer_m,
         )
 
         exposure = self._building_exposure(ca_frames[-1].emitters if ca_frames else None,
@@ -437,22 +451,38 @@ class Simulator:
         Without an hourly stream there is one period. With one, each record sets the wind,
         and FFMC is advanced through that hour with the hourly FFMC model from the previous
         period's value, starting from the configured FFMC; the hour uses the FFMC reached at
-        its end (the moisture state its own weather produces).
+        its end (the moisture state its own weather produces). Records that end at or before
+        the start (negative ``hours_from_start``) only advance FFMC (spin-up from, e.g., the
+        previous afternoon). With ``config.burning_period`` the periods are split at its edges
+        and ROS outside it is scaled by ``burning_period_off_factor``.
         """
         base = self._spread_conditions()
         records = sorted(self.config.hourly_weather or (), key=lambda r: r.hours_from_start)
-        if not records:
-            return [(0.0, base)]
-        schedule = [] if records[0].hours_from_start <= 0.0 else [(0.0, base)]
+        schedule: list[tuple[float, SpreadConditions]] = []
         ffmc = base.ffmc
+        ffmc0 = ffmc  # FFMC at the start, after any spin-up records
         for i, rec in enumerate(records):
             end = records[i + 1].hours_from_start if i + 1 < len(records) else rec.hours_from_start + 1.0
             hours = max(end - rec.hours_from_start, 1e-6)
             ffmc = hourly_ffmc(rec.temperature, rec.relative_humidity, rec.wind_speed,
                                rec.precipitation, ffmc, hours)
+            if end <= 0.0:
+                ffmc0 = ffmc
+                continue
             schedule.append((max(rec.hours_from_start, 0.0) * 60.0, replace(
                 base, wind_speed=rec.wind_speed, wind_direction=rec.wind_direction, ffmc=ffmc,
             )))
+        if not schedule or schedule[0][0] > 0.0:
+            schedule.insert(0, (0.0, base if ffmc0 == base.ffmc else replace(base, ffmc=ffmc0)))
+        if self.config.burning_period is not None:
+            from firesim.spread.diurnal import burning_period_schedule
+
+            if self.config.start_hour is None:
+                raise ValueError("burning_period needs start_hour (local clock hour at t = 0)")
+            schedule = burning_period_schedule(
+                schedule, self.config.start_hour, tuple(self.config.burning_period),
+                self.config.duration_hours * 60.0, self.config.burning_period_off_factor,
+            )
         return schedule
 
     def conditions_at(self, minutes: float) -> SpreadConditions:

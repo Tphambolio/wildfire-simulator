@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from firesim.types import HourlyWeather
 from firesim.validation.cfsds import FireDomain, fire_day_pairs, read_groups
 from firesim.validation.harness import (
     FireDayCase,
+    active_geometry,
     Member,
     RunOptions,
     build_case,
@@ -112,6 +114,37 @@ class TestEndToEnd:
         rec = run_fire_day(case, RunOptions(windows_h=(8.0,), oracle_max_h=8, ignition="bennett"))
         assert rec["ignition"] == "bennett"
         assert 0.0 <= rec["members"]["det"]["8h"]["f1"] <= 1.0
+
+    def test_active_ignition(self, case):
+        """Only the previous day's growth spreads; the starting area is the same."""
+        opts = RunOptions(windows_h=(8.0,), oracle_max_h=8)
+        per = run_fire_day(case, opts)
+        act = run_fire_day(case, replace(opts, ignition="active"))
+        assert act["ignition"] == "active" and act["options"]["active_days"] == 1
+        assert act["initial_ha"] == pytest.approx(per["initial_ha"])
+        assert act["members"]["det"]["8h"]["area_pred"] <= per["members"]["det"]["8h"]["area_pred"]
+
+    def test_active_geometry_is_previous_day_growth(self, fixture):
+        dom, _, _, day = fixture
+        g = active_geometry(dom, day, 1)
+        assert g["type"] == "MultiPolygon" and len(g["coordinates"]) >= 1
+        assert active_geometry(dom, day - 10, 1) is None
+
+    def test_ffmc_spinup(self, case):
+        """Spin-up hours run from 17:00 the day before to the 06:00 start."""
+        assert len(case.spinup) == 13
+        assert case.spinup[0].hours_from_start == -13.0 and case.spinup[-1].hours_from_start == -1.0
+        opts = RunOptions(windows_h=(8.0,), oracle_max_h=8)
+        a = run_fire_day(case, opts)["members"]["det"]["8h"]
+        b = run_fire_day(case, replace(opts, ffmc_spinup=True))["members"]["det"]["8h"]
+        assert a["area_pred"] != b["area_pred"]
+
+    def test_burning_period(self, case):
+        """No spread before the burning period opens at 10:00 (4 h after the 06:00 start)."""
+        rec = run_fire_day(case, RunOptions(windows_h=(4.0, 8.0), oracle_max_h=8,
+                                            burning_period=(10.0, 20.0)))
+        m = rec["members"]["det"]
+        assert m["4h"]["area_pred"] == 0.0 and m["8h"]["area_pred"] > 0.0
 
     def test_wind_members(self, case):
         members = (Member("a", constant_wind_direction=0.0), Member("b", constant_wind_direction=180.0))

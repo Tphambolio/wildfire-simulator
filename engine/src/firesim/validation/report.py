@@ -109,6 +109,26 @@ def per_fire_means(rows: list[dict], metrics=METRICS) -> list[dict]:
     return out
 
 
+SPLIT_SEED = "firesim-skill-2026"
+
+
+def split_fires(fire_ids, seed: str = SPLIT_SEED) -> dict[str, str]:
+    """Calibration / held-out test split BY FIRE (never by day).
+
+    Fires are ranked by a seeded SHA-256 hash of their id and the first half (rounded down)
+    is ``"calibration"``, the rest ``"test"``. The split depends only on the fire ids and the
+    seed, so it is fixed before any result is seen and stable as runs are added. All
+    fire-days of a fire fall on the same side, so held-out scores are for fires the
+    parameters never saw.
+    """
+    import hashlib
+
+    ids = sorted(set(fire_ids))
+    ranked = sorted(ids, key=lambda f: hashlib.sha256(f"{seed}:{f}".encode()).hexdigest())
+    n_cal = len(ranked) // 2
+    return {f: ("calibration" if k < n_cal else "test") for k, f in enumerate(ranked)}
+
+
 def group_by(rows: list[dict], key: str, metrics=("f1", "iou", "area_diff_norm")) -> dict:
     groups: dict[str, list[dict]] = defaultdict(list)
     for r in rows:

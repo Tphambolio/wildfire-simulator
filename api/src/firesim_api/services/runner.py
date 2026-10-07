@@ -681,6 +681,11 @@ class SimulationRunner:
                 "Multi-day source simulations are not supported."
             )
 
+        if req.active_edges is not None and not original.config.fuel_grid_path:
+            raise ValueError(
+                "active_edges needs the grid model: the source simulation has no fuel grid"
+            )
+
         from firesim.spread.geojson_utils import geojson_to_fire_vertices
 
         try:
@@ -763,6 +768,8 @@ class SimulationRunner:
                 initial_front=initial_front,
                 enable_spotting=params.enable_spotting,
                 spotting_intensity=params.spotting_intensity,
+                active_edges=req.active_edges,
+                active_edge_buffer_m=req.active_edge_buffer_m,
             )
 
             for frame in simulator.run():

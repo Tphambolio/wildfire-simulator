@@ -132,6 +132,8 @@ def run_cellular_simulation(
     initial_burned: list[tuple[float, float]] | None = None,
     compute_perimeter: bool = True,
     weather_schedule: list[tuple[float, SpreadConditions]] | None = None,
+    active_edges: dict | None = None,
+    active_edge_buffer_m: float | None = None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -162,6 +164,17 @@ def run_cellular_simulation(
         compute_perimeter: Build each frame's outline polygon (skip for ensembles).
         weather_schedule: (start minute, conditions) periods, e.g. from an hourly weather
             stream; FBP rates are recomputed at each change. Default: ``conditions`` throughout.
+        active_edges: Where an observed starting fire is still active (e.g. the hot edges or
+            heat seen on an RPAS thermal flight): a GeoJSON geometry dict in lng/lat
+            (LineString / MultiLineString along the active edge, Polygon / MultiPolygon of the
+            active zone, or Point / MultiPoint hotspots). Only starting-fire cells within
+            ``active_edge_buffer_m`` of it are burning and spread; the rest of the starting
+            fire is burned out (cannot spread or burn again), so inactive edges do not
+            advance until fire from an active edge reaches the fuel beyond them. Needs
+            ``initial_perimeter`` or ``initial_burned``; None = the whole starting fire is
+            active (the default).
+        active_edge_buffer_m: Distance (m) from ``active_edges`` within which starting cells
+            are burning. Default: one cell.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -197,9 +210,23 @@ def run_cellular_simulation(
     if start is not None:
         acceleration = False  # an existing fire is already at equilibrium spread
         arrival[start] = 0.0
-        phi = _signed_distance(start, dx, dy)
         t = 0.0
         ign_row = ign_col = 0
+        burning = start
+        if active_edges is not None:
+            buffer_m = max(dx, dy) if active_edge_buffer_m is None else active_edge_buffer_m
+            burning = start & active_mask(active_edges, buffer_m, rows, cols, lat_max, lng_min,
+                                          cell_lat, cell_lng, dx, dy)
+            burned_out = start & ~burning
+            if burned_out.any():  # burned-out cells become non-fuel for the rest of the run
+                cell_keys[0][burned_out] = False
+                cell_keys[1][burned_out] = -1
+                params = _CellParams.evaluate(cell_keys, conditions)
+                fuel = params.fuel
+            if not burning.any():
+                logger.warning("No starting-fire cell within %.0f m of the active edges: "
+                               "nothing spreads", buffer_m)
+        phi = _signed_distance(burning, dx, dy) if burning.any() else None
     else:
         ign_row, ign_col, snapped_m = _snap_ignition(
             fuel_grid, config["ignition_lat"], config["ignition_lng"], cell_lat, cell_lng, dy
@@ -238,7 +265,15 @@ def run_cellular_simulation(
                 in_band[win] = True
             speed = (params.head[win] + params.b[win]).max()
             if speed <= 1e-9:
-                break
+                # Nothing can spread in this period (e.g. outside a burning period): wait for
+                # the next weather change rather than ending the run.
+                if next_change() >= duration - 1e-9:
+                    break
+                t = next_change()
+                if t >= next_slice - 1e-9:
+                    slice_start = t
+                    next_slice = min(t + slice_len, duration)
+                continue
             step = min(CFL * h_min / speed, next_slice - t, next_change() - t)
             _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros,
                      acceleration)
@@ -379,6 +414,24 @@ def _initial_region(fuel_grid, fuel, perimeter, burned_points, cell_lat, cell_ln
             mask[r, c] = True
     mask &= fuel
     return mask if mask.any() else None
+
+
+def active_mask(geometry: dict, buffer_m: float, rows: int, cols: int, lat_max: float,
+                lng_min: float, cell_lat: float, cell_lng: float, dx: float, dy: float) -> np.ndarray:
+    """Cells whose centre is within ``buffer_m`` of a GeoJSON geometry (lng/lat).
+
+    The geometry is rasterised onto the grid (every cell it touches), then cells within
+    ``buffer_m`` (centre to centre, metres) of a touched cell are included.
+    """
+    from rasterio.features import rasterize
+    from rasterio.transform import Affine
+
+    transform = Affine(cell_lng, 0.0, lng_min, 0.0, -cell_lat, lat_max)
+    touched = rasterize([(geometry, 1)], out_shape=(rows, cols), transform=transform, fill=0,
+                        all_touched=True, dtype="uint8").astype(bool)
+    if not touched.any() or buffer_m <= 0.0:
+        return touched
+    return ndimage.distance_transform_edt(~touched, sampling=(dy, dx)) <= buffer_m + 1e-9
 
 
 def _signed_distance(region, dx, dy):

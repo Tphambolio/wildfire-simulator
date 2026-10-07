@@ -157,7 +157,7 @@ def run_ensemble(
     for i in range(ens.n_members):
         member_cfg, k_ros, record = perturb_config(config, ens, rng, base_fmc)
         sim = Simulator(member_cfg, fuel_grid=fuel_grid)
-        schedule = [(t, replace(c, ros_multiplier=k_ros)) for t, c in sim.weather_schedule()]
+        schedule = [(t, replace(c, ros_multiplier=c.ros_multiplier * k_ros)) for t, c in sim.weather_schedule()]
         frames = run_cellular_simulation(
             {"ignition_lat": member_cfg.ignition_lat, "ignition_lng": member_cfg.ignition_lng,
              "duration_hours": member_cfg.duration_hours},
