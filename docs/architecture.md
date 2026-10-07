@@ -112,7 +112,7 @@ This replaced a stochastic cellular automaton in 2026-10; see `docs/verification
 
 ## Fuel rasters
 
-`data/fuel_loader.py` maps integer raster codes to FBP fuel types. Several code tables exist
+`data/fuel_loader.py` and `data/dem_loader.py` reproject rasters onto a regular lat/lng grid (`data/raster_grid.py`; nearest neighbour for fuel codes, bilinear for elevation) before use. `data/fuel_loader.py` maps integer raster codes to FBP fuel types. Several code tables exist
 (Edmonton FBP layer, uPLVI, Edmonton canopy LiDAR, RPAS drone pipeline); a table is detected
 only if every code in the raster belongs to it, or set explicitly with `code_scheme`. The file
 `data/Edmonton_FBP_FuelLayer_20251105_10m.tif` is the 20 m canopy-LiDAR grid (codes

@@ -240,3 +240,40 @@ class TestNodata:
         # No catastrophic slopes from the nodata fill
         max_slope = max(v for row in grid.slope for v in row)
         assert max_slope < 500.0, f"Nodata fill produced extreme slope: {max_slope:.0f}%"
+
+
+def test_dem_is_placed_and_aspect_is_relative_to_true_north(tmp_path):
+    """Regression: the DEM loader used to stretch projected rows/columns over the lat/lng
+    bounding box (misplacing cells by kilometres for a UTM DEM) and took aspect from the
+    projection's grid north. A plane rising toward UTM grid north at 113.5 W (2.5 degrees
+    west of the zone 12 central meridian) must come out facing the true bearing of grid
+    north there (about 2 degrees east of north)."""
+    import math
+
+    import numpy as np
+    import rasterio
+    from rasterio.crs import CRS
+    from rasterio.transform import from_origin
+    from rasterio.warp import transform as warp_transform
+
+    from firesim.data.dem_loader import load_terrain_grid
+
+    crs = CRS.from_epsg(32612)
+    west, north, cell = 333_000.0, 5_930_000.0, 50.0
+    n = 60
+    rows = np.arange(n, dtype=np.float32)[:, None]
+    elev = np.repeat(700.0 + (n - rows) * cell * 0.10, n, axis=1)  # 10 % rise toward grid north
+    path = tmp_path / "dem.tif"
+    with rasterio.open(path, "w", driver="GTiff", height=n, width=n, count=1, dtype="float32",
+                       crs=crs, transform=from_origin(west, north, cell, cell)) as dst:
+        dst.write(elev, 1)
+    terrain = load_terrain_grid(str(path), target_resolution_m=50.0)
+
+    x0, y0 = west + 30 * cell, north - 30 * cell
+    (lng0, lng1), (lat0, lat1) = warp_transform(crs, "EPSG:4326", [x0, x0], [y0, y0 + 1000.0])
+    expected = math.degrees(math.atan2((lng1 - lng0) * math.cos(math.radians(lat0)), lat1 - lat0)) % 360
+    r = int((terrain.lat_max - lat0) / (terrain.lat_max - terrain.lat_min) * terrain.rows)
+    c = int((lng0 - terrain.lng_min) / (terrain.lng_max - terrain.lng_min) * terrain.cols)
+    assert terrain.slope[r][c] == pytest.approx(10.0, rel=0.05)
+    assert abs((terrain.aspect[r][c] - expected + 180) % 360 - 180) < 0.5
+    assert abs(expected) > 1.0  # the test only means something if grid and true north differ
