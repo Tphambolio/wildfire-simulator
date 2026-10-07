@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import math
 import os
+import random
 import tempfile
 import time
 from dataclasses import dataclass, field, replace
@@ -257,6 +258,10 @@ def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
     sim = Simulator(config, fuel_grid, terrain, initial_front=front, initial_burned=burned_pts,
                     enable_spotting=opts.enable_spotting)
     schedule = sim.weather_schedule()
+    if opts.enable_spotting:
+        # The spotting model draws from the global ``random`` module; seed it per fire-day and
+        # member so spotting runs are repeatable.
+        random.seed(f"{case.fire_id}:{case.day}:{member.name}")
     t0 = time.perf_counter()
     # The same call Simulator._run_cellular makes, without building per-cell frame dicts.
     frames = run_cellular_simulation(

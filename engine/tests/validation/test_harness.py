@@ -101,6 +101,12 @@ class TestEndToEnd:
         b = run_fire_day(case, FAST)["members"]["det"]["8h"]
         assert a["tp"] == b["tp"] and a["fp"] == b["fp"]
 
+    def test_spotting_runs_repeatable(self, case):
+        opts = RunOptions(windows_h=(8.0,), oracle_max_h=8, enable_spotting=True)
+        a = run_fire_day(case, opts)["members"]["det"]["8h"]
+        b = run_fire_day(case, opts)["members"]["det"]["8h"]
+        assert a["tp"] == b["tp"] and a["fp"] == b["fp"]
+
     def test_bennett_ignition(self, case):
         rec = run_fire_day(case, RunOptions(windows_h=(8.0,), oracle_max_h=8, ignition="bennett"))
         assert rec["ignition"] == "bennett"
