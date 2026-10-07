@@ -75,6 +75,22 @@ class FuelModifiers(BaseModel):
         return self.model_dump()
 
 
+class EnsembleParams(BaseModel):
+    """Ensemble run after the deterministic one (grid runs). Perturbation sizes are defaults
+    until calibrated on observed fires; see firesim/spread/ensemble.py."""
+
+    n_members: int = Field(default=30, ge=5, le=200)
+    seed: int = 1
+    wind_dir_sd_deg: float = Field(default=20.0, ge=0, le=90)
+    wind_speed_log_sd: float = Field(default=0.2, ge=0, le=1)
+    ffmc_sd: float = Field(default=1.5, ge=0, le=10)
+    dmc_dc_log_sd: float = Field(default=0.1, ge=0, le=1)
+    curing_sd: float = Field(default=10.0, ge=0, le=50)
+    fmc_sd: float = Field(default=5.0, ge=0, le=30)
+    ros_log_sd: float = Field(default=0.3, ge=0, le=1)
+    ignition_jitter_m: float = Field(default=0.0, ge=0, le=2000)
+
+
 class SimulationCreate(BaseModel):
     """Request body for creating a new simulation."""
 
@@ -102,6 +118,13 @@ class SimulationCreate(BaseModel):
             "2026-04-28T13:40:00-06:00. Frame times are hours after it. When "
             "fuel_modifiers.day_of_year is not set, its local date sets the day of year for the "
             "foliar moisture model. hourly_weather records count hours from this time."
+        ),
+    )
+    ensemble: EnsembleParams | None = Field(
+        default=None,
+        description=(
+            "Grid runs: after the deterministic run completes, run an ensemble and serve "
+            "P10/P50/P90 arrival and burn probability at GET /simulations/{id}/ensemble."
         ),
     )
     cells_mode: Literal["cumulative", "incremental"] = Field(

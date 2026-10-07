@@ -54,6 +54,8 @@ class SpreadConditions:
     pdf: float = 35.0  # percent dead balsam fir for M3/M4
     gfl: float = 0.35  # grass fuel load (kg/m2) for O1a/O1b
     fmc: float = 100.0  # foliar moisture content (%)
+    # Rate-of-spread error multiplier (ensemble perturbation; 1.0 = FBP as is). Grid model only.
+    ros_multiplier: float = 1.0
 
 
 def fbp_for_conditions(

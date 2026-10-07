@@ -398,8 +398,8 @@ export default function App() {
     error,
   } = useSimulation();
 
-  // Scenario start (design spec §2.3): the time the run was started. A later PR adds a
-  // user-set start time; the engine stays time-agnostic (minutes after the start).
+  // Scenario start of the current run (design spec §2.3): the start date and time set in
+  // Setup ("now" by default), sent as start_time; the engine stays time-agnostic (hours after it).
   const [scenarioStart, setScenarioStart] = useState<Date | null>(null);
 
   const handlePerimeterOverride = useCallback(
@@ -411,8 +411,8 @@ export default function App() {
   );
 
   const handleStartMultiDay = useCallback(
-    (req: Parameters<typeof startMultiDaySimulation>[0]) => {
-      setScenarioStart(new Date());
+    (req: Parameters<typeof startMultiDaySimulation>[0], startMs: number) => {
+      setScenarioStart(new Date(startMs));
       startMultiDaySimulation(req);
     },
     [startMultiDaySimulation]
@@ -533,7 +533,8 @@ export default function App() {
     (params: SimulationCreate) => {
       lastStartRef.current = params;
       setDismissedError(null);
-      setScenarioStart(new Date());
+      const start = params.start_time ? Date.parse(params.start_time) : NaN;
+      setScenarioStart(new Date(Number.isFinite(start) ? start : Date.now()));
       startSimulation(params);
     },
     [startSimulation]
@@ -627,13 +628,13 @@ export default function App() {
             onComputeBurnProbability={handleComputeBurnProbability}
             onRunParams={handleRunParams}
             ignitionPoint={ignitionPoint}
+            onIgnitionChange={setIgnitionPoint}
             isRunning={isRunning}
             burnProbRunning={burnProbRunning}
             scenarioToLoad={scenarioToLoad}
             onConfigSnapshot={handleConfigSnapshot}
             onEdmontonGridChange={handleEdmontonGridChange}
             runBarTarget={runBarEl}
-            scenarioStart={scenarioStart}
           />
           <div className="setup-more-label">More</div>
           <SetupSection
