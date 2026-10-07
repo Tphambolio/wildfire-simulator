@@ -2,7 +2,9 @@
 
 ## What This Is
 Canadian FBP wildfire simulation system — fire behaviour prediction engine, FastAPI backend, React frontend.
-Used for municipal wildfire risk assessment and EOC planning in Edmonton's WUI.
+For municipal EOC planning, preparedness and training in Edmonton's WUI. **Not yet validated
+against observed fires** — see `docs/model-card.md` (intended use, evidence, limits) and keep it
+current with any engine change.
 
 **Standards:** CFFDRS/FBP System (ST-X-3, Forestry Canada 1992), Van Wagner & Pickett (1985) FWI, Van Wagner (1977) crown fire.
 
@@ -56,15 +58,16 @@ docker compose up --build
 | `fbp/calculator.py` | FBP equations matching cffdrs: `calculate_fbp()` (head/flank/back ROS, SFC, CFB, HFI, WSV/RAZ slope adjustment), ISI with eq 53a wind cap, curing (Wotton 2009), FMC from date |
 | `fbp/crown_fire.py` | CSI, RSO, CFB (ST-X-3 eqs 56-58), C-6 crown ROS, `FireType` classification |
 | `fwi/calculator.py` | Van Wagner & Pickett (1985): `FWICalculator` with `calculate()` → `FWIResult` |
-| `spread/huygens.py` | **Primary spread algorithm** — elliptical Huygens wavelet; `FuelGrid` holds fuel types plus optional per-cell `cbh`/`cfl` (e.g. LiDAR) layers |
-| `spread/cellular.py` | Level-set grid spread on spatial fuel grids (FBP-ellipse Huygens velocity, ELMFIRE-style); `use_ca_mode=True` forces it |
+| `spread/huygens.py` | Huygens wavelet model (uniform fuel, convex front); `FuelGrid` holds fuel types plus optional per-cell `cbh`/`cfl` (e.g. LiDAR); `fbp_for_conditions` is the FBP layer both models share |
+| `spread/cellular.py` | Level-set grid model — used whenever a fuel grid is present (FBP-ellipse Huygens velocity, ELMFIRE-style); per-cell arrival, front speed, head/flank/back (`spread_directions`, `fire_part`), head summary, flame panels for exposure |
 | `spread/ellipse.py` | LB ratio (forest + grass), flank ROS, ROS toward theta on the FBP ellipse |
 | `spread/slope.py` | ST-X-3 eq 39 slope factor (slope itself is applied via net effective wind in the FBP calculator) |
-| `spread/spotting.py` | Albini (1979) ember spotting — crown fire → spot distance + probability |
+| `spread/spotting.py`, `spread/albini.py` | Ember spotting (opt-in): Albini/Chase/Morris maximum distance (surface-fire or torching-tree model); emission, probability and landing are heuristic (illustrative) |
 | `exposure.py` | Building exposure: distance bands, Cohen (2004) radiant flux and flux-time index from the grid run's flame panels (exposure, not ignition; `docs/building-exposure.md`) |
 | `spread/simulator.py` | `Simulator` class — main orchestrator, yields `SimulationFrame` per snapshot |
-| `spread/montecarlo.py` | Stochastic burn probability (jitter wind/RH over N iterations) |
-| `data/fuel_loader.py` | GeoTIFF → `FuelGrid` (FBP type codes) |
+| `spread/montecarlo.py` | Burn probability (jitter ignition, wind speed, RH over N iterations) |
+| `fwi/classes.py` | FWI display classes (CWFIS FWI map intervals) |
+| `data/fuel_loader.py` | GeoTIFF → `FuelGrid`; integer codes mapped by code scheme (`CODE_SCHEMES`, explicit `code_scheme` or detection) |
 | `data/dem_loader.py` | DEM GeoTIFF → slope % + aspect ° → `TerrainGrid` |
 | `data/wui_loader.py` | WUI GeoJSON → `SpreadModifierGrid` |
 | `data/synthetic_grid.py` | Demo landscape generator (no data files needed) |
@@ -100,10 +103,13 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 ### Endpoints
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/v1/health` | Status + uptime + engine version |
+| GET | `/api/v1/health` | Status + uptime |
+| GET | `/api/v1/version` | Version + deployed git SHA (stamp outputs with it) |
 | POST | `/api/v1/simulations` | Start simulation → `SimulationResponse` |
 | GET | `/api/v1/simulations/{id}` | Fetch stored results |
 | WS | `/api/v1/simulations/ws/{id}` | Stream frames real-time (JSON) |
+| GET | `/api/v1/simulations/{id}/arrival` | Arrival-minute raster of a finished grid run |
+| GET | `/api/v1/simulations/fuel-grid-image` | Fuel overlay PNG + legend |
 | POST | `/api/v1/simulations/multiday` | Multi-day FWI carry-over |
 | POST | `/api/v1/simulations/perimeter-override` | Mid-incident RPAS perimeter correction |
 | POST | `/api/v1/simulations/burn-probability` | Monte Carlo burn grid (2D float [0,1]) |
@@ -111,22 +117,13 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | POST | `/api/v1/fwi/multi-day` | Chain FWI across daily observations |
 | GET | `/api/v1/weather/current?lat=&lng=` | Live CWFIS WFS → `CurrentWeather` |
 
-### WebSocket Frame Format
-```json
-{"type": "simulation.frame", "data": {
-  "time_hours": 2.0,
-  "perimeter": [[lat, lng], ...],
-  "area_ha": 45.2,
-  "head_ros": 12.5,
-  "max_hfi": 3400,
-  "fire_type": "PASSIVE_CROWN",
-  "flame_length": 8.3,
-  "fuel_breakdown": {"C2": 0.6, "D1": 0.4},
-  "spot_fires": [[lat, lng], ...],
-  "burned_cells": 1847,
-  "num_fronts": 3
-}}
-```
+### Frames
+WebSocket events are `{"type": "simulation.frame", "simulation_id": ..., "frame": {...}}`, then
+`simulation.completed` or `simulation.error`. Frame fields (`time_hours`, `perimeter`, `area_ha`,
+`head_ros_m_min`, `max_hfi_kw_m`, `fire_type`, `flame_length_m`, `burned_cells`, `cells_offset`,
+`head`, `building_exposure`, ...) are documented in `docs/api-reference.md` — keep that file, the
+Pydantic schema and `frontend/src/types/simulation.ts` in step. Requests can set `start_time`,
+`hourly_weather` and `cells_mode: "incremental"` (the frontend uses incremental).
 
 ### Environment Variables
 ```
@@ -134,6 +131,8 @@ FIRESIM_FUEL_GRID_PATH    GeoTIFF with FBP fuel type codes
 FIRESIM_DEM_PATH          DEM GeoTIFF for slope/aspect
 FIRESIM_WATER_PATH        Water bodies GeoJSON (non-fuel mask)
 FIRESIM_BUILDINGS_PATH    Building footprints GeoJSON
+FIRESIM_NEIGHBOURHOODS_PATH  Neighbourhood polygons (building index; needed for building masks/exposure)
+FIRESIM_GIT_SHA           Set by the Docker build (CI passes the commit); served by /api/v1/version
 ```
 
 ---
@@ -143,19 +142,15 @@ FIRESIM_BUILDINGS_PATH    Building footprints GeoJSON
 ### Stack
 `React 19 + TypeScript 5.9 + Vite 7 + MapLibre GL 5`
 
-### Key Components
-| Component | Purpose |
-|-----------|---------|
-| `MapView.tsx` | MapLibre GL — click-to-ignite, perimeter rendering, layer toggles |
-| `WeatherPanel.tsx` | Wind/temp/RH/precip/FWI inputs |
-| `FireMetrics.tsx` | Area, ROS, HFI, fire type, flame length KPIs |
-| `TimeSlider.tsx` | Frame scrubbing |
-| `MultiDayPanel.tsx` | Multi-day weather progression |
-| `PerimeterOverridePanel.tsx` | RPAS mid-incident correction |
-| `EvacStatusPanel.tsx` | Neighbourhoods: modelled fire arrival within 500 m, and evacuation status set by Planning (FireSim suggests no tiers) |
-| `EOCSummary.tsx` | ICS-209 printable situation report |
-| `IsochronePanel.tsx` | Fire arrival time contours |
-| `ScenarioPanel.tsx` | LocalStorage scenario save/load |
+### Layout
+Top bar (incident, status, limits badge, America/Edmonton clock) · Setup column (sections with
+summaries, sticky Run bar) · map (`MapView.tsx`) · Situation panel (`FireMetrics.tsx`, exposure,
+Neighbourhoods card `EvacStatusPanel.tsx`, `EOCSummary.tsx`) · clock-time timeline
+(`TimeSlider.tsx`). Neighbourhoods: modelled fire arrival within 500 m and evacuation status set by
+Planning (`utils/evacZones.ts`); FireSim never suggests Order/Alert/Watch. EOC console tab: `EOCConsole.tsx`
+(ICS forms `utils/icsForms.ts`, ICS-209 `utils/ics209.ts`). Shared tables: `utils/fireClasses.ts`
+(HFI classes, Cole & Alexander 1995), `utils/fwiClass.ts`, `utils/time.ts`,
+`utils/suppressionAdvisory.ts`. Design tokens: `src/styles/tokens.css` (dark default).
 
 ### Services / Hooks
 - `src/services/api.ts` — All API calls + WebSocket URL builder
@@ -172,7 +167,10 @@ VITE_MAPBOX_TOKEN=        Satellite tiles (optional, defaults to OSM)
 
 ## CI/CD (`.github/workflows/ci.yml`)
 
-- **Triggers:** Push to `master`, all PRs to `master`
+- **Triggers:** push to `master`; PRs to `master` and `feat/**`
+- **Required checks on master:** `engine-tests (3.11)`, `engine-tests (3.12)`, `frontend`; auto-merge
+  is enabled (`gh pr merge N --merge --auto`) — still ask the user before merging
+- **deploy** (master only): `flyctl deploy --remote-only --build-arg GIT_SHA=…`; Vercel rebuilds the frontend
 - **engine-tests:** Python 3.11 + 3.12 → `pytest engine/tests/ api/tests/`
 - **frontend:** Node 22 → `tsc --noEmit` + `npm run build` + `npm test` (Vitest)
 - **frontend-e2e** (not required): Playwright + axe against `vite preview` with a mocked API replaying `frontend/tests/fixtures/terwillegar_grass_4h.json` (see frontend/README.md)
@@ -180,19 +178,10 @@ VITE_MAPBOX_TOKEN=        Satellite tiles (optional, defaults to OSM)
 
 ---
 
-## Task Naming Convention
+## Commits
 
-Commits use `TRA-XXX` format:
-```
-feat(scope): description (TRA-213)
-fix(scope): description (TRA-XXX)
-chore: description
-```
-Scopes: `engine`, `api`, `frontend`, `engine+api`, `api+frontend`, `engine+api+frontend`
-
-Latest task: **TRA-213** (CWFIS live fire weather via WFS endpoint)
-
----
+Conventional commits: `feat(scope): …`, `fix(scope): …`, `docs: …`, `test: …`, `chore: …`.
+Scopes: `engine`, `api`, `frontend`, or combinations (`engine+api`). (Older history uses `TRA-XXX` task IDs.)
 
 ## Data Files
 
@@ -200,11 +189,11 @@ The engine works without real data using `synthetic_grid.py` (generates a mixed-
 
 | File | Source | Used by |
 |------|--------|---------|
-| `Edmonton_FBP_FuelLayer_*_10m.tif` | City of Edmonton / ABMI | `fuel_loader.py` |
-| `edmonton_DEM_*.tif` | Open Government Canada | `dem_loader.py` |
-| `edmonton_water_bodies.geojson` | City Open Data | `wui_loader.py` |
-| `edmonton_buildings.geojson` | City Open Data | settings |
-| `Edmonton_WUI_zones.geojson` | Custom (from `edmonton-burnp3` project) | `wui_loader.py` |
+| `Edmonton_FBP_FuelLayer_*_10m.tif` | City of Edmonton canopy-LiDAR fuel product (20 m grid despite the name; codes 2, 12, 14, 31, 32, 99) | `fuel_loader.py` |
+| `edmonton_dem.tif` | Open Government Canada | `dem_loader.py` |
+| `edmonton_water_bodies.geojson.gz` | City Open Data | `wui_loader.py` |
+| `edmonton_buildings.geojson.gz`, `edmonton_neighbourhoods.geojson` | City Open Data | building index, mask, exposure |
+| `wui_zones.geojson.gz` | Custom, **no documented source** — off by default; don't present results using it as measured | `wui_loader.py` |
 
 ---
 
@@ -213,6 +202,7 @@ The engine works without real data using `synthetic_grid.py` (generates a mixed-
 - **No Claude/Anthropic references** in code committed to CoE systems
 - Related CoE project: `~/dev/wildfire/edmonton-burnp3/` (dual remote: GitHub + `git.edmonton.ca`)
 - WUI data lives in `~/Documents/City-of-Edmonton/Wildfire-WUI/`
+- Never put SFOC numbers or SFOC condition IDs in this public repo
 
 ---
 

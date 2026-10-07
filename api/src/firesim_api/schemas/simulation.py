@@ -267,11 +267,11 @@ class MultiDaySimulationCreate(BaseModel):
 
 
 class PerimeterOverrideRequest(BaseModel):
-    """Request to override simulated fire perimeter with drone reconnaissance data.
+    """Request to restart a simulation from an observed (e.g. drone) fire perimeter.
 
-    The corrected perimeter (GeoJSON geometry) replaces the model-predicted
-    front and seeds a fresh Huygens spread run, closing the loop between
-    simulation and ground truth during an active incident.
+    The observed perimeter (GeoJSON geometry) replaces the model-predicted front and starts
+    a new run as an established fire, with the grid model when the original run had a fuel
+    grid (otherwise Huygens).
     """
 
     simulation_id: str = Field(

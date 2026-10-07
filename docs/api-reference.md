@@ -1,6 +1,7 @@
 # API Reference
 
-Base URL: `http://localhost:8000`
+Base URL: `http://localhost:8000` (production: `https://firesim-api.fly.dev`). Interactive schema:
+`/docs` (OpenAPI). Every endpoint below is under `/api/v1`.
 
 ## Endpoints
 
@@ -132,6 +133,47 @@ Health check endpoint.
   "engine": "firesim"
 }
 ```
+
+### POST /api/v1/simulations/multiday
+
+Multi-day scenario: `days` is a list of 1-7 daily noon weather records
+(`wind_speed`, `wind_direction`, `temperature`, `relative_humidity`, `precipitation_24h`); the FWI
+codes are advanced day to day from `fwi_overrides` (Van Wagner & Pickett 1985; `month` sets
+the day-length factors) and each day's
+grid run continues from the previous day's burned area. Frames carry `day`. Cells are always
+cumulative.
+
+### POST /api/v1/simulations/perimeter-override
+
+Restart from an observed perimeter (e.g. RPAS thermal mapping): `simulation_id` of a run whose
+configuration is reused, `perimeter_geojson` (a GeoJSON Polygon or MultiPolygon *geometry*, not
+a Feature, in [lng, lat]), `duration_hours` and `snapshot_interval_minutes`. The observed area
+starts burned and spreads as an established fire (no point-ignition acceleration), with the
+grid model when the run had a fuel grid.
+
+### POST /api/v1/simulations/burn-probability
+
+Monte Carlo burn probability (synchronous). Varies the ignition point (`jitter_m`), wind speed
+(`wind_speed_pct`) and RH (`rh_abs`, applied as an FFMC change) over `n_iterations` grid runs
+of `duration_hours`; returns `burn_probability[rows][cols]` (fraction of iterations that
+burned each cell) with the grid bounds. Not a Burn-P3-style analysis over historical weather.
+
+### GET /api/v1/simulations/fuel-grid-image?fuel_grid_path=...
+
+The fuel grid as a base64 PNG for the map overlay, its WGS84 `bounds`, and a `legend` of the
+FBP fuel types drawn with their colours.
+
+### POST /api/v1/fwi/calculate, POST /api/v1/fwi/multi-day
+
+FWI System codes (FFMC, DMC, DC, ISI, BUI, FWI) from a noon observation, or chained across
+daily observations, with `danger_rating` = the CWFIS national FWI map class (0-5 Low, 6-15
+Moderate, 16-22 High, 23-29 Very High, 30+ Extreme). That is an FWI map class, not an official
+fire danger rating.
+
+### GET /api/v1/weather/current?lat=&lng=
+
+Current fire weather and FWI codes from the nearest CWFIS station (GeoServer WFS, within 2°),
+for use as `fwi_overrides`.
 
 ### GET /api/v1/version
 
