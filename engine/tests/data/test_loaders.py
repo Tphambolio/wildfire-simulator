@@ -60,6 +60,23 @@ def _make_fuel_raster(
     return path
 
 
+def _fuel_at_source_cells(grid: FuelGrid, rows: int, cols: int, cell_m: float) -> list[list]:
+    """Fuel the grid holds at the centre of each source (UTM) cell.
+
+    The loader reprojects onto a lat/lng grid, so source rows and columns no longer map
+    one to one onto grid cells; sample at each source cell's true position instead.
+    """
+    from rasterio.warp import transform as warp_transform
+
+    out = []
+    for r in range(rows):
+        xs = [_WEST + (c + 0.5) * cell_m for c in range(cols)]
+        ys = [_NORTH - (r + 0.5) * cell_m] * cols
+        lngs, lats = warp_transform(_UTM_CRS, "EPSG:4326", xs, ys)
+        out.append([grid.get_fuel_at(lat, lng) for lat, lng in zip(lats, lngs)])
+    return out
+
+
 def _geojson_feature_collection(features: list[dict]) -> dict:
     return {"type": "FeatureCollection", "features": features}
 
@@ -155,13 +172,13 @@ class TestLoadFuelGridValid:
         data = np.array([[41, 42], [31, 14]], dtype=np.int16)
         raster = _make_fuel_raster(tmp_path / "fuel.tif", data, cell_m=50.0)
         grid = load_fuel_grid(str(raster), target_resolution_m=50.0)
-        assert grid.fuel_types == [[FuelType.M1, FuelType.M2], [FuelType.D1, FuelType.C4]]
+        assert _fuel_at_source_cells(grid, 2, 2, 50.0) == [[FuelType.M1, FuelType.M2], [FuelType.D1, FuelType.C4]]
 
     def test_float_raster_with_nan_nodata(self, tmp_path):
         data = np.array([[12.0, np.nan], [41.0, 31.0]], dtype=np.float32)
         raster = _make_fuel_raster(tmp_path / "fuel.tif", data, cell_m=50.0, nodata=float("nan"))
         grid = load_fuel_grid(str(raster), target_resolution_m=50.0)
-        assert grid.fuel_types == [[FuelType.C2, None], [FuelType.M1, FuelType.D1]]
+        assert _fuel_at_source_cells(grid, 2, 2, 50.0) == [[FuelType.C2, None], [FuelType.M1, FuelType.D1]]
 
     def test_returns_fuel_grid_instance(self, tmp_path):
         data = np.array([[1, 12], [32, 41]], dtype=np.int32)
@@ -169,12 +186,15 @@ class TestLoadFuelGridValid:
         grid = load_fuel_grid(str(raster), target_resolution_m=10.0)
         assert isinstance(grid, FuelGrid)
 
-    def test_grid_rows_and_cols_match_input_when_no_downsampling(self, tmp_path):
+    def test_grid_cell_size_matches_input_when_no_downsampling(self, tmp_path):
         data = np.ones((4, 4), dtype=np.int32)  # all code 1 → C1
         raster = _make_fuel_raster(tmp_path / "fuel.tif", data, cell_m=50.0)
         grid = load_fuel_grid(str(raster), target_resolution_m=50.0)
-        assert grid.rows == 4
-        assert grid.cols == 4
+        # a 200 m square in UTM covers 4-5 cells of 50 m once placed on a lat/lng grid
+        assert 4 <= grid.rows <= 5 and 4 <= grid.cols <= 5
+        cell_m = (grid.lat_max - grid.lat_min) / grid.rows * 111320.0
+        assert cell_m == pytest.approx(50.0, rel=0.01)
+        assert all(f == FuelType.C1 for row in _fuel_at_source_cells(grid, 4, 4, 50.0) for f in row)
 
     def test_fuel_type_mapping_fbp_scheme(self, tmp_path):
         # code 42 → O1b (FBP scheme), no code 22
@@ -240,8 +260,21 @@ class TestLoadFuelGridDownsampling:
         data = np.ones((5, 5), dtype=np.int32)
         raster = _make_fuel_raster(tmp_path / "fuel.tif", data, cell_m=50.0)
         grid = load_fuel_grid(str(raster), target_resolution_m=50.0)
-        assert grid.rows == 5
-        assert grid.cols == 5
+        assert 5 <= grid.rows <= 6 and 5 <= grid.cols <= 6
+
+    def test_cells_are_placed_at_their_true_position(self, tmp_path):
+        """Regression: the loader used to stretch projected rows/columns over the lat/lng
+        bounding box, misplacing cells by up to hundreds of metres."""
+        data = np.zeros((40, 40), dtype=np.int32)  # 2 km x 2 km of non-fuel (code 0)
+        data[30, 7] = 1  # one C-1 marker cell
+        raster = _make_fuel_raster(tmp_path / "fuel.tif", data, cell_m=50.0)
+        grid = load_fuel_grid(str(raster), target_resolution_m=50.0)
+        from rasterio.warp import transform as warp_transform
+
+        lng, lat = warp_transform(_UTM_CRS, "EPSG:4326", [_WEST + 7.5 * 50.0], [_NORTH - 30.5 * 50.0])
+        assert grid.get_fuel_at(lat[0], lng[0]) == FuelType.C1
+        burning = [(r, c) for r in range(grid.rows) for c in range(grid.cols) if grid.fuel_types[r][c]]
+        assert len(burning) == 1
 
 
 # ===========================================================================

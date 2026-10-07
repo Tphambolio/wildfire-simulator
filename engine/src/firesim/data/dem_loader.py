@@ -22,7 +22,9 @@ import os
 import numpy as np
 import rasterio
 import rasterio.errors
-from rasterio.warp import transform_bounds
+from rasterio.warp import Resampling
+
+from firesim.data.raster_grid import read_to_latlng
 
 from firesim.spread.huygens import TerrainGrid
 
@@ -64,63 +66,31 @@ def load_terrain_grid(
             "Check the path or set FIRESIM_DEM_PATH in the environment."
         )
 
+    # Reproject onto a regular lat/lng grid (TerrainGrid indexes cells linearly in lat/lng),
+    # bilinear for elevation; slope and aspect are then computed on that grid, so aspect is
+    # relative to true north rather than the projection's grid north.
     try:
-        rasterio_ctx = rasterio.open(path)
+        grid = read_to_latlng(path, target_resolution_m, Resampling.bilinear, "float32", np.nan)
     except rasterio.errors.RasterioIOError as exc:
         raise rasterio.errors.RasterioIOError(
             f"Cannot open DEM GeoTIFF {path!r}: {exc}. "
             "The file may be corrupt, truncated, or not a valid GeoTIFF."
         ) from exc
+    elevation = grid.data
+    lat_min, lat_max, lng_min, lng_max = grid.lat_min, grid.lat_max, grid.lng_min, grid.lng_max
 
-    with rasterio_ctx as src:
-        elevation = src.read(1).astype(np.float32)  # Band 1, metres
-        nodata = src.nodata
-        src_crs = src.crs
-        src_bounds = src.bounds  # left, bottom, right, top in source CRS
-        src_res = src.res         # (x_res, y_res) in source CRS units
+    # Fill no-data (and cells outside the source footprint) with the mean elevation so
+    # gradients are continuous at edges
+    invalid = ~np.isfinite(elevation)
+    if invalid.any():
+        valid_mean = float(np.nanmean(elevation)) if (~invalid).any() else 0.0
+        elevation[invalid] = valid_mean
+        logger.debug("DEM no-data: filled %d cells with mean elevation %.1f m",
+                     int(invalid.sum()), valid_mean)
 
-    # Fill nodata with the raster mean so gradients are continuous at edges
-    if nodata is not None:
-        nodata_mask = elevation == float(nodata)
-        if nodata_mask.any():
-            valid_mean = float(np.nanmean(elevation[~nodata_mask]))
-            elevation[nodata_mask] = valid_mean
-            logger.debug(
-                "DEM nodata: filled %d cells with mean elevation %.1f m",
-                int(nodata_mask.sum()), valid_mean,
-            )
-
-    # Transform bounds to WGS84 (lat/lng) for TerrainGrid storage
-    lng_min, lat_min, lng_max, lat_max = transform_bounds(
-        src_crs, "EPSG:4326",
-        src_bounds.left, src_bounds.bottom,
-        src_bounds.right, src_bounds.top,
-    )
-
-    # Determine cell size in metres for gradient scaling
-    if src_crs.is_projected:
-        # UTM, Lambert, etc. — res is already in metres
-        cell_y_m = abs(src_res[1])  # y-resolution (positive value)
-        cell_x_m = abs(src_res[0])  # x-resolution
-    else:
-        # Geographic CRS (degrees) — approximate metres at raster centre
-        lat_centre = (lat_min + lat_max) / 2.0
-        cell_y_m = abs(src_res[1]) * 111320.0
-        cell_x_m = abs(src_res[0]) * 111320.0 * math.cos(math.radians(lat_centre))
-
-    # Downsample if source resolution is finer than target
-    src_res_m = min(cell_y_m, cell_x_m)
-    if src_res_m < target_resolution_m:
-        from scipy.ndimage import zoom
-
-        scale = src_res_m / target_resolution_m
-        elevation = zoom(elevation, scale, order=1)  # Bilinear for smoother gradients
-        cell_y_m /= scale
-        cell_x_m /= scale
-        logger.info(
-            "DEM downsampled %.0f m → %.0f m: shape now %dx%d",
-            src_res_m, target_resolution_m, *elevation.shape,
-        )
+    rows_, cols_ = elevation.shape
+    cell_y_m = (lat_max - lat_min) / rows_ * 111320.0
+    cell_x_m = (lng_max - lng_min) / cols_ * 111320.0 * math.cos(math.radians((lat_min + lat_max) / 2.0))
 
     rows, cols = elevation.shape
 
