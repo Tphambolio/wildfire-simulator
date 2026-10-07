@@ -134,6 +134,22 @@ Health check endpoint.
 }
 ```
 
+### GET /api/v1/simulations/{id}/ensemble
+
+Runs only when the POST included `"ensemble": {"n_members": 30, ...}` (grid runs). The
+ensemble starts after the deterministic frames complete (about 1 s per member for a 4 h run
+on the Edmonton grid). While running: `{"status": "running", "done": 12, "total": 30}`.
+When complete: grid bounds, `arrival` with `p10` / `p50` / `p90` rasters (base64 little-endian
+int16 minutes, -1 = fewer than that share of members reached the cell; P10 is the
+worst-credible early arrival), `burn_probability` (base64 uint8 percent), member area range
+and each member's perturbations.
+
+Perturbations (defaults, **not yet calibrated** on observed fires): wind direction sd 20°
+applied to every hourly record, wind speed log-sd 0.2, FFMC sd 1.5, DMC/DC log-sd 0.1, grass
+curing sd 10 points, foliar moisture sd 5 %, rate-of-spread multiplier log-sd 0.3. Grass
+runs near 58.8 % curing are very sensitive to the curing perturbation (the FBP curing factor
+changes slope there).
+
 ### POST /api/v1/simulations/multiday
 
 Multi-day scenario: `days` is a list of 1-7 daily noon weather records

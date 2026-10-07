@@ -101,6 +101,11 @@ This replaced a stochastic cellular automaton in 2026-10; see `docs/verification
   (`STAND_DEFAULTS`). Which vertices emit embers, how likely a spot is, and where below the
   maximum it lands are heuristics; Albini gives none of these. Flat terrain only; active crown
   fires (Albini et al. 2012) are approximated by the torching model, an underestimate.
+- Ensemble (`spread/ensemble.py`): N grid-model members with perturbed wind direction
+  (one offset per member across all hourly records), wind speed, FFMC, DMC/DC, curing,
+  foliar moisture and a rate-of-spread error multiplier; summarised as P10/P50/P90 arrival
+  rasters (P10 = worst-credible early arrival) and burn probability. Perturbation sizes are
+  placeholders until calibrated on observed fires.
 - Burn probability (`spread/montecarlo.py`) runs the grid model N times with jittered ignition
   point (±100 m), wind speed (±10 %) and RH (±5 %); with the deterministic engine the map
   reflects only that input uncertainty.
