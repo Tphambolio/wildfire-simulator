@@ -1,10 +1,13 @@
 /** Weather and simulation parameter controls. */
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast } from "../services/api";
 import MultiDayPanel from "./MultiDayPanel";
+import SetupSection from "./SetupSection";
+import { formatClock, zoneAbbrev } from "../utils/time";
 import { fwiClass, fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
 
 // ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
@@ -67,6 +70,57 @@ function validateInputs(weather: WeatherParams, fwi: FWIOverrides): ValidationEr
   return errors;
 }
 
+// ── Presets (design spec §2.2) ─────────────────────────────────────────────
+// Example starting points for exercises, not climatology: check them against the day's
+// observations or forecast before briefing.
+interface Preset {
+  id: string;
+  label: string;
+  note: string;
+  weather: WeatherParams;
+  fwi: FWIOverrides;
+  grassCure: number;
+  percentConifer: number;
+  durationHours: number;
+  snapshotMinutes: number;
+}
+
+const PRESETS: Preset[] = [
+  {
+    id: "spring-grass",
+    label: "Edmonton spring grass (cured, pre-green-up)",
+    note: "Example spring values: W 20 km/h, RH 22 %, FFMC 92, DMC 25, DC 120, grass 95 % cured. Check against today's weather.",
+    weather: { wind_speed: 20, wind_direction: 270, temperature: 21, relative_humidity: 22, precipitation_24h: 0 },
+    fwi: { ffmc: 92, dmc: 25, dc: 120 },
+    grassCure: 95,
+    percentConifer: 50,
+    durationHours: 4,
+    snapshotMinutes: 15,
+  },
+  {
+    id: "summer-mixedwood",
+    label: "Edmonton summer mixedwood",
+    note: "Example summer values: W 15 km/h, RH 30 %, FFMC 90, DMC 50, DC 350, grass 50 % cured, 50 % conifer. Check against today's weather.",
+    weather: { wind_speed: 15, wind_direction: 270, temperature: 27, relative_humidity: 30, precipitation_24h: 0 },
+    fwi: { ffmc: 90, dmc: 50, dc: 350 },
+    grassCure: 50,
+    percentConifer: 50,
+    durationHours: 6,
+    snapshotMinutes: 30,
+  },
+  {
+    id: "defaults",
+    label: "FireSim defaults",
+    note: "The values FireSim opens with.",
+    weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
+    fwi: { ffmc: 90, dmc: 45, dc: 300 },
+    grassCure: 60,
+    percentConifer: 50,
+    durationHours: 4,
+    snapshotMinutes: 30,
+  },
+];
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 export interface RunParams {
   weather: WeatherParams;
@@ -94,6 +148,10 @@ interface WeatherPanelProps {
   onConfigSnapshot?: (config: Omit<ScenarioConfig, "id" | "createdAt" | "name" | "description">) => void;
   /** Called when Edmonton fuel grid is toggled on/off, with the grid path or null */
   onEdmontonGridChange?: (fuelGridPath: string | null) => void;
+  /** Element at the bottom of the Setup column that holds the sticky Run bar */
+  runBarTarget?: HTMLElement | null;
+  /** When the last run started (scenario start, America/Edmonton display) */
+  scenarioStart?: Date | null;
 }
 
 function WeatherPanel({
@@ -107,6 +165,8 @@ function WeatherPanel({
   scenarioToLoad,
   onConfigSnapshot,
   onEdmontonGridChange,
+  runBarTarget,
+  scenarioStart,
 }: WeatherPanelProps) {
   const [weather, setWeather] = useState<WeatherParams>({
     wind_speed: 20,
@@ -135,7 +195,6 @@ function WeatherPanel({
   const [includeDEM, setIncludeDEM] = useState(true);
   const [durationHours, setDurationHours] = useState(4);
   const [snapshotMinutes, setSnapshotMinutes] = useState(30);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherMessage, setWeatherMessage] = useState<string | null>(null);
   const [fwiLoading, setFwiLoading] = useState(false);
@@ -229,7 +288,6 @@ function WeatherPanel({
           setWeatherTimestamp(w.data_timestamp ?? null);
           setStationName(w.station_name ?? null);
           setStationDistanceKm(w.distance_km ?? null);
-          if (!showAdvanced) setShowAdvanced(true);
         }
         setWeatherMessage(w.message);
       })
@@ -237,7 +295,7 @@ function WeatherPanel({
         setWeatherMessage("Could not reach CWFIS — check network");
       })
       .finally(() => setWeatherLoading(false));
-  // fwi and showAdvanced intentionally omitted — only re-run when ignitionPoint changes
+  // fwi intentionally omitted — only re-run when ignitionPoint changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ignitionPoint]);
 
@@ -405,7 +463,6 @@ function WeatherPanel({
         setWeatherTimestamp(w.data_timestamp ?? null);
         setStationName(w.station_name ?? null);
         setStationDistanceKm(w.distance_km ?? null);
-        if (!showAdvanced) setShowAdvanced(true);
       }
       setWeatherMessage(w.message);
     } catch {
@@ -428,7 +485,6 @@ function WeatherPanel({
         dc_prev: fwi.dc ?? 15,
       });
       setFwi({ ffmc: result.ffmc, dmc: result.dmc, dc: result.dc });
-      if (!showAdvanced) setShowAdvanced(true);
     } catch {
       // silently fail — live computation still shown
     } finally {
@@ -442,125 +498,344 @@ function WeatherPanel({
     return dirs[Math.round(deg / 45) % 8];
   };
 
+  // ── Presets (design spec §2.2): one step sets every input ─────────────────
+  const [presetId, setPresetId] = useState("");
+  const applyPreset = (id: string) => {
+    setPresetId(id);
+    const p = PRESETS.find((x) => x.id === id);
+    if (!p) return;
+    setWeather(p.weather);
+    setFwi(p.fwi);
+    setGrassCure(p.grassCure);
+    setPercentConifer(p.percentConifer);
+    setDurationHours(p.durationHours);
+    setSnapshotMinutes(p.snapshotMinutes);
+    setSimMode("single");
+  };
+
+  // ── Run bar: why the Run button is disabled ───────────────────────────────
+  const errorList = Object.values(validationErrors);
+  const disabledReason = isRunning
+    ? "A run is in progress; see the Situation panel."
+    : !ignitionPoint
+      ? "Set an ignition point: click the map."
+      : simMode === "single" && hasErrors
+        ? `Fix the inputs: ${errorList.join("; ")}`
+        : null;
+  const canRun = disabledReason === null && (simMode === "single" || !!onStartMultiDaySimulation);
+
+  // Ctrl+Enter runs from anywhere (spec §2.2)
+  const runRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    runRef.current = () => {
+      if (!canRun) return;
+      if (simMode === "single") void handleSubmit();
+      else handleMultiDaySubmit();
+    };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        runRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const weatherErrors = ["wind_speed", "wind_direction", "temperature", "relative_humidity", "precipitation_24h", "ffmc", "dmc", "dc"]
+    .some((k) => k in validationErrors);
+
+  const runBar = (
+    <div className="run-bar-inner">
+      {simMode === "single" ? (
+        <button
+          className="btn-primary run-button"
+          onClick={() => void handleSubmit()}
+          disabled={!canRun}
+          aria-describedby="run-bar-reason"
+          aria-keyshortcuts="Control+Enter"
+        >
+          {isRunning ? "Simulating..." : "Run Simulation"}
+        </button>
+      ) : (
+        <button
+          className="btn-primary run-button"
+          onClick={handleMultiDaySubmit}
+          disabled={!canRun}
+          aria-describedby="run-bar-reason"
+          aria-keyshortcuts="Control+Enter"
+        >
+          {isRunning ? "Simulating..." : `Run ${multiDayDays.length * 24}h Scenario`}
+        </button>
+      )}
+      <div id="run-bar-reason" className={`run-bar-reason${disabledReason && !isRunning ? " attention" : ""}`}>
+        {disabledReason ?? `${simMode === "single" ? `${durationHours} h` : `${multiDayDays.length} days`} from the time you press Run · Ctrl+Enter`}
+      </div>
+    </div>
+  );
 
   return (
-    <div className="panel weather-panel">
-      <h3>Simulation Parameters</h3>
-
-      {/* Mode toggle: single-event vs multi-day */}
-      {onStartMultiDaySimulation && (
-        <div className="sim-mode-tabs">
-          <button
-            className={`sim-mode-tab${simMode === "single" ? " active" : ""}`}
-            onClick={() => setSimMode("single")}
-          >
-            Single Event
-          </button>
-          <button
-            className={`sim-mode-tab${simMode === "multiday" ? " active" : ""}`}
-            onClick={() => setSimMode("multiday")}
-          >
-            Multi-day
-          </button>
-        </div>
-      )}
-
-      {!ignitionPoint && (
-        <div className="hint">Click the map to set ignition point</div>
-      )}
-
-      {ignitionPoint && (
-        <div className="ignition-info">
-          Ignition: {ignitionPoint.lat.toFixed(4)}, {ignitionPoint.lng.toFixed(4)}
-        </div>
-      )}
-
-      {simMode === "single" && (<>
-
-      <div className="section">
-        <h4>Weather</h4>
-
-        <label>
-          Wind Speed: <strong>{weather.wind_speed} km/h</strong>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={weather.wind_speed}
-            onChange={(e) =>
-              setWeather({ ...weather, wind_speed: Number(e.target.value) })
-            }
-          />
+    <div className="weather-panel">
+      <div className="setup-preset">
+        <label className="setup-preset-label">
+          Start from a preset
+          <select value={presetId} onChange={(e) => applyPreset(e.target.value)}>
+            <option value="">Keep current inputs</option>
+            {PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
         </label>
-        {validationErrors.wind_speed && (
-          <div className="input-error">{validationErrors.wind_speed}</div>
+        {presetId && (
+          <div className="hint-sm">{PRESETS.find((p) => p.id === presetId)?.note}</div>
         )}
-
-        <label>
-          Wind Direction: <strong>{weather.wind_direction}° ({windLabel(weather.wind_direction)})</strong>
-          <input
-            type="range"
-            min={0}
-            max={359}
-            value={weather.wind_direction}
-            onChange={(e) =>
-              setWeather({ ...weather, wind_direction: Number(e.target.value) })
-            }
-          />
-        </label>
-
-        <label>
-          Temperature: <strong>{weather.temperature}°C</strong>
-          <input
-            type="range"
-            min={-10}
-            max={45}
-            value={weather.temperature}
-            onChange={(e) =>
-              setWeather({ ...weather, temperature: Number(e.target.value) })
-            }
-          />
-        </label>
-        {validationErrors.temperature && (
-          <div className="input-error">{validationErrors.temperature}</div>
-        )}
-
-        <label>
-          Relative Humidity: <strong>{weather.relative_humidity}%</strong>
-          <input
-            type="range"
-            min={5}
-            max={100}
-            value={weather.relative_humidity}
-            onChange={(e) =>
-              setWeather({
-                ...weather,
-                relative_humidity: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        {validationErrors.relative_humidity && (
-          <div className="input-error">{validationErrors.relative_humidity}</div>
-        )}
-
-        <label>
-          24h Precipitation: <strong>{weather.precipitation_24h} mm</strong>
-          <input
-            type="range"
-            min={0}
-            max={50}
-            step={0.5}
-            value={weather.precipitation_24h}
-            onChange={(e) =>
-              setWeather({ ...weather, precipitation_24h: Number(e.target.value) })
-            }
-          />
-        </label>
       </div>
 
-      <div className="section">
-        <h4>Fuel Type</h4>
+      {/* 1 ── Ignition & time ───────────────────────────────────────────── */}
+      <SetupSection
+        num={1}
+        title="Ignition & time"
+        summary={
+          ignitionPoint
+            ? `${ignitionPoint.lat.toFixed(4)}, ${ignitionPoint.lng.toFixed(4)} · starts at Run`
+            : "Not set · click the map"
+        }
+        attention={!ignitionPoint}
+        defaultOpen
+      >
+        {ignitionPoint ? (
+          <div className="ignition-info">
+            Ignition: {ignitionPoint.lat.toFixed(4)}, {ignitionPoint.lng.toFixed(4)}
+          </div>
+        ) : (
+          <div className="hint">Click the map to set ignition point</div>
+        )}
+        <div className="hint-sm">
+          Click the map to place or move the ignition (map tools: Arm / Move). The scenario starts
+          at the time you press Run{scenarioStart ? `; the last run started ${formatClock(scenarioStart)} ${zoneAbbrev(scenarioStart)}` : ""}.
+          All times are America/Edmonton.
+        </div>
+      </SetupSection>
+
+      {/* 2 ── Weather & FWI ─────────────────────────────────────────────── */}
+      <SetupSection
+        num={2}
+        title="Weather & FWI"
+        summary={
+          weatherErrors
+            ? "Check the inputs"
+            : simMode === "multiday"
+              ? `Multi-day weather · FFMC ${fwi.ffmc} DMC ${fwi.dmc} DC ${fwi.dc}`
+              : `${windLabel(weather.wind_direction)} ${weather.wind_speed} km/h · RH ${weather.relative_humidity}% · FWI ${liveFWI.toFixed(1)} ${liveDanger}${useHourlyForecast ? " · hourly forecast" : ""}`
+        }
+        attention={weatherErrors}
+      >
+        {simMode === "single" && (
+          <div className="section">
+            <label>
+              Wind Speed: <strong>{weather.wind_speed} km/h</strong>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={weather.wind_speed}
+                onChange={(e) => setWeather({ ...weather, wind_speed: Number(e.target.value) })}
+              />
+            </label>
+            {validationErrors.wind_speed && <div className="input-error">{validationErrors.wind_speed}</div>}
+
+            <label>
+              Wind Direction: <strong>{weather.wind_direction}° ({windLabel(weather.wind_direction)})</strong>
+              <input
+                type="range"
+                min={0}
+                max={359}
+                value={weather.wind_direction}
+                onChange={(e) => setWeather({ ...weather, wind_direction: Number(e.target.value) })}
+              />
+            </label>
+
+            <label>
+              Temperature: <strong>{weather.temperature}°C</strong>
+              <input
+                type="range"
+                min={-10}
+                max={45}
+                value={weather.temperature}
+                onChange={(e) => setWeather({ ...weather, temperature: Number(e.target.value) })}
+              />
+            </label>
+            {validationErrors.temperature && <div className="input-error">{validationErrors.temperature}</div>}
+
+            <label>
+              Relative Humidity: <strong>{weather.relative_humidity}%</strong>
+              <input
+                type="range"
+                min={5}
+                max={100}
+                value={weather.relative_humidity}
+                onChange={(e) => setWeather({ ...weather, relative_humidity: Number(e.target.value) })}
+              />
+            </label>
+            {validationErrors.relative_humidity && <div className="input-error">{validationErrors.relative_humidity}</div>}
+
+            <label>
+              24h Precipitation: <strong>{weather.precipitation_24h} mm</strong>
+              <input
+                type="range"
+                min={0}
+                max={50}
+                step={0.5}
+                value={weather.precipitation_24h}
+                onChange={(e) => setWeather({ ...weather, precipitation_24h: Number(e.target.value) })}
+              />
+            </label>
+
+            <label
+              title="Wind, temperature, RH and rain change hour by hour (Open-Meteo forecast for the ignition point); FFMC follows the hourly FFMC model from the FFMC above."
+            >
+              <input
+                type="checkbox"
+                checked={useHourlyForecast}
+                onChange={(e) => setUseHourlyForecast(e.target.checked)}
+              />
+              Use hourly forecast weather
+            </label>
+          </div>
+        )}
+        {simMode === "multiday" && (
+          <div className="hint-sm">Daily weather is entered per day under 4 Run options.</div>
+        )}
+
+        <div className="section">
+          <h4>FWI fuel moisture codes</h4>
+          <label>
+            FFMC: <strong>{fwi.ffmc}</strong>
+            <input
+              type="range"
+              min={0}
+              max={101}
+              value={fwi.ffmc ?? 85}
+              onChange={(e) => setFwi({ ...fwi, ffmc: Number(e.target.value) })}
+            />
+          </label>
+          {validationErrors.ffmc && <div className="input-error">{validationErrors.ffmc}</div>}
+
+          <label>
+            DMC: <strong>{fwi.dmc}</strong>
+            <input
+              type="range"
+              min={0}
+              max={999}
+              value={fwi.dmc ?? 40}
+              onChange={(e) => setFwi({ ...fwi, dmc: Number(e.target.value) })}
+            />
+          </label>
+          {validationErrors.dmc && <div className="input-error">{validationErrors.dmc}</div>}
+
+          <label>
+            DC: <strong>{fwi.dc}</strong>
+            <input
+              type="range"
+              min={0}
+              max={1000}
+              value={fwi.dc ?? 200}
+              onChange={(e) => setFwi({ ...fwi, dc: Number(e.target.value) })}
+            />
+          </label>
+          {validationErrors.dc && <div className="input-error">{validationErrors.dc}</div>}
+        </div>
+
+        {/* Live FWI indices for these inputs */}
+        <div className="fwi-live-row" aria-label="FWI for these inputs">
+          <span className="fwi-live-item">
+            <span className="fwi-live-label">ISI</span>
+            <strong>{liveISI.toFixed(1)}</strong>
+          </span>
+          <span className="fwi-live-item">
+            <span className="fwi-live-label">BUI</span>
+            <strong>{liveBUI.toFixed(0)}</strong>
+          </span>
+          <span className="fwi-live-item">
+            <span className="fwi-live-label">FWI</span>
+            <strong>{liveFWI.toFixed(1)}</strong>
+          </span>
+          <span
+            className="fwi-danger-badge"
+            style={{ background: fwiClassColor(liveFWI), color: fwiClassTextColor(liveFWI) }}
+            title="CWFIS FWI map class (not an official fire danger rating)"
+          >
+            {liveDanger}
+          </span>
+        </div>
+
+        <div className="setup-links">
+          <button
+            className="toggle-advanced"
+            onClick={handleComputeFWI}
+            disabled={fwiLoading}
+            title="Update FFMC/DMC/DC from today's weather inputs"
+          >
+            {fwiLoading ? "Computing..." : "Update codes from weather"}
+          </button>
+          <button
+            className="toggle-advanced"
+            onClick={handleLoadWeather}
+            disabled={!ignitionPoint || weatherLoading}
+            title="Load current FWI indices from CWFIS for this location"
+          >
+            {weatherLoading ? "Loading..." : "Load current fire weather"}
+          </button>
+          <a
+            href="https://tphambolio.github.io/FWI/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hint-link"
+          >
+            Fire weather detail →
+          </a>
+        </div>
+
+        {weatherMessage && (
+          <div
+            className={`hint-sm weather-message ${
+              weatherMessage.toLowerCase().includes("not available") ||
+              weatherMessage.toLowerCase().includes("could not")
+                ? "text-danger"
+                : "text-success"
+            }`}
+          >
+            {weatherMessage}
+          </div>
+        )}
+
+        {(weatherSource || stationName) && (
+          <div className="hint-sm weather-message">
+            {stationName && (
+              <span>
+                {stationName}
+                {stationDistanceKm !== null && <span> · {stationDistanceKm} km away</span>}
+                {" · "}
+              </span>
+            )}
+            {weatherSource && !stationName && <span>{weatherSource} · </span>}
+            {weatherTimestamp ?? ""}
+          </div>
+        )}
+      </SetupSection>
+
+      {/* 3 ── Fuel & landscape ──────────────────────────────────────────── */}
+      <SetupSection
+        num={3}
+        title="Fuel & landscape"
+        summary={
+          useEdmontonGrid
+            ? `Edmonton grid (FBP 10 m) · curing ${grassCure}%${enableSpotting ? " · spotting on" : ""}`
+            : `${fuelType} uniform${useSyntheticCA ? " · synthetic mosaic" : ""} · curing ${grassCure}%`
+        }
+      >
         <label>
           <input
             type="checkbox"
@@ -597,16 +872,16 @@ function WeatherPanel({
         </label>
         {!useEdmontonGrid && (
           <>
-            <select
-              value={fuelType}
-              onChange={(e) => setFuelType(e.target.value)}
-            >
-              {Object.entries(FUEL_TYPES).map(([code, name]) => (
-                <option key={code} value={code}>
-                  {code} — {name}
-                </option>
-              ))}
-            </select>
+            <label>
+              Fuel type
+              <select value={fuelType} onChange={(e) => setFuelType(e.target.value)}>
+                {Object.entries(FUEL_TYPES).map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {code} — {name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label>
               <input
                 type="checkbox"
@@ -694,20 +969,48 @@ function WeatherPanel({
             </div>
           </>
         )}
-      </div>
+      </SetupSection>
 
-      <div className="section">
-        <h4>Duration</h4>
-        <label>
-          Simulation: <strong>{durationHours}h</strong>
-          <input
-            type="range"
-            min={1}
-            max={24}
-            value={durationHours}
-            onChange={(e) => setDurationHours(Number(e.target.value))}
-          />
-        </label>
+      {/* 4 ── Run options ───────────────────────────────────────────────── */}
+      <SetupSection
+        num={4}
+        title="Run options"
+        summary={
+          simMode === "single"
+            ? `Single event · ${durationHours} h · ${snapshotMinutes} min snapshots`
+            : `Multi-day · ${multiDayDays.length} days · ${snapshotMinutes} min snapshots`
+        }
+      >
+        {onStartMultiDaySimulation && (
+          <div className="sim-mode-tabs" role="group" aria-label="Run mode">
+            <button
+              className={`sim-mode-tab${simMode === "single" ? " active" : ""}`}
+              aria-pressed={simMode === "single"}
+              onClick={() => setSimMode("single")}
+            >
+              Single Event
+            </button>
+            <button
+              className={`sim-mode-tab${simMode === "multiday" ? " active" : ""}`}
+              aria-pressed={simMode === "multiday"}
+              onClick={() => setSimMode("multiday")}
+            >
+              Multi-day
+            </button>
+          </div>
+        )}
+        {simMode === "single" && (
+          <label>
+            Simulation: <strong>{durationHours}h</strong>
+            <input
+              type="range"
+              min={1}
+              max={24}
+              value={durationHours}
+              onChange={(e) => setDurationHours(Number(e.target.value))}
+            />
+          </label>
+        )}
         <label>
           Snapshots every: <strong>{snapshotMinutes} min</strong>
           <input
@@ -719,211 +1022,35 @@ function WeatherPanel({
             onChange={(e) => setSnapshotMinutes(Number(e.target.value))}
           />
         </label>
-        <label
-          title="Wind, temperature, RH and rain change hour by hour (Open-Meteo forecast for the ignition point); FFMC follows the hourly FFMC model from the FFMC above."
-        >
-          <input
-            type="checkbox"
-            checked={useHourlyForecast}
-            onChange={(e) => setUseHourlyForecast(e.target.checked)}
-          />
-          Use hourly forecast weather
-        </label>
-      </div>
-
-      <button
-        className="toggle-advanced"
-        onClick={() => setShowAdvanced(!showAdvanced)}
-      >
-        {showAdvanced ? "Hide" : "Show"} FWI Codes
-      </button>
-
-      {showAdvanced && (
-        <div className="section">
-          <h4>FWI Fuel Moisture Codes</h4>
-          <label>
-            FFMC: <strong>{fwi.ffmc}</strong>
-            <input
-              type="range"
-              min={0}
-              max={101}
-              value={fwi.ffmc ?? 85}
-              onChange={(e) =>
-                setFwi({ ...fwi, ffmc: Number(e.target.value) })
-              }
-            />
-          </label>
-          {validationErrors.ffmc && (
-            <div className="input-error">{validationErrors.ffmc}</div>
-          )}
-
-          <label>
-            DMC: <strong>{fwi.dmc}</strong>
-            <input
-              type="range"
-              min={0}
-              max={999}
-              value={fwi.dmc ?? 40}
-              onChange={(e) =>
-                setFwi({ ...fwi, dmc: Number(e.target.value) })
-              }
-            />
-          </label>
-          {validationErrors.dmc && (
-            <div className="input-error">{validationErrors.dmc}</div>
-          )}
-
-          <label>
-            DC: <strong>{fwi.dc}</strong>
-            <input
-              type="range"
-              min={0}
-              max={1000}
-              value={fwi.dc ?? 200}
-              onChange={(e) =>
-                setFwi({ ...fwi, dc: Number(e.target.value) })
-              }
-            />
-          </label>
-          {validationErrors.dc && (
-            <div className="input-error">{validationErrors.dc}</div>
-          )}
-
-          <button
-            className="toggle-advanced"
-            onClick={handleComputeFWI}
-            disabled={fwiLoading}
-            title="Update FFMC/DMC/DC from today's weather inputs"
-          >
-            {fwiLoading ? "Computing..." : "Update Codes from Weather"}
-          </button>
-        </div>
-      )}
-
-      {/* ── Live FWI indices — always visible ─────────────────────────────── */}
-      <div className="fwi-live-row">
-        <span className="fwi-live-item">
-          <span className="fwi-live-label">ISI</span>
-          <strong>{liveISI.toFixed(1)}</strong>
-        </span>
-        <span className="fwi-live-item">
-          <span className="fwi-live-label">BUI</span>
-          <strong>{liveBUI.toFixed(0)}</strong>
-        </span>
-        <span className="fwi-live-item">
-          <span className="fwi-live-label">FWI</span>
-          <strong>{liveFWI.toFixed(1)}</strong>
-        </span>
-        <span
-          className="fwi-danger-badge"
-          style={{ background: fwiClassColor(liveFWI), color: fwiClassTextColor(liveFWI) }}
-          title="CWFIS FWI map class (not an official fire danger rating)"
-        >
-          {liveDanger}
-        </span>
-      </div>
-
-      <button
-        className="toggle-advanced"
-        onClick={handleLoadWeather}
-        disabled={!ignitionPoint || weatherLoading}
-        title="Load current FWI indices from CWFIS for this location"
-      >
-        {weatherLoading ? "Loading..." : "Load Current Fire Weather"}
-      </button>
-
-      <a
-        href="https://tphambolio.github.io/FWI/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="hint-link"
-      >
-        Fire Weather Detail →
-      </a>
-
-      {weatherMessage && (
-        <div
-          className={`hint-sm weather-message ${
-            weatherMessage.toLowerCase().includes("not available") ||
-            weatherMessage.toLowerCase().includes("could not")
-              ? "text-danger"
-              : "text-success"
-          }`}
-        >
-          {weatherMessage}
-        </div>
-      )}
-
-      {(weatherSource || stationName) && (
-        <div className="hint-sm weather-message">
-          {stationName && (
-            <span>
-              {stationName}
-              {stationDistanceKm !== null && <span> · {stationDistanceKm} km away</span>}
-              {" · "}
-            </span>
-          )}
-          {weatherSource && !stationName && <span>{weatherSource} · </span>}
-          {weatherTimestamp ?? ""}
-        </div>
-      )}
-
-      </>)}
-
-      {/* Multi-day scenario panel */}
-      {simMode === "multiday" && (
-        <>
+        {simMode === "multiday" && (
           <MultiDayPanel
             days={multiDayDays}
             onChange={setMultiDayDays}
             disabled={isRunning}
           />
-          <button
-            className="btn-primary"
-            onClick={handleMultiDaySubmit}
-            disabled={!ignitionPoint || isRunning || !onStartMultiDaySimulation}
-            title={!ignitionPoint ? "Set ignition point first" : undefined}
-          >
-            {isRunning ? "Simulating..." : `Run ${multiDayDays.length * 24}h Scenario`}
-          </button>
-        </>
-      )}
+        )}
+      </SetupSection>
 
-      {/* Single-event run button */}
-      {simMode === "single" && (
-        <button
-          className="btn-primary"
-          onClick={handleSubmit}
-          disabled={!ignitionPoint || isRunning || hasErrors}
-          title={
-            hasErrors ? "Fix validation errors before running"
-              : !ignitionPoint ? "Click the map to set an ignition point first" : undefined
-          }
-        >
-          {isRunning ? "Simulating..." : "Run Simulation"}
-        </button>
-      )}
-      {simMode === "single" && !ignitionPoint && !isRunning && (
-        <div className="run-hint">Click the map to set an ignition point first.</div>
-      )}
-
+      {/* 5 ── Burn probability (Monte Carlo) ────────────────────────────── */}
       {onComputeBurnProbability && (
-        <div className="mc-block">
-          <div>
-            <label>
-              Iterations: <strong>{mcIterations}</strong>
-              <input
-                type="range"
-                min={10}
-                max={200}
-                step={10}
-                value={mcIterations}
-                onChange={e => setMcIterations(Number(e.target.value))}
-              />
-            </label>
-            <div className="range-scale hint-sm">
-              <span>10 (fast)</span><span>200 (accurate)</span>
-            </div>
+        <SetupSection
+          num={5}
+          title="Burn probability"
+          summary={burnProbRunning ? `Running ${mcIterations} iterations…` : `Monte Carlo · ${mcIterations} iterations`}
+        >
+          <label>
+            Iterations: <strong>{mcIterations}</strong>
+            <input
+              type="range"
+              min={10}
+              max={200}
+              step={10}
+              value={mcIterations}
+              onChange={e => setMcIterations(Number(e.target.value))}
+            />
+          </label>
+          <div className="range-scale hint-sm">
+            <span>10 (fast)</span><span>200 (accurate)</span>
           </div>
           <button
             className="btn-secondary"
@@ -949,13 +1076,17 @@ function WeatherPanel({
               Enable Edmonton Grid or Synthetic CA to use Monte Carlo.
             </div>
           )}
+          {!ignitionPoint && <div className="hint-sm">Set an ignition point first.</div>}
           {hasErrors && (
             <div className="hint-sm text-danger">
               Fix input errors before running.
             </div>
           )}
-        </div>
+        </SetupSection>
       )}
+
+      {/* Sticky Run bar lives at the bottom of the Setup column (outside the scroll area) */}
+      {runBarTarget ? createPortal(runBar, runBarTarget) : runBar}
     </div>
   );
 }

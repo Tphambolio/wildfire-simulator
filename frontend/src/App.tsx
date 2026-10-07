@@ -29,6 +29,8 @@ import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
 import { fwiClassColor, fwiClassTextColor } from "./utils/fwiClass";
 import TopBar from "./components/TopBar";
+import SetupSection from "./components/SetupSection";
+import SituationPanel from "./components/SituationPanel";
 
 /**
  * Export burn probability contour polygons as GeoJSON.
@@ -248,7 +250,7 @@ function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
           Open EOC Console
         </button>
         <p className="eoc-start-hint">
-          Or resume an existing incident from the <strong>Incidents</strong> panel in the sidebar.
+          Or resume an existing incident under <strong>Incidents &amp; saved scenarios</strong> in the Setup column.
         </p>
       </div>
     </div>
@@ -393,12 +395,39 @@ export default function App() {
     error,
   } = useSimulation();
 
+  // Scenario start (design spec §2.3): the time the run was started. A later PR adds a
+  // user-set start time; the engine stays time-agnostic (minutes after the start).
+  const [scenarioStart, setScenarioStart] = useState<Date | null>(null);
+
   const handlePerimeterOverride = useCallback(
     (req: PerimeterOverrideRequest) => {
+      setScenarioStart(new Date());
       startPerimeterOverride(req);
     },
     [startPerimeterOverride]
   );
+
+  const handleStartMultiDay = useCallback(
+    (req: Parameters<typeof startMultiDaySimulation>[0]) => {
+      setScenarioStart(new Date());
+      startMultiDaySimulation(req);
+    },
+    [startMultiDaySimulation]
+  );
+
+  // After a run completes: fit the map to the fire and move focus to the Situation panel
+  const [fitRequest, setFitRequest] = useState(0);
+  const situationRef = useRef<HTMLElement | null>(null);
+  const [runBarEl, setRunBarEl] = useState<HTMLDivElement | null>(null);
+  const prevStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    if (status === "completed" && prev !== "completed" && frames.length > 0) {
+      setFitRequest((n) => n + 1);
+      if (activeTab === "simulation") situationRef.current?.focus({ preventScroll: true });
+    }
+  }, [status, frames.length, activeTab]);
 
   // Compute evac zones from frames up to the current scrubber position — time-aware.
   // Only communities threatened by fire up to currentFrameIndex are shown.
@@ -493,6 +522,7 @@ export default function App() {
     (params: SimulationCreate) => {
       lastStartRef.current = params;
       setDismissedError(null);
+      setScenarioStart(new Date());
       startSimulation(params);
     },
     [startSimulation]
@@ -522,111 +552,7 @@ export default function App() {
   );
 
   return (
-    <div className="app">
-      {/* ── Fixed sidebar ───────────────────────────────────── */}
-      <aside className="sidebar">
-        <div className="sidebar-content">
-          <WeatherPanel
-            onStartSimulation={handleStartSimulation}
-            onStartMultiDaySimulation={startMultiDaySimulation}
-            onComputeBurnProbability={handleComputeBurnProbability}
-            onRunParams={handleRunParams}
-            ignitionPoint={ignitionPoint}
-            isRunning={isRunning}
-            burnProbRunning={burnProbRunning}
-            scenarioToLoad={scenarioToLoad}
-            onConfigSnapshot={handleConfigSnapshot}
-            onEdmontonGridChange={handleEdmontonGridChange}
-          />
-          <FireMetrics
-            frame={currentFrame}
-            status={status}
-            totalFrames={frames.length}
-          />
-          {activeTab === "simulation" && (
-            <EOCSummary
-              frames={frames}
-              burnProbData={burnProbabilityData}
-              runParams={lastRunParams}
-              ignitionPoint={ignitionPoint}
-              fuelTypeLabel={
-                lastRunParams?.fuel_type
-                  ? `${lastRunParams.fuel_type} — ${FUEL_TYPES[lastRunParams.fuel_type] ?? ""}`
-                  : undefined
-              }
-              atRiskCounts={overlayAtRiskCounts}
-              overlayRoads={overlayAnnotated.roads.annotated as GeoJSON.FeatureCollection | null}
-              overlayCommunities={overlayAnnotated.communities.annotated as GeoJSON.FeatureCollection | null}
-              overlayInfrastructure={overlayAnnotated.infrastructure.annotated as GeoJSON.FeatureCollection | null}
-              evacZones={persistedEvacZones}
-            />
-          )}
-          <OverlayPanel
-            layers={overlayLayers}
-            atRiskCounts={overlayAtRiskCounts}
-            onLayerLoad={handleOverlayLoad}
-            onLayerToggle={handleOverlayToggle}
-            onLayerClear={handleOverlayClear}
-          />
-          <EvacZonesPanel
-            zones={persistedEvacZones}
-            visible={evacZonesVisible}
-            scales={evacZoneScales}
-            onToggleVisible={setEvacZonesVisible}
-            onScaleChange={handleEvacScaleChange}
-          />
-          <IsochronePanel
-            isochrones={isochrones}
-            visible={isochronesVisible}
-            targetHours={isoTargetHours}
-            onToggleVisible={setIsochronesVisible}
-            onTargetHoursChange={setIsoTargetHours}
-          />
-          <PerimeterOverridePanel
-            simulationId={simulationId}
-            onOverrideStart={handlePerimeterOverride}
-            isRunning={isRunning}
-          />
-          <IncidentPanel
-            incidents={incidents}
-            activeIncidentId={activeIncidentId}
-            onCreate={createIncident}
-            onLoad={loadIncident}
-            onClose={closeIncident}
-            onDelete={deleteIncident}
-            onExport={exportIncident}
-            onImport={importIncident}
-          />
-          <ScenarioPanel
-            scenarios={scenarios}
-            currentConfig={currentConfigRef.current ?? {
-              ignitionPoint,
-              weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
-              fwi: { ffmc: 90, dmc: 45, dc: 300 },
-              fuelType: "C2",
-              useEdmontonGrid: true,
-              useSyntheticCA: false,
-              enableSpotting: false,
-              spottingIntensity: 1.0,
-              includeWater: true,
-              includeBuildings: true,
-              includeWUI: true,
-              includeDEM: true,
-              durationHours: 4,
-              snapshotMinutes: 30,
-              simMode: "single",
-              multiDayDays: [],
-              mcIterations: 50,
-            }}
-            onSave={handleSaveScenario}
-            onLoad={handleLoadScenario}
-            onDelete={deleteScenario}
-            onExport={exportScenario}
-            onImport={importScenario}
-          />
-        </div>
-      </aside>
-
+    <div className={`app${activeTab === "eoc" ? " app-eoc" : ""}`}>
       {/* ── Top bar: incident, tabs, run status, limits badge, clock ── */}
       <TopBar
         incidentName={incident?.name ?? null}
@@ -680,6 +606,106 @@ export default function App() {
           )}
         </>}
       />
+
+      {/* ── Setup column: sections with summaries, More, sticky Run bar ── */}
+      <aside className="setup-panel" aria-label="Setup">
+        <div className="setup-scroll">
+          <WeatherPanel
+            onStartSimulation={handleStartSimulation}
+            onStartMultiDaySimulation={handleStartMultiDay}
+            onComputeBurnProbability={handleComputeBurnProbability}
+            onRunParams={handleRunParams}
+            ignitionPoint={ignitionPoint}
+            isRunning={isRunning}
+            burnProbRunning={burnProbRunning}
+            scenarioToLoad={scenarioToLoad}
+            onConfigSnapshot={handleConfigSnapshot}
+            onEdmontonGridChange={handleEdmontonGridChange}
+            runBarTarget={runBarEl}
+            scenarioStart={scenarioStart}
+          />
+          <div className="setup-more-label">More</div>
+          <SetupSection
+            title="Map overlays, evacuation & isochrones"
+            summary={`Evac zones ${evacZonesVisible ? "on" : "off"} · isochrones ${isochronesVisible ? "on" : "off"}`}
+          >
+            <OverlayPanel
+              layers={overlayLayers}
+              atRiskCounts={overlayAtRiskCounts}
+              onLayerLoad={handleOverlayLoad}
+              onLayerToggle={handleOverlayToggle}
+              onLayerClear={handleOverlayClear}
+            />
+            <EvacZonesPanel
+              zones={persistedEvacZones}
+              visible={evacZonesVisible}
+              scales={evacZoneScales}
+              onToggleVisible={setEvacZonesVisible}
+              onScaleChange={handleEvacScaleChange}
+            />
+            <IsochronePanel
+              isochrones={isochrones}
+              visible={isochronesVisible}
+              targetHours={isoTargetHours}
+              onToggleVisible={setIsochronesVisible}
+              onTargetHoursChange={setIsoTargetHours}
+            />
+          </SetupSection>
+          <SetupSection
+            title="Observed perimeter (RPAS)"
+            summary={simulationId ? "Restart this run from an observed perimeter" : "Available after a run"}
+          >
+            <PerimeterOverridePanel
+              simulationId={simulationId}
+              onOverrideStart={handlePerimeterOverride}
+              isRunning={isRunning}
+            />
+          </SetupSection>
+          <SetupSection
+            title="Incidents & saved scenarios"
+            summary={`${incidents.length} incident${incidents.length === 1 ? "" : "s"} · ${scenarios.length} scenario${scenarios.length === 1 ? "" : "s"}`}
+          >
+            <IncidentPanel
+              incidents={incidents}
+              activeIncidentId={activeIncidentId}
+              onCreate={createIncident}
+              onLoad={loadIncident}
+              onClose={closeIncident}
+              onDelete={deleteIncident}
+              onExport={exportIncident}
+              onImport={importIncident}
+            />
+            <ScenarioPanel
+              scenarios={scenarios}
+              currentConfig={currentConfigRef.current ?? {
+                ignitionPoint,
+                weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
+                fwi: { ffmc: 90, dmc: 45, dc: 300 },
+                fuelType: "C2",
+                useEdmontonGrid: true,
+                useSyntheticCA: false,
+                enableSpotting: false,
+                spottingIntensity: 1.0,
+                includeWater: true,
+                includeBuildings: true,
+                includeWUI: true,
+                includeDEM: true,
+                durationHours: 4,
+                snapshotMinutes: 30,
+                simMode: "single",
+                multiDayDays: [],
+                mcIterations: 50,
+              }}
+              onSave={handleSaveScenario}
+              onLoad={handleLoadScenario}
+              onDelete={deleteScenario}
+              onExport={exportScenario}
+              onImport={importScenario}
+            />
+          </SetupSection>
+        </div>
+        <div className="run-bar" ref={setRunBarEl} />
+      </aside>
 
       {/* ── EOC Console tab (replaces map area + bottom bar) ─────── */}
       {activeTab === "eoc" && !incident && (
@@ -788,17 +814,53 @@ export default function App() {
             isochronesVisible={isochronesVisible}
             fuelGridImage={fuelGridImage}
             fuelGridVisible={fuelGridVisible}
+            fitRequest={fitRequest}
           />
         </MapErrorBoundary>
       </main>
 
-      {/* ── Fixed bottom timeline bar (hidden in EOC tab) ────── */}
+      {/* ── Situation panel (fixed right; hidden in the EOC tab) ── */}
+      {activeTab === "simulation" && (
+        <SituationPanel
+          ref={situationRef}
+          frame={currentFrame}
+          frameIndex={currentFrameIndex}
+          totalFrames={frames.length}
+          status={status}
+          scenarioStart={scenarioStart}
+        >
+          <FireMetrics
+            frame={currentFrame}
+            status={status}
+            totalFrames={frames.length}
+          />
+          <EOCSummary
+            frames={frames}
+            burnProbData={burnProbabilityData}
+            runParams={lastRunParams}
+            ignitionPoint={ignitionPoint}
+            fuelTypeLabel={
+              lastRunParams?.fuel_type
+                ? `${lastRunParams.fuel_type} — ${FUEL_TYPES[lastRunParams.fuel_type] ?? ""}`
+                : undefined
+            }
+            atRiskCounts={overlayAtRiskCounts}
+            overlayRoads={overlayAnnotated.roads.annotated as GeoJSON.FeatureCollection | null}
+            overlayCommunities={overlayAnnotated.communities.annotated as GeoJSON.FeatureCollection | null}
+            overlayInfrastructure={overlayAnnotated.infrastructure.annotated as GeoJSON.FeatureCollection | null}
+            evacZones={persistedEvacZones}
+          />
+        </SituationPanel>
+      )}
+
+      {/* ── Timeline along the bottom (hidden in the EOC tab) ── */}
       {activeTab === "simulation" && (
         <div className="bottom-bar">
           <TimeSlider
             frames={frames}
             currentIndex={currentFrameIndex}
             onIndexChange={setFrameIndex}
+            scenarioStart={scenarioStart}
           />
         </div>
       )}

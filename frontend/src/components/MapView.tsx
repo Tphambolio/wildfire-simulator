@@ -186,6 +186,8 @@ interface MapViewProps {
   mapRefCallback?: (m: maplibregl.Map) => void;
   /** External control for spot fire layer visibility (used by EOC console) */
   spotFiresVisible?: boolean;
+  /** Increment to fit the map to the final frame (e.g. when a run completes) */
+  fitRequest?: number;
 }
 
 export default function MapView({
@@ -211,6 +213,7 @@ export default function MapView({
   readOnly = false,
   mapRefCallback,
   spotFiresVisible: spotFiresVisibleProp,
+  fitRequest = 0,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -781,11 +784,16 @@ export default function MapView({
 
     m.addControl(new maplibregl.NavigationControl(), "top-right");
     m.on("zoomend", () => setMapZoom(m.getZoom()));
+    // Current view as [[west, south], [east, north]] for tests and debugging
+    const publishBounds = () =>
+      mapContainer.current?.setAttribute("data-bounds", JSON.stringify(m.getBounds().toArray()));
+    m.on("moveend", publishBounds);
 
     m.on("load", () => {
       addFireLayers(m);
       m.resize();
       setMapReady(true);
+      publishBounds();
       mapRefCallback?.(m);
     });
 
@@ -1143,10 +1151,9 @@ export default function MapView({
 
   const hasFire = frames.length > 0;
 
-  // Zoom to the current frame's fire (perimeter, else burned cells), with a margin
-  const fitToFire = useCallback(() => {
+  // Zoom to a frame's fire (perimeter, else burned cells), with a margin
+  const fitFrame = useCallback((f: SimulationFrame | undefined) => {
     const m = map.current;
-    const f = frames[currentFrameIndex] ?? frames[frames.length - 1];
     if (!m || !f) return;
     const pts: number[][] = f.perimeter.length >= 3
       ? f.perimeter
@@ -1156,8 +1163,22 @@ export default function MapView({
     for (const [lat, lng] of pts) {
       s = Math.min(s, lat); n = Math.max(n, lat); w = Math.min(w, lng); e = Math.max(e, lng);
     }
-    m.fitBounds([[w, s], [e, n]], { padding: 80, maxZoom: 15, duration: 600 });
-  }, [frames, currentFrameIndex]);
+    m.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 15, duration: 600 });
+  }, []);
+  const fitToFire = useCallback(() => {
+    fitFrame(frames[currentFrameIndex] ?? frames[frames.length - 1]);
+  }, [fitFrame, frames, currentFrameIndex]);
+
+  // Auto-fit to the final frame when the parent asks (after a run completes)
+  const framesRef = useRef(frames);
+  useEffect(() => {
+    framesRef.current = frames;
+  });
+  useEffect(() => {
+    if (!fitRequest || !mapReady) return;
+    const all = framesRef.current;
+    fitFrame(all[all.length - 1]);
+  }, [fitRequest, mapReady, fitFrame]);
   const fuelOpacity = fuelGridVisible ? (hasFire ? FUEL_OPACITY_WITH_FIRE : FUEL_OPACITY) : 0;
 
   // Fuel grid raster overlay

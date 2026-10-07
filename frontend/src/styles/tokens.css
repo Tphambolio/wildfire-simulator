@@ -95,8 +95,17 @@
 
   /* ── Shell geometry ── */
   --topbar-height: 52px;
-  --sidebar-width: 300px;
-  --bottombar-height: 72px;
+  --setup-width: 320px;
+  --situation-width: 340px;
+  --bottombar-height: 76px;
+}
+
+/* Wider screens: side panels grow a little, the map takes the rest */
+@media (min-width: 1600px) {
+  :root {
+    --setup-width: 360px;
+    --situation-width: 380px;
+  }
 }
 
 /* Light set: print/export, or any subtree with .theme-light (§6.1 values) */

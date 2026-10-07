@@ -1,12 +1,18 @@
-/** Time slider with playback controls for animating fire progression. */
+/**
+ * Timeline (design spec §2.3): scrub and play the run by wall-clock time in America/Edmonton,
+ * with T+ elapsed time as the secondary label.
+ */
 
 import { useEffect, useRef, useState } from "react";
 import type { SimulationFrame } from "../types/simulation";
+import { clockAt, formatClock, formatElapsed, zoneAbbrev } from "../utils/time";
 
 interface TimeSliderProps {
   frames: SimulationFrame[];
   currentIndex: number;
   onIndexChange: (index: number) => void;
+  /** Scenario start (when the run was started). Without it, only T+ labels are shown. */
+  scenarioStart?: Date | null;
 }
 
 const SPEEDS = [
@@ -16,11 +22,25 @@ const SPEEDS = [
   { label: "4×",   ms: 200 },
 ];
 const DEFAULT_SPEED_IDX = 1; // 1×
+const MAX_TICKS = 6;
+
+/** Frame indices to label along the track: first, last and evenly spaced ones between. */
+function tickIndices(n: number, maxTicks = MAX_TICKS): number[] {
+  if (n < 2) return n === 1 ? [0] : [];
+  const step = Math.max(1, Math.ceil((n - 1) / (maxTicks - 1)));
+  const out: number[] = [];
+  for (let i = 0; i < n - 1; i += step) out.push(i);
+  // keep the last tick clear of the one before it
+  if (out.length > 1 && n - 1 - out[out.length - 1] < step / 2) out.pop();
+  out.push(n - 1);
+  return out;
+}
 
 export default function TimeSlider({
   frames,
   currentIndex,
   onIndexChange,
+  scenarioStart = null,
 }: TimeSliderProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speedIdx, setSpeedIdx] = useState(DEFAULT_SPEED_IDX);
@@ -29,9 +49,11 @@ export default function TimeSlider({
   const currentIndexRef = useRef(currentIndex);
   const framesLengthRef = useRef(frames.length);
   const onIndexChangeRef = useRef(onIndexChange);
-  currentIndexRef.current = currentIndex;
-  framesLengthRef.current = frames.length;
-  onIndexChangeRef.current = onIndexChange;
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+    framesLengthRef.current = frames.length;
+    onIndexChangeRef.current = onIndexChange;
+  });
 
   // Playback interval
   useEffect(() => {
@@ -49,12 +71,23 @@ export default function TimeSlider({
     return () => clearInterval(id);
   }, [isPlaying, speedIdx]);
 
-  // Stop playback when frames disappear (new simulation started)
-  useEffect(() => {
-    if (frames.length < 2) setIsPlaying(false);
-  }, [frames.length]);
+  // Stop playback when frames disappear (new simulation started); adjusting state during
+  // render is React's recommended pattern for this (no extra effect pass)
+  const [prevFrameCount, setPrevFrameCount] = useState(frames.length);
+  if (frames.length !== prevFrameCount) {
+    setPrevFrameCount(frames.length);
+    if (frames.length < 2 && isPlaying) setIsPlaying(false);
+  }
 
-  if (frames.length < 2) return null;
+  if (frames.length < 2) {
+    return (
+      <div className="time-slider time-slider-empty">
+        <span className="hint-sm">
+          Timeline: after a run, scrub and play the fire by clock time (America/Edmonton).
+        </span>
+      </div>
+    );
+  }
 
   const currentFrame = frames[currentIndex];
   const totalFrame = frames[frames.length - 1];
@@ -89,45 +122,56 @@ export default function TimeSlider({
     }
   }
 
+  const hours = currentFrame?.time_hours ?? 0;
+  const now = scenarioStart ? clockAt(scenarioStart, hours) : null;
+  const elapsed = maxHours > 24 && currentFrame?.day
+    ? `D${currentFrame.day} ${formatElapsed(hours - (currentFrame.day - 1) * 24)}`
+    : formatElapsed(hours);
+  const valueText = now ? `${formatClock(now)} ${zoneAbbrev(now)}, ${formatElapsed(hours)}` : formatElapsed(hours);
+  const ticks = tickIndices(frames.length);
+
   return (
     <div className="time-slider">
-      {/* Step back */}
-      <button
-        className="ts-btn ts-step"
-        onClick={handleStepBack}
-        disabled={currentIndex === 0}
-        title="Previous frame"
-      >
-        &#9664;
-      </button>
+      <div className="ts-controls">
+        <button
+          className="ts-btn ts-step"
+          onClick={handleStepBack}
+          disabled={currentIndex === 0}
+          title="Previous frame"
+          aria-label="Previous frame"
+        >
+          &#9664;
+        </button>
+        <button
+          className={`ts-btn ts-play${isPlaying ? " playing" : ""}`}
+          onClick={handlePlayPause}
+          title={isPlaying ? "Pause" : "Play animation"}
+          aria-label={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? "⏸" : "▶"}
+        </button>
+        <button
+          className="ts-btn ts-step"
+          onClick={handleStepForward}
+          disabled={currentIndex >= frames.length - 1}
+          title="Next frame"
+          aria-label="Next frame"
+        >
+          &#9654;
+        </button>
+      </div>
 
-      {/* Play / Pause */}
-      <button
-        className={`ts-btn ts-play${isPlaying ? " playing" : ""}`}
-        onClick={handlePlayPause}
-        title={isPlaying ? "Pause" : "Play animation"}
-      >
-        {isPlaying ? "⏸" : "▶"}
-      </button>
+      {/* Current time: clock first, T+ second */}
+      <div className="ts-now" title="Time of the frame shown on the map">
+        {now ? (
+          <span className="ts-now-clock">
+            {formatClock(now)}
+            <small>{zoneAbbrev(now)}</small>
+          </span>
+        ) : null}
+        <span className={now ? "ts-now-elapsed" : "ts-now-clock"}>{elapsed}</span>
+      </div>
 
-      {/* Step forward */}
-      <button
-        className="ts-btn ts-step"
-        onClick={handleStepForward}
-        disabled={currentIndex >= frames.length - 1}
-        title="Next frame"
-      >
-        &#9654;
-      </button>
-
-      {/* Elapsed time — show Day label when multi-day */}
-      <span className="time-label ts-current" title="Elapsed simulation time">
-        {maxHours > 24 && currentFrame?.day
-          ? `D${currentFrame.day} T+${(currentFrame.time_hours - (currentFrame.day - 1) * 24).toFixed(0)}h`
-          : `T+${currentFrame?.time_hours.toFixed(1) ?? "0"}h`}
-      </span>
-
-      {/* Scrubber with optional day-boundary tick marks */}
       <div className="ts-range-wrap">
         <input
           type="range"
@@ -140,6 +184,8 @@ export default function TimeSlider({
           }}
           className="ts-range"
           style={{ "--pct": `${pct}%` } as React.CSSProperties}
+          aria-label="Timeline"
+          aria-valuetext={valueText}
           title={`Frame ${currentIndex + 1} of ${frames.length}`}
         />
         {dayBoundaries.map((d) => {
@@ -155,18 +201,30 @@ export default function TimeSlider({
             </div>
           );
         })}
-        <div className="ts-timeline-labels">
-          <span className="ts-tl-start">Start · T+0</span>
-          <span className="ts-tl-end">End · T+{totalFrame?.time_hours.toFixed(1)}h</span>
+        <div className="ts-ticks" aria-hidden="true">
+          {ticks.map((i, k) => {
+            const h = frames[i].time_hours;
+            const edge = k === 0 ? " first" : k === ticks.length - 1 ? " last" : "";
+            return (
+              <span
+                key={i}
+                className={`ts-tick${edge}`}
+                style={{ left: `${(i / (frames.length - 1)) * 100}%` }}
+              >
+                {scenarioStart && <span className="ts-tick-clock">{formatClock(clockAt(scenarioStart, h))}</span>}
+                <span className="ts-tick-elapsed">{formatElapsed(h)}</span>
+              </span>
+            );
+          })}
         </div>
       </div>
 
-      {/* Speed selector */}
-      <div className="ts-speeds">
+      <div className="ts-speeds" role="group" aria-label="Playback speed">
         {SPEEDS.map((s, i) => (
           <button
             key={s.label}
             className={`ts-btn ts-speed${speedIdx === i ? " active" : ""}`}
+            aria-pressed={speedIdx === i}
             onClick={() => setSpeedIdx(i)}
             title={`Playback speed: ${s.label}`}
           >
@@ -175,8 +233,7 @@ export default function TimeSlider({
         ))}
       </div>
 
-      {/* Frame counter */}
-      <span className="time-label ts-frame-count">
+      <span className="time-label ts-frame-count" title="Frame">
         {currentIndex + 1}/{frames.length}
       </span>
     </div>
