@@ -9,10 +9,10 @@ import sys
 import numpy as np
 import rasterio
 import rasterio.errors
-from rasterio.warp import transform_bounds
-from scipy.ndimage import zoom
+from rasterio.warp import Resampling
 
 from firesim.fbp.constants import FuelType
+from firesim.data.raster_grid import read_to_latlng
 from firesim.spread.huygens import FuelGrid
 
 logger = logging.getLogger(__name__)
@@ -248,40 +248,22 @@ def load_fuel_grid(
     if buildings_path and os.path.exists(buildings_path):
         _warn_geojson_crs(buildings_path, "buildings")
 
+    # Reproject onto a regular lat/lng grid (FuelGrid indexes cells linearly in lat/lng).
+    # Nearest neighbour keeps the integer codes; float64 with NaN no-data covers integer
+    # and float rasters alike (normalize_fuel_codes rounds and fills).
     try:
-        rasterio_ctx = rasterio.open(path)
+        grid = read_to_latlng(path, target_resolution_m, Resampling.nearest, "float64", np.nan)
     except rasterio.errors.RasterioIOError as exc:
         raise rasterio.errors.RasterioIOError(
             f"Cannot open fuel grid GeoTIFF {path!r}: {exc}. "
             "The file may be corrupt, truncated, or not a valid GeoTIFF."
         ) from exc
-
-    with rasterio_ctx as src:
-        data = src.read(1)  # Band 1, int array
-        nodata = src.nodata
-        src_crs = src.crs
-        src_bounds = src.bounds  # left, bottom, right, top
-        src_res = src.res  # (x_res, y_res) in source CRS units
-
-    # Transform bounds to WGS84
-    lng_min, lat_min, lng_max, lat_max = transform_bounds(
-        src_crs, "EPSG:4326",
-        src_bounds.left, src_bounds.bottom,
-        src_bounds.right, src_bounds.top,
+    lat_min, lat_max, lng_min, lng_max = grid.lat_min, grid.lat_max, grid.lng_min, grid.lng_max
+    data = normalize_fuel_codes(grid.data, None)
+    logger.info(
+        "Fuel grid %s on a %.0f m lat/lng grid: %dx%d", os.path.basename(path), grid.cell_m,
+        data.shape[1], data.shape[0],
     )
-
-    data = normalize_fuel_codes(data, nodata)
-
-    # Downsample if source resolution is finer than target
-    src_res_m = abs(src_res[0])  # Approximate meters (works for UTM)
-    if src_res_m < target_resolution_m:
-        scale = src_res_m / target_resolution_m
-        data = zoom(data, scale, order=0)  # Nearest-neighbor
-        logger.info(
-            "Downsampled from %.0fm to %.0fm: %dx%d → %dx%d",
-            src_res_m, target_resolution_m,
-            *reversed(data.shape), data.shape[1], data.shape[0],
-        )
 
     rows, cols = data.shape
 

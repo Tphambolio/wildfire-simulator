@@ -436,7 +436,8 @@ class _CellParams:
         table = np.zeros((max(len(keys), 1), 10))
         for k, (ft, slope, aspect, cbh, cfl, rm, im) in enumerate(keys):
             f = fbp_for_conditions(conditions, ft, float(slope), float(aspect), cbh, cfl)
-            table[k] = (f.ros_final * rm, f.back_ros * rm, f.flank_ros * rm, f.raz, f.sfc, f.cfl,
+            m = rm * conditions.ros_multiplier
+            table[k] = (f.ros_final * m, f.back_ros * m, f.flank_ros * m, f.raz, f.sfc, f.cfl,
                         f.rso if math.isfinite(f.rso) else 1e12, im,
                         calculate_acceleration(ft, f.cfb), f.lb)
         vals = np.where(fuel[..., None], table[np.maximum(index, 0)], 0.0)

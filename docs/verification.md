@@ -127,6 +127,7 @@ many places. All are fixed and each has a regression test:
 | Grid-mode "perimeter" was an unordered sample of cell centres | invalid GeoJSON export; buildings at risk always 0 |
 | Synthetic demo landscape unseeded | identical scenarios gave different results (26 vs 35 ha) |
 | Level-set cells joining the computational window kept stale phi | grid-mode head 6-9 % slow, worse on finer grids (found by the WISE comparison) |
+| Fuel and DEM loaders stretched projected rasters over their lat/lng bounding box instead of reprojecting (fixed 2026-10-07) | Edmonton fuel cells misplaced by a median 121 m (max 332 m); the UTM DEM by a median 1.4 km (max 3.6 km); slope aspect taken from grid north. Found by the fuel-grid provenance audit |
 
 Most of these came from the v2 code base, whose fire science was assembled from summaries
 rather than the source reports, and the old tests re-implemented the same formulas, so they

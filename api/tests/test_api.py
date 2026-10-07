@@ -253,3 +253,45 @@ async def test_start_time_needs_an_offset(client):
     }
     resp = await client.post("/api/v1/simulations", json=payload)
     assert resp.status_code == 422
+
+
+async def test_ensemble_after_grid_run(client):
+    """A grid run with `ensemble` serves P10/P50/P90 arrival and burn probability."""
+    import base64
+
+    import numpy as np
+
+    if not _EDMONTON_FUEL.exists():
+        pytest.skip("Edmonton fuel grid not present")
+    payload = {
+        "ignition_lat": 53.6778, "ignition_lng": -113.3631,
+        "weather": {"wind_speed": 25.0, "wind_direction": 270.0},
+        "fwi_overrides": {"ffmc": 92.0, "dmc": 40.0, "dc": 300.0},
+        "duration_hours": 1.0, "snapshot_interval_minutes": 30.0,
+        "fuel_grid_path": str(_EDMONTON_FUEL),
+        "ensemble": {"n_members": 6, "seed": 2},
+    }
+    sim_id = (await client.post("/api/v1/simulations", json=payload)).json()["simulation_id"]
+    for _ in range(240):
+        ens = (await client.get(f"/api/v1/simulations/{sim_id}/ensemble")).json()
+        if ens["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.5)
+    assert ens["status"] == "completed", ens
+    shape = (ens["rows"], ens["cols"])
+    grids = {k: np.frombuffer(base64.b64decode(v), dtype="<i2").reshape(shape).astype(float)
+             for k, v in ens["arrival"].items()}
+    for g in grids.values():
+        g[g < 0] = np.inf
+    assert np.all(grids["p10"] <= grids["p50"]) and np.all(grids["p50"] <= grids["p90"])
+    bp = np.frombuffer(base64.b64decode(ens["burn_probability"]), dtype=np.uint8).reshape(shape)
+    assert bp.max() == 100 and len(ens["members"]) == 6
+    assert ens["area_ha"]["min"] <= ens["area_ha"]["p50"] <= ens["area_ha"]["max"]
+
+
+async def test_ensemble_404_when_not_requested(client):
+    payload = {"ignition_lat": 53.5, "ignition_lng": -113.5,
+               "weather": {"wind_speed": 10.0, "wind_direction": 270.0}, "duration_hours": 0.5}
+    sim_id = (await client.post("/api/v1/simulations", json=payload)).json()["simulation_id"]
+    resp = await client.get(f"/api/v1/simulations/{sim_id}/ensemble")
+    assert resp.status_code == 404

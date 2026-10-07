@@ -268,6 +268,55 @@ async def get_arrival(sim_id: str) -> dict:
     }
 
 
+@router.get("/{sim_id}/ensemble")
+async def get_ensemble(sim_id: str) -> dict:
+    """Ensemble status and, once complete, arrival percentiles and burn probability.
+
+    ``arrival`` holds P10/P50/P90 rasters: base64 little-endian int16, row-major from the
+    north-west corner, whole minutes after ignition, -1 where fewer than that share of
+    members reached the cell. P10 is the worst-credible (early) arrival. ``burn_probability``
+    is base64 uint8 percent (0-100).
+    """
+    import base64
+
+    import numpy as np
+
+    if runner is None:
+        raise HTTPException(status_code=500, detail="Runner not initialized")
+    run = runner.get(sim_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    if run.ensemble_status is None:
+        cfg = run.config if isinstance(run.config, SimulationCreate) else None
+        if cfg is None or cfg.ensemble is None:
+            raise HTTPException(status_code=404, detail="No ensemble requested for this run")
+        return {"status": "pending", "done": 0, "total": cfg.ensemble.n_members}
+    done, total = run.ensemble_progress
+    out: dict = {"status": run.ensemble_status, "done": done, "total": total,
+                 "error": run.ensemble_error}
+    res = run.ensemble
+    if run.ensemble_status == "completed" and res is not None:
+        areas = sorted(m["area_ha"] for m in res.members)
+        out.update({
+            "rows": res.rows, "cols": res.cols, "lat_min": res.lat_min, "lat_max": res.lat_max,
+            "lng_min": res.lng_min, "lng_max": res.lng_max, "duration_minutes": res.duration_minutes,
+            "encoding": "int16-le-base64",
+            "arrival": {
+                f"p{q}": base64.b64encode(np.asarray(a, dtype="<i2").tobytes()).decode()
+                for q, a in res.arrival.items()
+            },
+            "burn_probability": base64.b64encode(
+                np.rint(res.burn_probability * 100).astype(np.uint8).tobytes()
+            ).decode(),
+            "area_ha": {
+                "min": areas[0], "p50": areas[len(areas) // 2], "max": areas[-1],
+            },
+            "members": res.members,
+            "note": "Perturbation sizes are defaults until calibrated on observed fires.",
+        })
+    return out
+
+
 @router.websocket("/ws/{sim_id}")
 async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
     """WebSocket endpoint for streaming simulation frames."""
