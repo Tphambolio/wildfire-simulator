@@ -1,12 +1,9 @@
 /**
- * Isochrone panel — shows fire arrival time contours for evacuation planning.
+ * Isochrone panel — shows modelled fire arrival time contours.
  *
  * Displays configurable time intervals (default 1 / 2 / 4 / 8 h) as coloured
- * rings on the map so ICS commanders can assess how much time remains before
- * fire reaches specific roads, communities, or infrastructure.
- *
- * Integrates with EvacZonesPanel (TRA-177) — isochrones complement the
- * three-zone model with finer temporal resolution.
+ * rings on the map so planners can see how much time remains before the
+ * modelled fire reaches specific roads, communities, or infrastructure.
  */
 
 import { memo } from "react";

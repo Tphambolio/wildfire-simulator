@@ -152,7 +152,7 @@ FIRESIM_BUILDINGS_PATH    Building footprints GeoJSON
 | `TimeSlider.tsx` | Frame scrubbing |
 | `MultiDayPanel.tsx` | Multi-day weather progression |
 | `PerimeterOverridePanel.tsx` | RPAS mid-incident correction |
-| `EvacZonesPanel.tsx` | Evacuation trigger visualization |
+| `EvacStatusPanel.tsx` | Neighbourhoods: modelled fire arrival within 500 m, and evacuation status set by Planning (FireSim suggests no tiers) |
 | `EOCSummary.tsx` | ICS-209 printable situation report |
 | `IsochronePanel.tsx` | Fire arrival time contours |
 | `ScenarioPanel.tsx` | LocalStorage scenario save/load |

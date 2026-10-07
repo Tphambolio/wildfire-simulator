@@ -1,262 +1,106 @@
 /**
- * Evacuation trigger zone utilities — Alberta Emergency Management Act model.
+ * Neighbourhoods: modelled fire arrival, and evacuation status set by Planning.
  *
- * Three-tier ICS/EOC structure (standard in AB municipalities):
- *   Order  (red)    — 0–2 h perimeter  — LEAVE NOW
- *   Alert  (orange) — 2–6 h perimeter  — BE READY (~30 min)
- *   Watch  (yellow) — 6–12 h perimeter — MONITOR SITUATION
+ * FireSim does not suggest evacuation tiers (Travis, 2026-10-06: tier decisions belong to
+ * Planning and the Director of Emergency Management). It reports, for each neighbourhood, the
+ * modelled earliest time the fire is within 500 m of it (or inside it), as a fact the
+ * planner can use. Order / Alert / Watch exist only as values a person sets; they are stored
+ * with the incident and shown as blue outlines with distinct line styles and text labels
+ * (design spec §3.6, §6.2, §7 1.4.1).
  *
- * Zones are neighbourhood-based (Option A): each tier highlights the complete
- * neighbourhood polygons whose centroids fall inside the projected fire perimeter
- * at that time horizon. Tiers are exclusive — a neighbourhood assigned to Order
- * does not reappear in Alert or Watch.
- *
- * All engine perimeter coords are [[lat, lng], ...].
- * GeoJSON coords are [lng, lat].
+ * Engine coordinates are [lat, lng]; GeoJSON coordinates are [lng, lat].
  */
 
 import type { SimulationFrame } from "../types/simulation";
+import { formatClockAt, formatElapsed } from "./time";
 
-export type EvacZoneLabel = "Order" | "Alert" | "Watch";
+// ── Evacuation status (set by Planning) ─────────────────────────────────────
 
-export interface EvacZone {
-  label: EvacZoneLabel;
-  /** Display colour (CSS) */
-  color: string;
-  /** AEMA action description */
-  action: string;
-  timeRangeLabel: string;
-  /** Perimeter used for intersection test (engine [[lat, lng]] format, scaled) */
-  perimeter: number[][];
-  areaHa: number;
-  /** Neighbourhood names in this tier (for panel display) */
-  communitiesAtRisk: string[];
-  /** Actual GeoJSON features for this tier (for map rendering) */
-  communitiesFeatures: GeoJSON.Feature[];
-  /** Scale factor applied by the operator (1.0 = no change) */
-  scale: number;
+export type EvacTier = "Order" | "Alert" | "Watch";
+
+/** Most to least severe. */
+export const EVAC_TIERS: EvacTier[] = ["Order", "Alert", "Watch"];
+
+/** Map colour for evacuation outlines: blue, outside the fire ramp (spec §6.2, --evac). */
+export const EVAC_COLOR = "#1d4ed8";
+
+/** Line style per tier, so tiers differ without colour: Order solid, Alert dashed, Watch dotted. */
+export const TIER_STYLE: Record<EvacTier, { mapLabel: string; css: "solid" | "dashed" | "dotted"; dash: number[] | null; width: number }> = {
+  Order: { mapLabel: "ORDER", css: "solid", dash: null, width: 3.5 },
+  Alert: { mapLabel: "ALERT", css: "dashed", dash: [3, 1.5], width: 3 },
+  Watch: { mapLabel: "WATCH", css: "dotted", dash: [0.6, 1.6], width: 3 },
+};
+
+/** One neighbourhood's status as set by a person in Planning. */
+export interface EvacTierRecord {
+  neighbourhood: string;
+  tier: EvacTier;
+  /** ISO time it was set */
+  setAt: string;
 }
 
-const ZONE_DEFS: Array<{
-  label: EvacZoneLabel;
-  targetHours: number;
-  color: string;
-  action: string;
-  timeRangeLabel: string;
-}> = [
-  { label: "Order", targetHours: 2,  color: "#d32f2f", action: "LEAVE NOW",          timeRangeLabel: "0–2 h" },
-  { label: "Alert", targetHours: 6,  color: "#f57c00", action: "BE READY (~30 min)", timeRangeLabel: "2–6 h" },
-  { label: "Watch", targetHours: 12, color: "#f9a825", action: "MONITOR SITUATION",  timeRangeLabel: "6–12 h" },
-];
-
-/** Pick the frame whose time_hours is closest to target, with at least 3 perimeter points. */
-function closestFrame(frames: SimulationFrame[], targetHours: number): SimulationFrame | null {
-  let best: SimulationFrame | null = null;
-  let bestDist = Infinity;
-  for (const f of frames) {
-    if (f.perimeter.length < 3) continue;
-    const d = Math.abs(f.time_hours - targetHours);
-    if (d < bestDist) { bestDist = d; best = f; }
-  }
-  return best;
+/** Set (or with `tier` null, clear) a neighbourhood's status. Returns a new array. */
+export function upsertTier(
+  records: EvacTierRecord[],
+  neighbourhood: string,
+  tier: EvacTier | null,
+  now: Date = new Date(),
+): EvacTierRecord[] {
+  const rest = records.filter((r) => r.neighbourhood !== neighbourhood);
+  if (!tier) return rest;
+  return [...rest, { neighbourhood, tier, setAt: now.toISOString() }];
 }
 
-/**
- * Scale a polygon outward or inward around its centroid.
- * factor > 1 expands the perimeter (pulls in more neighbourhoods).
- */
-function scalePolygon(perimeter: number[][], factor: number): number[][] {
-  if (factor === 1 || perimeter.length === 0) return perimeter;
-  let sumLat = 0, sumLng = 0;
-  for (const [lat, lng] of perimeter) { sumLat += lat; sumLng += lng; }
-  const cLat = sumLat / perimeter.length;
-  const cLng = sumLng / perimeter.length;
-  return perimeter.map(([lat, lng]) => [
-    cLat + (lat - cLat) * factor,
-    cLng + (lng - cLng) * factor,
-  ]);
+/** User-set statuses grouped by tier (Order, Alert, Watch; empty tiers omitted). */
+export interface PlanningEvacZone {
+  tier: EvacTier;
+  neighbourhoods: string[];
+  /** Neighbourhood polygons (from the communities layer), when loaded */
+  features: GeoJSON.Feature[];
+  records: EvacTierRecord[];
 }
 
-// ── Point-in-polygon (ray casting, WGS84 approximation) ─────────────────────
-
-function pointInPolygon(latPt: number, lngPt: number, ring: number[][]): boolean {
-  let inside = false;
-  const n = ring.length;
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const [latI, lngI] = ring[i];
-    const [latJ, lngJ] = ring[j];
-    const cross =
-      lngI > lngPt !== lngJ > lngPt &&
-      latPt < ((latJ - latI) * (lngPt - lngI)) / (lngJ - lngI) + latI;
-    if (cross) inside = !inside;
-  }
-  return inside;
-}
-
-/** Extract a representative lat/lng centroid from a GeoJSON geometry. */
-function geometryCentroid(g: GeoJSON.Geometry): [number, number] | null {
-  if (g.type === "Point") return [g.coordinates[1], g.coordinates[0]];
-  if (g.type === "MultiPoint") { const [lng, lat] = g.coordinates[0]; return [lat, lng]; }
-  if (g.type === "Polygon" && g.coordinates[0].length > 0) {
-    let sLat = 0, sLng = 0;
-    const ring = g.coordinates[0];
-    for (const [lng, lat] of ring) { sLat += lat; sLng += lng; }
-    return [sLat / ring.length, sLng / ring.length];
-  }
-  if (g.type === "MultiPolygon" && g.coordinates[0]?.[0]?.length) {
-    const [lng, lat] = g.coordinates[0][0][0];
-    return [lat, lng];
-  }
-  if (g.type === "LineString" && g.coordinates.length > 0) {
-    const mid = g.coordinates[Math.floor(g.coordinates.length / 2)];
-    return [mid[1], mid[0]];
-  }
-  return null;
-}
-
-/** Feature name from common GeoJSON property conventions. */
-function featureName(f: GeoJSON.Feature): string {
-  const p = f.properties as Record<string, unknown> | null;
-  if (!p) return "Community";
-  return String(p.name ?? p.NAME ?? p.label ?? p.community ?? "Community");
-}
-
-/**
- * Find community features whose centroid falls inside the zone perimeter.
- * Returns actual GeoJSON features (not just names) for map rendering.
- */
-// Community centroids, computed once per communities layer
-const centroidCache = new WeakMap<GeoJSON.FeatureCollection, Array<[number, number] | null>>();
-
-function communitiesInZone(
-  perimeter: number[][],
+export function planningZones(
+  records: EvacTierRecord[],
   communities: GeoJSON.FeatureCollection | null | undefined,
-): GeoJSON.Feature[] {
-  if (!communities || perimeter.length < 3) return [];
-  let centroids = centroidCache.get(communities);
-  if (!centroids) {
-    centroids = communities.features.map((f) => geometryCentroid(f.geometry));
-    centroidCache.set(communities, centroids);
-  }
-  const result: GeoJSON.Feature[] = [];
-  communities.features.forEach((feat, i) => {
-    const c = centroids![i];
-    if (c && pointInPolygon(c[0], c[1], perimeter)) result.push(feat);
-  });
-  return result;
-}
-
-// ── Polygon area via shoelace (approximate, degrees²→ ha) ───────────────────
-
-function polygonAreaHa(perimeter: number[][]): number {
-  if (perimeter.length < 3) return 0;
-  const latScale = 111320;
-  const midLat = perimeter.reduce((s, [lat]) => s + lat, 0) / perimeter.length;
-  const lngScale = 111320 * Math.cos((midLat * Math.PI) / 180);
-  let area = 0;
-  const n = perimeter.length;
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    area += (perimeter[j][1] * lngScale) * (perimeter[i][0] * latScale);
-    area -= (perimeter[i][1] * lngScale) * (perimeter[j][0] * latScale);
-  }
-  return Math.abs(area) / 2 / 10_000;
-}
-
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * Derive evacuation zones from simulation frames.
- *
- * Zones are neighbourhood-based and exclusive: each neighbourhood appears in
- * at most one tier (the highest-urgency tier whose perimeter contains it).
- * Returns up to 3 zones; a zone is omitted if beyond the simulation duration.
- */
-export function computeEvacZones(
-  frames: SimulationFrame[],
-  communities: GeoJSON.FeatureCollection | null | undefined,
-  scales: Record<EvacZoneLabel, number> = { Order: 1, Alert: 1, Watch: 1 },
-): EvacZone[] {
-  if (frames.length === 0) return [];
-
-  // The zones depend only on the frame chosen for each tier, so scrubbing between frames
-  // that pick the same tier frames returns the previous result (same array identity, so
-  // the map does not redraw the zones).
-  const maxHours = frames[frames.length - 1].time_hours;
-  const chosen = ZONE_DEFS.map((def) =>
-    def.targetHours > maxHours + 1 ? null : closestFrame(frames, def.targetHours) ?? null,
-  );
-  if (
-    lastResult &&
-    lastResult.communities === communities &&
-    lastResult.scales === scales &&
-    lastResult.chosen.length === chosen.length &&
-    lastResult.chosen.every((f, i) => f === chosen[i])
-  ) {
-    return lastResult.zones;
-  }
-
-  const zones: EvacZone[] = [];
-  // Track which neighbourhood names have been assigned to a closer tier
-  const assignedNames = new Set<string>();
-
-  ZONE_DEFS.forEach((def, i) => {
-    const frame = chosen[i];
-    if (!frame) return;
-
-    const scale = scales[def.label] ?? 1;
-    const scaled = scalePolygon(frame.perimeter, scale);
-
-    // All features inside this perimeter
-    const allFeatures = communitiesInZone(scaled, communities);
-    // Exclusive: exclude any already assigned to a higher-urgency tier
-    const exclusiveFeatures = allFeatures.filter((f) => !assignedNames.has(featureName(f)));
-    exclusiveFeatures.forEach((f) => assignedNames.add(featureName(f)));
-
+): PlanningEvacZone[] {
+  const byName = new Map<string, GeoJSON.Feature>();
+  for (const f of communities?.features ?? []) byName.set(featureName(f), f);
+  const zones: PlanningEvacZone[] = [];
+  for (const tier of EVAC_TIERS) {
+    const recs = records
+      .filter((r) => r.tier === tier)
+      .sort((a, b) => a.neighbourhood.localeCompare(b.neighbourhood));
+    if (recs.length === 0) continue;
     zones.push({
-      label: def.label,
-      color: def.color,
-      action: def.action,
-      timeRangeLabel: def.timeRangeLabel,
-      perimeter: scaled,
-      areaHa: polygonAreaHa(scaled),
-      communitiesAtRisk: exclusiveFeatures.map(featureName),
-      communitiesFeatures: exclusiveFeatures,
-      scale,
+      tier,
+      neighbourhoods: recs.map((r) => r.neighbourhood),
+      features: recs.map((r) => byName.get(r.neighbourhood)).filter((f): f is GeoJSON.Feature => !!f),
+      records: recs,
     });
-  });
-
-  lastResult = { communities, scales, chosen, zones };
+  }
   return zones;
 }
 
-let lastResult: {
-  communities: GeoJSON.FeatureCollection | null | undefined;
-  scales: Record<EvacZoneLabel, number>;
-  chosen: Array<SimulationFrame | null>;
-  zones: EvacZone[];
-} | null = null;
-
 /**
- * Convert evac zones to a GeoJSON FeatureCollection for map rendering and export.
- *
- * Each feature is an actual neighbourhood polygon tagged with its zone tier.
- * If a zone has no community features (communities layer not loaded), it is
- * omitted from the output.
+ * User-set statuses as GeoJSON (map layers and export). Each feature is a neighbourhood
+ * polygon with `evac_tier`, `map_label` ("ORDER"), `set_by: "Planning"` and `set_at`.
  */
-export function evacZonesToGeoJSON(zones: EvacZone[]): GeoJSON.FeatureCollection {
+export function planningZonesToGeoJSON(zones: PlanningEvacZone[]): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
-  for (const zone of zones) {
-    for (const f of zone.communitiesFeatures) {
+  for (const z of zones) {
+    for (const f of z.features) {
+      const name = featureName(f);
+      const rec = z.records.find((r) => r.neighbourhood === name);
       features.push({
-        type: "Feature" as const,
+        type: "Feature",
         geometry: f.geometry,
         properties: {
-          ...(f.properties ?? {}),
-          zone_label: zone.label,
-          zone_color: zone.color,
-          zone_action: zone.action,
-          time_range: zone.timeRangeLabel,
-          neighbourhood: featureName(f),
+          neighbourhood: name,
+          evac_tier: z.tier,
+          map_label: TIER_STYLE[z.tier].mapLabel,
+          set_by: "Planning",
+          set_at: rec?.setAt ?? null,
         },
       });
     }
@@ -264,113 +108,284 @@ export function evacZonesToGeoJSON(zones: EvacZone[]): GeoJSON.FeatureCollection
   return { type: "FeatureCollection", features };
 }
 
-// ── Tier ranking helper ───────────────────────────────────────────────────────
+// ── Modelled fire arrival near neighbourhoods ───────────────────────────────
 
-const TIER_RANK: Record<EvacZoneLabel, number> = { Order: 3, Alert: 2, Watch: 1 };
+/** Distance from a neighbourhood within which fire counts as "near" it. */
+export const ARRIVAL_BUFFER_M = 500;
 
-const ZONE_META: Record<EvacZoneLabel, { color: string; action: string; timeRangeLabel: string }> = {
-  Order: { color: "#d32f2f", action: "LEAVE NOW",          timeRangeLabel: "0–2 h"  },
-  Alert: { color: "#f57c00", action: "BE READY (~30 min)", timeRangeLabel: "2–6 h"  },
-  Watch: { color: "#f9a825", action: "MONITOR SITUATION",  timeRangeLabel: "6–12 h" },
-};
+export interface NeighbourhoodArrival {
+  name: string;
+  /** Hours after the scenario start the modelled fire is first within the buffer (or inside) */
+  arrivalHours: number;
+  feature: GeoJSON.Feature;
+}
+
+/** Feature name from common GeoJSON property conventions. */
+export function featureName(f: GeoJSON.Feature): string {
+  const p = f.properties as Record<string, unknown> | null;
+  if (!p) return "Community";
+  return String(p.name ?? p.NAME ?? p.label ?? p.community ?? "Community");
+}
+
+const M_PER_DEG = 111_320;
+/** Perimeter runs: spacing of the points sampled along each perimeter edge (error ≤ half). */
+const PERIMETER_STEP_M = 40;
+
+/** Polygon rings ([lng, lat]) of a Polygon or MultiPolygon, grouped per polygon. */
+function polygonsOf(g: GeoJSON.Geometry | null): number[][][][] {
+  if (!g) return [];
+  if (g.type === "Polygon") return [g.coordinates as number[][][]];
+  if (g.type === "MultiPolygon") return g.coordinates as number[][][][];
+  return [];
+}
+
+function ringContains(ring: number[][], x: number, y: number): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
 
 /**
- * Merge committed zone history (Order + Alert) into the current live zone output.
- *
- * Persistence model:
- *   Order  — hard persist: once issued, a neighbourhood never leaves Order
- *   Alert  — soft persist: stays at minimum Alert; can upgrade to Order
- *   Watch  — dynamic: never persisted; reflects current 6–12 h horizon only
- *
- * If a historically-committed neighbourhood is absent from the current zones
- * (e.g. the scrubber moved backward), it is re-inserted into the appropriate
- * tier using community features from the communities layer.  If the neighbourhood
- * is already in a higher tier, it stays there.
+ * A point inside the neighbourhood for its on-map label, [lng, lat]: the centroid of its
+ * largest polygon, or, when that falls outside (a crescent or L shape), the middle of the
+ * widest inside span on the horizontal line through it.
  */
-export function applyZoneHistory(
-  current: EvacZone[],
-  history: Map<string, EvacZoneLabel>,
-  communities: GeoJSON.FeatureCollection | null | undefined,
-): EvacZone[] {
-  if (history.size === 0 || !communities) return current;
+export function labelPoint(f: GeoJSON.Feature): [number, number] | null {
+  const polys = polygonsOf(f.geometry);
+  let best: number[][][] | null = null;
+  let bestArea = 0;
+  let cx = 0, cy = 0;
+  for (const poly of polys) {
+    const ring = poly[0];
+    if (!ring || ring.length < 3) continue;
+    let a2 = 0, sx = 0, sy = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const cross = ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+      a2 += cross;
+      sx += (ring[j][0] + ring[i][0]) * cross;
+      sy += (ring[j][1] + ring[i][1]) * cross;
+    }
+    if (Math.abs(a2) > bestArea) {
+      bestArea = Math.abs(a2);
+      best = poly;
+      cx = sx / (3 * a2);
+      cy = sy / (3 * a2);
+    }
+  }
+  if (!best) return null;
+  const inside = (x: number, y: number) => ringContains(best![0], x, y) && !best!.slice(1).some((h) => ringContains(h, x, y));
+  if (inside(cx, cy)) return [cx, cy];
+  // Widest inside span on the line y = cy
+  const xs: number[] = [];
+  for (const ring of best) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [x1, y1] = ring[j];
+      const [x2, y2] = ring[i];
+      if (y1 > cy !== y2 > cy) xs.push(x1 + ((cy - y1) * (x2 - x1)) / (y2 - y1));
+    }
+  }
+  xs.sort((a, b) => a - b);
+  let span: [number, number] | null = null;
+  for (let i = 0; i + 1 < xs.length; i += 2) {
+    if (!span || xs[i + 1] - xs[i] > span[1] - span[0]) span = [xs[i], xs[i + 1]];
+  }
+  return span ? [(span[0] + span[1]) / 2, cy] : [best[0][0][0], best[0][0][1]];
+}
 
-  // Build what is currently assigned at each tier
-  const currentlyAssigned = new Map<string, EvacZoneLabel>();
-  for (const zone of current) {
-    for (const name of zone.communitiesAtRisk) {
-      const prev = currentlyAssigned.get(name);
-      if (!prev || TIER_RANK[zone.label] > TIER_RANK[prev]) {
-        currentlyAssigned.set(name, zone.label);
+/** A neighbourhood prepared for distance tests in a local metric frame. */
+interface Prepared {
+  name: string;
+  feature: GeoJSON.Feature;
+  lat0: number;
+  kx: number; // metres per degree of longitude at lat0
+  /** polygons as rings of [x, y] metres (relative to lng 0 / lat0) */
+  polys: number[][][][];
+  bbox: [number, number, number, number]; // [minLng, minLat, maxLng, maxLat] degrees
+}
+
+function prepare(f: GeoJSON.Feature): Prepared | null {
+  const polys = polygonsOf(f.geometry);
+  if (polys.length === 0) return null;
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  for (const poly of polys) for (const ring of poly) for (const [lng, lat] of ring) {
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }
+  if (!Number.isFinite(minLng)) return null;
+  const lat0 = (minLat + maxLat) / 2;
+  const kx = M_PER_DEG * Math.cos((lat0 * Math.PI) / 180);
+  const toXY = ([lng, lat]: number[]) => [lng * kx, (lat - lat0) * M_PER_DEG];
+  return {
+    name: featureName(f),
+    feature: f,
+    lat0,
+    kx,
+    polys: polys.map((poly) => poly.map((ring) => ring.map(toXY))),
+    bbox: [minLng, minLat, maxLng, maxLat],
+  };
+}
+
+/** Distance in metres from (lat, lng) to the neighbourhood (0 inside it). */
+function distanceM(p: Prepared, lat: number, lng: number): number {
+  const x = lng * p.kx;
+  const y = (lat - p.lat0) * M_PER_DEG;
+  let best = Infinity;
+  for (const poly of p.polys) {
+    // Inside the outer ring and not in a hole
+    if (ringContains(poly[0], x, y) && !poly.slice(1).some((h) => ringContains(h, x, y))) return 0;
+    for (const ring of poly) {
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [x1, y1] = ring[j];
+        const [x2, y2] = ring[i];
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len2 = dx * dx + dy * dy;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / len2)) : 0;
+        const d = Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy));
+        if (d < best) best = d;
       }
     }
   }
+  return best;
+}
 
-  // Find history entries that need injection or upgrade
-  const toAdd = new Map<EvacZoneLabel, Array<{ name: string; feature: GeoJSON.Feature }>>();
-  const toRemoveFromLower = new Set<string>();
+function perimeterContains(perimeter: number[][], lat: number, lng: number): boolean {
+  let inside = false;
+  for (let i = 0, j = perimeter.length - 1; i < perimeter.length; j = i++) {
+    const [latI, lngI] = perimeter[i];
+    const [latJ, lngJ] = perimeter[j];
+    if (lngI > lng !== lngJ > lng && lat < ((latJ - latI) * (lng - lngI)) / (lngJ - lngI) + latI) inside = !inside;
+  }
+  return inside;
+}
 
-  for (const [name, histTier] of history) {
-    if (histTier === "Watch") continue; // Watch is never committed
-    const curTier = currentlyAssigned.get(name);
-    if (curTier && TIER_RANK[curTier] >= TIER_RANK[histTier]) continue; // already at correct tier or higher
-
-    const feature = communities.features.find((f) => featureName(f) === name);
-    if (!feature) continue;
-
-    if (!toAdd.has(histTier)) toAdd.set(histTier, []);
-    toAdd.get(histTier)!.push({ name, feature });
-
-    // If currently in a lower tier, remove it from there (it belongs in histTier now)
-    if (curTier && TIER_RANK[curTier] < TIER_RANK[histTier]) {
-      toRemoveFromLower.add(name);
+/**
+ * Fire locations with the time (hours after the start) each was first burning.
+ * Grid runs: burned cells, timed by their arrival `t` (minutes; the frame time if absent).
+ * Frames may be cumulative (each frame repeats earlier cells, as the app holds them) or
+ * incremental (`cells_offset` > 0, as streamed): both give the same set. Runs without cells
+ * (Huygens): perimeter vertices at each frame's time.
+ */
+function firePoints(frames: SimulationFrame[]): { lat: number; lng: number; h: number }[] {
+  const hasCells = frames.some((f) => (f.burned_cells?.length ?? 0) > 0);
+  const out: { lat: number; lng: number; h: number }[] = [];
+  if (hasCells) {
+    const incremental = frames.some((f) => (f.cells_offset ?? 0) > 0);
+    const last = frames[frames.length - 1];
+    const allTimed = !incremental && (last.burned_cells ?? []).every((c) => c.t !== undefined && c.t !== null);
+    if (allTimed) {
+      // Cumulative frames with arrival times: the last frame holds every cell once
+      for (const c of last.burned_cells ?? []) out.push({ lat: c.lat, lng: c.lng, h: (c.t as number) / 60 });
+      return out.sort((a, b) => a.h - b.h);
+    }
+    const sources = frames;
+    const seen = new Map<string, number>();
+    for (const f of sources) {
+      for (const c of f.burned_cells ?? []) {
+        const h = c.t !== undefined && c.t !== null ? c.t / 60 : f.time_hours;
+        const key = `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`;
+        const prev = seen.get(key);
+        if (prev === undefined || h < prev) seen.set(key, h);
+      }
+    }
+    for (const [key, h] of seen) {
+      const [lat, lng] = key.split(",").map(Number);
+      out.push({ lat, lng, h });
+    }
+  } else {
+    // Perimeter edges sampled every PERIMETER_STEP_M (vertices alone can be far apart)
+    for (const f of frames) {
+      const ring = f.perimeter;
+      for (let i = 0; i < ring.length; i++) {
+        const [lat1, lng1] = ring[i];
+        const [lat2, lng2] = ring[(i + 1) % ring.length];
+        const kx = M_PER_DEG * Math.cos((lat1 * Math.PI) / 180);
+        const len = Math.hypot((lat2 - lat1) * M_PER_DEG, (lng2 - lng1) * kx);
+        const n = Math.max(1, Math.ceil(len / PERIMETER_STEP_M));
+        for (let k = 0; k < n; k++) {
+          out.push({ lat: lat1 + ((lat2 - lat1) * k) / n, lng: lng1 + ((lng2 - lng1) * k) / n, h: f.time_hours });
+        }
+      }
     }
   }
+  return out.sort((a, b) => a.h - b.h);
+}
 
-  if (toAdd.size === 0) return current;
-
-  // Strip upgraded names from lower-tier zones
-  let result: EvacZone[] = current.map((zone) => {
-    if (toRemoveFromLower.size === 0) return zone;
-    const kept = zone.communitiesAtRisk.filter((n) => !toRemoveFromLower.has(n));
-    if (kept.length === zone.communitiesAtRisk.length) return zone;
-    return {
-      ...zone,
-      communitiesAtRisk: kept,
-      communitiesFeatures: zone.communitiesFeatures.filter((f) => !toRemoveFromLower.has(featureName(f))),
-    };
-  });
-
-  // Inject historical communities into existing zones (or create synthetic zones)
-  for (const [label, entries] of toAdd) {
-    const names = entries.map((e) => e.name);
-    const features = entries.map((e) => e.feature);
-    const idx = result.findIndex((z) => z.label === label);
-    if (idx >= 0) {
-      result = result.map((z, i) =>
-        i === idx
-          ? {
-              ...z,
-              communitiesAtRisk: [...z.communitiesAtRisk, ...names],
-              communitiesFeatures: [...z.communitiesFeatures, ...features],
-            }
-          : z
-      );
-    } else {
-      const meta = ZONE_META[label];
-      result.push({
-        label,
-        color: meta.color,
-        action: meta.action,
-        timeRangeLabel: meta.timeRangeLabel,
-        perimeter: [],
-        areaHa: 0,
-        communitiesAtRisk: names,
-        communitiesFeatures: features,
-        scale: 1,
-      });
-    }
+/**
+ * For each neighbourhood the modelled fire comes within `bufferM` of (or into), the earliest
+ * such time in hours after the start. Sorted by time, then name. A modelled fact for
+ * Planning, not an evacuation recommendation.
+ */
+export function neighbourhoodArrivals(
+  frames: SimulationFrame[],
+  communities: GeoJSON.FeatureCollection | null | undefined,
+  bufferM: number = ARRIVAL_BUFFER_M,
+): NeighbourhoodArrival[] {
+  if (!communities || frames.length === 0) return [];
+  const pts = firePoints(frames);
+  const perimeterMode = !frames.some((f) => (f.burned_cells?.length ?? 0) > 0);
+  if (pts.length === 0) return [];
+  let fMinLat = Infinity, fMaxLat = -Infinity, fMinLng = Infinity, fMaxLng = -Infinity;
+  for (const p of pts) {
+    if (p.lat < fMinLat) fMinLat = p.lat;
+    if (p.lat > fMaxLat) fMaxLat = p.lat;
+    if (p.lng < fMinLng) fMinLng = p.lng;
+    if (p.lng > fMaxLng) fMaxLng = p.lng;
   }
+  const dLat = bufferM / M_PER_DEG;
+  const out: NeighbourhoodArrival[] = [];
+  for (const feat of communities.features) {
+    const p = prepare(feat);
+    if (!p) continue;
+    const dLng = bufferM / p.kx;
+    const [minLng, minLat, maxLng, maxLat] = p.bbox;
+    const bx0 = minLng - dLng, bx1 = maxLng + dLng, by0 = minLat - dLat, by1 = maxLat + dLat;
+    if (fMaxLng < bx0 || fMinLng > bx1 || fMaxLat < by0 || fMinLat > by1) continue;
+    let arrival = Infinity;
+    for (const q of pts) {
+      if (q.lng < bx0 || q.lng > bx1 || q.lat < by0 || q.lat > by1) continue;
+      if (distanceM(p, q.lat, q.lng) <= bufferM) { arrival = q.h; break; }
+    }
+    if (perimeterMode) {
+      // A neighbourhood the perimeter has swept over, with no vertex near it
+      const ring = (polygonsOf(feat.geometry)[0]?.[0]) ?? [];
+      for (const f of frames) {
+        if (f.time_hours >= arrival) break;
+        if (f.perimeter.length >= 3 && ring.some(([lng, lat]) => perimeterContains(f.perimeter, lat, lng))) {
+          arrival = f.time_hours;
+          break;
+        }
+      }
+    }
+    if (Number.isFinite(arrival)) out.push({ name: p.name, arrivalHours: arrival, feature: feat });
+  }
+  return out.sort((a, b) => a.arrivalHours - b.arrivalHours || a.name.localeCompare(b.name));
+}
 
-  // Maintain Order > Alert > Watch sort order
-  return result.sort((a, b) => TIER_RANK[b.label] - TIER_RANK[a.label]);
+/** "Fire within 500 m by 15:32" (or "by T+1:05" without a start time). */
+export function arrivalLabel(arrivalHours: number, start: Date | null, bufferM: number = ARRIVAL_BUFFER_M): string {
+  const when = start ? formatClockAt(start, arrivalHours) : formatElapsed(arrivalHours);
+  return `Fire within ${bufferM} m by ${when}`;
+}
+
+/** Arrival outlines for the map: neighbourhood polygons with their label. */
+export function arrivalsToGeoJSON(arrivals: NeighbourhoodArrival[], start: Date | null): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: arrivals.map((a) => ({
+      type: "Feature",
+      geometry: a.feature.geometry,
+      properties: {
+        neighbourhood: a.name,
+        arrival_hours: +a.arrivalHours.toFixed(3),
+        arrival_label: arrivalLabel(a.arrivalHours, start),
+      },
+    })),
+  };
 }

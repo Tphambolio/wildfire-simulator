@@ -24,7 +24,7 @@ import EOCSummary from "./EOCSummary";
 import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "./WeatherPanel";
-import type { EvacZone } from "../utils/evacZones";
+import type { PlanningEvacZone } from "../utils/evacZones";
 import type { Isochrone } from "../utils/isochrones";
 import {
   buildICS201HTML,
@@ -62,8 +62,8 @@ interface EOCConsoleProps {
   overlayInfrastructure?: GeoJSON.FeatureCollection | null;
   overlayInfrastructureVisible?: boolean;
   atRiskCounts?: { roads: number; communities: number; infrastructure: number };
-  // Evac zones
-  evacZones?: EvacZone[];
+  // Evacuation status set by Planning
+  evacZones?: PlanningEvacZone[];
   evacZonesVisible?: boolean;
   // Isochrones
   isochrones?: Isochrone[];
