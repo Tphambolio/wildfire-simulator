@@ -72,8 +72,8 @@ Bundled reference layers (Edmonton; loaded with the Edmonton fuel grid): critica
 from City of Edmonton Open Data, the Government of Alberta continuing care list (June 2026,
 geocoded with City address points), Statistics Canada ODHF (2020) and OpenStreetMap (ODbL),
 every source recorded per asset; major roads (motorway to secondary with ramps, OSM
-2026-10-08); neighbourhoods from City Open Data; plus one **unverified manual point** (the
-EOC: no public source gives its address, flagged in the data and the UI). Sources, licences,
+2026-10-08); neighbourhoods from City Open Data. No manual points (the EOC is left out: no
+public source gives its location). Sources, licences,
 dates, match rates and the refresh commands: `docs/data-sources.md`. Asset arrival depends on
 the completeness and positions of these layers: group homes and care sites under 10 units are
 not included, 2 Alberta sites and 2 ODHF records could not be positioned, and 13 care sites in

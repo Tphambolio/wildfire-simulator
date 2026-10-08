@@ -56,7 +56,6 @@ describe("bundled assets.geojson (scripts/build_edmonton_assets.py output)", () 
       "Open Government Licence - Alberta",
       "Open Government Licence - Canada",
       "Open Government Licence - City of Edmonton",
-      "Public information (no dataset)",
     ]);
     // Source ids are unique, so assets keep their identity
     const ids = edmontonAssets.features.map((f) => f.properties?.source_id);
@@ -155,17 +154,15 @@ describe("bundled assets.geojson (scripts/build_edmonton_assets.py output)", () 
     expect(assets.length).toBe(edmontonAssets.features.length);
   });
 
-  it("covers the categories Planning asked for, with the EOC as the one manual point", () => {
+  it("covers the categories Planning asked for, with no manual points (EOC left out)", () => {
     const by = (c: string) => assets.filter((a) => a.category === c);
     for (const c of ["hospital", "fire_station", "police", "reception", "seniors", "school", "water", "power", "transit"]) {
       expect(by(c).length, c).toBeGreaterThan(0);
     }
-    expect(by("eoc")).toHaveLength(1);
-    expect(by("eoc")[0].source).toBe("City of Edmonton public information");
-    // Not verifiable from public sources: flagged in the data and wherever the name is shown
-    expect(by("eoc")[0].verify).toBe("Unverified manual point");
-    expect(assetLabel(by("eoc")[0])).toBe("City of Edmonton Emergency Operations Centre [Unverified manual point]");
-    expect(assetDataNotes(assets)[0]).toMatch(/^City of Edmonton Emergency Operations Centre: unverified manual point/);
+    // The EOC is left out: no public source gives its location (owner decision 2026-10-08)
+    expect(by("eoc")).toHaveLength(0);
+    expect(assets.some((a) => a.source === "City of Edmonton public information")).toBe(false);
+    expect(assetDataNotes(assets)[0]).toMatch(/care facilit(y is|ies are) in no current official list/);
     expect(by("water").map((a) => a.name)).toEqual(
       expect.arrayContaining(["E.L. Smith Water Treatment Plant", "Rossdale Water Treatment Plant", "Gold Bar Wastewater Treatment Plant"]),
     );
@@ -216,8 +213,9 @@ describe("asset arrival on the recorded run", () => {
       if (Math.hypot((p.lat - lat) * 111_320, (p.lng - lng) * kx) <= 500) best = Math.min(best, p.h);
     }
     expect(r.near).toBeCloseTo(best, 6);
-    // Far from the fire: nothing
-    const far = assets.find((a) => a.category === "eoc")!;
+    // Far from the fire: nothing (the asset farthest from Riverview)
+    const far = assets.reduce((best, a) =>
+      Math.hypot(a.anchor[0] - lng, a.anchor[1] - lat) > Math.hypot(best.anchor[0] - lng, best.anchor[1] - lat) ? a : best);
     expect(reach.has(far.id)).toBe(false);
   });
 
@@ -349,9 +347,9 @@ describe("major roads", () => {
 });
 
 describe("ICS-209: burn probability labelled as model output; flagged assets labelled", () => {
-  it("labels the P >= 25/50/75 % table and keeps the EOC flag", () => {
-    const eoc = assets.find((a) => a.category === "eoc")!;
-    const row = { asset: eoc, single: { near: 1, inside: null }, worst: null, first: 1 };
+  it("labels the P >= 25/50/75 % table and keeps data-quality flags", () => {
+    const flagged = assets.find((a) => a.verify)!;
+    const row = { asset: flagged, single: { near: 1, inside: null }, worst: null, first: 1 };
     const html = buildICS209HTML({
       frames,
       burnProbData: {
@@ -364,7 +362,7 @@ describe("ICS-209: burn probability labelled as model output; flagged assets lab
     });
     expect(html).toContain("BURN PROBABILITY (MONTE CARLO/ENSEMBLE), MODEL OUTPUT");
     expect(html).toContain("P ≥ 50% (Probable)"); // the table itself is unchanged
-    expect(html).toContain("City of Edmonton Emergency Operations Centre [Unverified manual point]");
+    expect(html).toContain(assetLabel(flagged));
   });
 });
 
