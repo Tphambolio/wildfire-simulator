@@ -11,7 +11,8 @@ import type { RunParams } from "./WeatherPanel";
 import { buildGeoJSON, buildKML, downloadFile } from "../utils/geoExport";
 import type { PlanningEvacZone } from "../utils/evacZones";
 import { ASSET_CATEGORIES, assetLabel, assetReachPhrases, criticalReachLines, groupRows, roadReachPhrase, type CriticalReach } from "../utils/assets";
-import { openICS209Report } from "../utils/ics209";
+import { openICS209Report, type ICS209RunContext } from "../utils/ics209";
+import { getVersion } from "../services/api";
 import HfiClassChip from "./HfiClassChip";
 import { fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
 import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
@@ -28,6 +29,9 @@ interface EOCSummaryProps {
   criticalReach?: CriticalReach | null;
   /** Evacuation status set by Planning (never generated), for export and the ICS report */
   evacZones?: PlanningEvacZone[];
+  /** Run ID, start time and ensemble, for the ICS 209-WF */
+  run209?: ICS209RunContext | null;
+  incidentName?: string;
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────────────
@@ -310,6 +314,8 @@ export default function EOCSummary({
   fuelTypeLabel,
   criticalReach = null,
   evacZones,
+  run209 = null,
+  incidentName,
 }: EOCSummaryProps) {
   const spread = extractSpreadStats(frames);
   const burnArea = burnProbData ? extractBurnAreaStats(burnProbData) : null;
@@ -344,7 +350,9 @@ export default function EOCSummary({
       criticalReach,
       evacZones,
       suppAdvisory,
-    });
+      run: run209,
+      incidentName,
+    }, getVersion);
   };
 
   const exportOpts = { frames, burnProbData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones };
@@ -377,9 +385,9 @@ export default function EOCSummary({
             <button
               className="ts-btn ts-speed eoc-btn-emph"
               onClick={handleICS209}
-              title="Generate printable ICS-209 Incident Status Summary"
+              title="Generate printable ICS Canada 209-WF Incident Status Summary"
             >
-              ICS-209
+              ICS 209-WF
             </button>
           )}
           {frames.length > 0 && (

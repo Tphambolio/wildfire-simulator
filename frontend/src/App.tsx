@@ -6,6 +6,7 @@ import WeatherPanel from "./components/WeatherPanel";
 import type { RunParams, SkillOptionsState } from "./components/WeatherPanel";
 import FireMetrics from "./components/FireMetrics";
 import EOCSummary from "./components/EOCSummary";
+import type { ICS209RunContext } from "./utils/ics209";
 import TimeSlider from "./components/TimeSlider";
 import AssetLayersPanel, { type UserLayer } from "./components/AssetLayersPanel";
 import CriticalAssetsPanel from "./components/CriticalAssetsPanel";
@@ -554,6 +555,11 @@ export default function App() {
   const singleRoadReach = useMemo(() => roadReach(singleFire, roads), [singleFire, roads]);
   const worstRoadReach = useMemo(() => (worstFire ? roadReach(worstFire, roads) : null), [worstFire, roads]);
   const hasEnsemble = !!worstFire;
+  // Run context for the ICS 209-WF: run ID, clock start, ensemble projections
+  const run209 = useMemo<ICS209RunContext>(
+    () => ({ simulationId, start: scenarioStart, ensemble: ensGrids }),
+    [simulationId, scenarioStart, ensGrids],
+  );
   const criticalReach = useMemo<CriticalReach>(
     () => ({
       assets: assetRows(assets, singleAssetReach, worstAssetReach),
@@ -880,6 +886,7 @@ export default function App() {
                 : null
             }
             incidentName={incident?.name}
+            run209={run209}
             onIncidentNameChange={(name) => updateIncidentField("name", name)}
           />
           </Suspense>
@@ -1022,6 +1029,8 @@ export default function App() {
             }
             criticalReach={criticalReach}
             evacZones={evacZones}
+            run209={run209}
+            incidentName={incident?.name}
           />
         </SituationPanel>
       )}
