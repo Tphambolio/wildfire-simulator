@@ -7,7 +7,7 @@ from enum import Enum
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class WeatherParams(BaseModel):
@@ -31,7 +31,13 @@ class WeatherParams(BaseModel):
 class HourlyWeatherParams(BaseModel):
     """Weather for one hour of a simulation (applies until the next record)."""
 
-    hours_from_start: float = Field(..., ge=0, le=72, description="Hours after the simulation start")
+    hours_from_start: float = Field(
+        ..., ge=-24, le=72,
+        description=(
+            "Hours after the simulation start. Negative hours (back to -24) are before the "
+            "start: used only for the FFMC spin-up (ffmc_spin_up), otherwise dropped."
+        ),
+    )
     temperature: float = Field(..., ge=-40, le=50, description="Temperature (C)")
     relative_humidity: float = Field(..., ge=0, le=100, description="Relative humidity (%)")
     wind_speed: float = Field(..., ge=0, le=100, description="10 m wind speed (km/h)")
@@ -73,6 +79,78 @@ class FuelModifiers(BaseModel):
     def config_kwargs(self) -> dict:
         """Keyword arguments for firesim.types.SimulationConfig."""
         return self.model_dump()
+
+
+class BurningPeriod(BaseModel):
+    """Daily burning period: local clock hours between which fire spreads (none outside).
+
+    Also accepted as a two-item list ``[start_hour, end_hour]``. Hours are on the local clock
+    of the request's ``start_time`` (its own UTC offset). 10-20 h was chosen on calibration
+    fires and tested on held-out Alberta fires (docs/validation.md).
+    """
+
+    start_hour: float = Field(..., ge=0, le=24, description="Local clock hour the period opens (0-24)")
+    end_hour: float = Field(
+        ..., ge=0, le=24, description="Local clock hour the period closes (0-24, after start_hour)"
+    )
+
+    @model_validator(mode="after")
+    def _start_before_end(self) -> BurningPeriod:
+        if not self.start_hour < self.end_hour:
+            raise ValueError("burning_period start_hour must be before end_hour")
+        return self
+
+    def as_tuple(self) -> tuple[float, float]:
+        return (self.start_hour, self.end_hour)
+
+
+def burning_period_from_list(v):
+    """Accept ``[start, end]`` as well as ``{"start_hour": ..., "end_hour": ...}``."""
+    if isinstance(v, (list, tuple)):
+        if len(v) != 2:
+            raise ValueError("burning_period list must be [start_hour, end_hour]")
+        return {"start_hour": v[0], "end_hour": v[1]}
+    return v
+
+
+def local_start_hour(start_time: datetime | None) -> float | None:
+    """Clock hour of ``start_time`` in its own UTC offset (13.5 for 13:30-06:00)."""
+    if start_time is None:
+        return None
+    return start_time.hour + start_time.minute / 60.0 + start_time.second / 3600.0
+
+
+def engine_hourly(records, shift_hours: float, start_hour: float | None, ffmc_spin_up: bool):
+    """Engine hourly records from API records re-based ``shift_hours`` later, with the spin-up
+    hours kept or dropped (``firesim.spread.diurnal.hourly_for_run``; ValueError if unusable)."""
+    from firesim.spread.diurnal import hourly_for_run
+    from firesim.types import HourlyWeather
+
+    recs = [
+        HourlyWeather(
+            hours_from_start=r.hours_from_start - shift_hours, temperature=r.temperature,
+            relative_humidity=r.relative_humidity, wind_speed=r.wind_speed,
+            wind_direction=r.wind_direction, precipitation=r.precipitation,
+        )
+        for r in records or ()
+    ]
+    return hourly_for_run(recs, start_hour, ffmc_spin_up)
+
+
+BURNING_PERIOD_DOC = (
+    'Optional daily burning period, e.g. {"start_hour": 10, "end_hour": 20} or [10, 20]: fire '
+    "spreads only between these local clock hours (the clock of start_time, which is then "
+    "required) and not at all outside them. Off by default. 10-20 h with ffmc_spin_up was "
+    "chosen on calibration fires and raised one-day skill on held-out Alberta fires "
+    "(docs/validation.md)."
+)
+SPIN_UP_DOC = (
+    "Start the hourly FFMC at 17:00 local (start_time's clock) on or before the start, from the "
+    "daily FFMC (fwi_overrides.ffmc, taken as the value at 17:00, about 16:00 LST; Lawson et "
+    "al. 1996), and run it through the night on hourly_weather. Needs start_time and "
+    "hourly_weather records back to that 17:00 (negative hours_from_start) and for the run. "
+    "Off by default; when off, records before the start are dropped."
+)
 
 
 class EnsembleParams(BaseModel):
@@ -127,6 +205,8 @@ class SimulationCreate(BaseModel):
             "P10/P50/P90 arrival and burn probability at GET /simulations/{id}/ensemble."
         ),
     )
+    burning_period: BurningPeriod | None = Field(default=None, description=BURNING_PERIOD_DOC)
+    ffmc_spin_up: bool = Field(default=False, description=SPIN_UP_DOC)
     cells_mode: Literal["cumulative", "incremental"] = Field(
         default="cumulative",
         description=(
@@ -195,6 +275,27 @@ class SimulationCreate(BaseModel):
         if v is not None and v.tzinfo is None:
             raise ValueError("start_time needs a UTC offset (e.g. -06:00 or Z)")
         return v
+
+    @field_validator("burning_period", mode="before")
+    @classmethod
+    def _burning_period_list(cls, v):
+        return burning_period_from_list(v)
+
+    @model_validator(mode="after")
+    def _diurnal_options_need_clock(self) -> SimulationCreate:
+        if self.burning_period is not None and self.start_time is None:
+            raise ValueError("burning_period needs start_time (its local clock sets the hours)")
+        if self.ffmc_spin_up:
+            self.engine_hourly_weather()  # ValueError (422) if the stream cannot spin up
+        return self
+
+    def start_hour(self) -> float | None:
+        """Local clock hour of the start (start_time's own offset)."""
+        return local_start_hour(self.start_time)
+
+    def engine_hourly_weather(self):
+        """Engine hourly records: spin-up hours kept (ffmc_spin_up) or dropped."""
+        return engine_hourly(self.hourly_weather, 0.0, self.start_hour(), self.ffmc_spin_up)
 
     def fuel_config_kwargs(self) -> dict:
         """Fuel modifiers for SimulationConfig, with the day of year from start_time if unset."""
@@ -287,6 +388,36 @@ class MultiDaySimulationCreate(BaseModel):
     water_path: str | None = Field(default=None, description="Path to water bodies GeoJSON")
     buildings_path: str | None = Field(default=None, description="Path to buildings GeoJSON")
     dem_path: str | None = Field(default=None, description="Path to DEM GeoTIFF for slope-adjusted spread")
+    start_time: datetime | None = Field(
+        default=None,
+        description=(
+            "Scenario start, ISO 8601 with a UTC offset. Each day runs 24 h from this clock "
+            "time. Needed for burning_period."
+        ),
+    )
+    burning_period: BurningPeriod | None = Field(
+        default=None,
+        description=BURNING_PERIOD_DOC + " Applied every day. (No FFMC spin-up for multi-day "
+        "runs: they have daily weather only.)",
+    )
+
+    @field_validator("start_time")
+    @classmethod
+    def _start_time_has_offset(cls, v: datetime | None) -> datetime | None:
+        if v is not None and v.tzinfo is None:
+            raise ValueError("start_time needs a UTC offset (e.g. -06:00 or Z)")
+        return v
+
+    @field_validator("burning_period", mode="before")
+    @classmethod
+    def _burning_period_list(cls, v):
+        return burning_period_from_list(v)
+
+    @model_validator(mode="after")
+    def _burning_period_needs_clock(self) -> MultiDaySimulationCreate:
+        if self.burning_period is not None and self.start_time is None:
+            raise ValueError("burning_period needs start_time (its local clock sets the hours)")
+        return self
 
 
 class PerimeterOverrideRequest(BaseModel):
@@ -335,6 +466,34 @@ class PerimeterOverrideRequest(BaseModel):
         description="Distance (m) from active_edges within which burned cells are active "
                     "(default: one fuel-grid cell)",
     )
+    start_time: datetime | None = Field(
+        default=None,
+        description=(
+            "Time of the observed perimeter (the restart), ISO 8601 with a UTC offset. Default: "
+            "the source simulation's start_time. The source's hourly_weather is re-based to it."
+        ),
+    )
+    burning_period: BurningPeriod | None = Field(
+        default=None,
+        description=BURNING_PERIOD_DOC + " Not inherited from the source run; needs start_time "
+        "here or on the source.",
+    )
+    ffmc_spin_up: bool = Field(
+        default=False,
+        description=SPIN_UP_DOC + " Uses the source run's hourly_weather, re-based to start_time.",
+    )
+
+    @field_validator("start_time")
+    @classmethod
+    def _start_time_has_offset(cls, v: datetime | None) -> datetime | None:
+        if v is not None and v.tzinfo is None:
+            raise ValueError("start_time needs a UTC offset (e.g. -06:00 or Z)")
+        return v
+
+    @field_validator("burning_period", mode="before")
+    @classmethod
+    def _burning_period_list(cls, v):
+        return burning_period_from_list(v)
 
     @field_validator("active_edges")
     @classmethod
