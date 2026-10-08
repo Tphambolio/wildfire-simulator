@@ -539,14 +539,12 @@ export interface CriticalReach {
 }
 
 /**
- * Data-quality notes for the card footer: the unverified EOC point, and how many assets no
- * current official source confirms (flagged "verify" in the bundled layer).
+ * Data-quality notes for the card footer: how many assets no current official source confirms
+ * (flagged "verify" in the bundled layer).
  */
 export function assetDataNotes(assets: Asset[]): string[] {
   const notes: string[] = [];
-  const eoc = assets.filter((a) => a.category === "eoc" && a.verify);
-  for (const a of eoc) notes.push(`${a.name}: ${a.verify?.toLowerCase()} (no public address found); check before use.`);
-  const others = assets.filter((a) => a.category !== "eoc" && a.verify);
+  const others = assets.filter((a) => a.verify);
   if (others.length > 0) {
     notes.push(`${others.length} care ${others.length === 1 ? "facility is" : "facilities are"} in no current official list (marked “verify”).`);
   }

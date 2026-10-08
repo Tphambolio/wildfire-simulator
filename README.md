@@ -73,7 +73,7 @@ the weather and run. Edmonton data paths and other settings: [docs/deployment.md
 ## Data
 
 The Edmonton layers in `frontend/public/edmonton/` load automatically with the Edmonton fuel
-grid: critical assets (`assets.geojson`, 624 features: City of Edmonton Open Data, Government
+grid: critical assets (`assets.geojson`, 623 features: City of Edmonton Open Data, Government
 of Alberta continuing care list, Statistics Canada ODHF, © OpenStreetMap contributors), major
 roads (`roads.geojson`, motorway to secondary with ramps, © OpenStreetMap contributors) and
 neighbourhoods (City Open Data). Sources, licences, dates and refresh:

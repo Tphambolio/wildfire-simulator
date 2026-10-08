@@ -29,9 +29,8 @@ Sources
   nursing homes, assisted living and hospices; water and wastewater treatment plants, power
   plants, and power substations of 69 kV or more (traction and distribution-only substations
   below that are left out).
-* One manual point: the City of Edmonton Emergency Operations Centre, which is in none of
-  the open datasets above (source "City of Edmonton public information"), flagged
-  "Unverified manual point" (no public source gives its address; docs/data-sources.md).
+* No manual points. The City of Edmonton EOC is not included: no public source gives its
+  location (searched 2026-10-08), and the owner decided to leave it out (docs/data-sources.md).
 
 Care facilities from different sources are merged by name and distance (CARE_MATCH_M);
 ODHF-only and OSM-only sites are flagged "verify". Assets of one category with the same name
@@ -143,19 +142,6 @@ DEDUP_SAME_NAME_M = 300
 # "active acute hospital"): not inpatient or residential care, so not in this layer
 CLINIC_WORDS = ("surgery", "surgical", "laser", "dental", "oral", "dermatolog", "cosmetic", "lasik",
                 "professional corporation", "clinic", "eye q", "health options", "dermasurgery")
-
-# Manual point (not in any open dataset). Position as previously bundled in FireSim. No public
-# source (City web pages, council reports, news releases, OSM, City datasets) gives the EOC's
-# address as of 2026-10-08, so it stays an unverified manual point (docs/data-sources.md).
-EOC_MANUAL = {
-    "name": "City of Edmonton Emergency Operations Centre",
-    "lng": -113.4808,
-    "lat": 53.5460,
-    "detail": "Unverified manual point: carried over from an earlier hand-made layer; no public "
-    "source gives the EOC address (checked 2026-10-08)",
-    "verify": "Unverified manual point",
-}
-
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
 
@@ -1048,24 +1034,6 @@ def fetch_osm(cache: Path | None, offline: bool, now: str, meta: dict) -> list[d
     return out
 
 
-def manual_eoc(now: str, meta: dict) -> list[dict]:
-    e = EOC_MANUAL
-    meta["manual"] = {
-        "name": "City of Edmonton Emergency Operations Centre",
-        "source": SRC_MANUAL,
-        "licence": "Public information (no dataset)",
-        "count": 1,
-        "note": e["detail"],
-        "verification": "Searched 2026-10-08: City of Edmonton web pages (Office of Emergency Management), "
-        "council and audit reports, news releases, OpenStreetMap (emergency=*, names), City Open Data "
-        "facility datasets. None gives the EOC address (the 2020 co-located dispatch/EOC project at "
-        "12825 185 Avenue NW was cancelled), so the point stays unverified.",
-    }
-    p = props(e["name"], "eoc", SRC_MANUAL, "manual:edmonton-eoc", "Public information (no dataset)", now, e["detail"])
-    p["verify"] = e["verify"]
-    return [point_feature(e["lng"], e["lat"], p)]
-
-
 # ── De-duplication ───────────────────────────────────────────────────────────
 
 
@@ -1119,7 +1087,7 @@ def build(cache: Path | None, offline: bool, log: list[str] | None = None) -> di
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     meta: dict = {}
     log = log if log is not None else []
-    feats = manual_eoc(now, meta) + build_care(cache, offline, now, meta, log) + fetch_city(cache, offline, now, meta) + fetch_osm(cache, offline, now, meta)
+    feats = build_care(cache, offline, now, meta, log) + fetch_city(cache, offline, now, meta) + fetch_osm(cache, offline, now, meta)
     n0 = len(feats)
     feats = dedupe_same_name(feats, log)
     meta["dedupe_same_name"] = {"radius_m": DEDUP_SAME_NAME_M, "merged": n0 - len(feats),

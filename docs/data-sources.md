@@ -12,7 +12,7 @@ Government Licence – Canada) · © OpenStreetMap contributors (ODbL)".
 ## `assets.geojson`: critical assets
 
 Built by `scripts/build_edmonton_assets.py` (fetch, clip to the Edmonton fuel grid, normalise,
-geocode, merge across sources, de-duplicate). 624 features, about 330 KB (30 KB gzipped), built
+geocode, merge across sources, de-duplicate). 623 features, about 330 KB (30 KB gzipped), built
 2026-10-08. Each feature has `{name, category, source, source_id, licence, fetched_at,
 sources}`, usually `detail`, and `verify` when a data-quality flag applies. `source` /
 `source_id` / `licence` are the primary (most authoritative) record; `sources` lists every
@@ -22,7 +22,6 @@ plant sites from OSM keep their outline (with an `anchor` point), everything els
 
 | Category | Source (dataset) | Licence | Data date | Count |
 |----------|------------------|---------|-----------|-------|
-| Emergency operations centre | Manual point, "City of Edmonton public information"; **unverified manual point** (see below) | Public information | n/a | 1 |
 | Hospitals and care facilities | Government of Alberta, Continuing Care Accommodation Standards compliance reporting (open.alberta.ca, extract "as of June 2026"), geocoded with City of Edmonton Parcel Addresses `ut27-nrpn`; Statistics Canada ODHF v1.1; OpenStreetMap (below) | OGL – Alberta; OGL – City of Edmonton; OGL – Canada; ODbL | 2026-07-13 (visits to 2026-07-06); 2026-10-05; 2020-04-20; 2026-10-08 | 127 |
 | Fire stations | City of Edmonton Open Data, Fire Stations `b4y7-zhnz` | Open Government Licence – City of Edmonton | 2026-10-05 | 31 |
 | Police stations | City Open Data, Police Stations `e7aq-scxv` | OGL – City of Edmonton | 2024-06-28 | 7 |
@@ -89,20 +88,13 @@ card, the map popup and the EOC summary / ICS-209):
   Hospital in Sherwood Park, Pilgrims Hospice, Youville Home in St. Albert, community health
   centres tagged as hospitals).
 
-### EOC location: unverified manual point
+### EOC location: not included
 
-The EOC point (-113.4808, 53.5460) is carried over from an earlier hand-made layer. On
-2026-10-08 these public sources were searched for the City of Edmonton Emergency Operations
-Centre's address: City of Edmonton web pages (Office of Emergency Management), council and
-audit reports (Emergency Management Governance and Risk Assessment Audit), news releases and
-coverage (2020 activation, 2023 reception centres), OpenStreetMap (`emergency=*` and names in
-the grid), and City Open Data facility datasets. None gives the EOC's address; the one address
-found (12825 185 Avenue NW) belongs to the co-located dispatch and EOC project cancelled in
-2020. The point is kept and marked **"Unverified manual point"** in the data (`verify`), the
-card (a data note and the row), the map popup, the EOC summary and the ICS-209. The point lies
-in a parking lot east of downtown (Boyle Street), which is a further reason not to rely on it.
-To fix it, put the EOC's public address in `EOC_MANUAL` (`scripts/build_edmonton_assets.py`),
-geocode it with the City address points and cite the source.
+The City of Edmonton Emergency Operations Centre is not in the layer. No public source gives
+its location (searched 2026-10-08: City web pages, council and audit reports, news releases,
+OpenStreetMap, City Open Data; the one address found, 12825 185 Avenue NW, belongs to the
+co-located dispatch/EOC project cancelled in 2020), and the point carried over from an earlier
+hand-made layer could not be verified. Owner decision 2026-10-08: leave it out.
 
 ### De-duplication of same-name assets
 
@@ -135,7 +127,7 @@ Known gaps:
 - Care facilities: group homes and sites under 10 units are left out by design; two Alberta
   sites and two ODHF records could not be positioned (above); sites outside Edmonton come from
   OSM and ODHF only.
-- The EOC point is an unverified manual point.
+- The EOC is not included (no verifiable public location; owner decision 2026-10-08).
 - OSM completeness varies: substations without a `voltage` tag are not included; OSM-only care
   sites are flagged.
 

@@ -121,14 +121,14 @@ test.describe("critical assets", () => {
     expect(await seriousAxe(page)).toEqual([]);
   });
 
-  test("data gaps: EOC flagged as unverified, care facilities to verify, secondary roads and ramps reached", async ({ page }) => {
+  test("data gaps: no EOC point, care facilities to verify, secondary roads and ramps reached", async ({ page }) => {
     await mockApi(page);
     await openApp(page);
     const card = page.getByTestId("critical-assets");
     // Data notes in the card, before any run
     const notes = card.locator(".assets-data-note");
-    await expect(notes.first()).toContainText("City of Edmonton Emergency Operations Centre: unverified manual point");
-    await expect(notes.nth(1)).toContainText(/care facilit(y is|ies are) in no current official list/);
+    await expect(card).not.toContainText("Emergency Operations Centre");
+    await expect(notes.first()).toContainText(/care facilit(y is|ies are) in no current official list/);
     await expect(card.locator(".assets-sources")).toContainText("Government of Alberta");
     await card.locator(".assets-data-notes").scrollIntoViewIfNeeded();
     await shot(page, "card_notes", "gaps");
