@@ -35,7 +35,7 @@ import numpy as np
 from scipy import ndimage
 
 from firesim.exposure import DEFAULT_RESIDENCE_S, Emitters, flame_length_m
-from firesim.fbp.calculator import calculate_acceleration
+from firesim.fbp.calculator import _OPEN_ACCELERATION, fbp_ellipse_arrays
 from firesim.fbp.constants import FuelType
 from firesim.fbp.crown_fire import calculate_crown_fraction_burned, classify_fire_type
 from firesim.spread.huygens import (
@@ -44,7 +44,6 @@ from firesim.spread.huygens import (
     SpreadConditions,
     SpreadModifierGrid,
     TerrainGrid,
-    fbp_for_conditions,
 )
 from firesim.spread.spotting import SpotFire, check_ember_spotting
 
@@ -133,6 +132,8 @@ def run_cellular_simulation(
     initial_burned: list[tuple[float, float]] | None = None,
     compute_perimeter: bool = True,
     weather_schedule: list[tuple[float, SpreadConditions]] | None = None,
+    active_edges: dict | None = None,
+    active_edge_buffer_m: float | None = None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -163,6 +164,17 @@ def run_cellular_simulation(
         compute_perimeter: Build each frame's outline polygon (skip for ensembles).
         weather_schedule: (start minute, conditions) periods, e.g. from an hourly weather
             stream; FBP rates are recomputed at each change. Default: ``conditions`` throughout.
+        active_edges: Where an observed starting fire is still active (e.g. the hot edges or
+            heat seen on an RPAS thermal flight): a GeoJSON geometry dict in lng/lat
+            (LineString / MultiLineString along the active edge, Polygon / MultiPolygon of the
+            active zone, or Point / MultiPoint hotspots). Only starting-fire cells within
+            ``active_edge_buffer_m`` of it are burning and spread; the rest of the starting
+            fire is burned out (cannot spread or burn again), so inactive edges do not
+            advance until fire from an active edge reaches the fuel beyond them. Needs
+            ``initial_perimeter`` or ``initial_burned``; None = the whole starting fire is
+            active (the default).
+        active_edge_buffer_m: Distance (m) from ``active_edges`` within which starting cells
+            are burning. Default: one cell.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -198,9 +210,23 @@ def run_cellular_simulation(
     if start is not None:
         acceleration = False  # an existing fire is already at equilibrium spread
         arrival[start] = 0.0
-        phi = _signed_distance(start, dx, dy)
         t = 0.0
         ign_row = ign_col = 0
+        burning = start
+        if active_edges is not None:
+            buffer_m = max(dx, dy) if active_edge_buffer_m is None else active_edge_buffer_m
+            burning = start & active_mask(active_edges, buffer_m, rows, cols, lat_max, lng_min,
+                                          cell_lat, cell_lng, dx, dy)
+            burned_out = start & ~burning
+            if burned_out.any():  # burned-out cells become non-fuel for the rest of the run
+                cell_keys[0][burned_out] = False
+                cell_keys[1][burned_out] = -1
+                params = _CellParams.evaluate(cell_keys, conditions)
+                fuel = params.fuel
+            if not burning.any():
+                logger.warning("No starting-fire cell within %.0f m of the active edges: "
+                               "nothing spreads", buffer_m)
+        phi = _signed_distance(burning, dx, dy) if burning.any() else None
     else:
         ign_row, ign_col, snapped_m = _snap_ignition(
             fuel_grid, config["ignition_lat"], config["ignition_lng"], cell_lat, cell_lng, dy
@@ -239,7 +265,15 @@ def run_cellular_simulation(
                 in_band[win] = True
             speed = (params.head[win] + params.b[win]).max()
             if speed <= 1e-9:
-                break
+                # Nothing can spread in this period (e.g. outside a burning period): wait for
+                # the next weather change rather than ending the run.
+                if next_change() >= duration - 1e-9:
+                    break
+                t = next_change()
+                if t >= next_slice - 1e-9:
+                    slice_start = t
+                    next_slice = min(t + slice_len, duration)
+                continue
             step = min(CFL * h_min / speed, next_slice - t, next_change() - t)
             _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros,
                      acceleration)
@@ -382,6 +416,24 @@ def _initial_region(fuel_grid, fuel, perimeter, burned_points, cell_lat, cell_ln
     return mask if mask.any() else None
 
 
+def active_mask(geometry: dict, buffer_m: float, rows: int, cols: int, lat_max: float,
+                lng_min: float, cell_lat: float, cell_lng: float, dx: float, dy: float) -> np.ndarray:
+    """Cells whose centre is within ``buffer_m`` of a GeoJSON geometry (lng/lat).
+
+    The geometry is rasterised onto the grid (every cell it touches), then cells within
+    ``buffer_m`` (centre to centre, metres) of a touched cell are included.
+    """
+    from rasterio.features import rasterize
+    from rasterio.transform import Affine
+
+    transform = Affine(cell_lng, 0.0, lng_min, 0.0, -cell_lat, lat_max)
+    touched = rasterize([(geometry, 1)], out_shape=(rows, cols), transform=transform, fill=0,
+                        all_touched=True, dtype="uint8").astype(bool)
+    if not touched.any() or buffer_m <= 0.0:
+        return touched
+    return ndimage.distance_transform_edt(~touched, sampling=(dy, dx)) <= buffer_m + 1e-9
+
+
 def _signed_distance(region, dx, dy):
     """Signed distance (m) to the edge of ``region``: negative inside, positive outside."""
     outside = ndimage.distance_transform_edt(~region, sampling=(dy, dx))
@@ -431,16 +483,35 @@ class _CellParams:
 
     @classmethod
     def evaluate(cls, cell_keys, conditions) -> "_CellParams":
-        """FBP for each distinct cell type under ``conditions``, spread back onto the grid."""
-        fuel, index, keys = cell_keys
-        table = np.zeros((max(len(keys), 1), 10))
-        for k, (ft, slope, aspect, cbh, cfl, rm, im) in enumerate(keys):
-            f = fbp_for_conditions(conditions, ft, float(slope), float(aspect), cbh, cfl)
+        """FBP for each distinct cell type under ``conditions``, spread back onto the grid.
+
+        Cell types sharing fuel and canopy are evaluated together with the vectorised FBP
+        ellipse (``fbp_ellipse_arrays``); results equal one ``fbp_for_conditions`` call per type
+        to floating-point rounding (``engine/tests/spread/test_cellular_fbp_table.py``).
+        """
+        fuel, index, keys, *groups = cell_keys  # groups: _key_groups(keys), precomputed
+        table = np.zeros((len(keys) + 1, 10))  # last row: non-fuel (index -1)
+        groups = groups[0] if groups else _key_groups(keys)
+        for (ft, cbh, cfl), (rows, slope, aspect, rm, im) in groups.items():
+            f = fbp_ellipse_arrays(
+                ft, conditions.wind_speed, conditions.wind_direction, conditions.ffmc,
+                conditions.dmc, conditions.dc, np.where(slope >= 1.0, slope, 0.0), aspect,
+                pc=conditions.pc, grass_cure=conditions.grass_cure, fmc=conditions.fmc,
+                pdf=conditions.pdf, gfl=conditions.gfl, cbh=cbh, cfl=cfl,
+            )
             m = rm * conditions.ros_multiplier
-            table[k] = (f.ros_final * m, f.back_ros * m, f.flank_ros * m, f.raz, f.sfc, f.cfl,
-                        f.rso if math.isfinite(f.rso) else 1e12, im,
-                        calculate_acceleration(ft, f.cfb), f.lb)
-        vals = np.where(fuel[..., None], table[np.maximum(index, 0)], 0.0)
+            if ft in _OPEN_ACCELERATION:
+                alpha = np.full(len(rows), 0.115)
+            else:
+                cfb = np.maximum(f["cfb"], 0.0)
+                alpha = 0.115 - 18.8 * cfb ** 2.5 * np.exp(-8.0 * cfb)
+            table[rows] = np.column_stack((
+                f["ros"] * m, f["bros"] * m, f["fros"] * m, f["raz"],
+                np.full(len(rows), f["sfc"]), np.full(len(rows), f["cfl"]),
+                np.full(len(rows), f["rso"] if math.isfinite(f["rso"]) else 1e12), im,
+                alpha, f["lb"],
+            ))
+        vals = table[index]
         head, back, flank, raz_deg, sfc, cfl, rso, imult, alpha, lb = np.moveaxis(vals, -1, 0)
         raz = np.radians(raz_deg)
         return cls(
@@ -450,8 +521,22 @@ class _CellParams:
         )
 
 
+def _key_groups(keys) -> dict:
+    """Cell types grouped by (fuel, CBH, CFL): row numbers and slope, aspect, multiplier arrays."""
+    groups: dict[tuple, list] = {}
+    for k, (ft, slope, aspect, cbh, cfl, rm, im) in enumerate(keys):
+        groups.setdefault((ft, cbh, cfl), []).append((k, slope, aspect, rm, im))
+    out = {}
+    for g, items in groups.items():
+        arr = np.array([it[1:] for it in items], dtype=float).reshape(-1, 4)
+        out[g] = (np.array([it[0] for it in items], dtype=np.intp),
+                  arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3])
+    return out
+
+
 def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
-    """(fuel mask, per-cell index into the distinct cell types, the distinct types).
+    """(fuel mask, per-cell index into the distinct cell types, the distinct types, the types
+    grouped by fuel and canopy for the vectorised FBP).
 
     A cell type is (fuel, slope % rounded, upslope azimuth rounded, CBH, CFL, ROS and
     intensity multipliers): everything FBP needs apart from the weather, so FBP runs once
@@ -481,7 +566,8 @@ def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
                     rm, im, _ = spread_modifier_grid.get_modifiers_at(lat, lng)
             key = (ft, round(slope), round(aspect) % 360, cbh, cfl, rm, im)
             index[r, c] = lookup.setdefault(key, len(lookup))
-    return fuel, index, list(lookup)
+    keys = list(lookup)
+    return fuel, index, keys, _key_groups(keys)
 
 
 def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceleration=True):

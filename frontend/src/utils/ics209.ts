@@ -601,7 +601,9 @@ export function buildICS209HTML(opts: ICS209Options): string {
     <div class="disclaimer">
       ⚠ PLANNING TOOL — This report is auto-populated from fire spread model outputs using CFFDRS/FBP equations.
       All values are simulated projections for planning purposes only. Verify with ground/air observation before making
-      operational or public-protection decisions. Model uncertainty increases beyond 24h.
+      operational or public-protection decisions. Model uncertainty increases beyond 24h. A first validation on
+      143 Alberta fire-days showed low one-day skill (F1 about 0.15-0.24) with growth over-predicted on most days
+      (model card: github.com/Tphambolio/wildfire-simulator/blob/master/docs/model-card.md).
     </div>
 
     <div class="blocks">

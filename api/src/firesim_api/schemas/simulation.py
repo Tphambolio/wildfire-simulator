@@ -317,6 +317,34 @@ class PerimeterOverrideRequest(BaseModel):
         default=30.0, gt=0, le=120,
         description="Snapshot interval for new frames (minutes)",
     )
+    active_edges: dict | None = Field(
+        default=None,
+        description=(
+            "Optional GeoJSON *geometry* (lng/lat) marking where the observed fire is still "
+            "active, e.g. hot edges or heat from an RPAS thermal flight: LineString / "
+            "MultiLineString along active edges, Polygon / MultiPolygon of active zones, or "
+            "Point / MultiPoint hotspots. Parts of the perimeter within active_edge_buffer_m "
+            "of it spread; the rest of the burned area is treated as burned out and does not "
+            "spread (fire from active edges can still reach the fuel beyond it later). Omit "
+            "to treat the whole perimeter as active. Grid model only (the source simulation "
+            "needs a fuel grid)."
+        ),
+    )
+    active_edge_buffer_m: float | None = Field(
+        default=None, ge=0, le=5000,
+        description="Distance (m) from active_edges within which burned cells are active "
+                    "(default: one fuel-grid cell)",
+    )
+
+    @field_validator("active_edges")
+    @classmethod
+    def _active_edges_is_geometry(cls, v: dict | None) -> dict | None:
+        allowed = {"Point", "MultiPoint", "LineString", "MultiLineString", "Polygon",
+                   "MultiPolygon", "GeometryCollection"}
+        if v is not None and v.get("type") not in allowed:
+            raise ValueError("active_edges must be a GeoJSON geometry: "
+                             + ", ".join(sorted(allowed)))
+        return v
 
 
 class BurnProbabilityRequest(BaseModel):

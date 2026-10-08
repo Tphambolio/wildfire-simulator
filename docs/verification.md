@@ -130,6 +130,16 @@ many places. All are fixed and each has a regression test:
 | Level-set cells joining the computational window kept stale phi | grid-mode head 6-9 % slow, worse on finer grids (found by the WISE comparison) |
 | Fuel and DEM loaders stretched projected rasters over their lat/lng bounding box instead of reprojecting (fixed 2026-10-07) | Edmonton fuel cells misplaced by a median 121 m (max 332 m); the UTM DEM by a median 1.4 km (max 3.6 km); slope aspect taken from grid north. Found by the fuel-grid provenance audit |
 
+Behaviour changes after the first observed-fire validation (2026-10-07, second round):
+
+| Change | Effect |
+|---|---|
+| Grid model's per-cell FBP table vectorised (`fbp_ellipse_arrays`) | None on results (equal to floating-point rounding; identical scores on 143 fire-days); about 3x faster |
+| A zero-rate weather period ended the grid run | Now waits for the next weather change (needed for burning periods; FBP floors ROS above zero, so default runs were unaffected) |
+| Hourly records before t = 0 were all applied at t = 0 | They now only advance FFMC (spin-up); the first spread period is the record covering t = 0 |
+| Ensemble ROS factor replaced the period's `ros_multiplier` | It now multiplies it (identical when no burning period is set) |
+| New opt-in features | `active_edges` (observed perimeter with inactive edges burned out), `burning_period`; defaults unchanged, so the FBP-ellipse and WISE comparisons above are unchanged |
+
 Most of these came from the v2 code base, whose fire science was assembled from summaries
 rather than the source reports, and the old tests re-implemented the same formulas, so they
 could not catch the errors.
@@ -140,7 +150,8 @@ could not catch the errors.
   growth with 143 observed fire-days from 32 Alberta fires (Canadian Fire Spread Dataset,
   Bennett et al. 2026 protocol). Skill is modest (F1 0.15-0.24 at the default 17 h window,
   depending on initialisation) and growth is over-predicted on most days, in the same band as
-  WISE. FireSim remains a preparedness, training and what-if tool (see `docs/model-card.md`).
+  WISE. With active edges, FFMC spin-up and a 10-20 h burning period the held-out F1 is 0.21
+  (second round), still short of tuned WISE (0.54). FireSim remains a preparedness, training and what-if tool (see `docs/model-card.md`).
 - **Compared with WISE only on uniform fuel**, flat and on uniform slopes. Heterogeneous fuel,
   real terrain, barriers and spotting have not been compared with WISE, Burn-P3 or Cell2Fire.
 - **Spotting**: maximum distance follows Albini/Chase/Morris and reproduces their published

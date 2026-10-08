@@ -10,6 +10,10 @@ Two initialisations:
   fire, passed through the same path as an RPAS-observed perimeter (``initial_perimeter`` for the
   largest burned patch, ``initial_burned`` for any other patches). Uses no information from the
   burn day itself.
+- ``"active"``: as ``"perimeter"``, but only the parts of the starting fire that grew in the
+  last ``active_days`` days (CFSDS day of burning; within ``active_buffer_m``) are active, as an
+  RPAS thermal flight would mark the active edges (``active_edges`` in the grid model). The
+  rest of the starting fire is burned out. Uses no information from the burn day.
 - ``"bennett"``: as Bennett et al. (2026) for W.I.S.E.: only previous-day cells that touch the
   burn day's observed growth are ignited. This uses the observed outcome to choose where the
   fire starts, so it flatters the model; it exists for like-for-like comparison with W.I.S.E.
@@ -87,7 +91,11 @@ class RunOptions:
     """How a fire-day is simulated and scored."""
 
     windows_h: tuple[float, ...] = (8.0, 17.0, 24.0)  # scored burn durations from the start hour
-    ignition: str = "perimeter"  # "perimeter" (operational) or "bennett"
+    ignition: str = "perimeter"  # "perimeter" (operational), "active" or "bennett"
+    active_days: int = 1  # "active": growth of the last N days before the burn day is active
+    active_buffer_m: float | None = None  # "active": distance from that growth (None = 1 cell)
+    ffmc_spinup: bool = False  # start the hourly FFMC the previous afternoon (case.spinup)
+    burning_period: tuple[float, float] | None = None  # local clock hours; None = always
     enable_spotting: bool = False
     oracle_max_h: int = 17  # Bennett scenario 2: best of hours 1..oracle_max_h
     # Seasonal fuel handling for national grids (D-1/M-1 labels -> green D-2/M-2 in summer)
@@ -114,6 +122,9 @@ class FireDayCase:
     fwi: float = math.nan  # burn day's CFSDS FWI (for classing only)
     bui: float = math.nan
     meta: dict = field(default_factory=dict)
+    # Hours before ``start`` (negative hours_from_start) from the previous afternoon, for the
+    # hourly-FFMC spin-up (RunOptions.ffmc_spinup)
+    spinup: tuple[HourlyWeather, ...] = ()
 
     @property
     def fire_id(self) -> str:
@@ -131,8 +142,14 @@ def crop_for_day(domain: FireDomain, day: int, margin_m: float = 20000.0) -> Fir
     return domain.crop(r0, r1, c0, c1)
 
 
+# The daily FFMC describes mid-afternoon moisture (about 16:00 LST = 17:00 MDT; Lawson et al.
+# 1996), so the hourly FFMC spin-up starts there on the previous day.
+SPINUP_FROM_HOUR = 17
+
+
 def build_case(domain: FireDomain, day: int, groups: dict[int, dict], records,
-               start_hour: int = 6, hours: int = 24, margin_m: float = 20000.0) -> FireDayCase:
+               start_hour: int = 6, hours: int = 24, margin_m: float = 20000.0,
+               spinup_from_hour: int = SPINUP_FROM_HOUR) -> FireDayCase:
     """FireDayCase for burn day ``day`` from a domain, its CFSDS rows and hourly weather."""
     from firesim.validation.weather import burn_hours, doy_to_date
 
@@ -148,7 +165,22 @@ def build_case(domain: FireDomain, day: int, groups: dict[int, dict], records,
         ffmc=float(prev["ffmc"]), dmc=float(prev["dmc"]), dc=float(prev["dc"]),
         fwi=float(today.get("fwi", math.nan)), bui=float(today.get("bui", math.nan)),
         meta={"codes_from_day": int(prev["DOB"])},
+        spinup=_spinup_hours(records, start, spinup_from_hour),
     )
+
+
+def _spinup_hours(records, start: datetime, from_hour: int) -> tuple[HourlyWeather, ...]:
+    """Hourly records from ``from_hour`` on the day before ``start`` up to ``start``, with
+    negative hours_from_start (empty if any hour is missing)."""
+    from firesim.validation.weather import burn_hours
+
+    t0 = datetime(start.year, start.month, start.day, from_hour) - timedelta(days=1)
+    n = int(round((start - t0).total_seconds() / 3600.0))
+    try:
+        hrs = burn_hours(records, t0, n)
+    except KeyError:
+        return ()
+    return tuple(replace(h, hours_from_start=h.hours_from_start - n) for h in hrs)
 
 
 def _seasonal(ft: FuelType | None, doy: int, opts: RunOptions) -> FuelType | None:
@@ -228,15 +260,35 @@ def initial_state(domain: FireDomain, day: int, ignition: str):
     raise ValueError(f"unknown ignition {ignition!r}")
 
 
+def active_geometry(domain: FireDomain, day: int, days: int = 1) -> dict | None:
+    """GeoJSON MultiPolygon (lng/lat) of the cells that burned in the ``days`` days before
+    ``day``: the operational stand-in for the active edges seen on a thermal flight."""
+    from rasterio.features import shapes
+    from rasterio.transform import Affine
+
+    dob = domain.dob
+    mask = (dob >= day - days) & (dob < day) & (dob > 0)
+    if not mask.any():
+        return None
+    transform = Affine(domain.cell_lng, 0.0, domain.lng_min, 0.0, -domain.cell_lat,
+                       domain.lat_max)
+    polys = [g["coordinates"] for g, _ in shapes(mask.astype(np.uint8), mask=mask,
+                                                transform=transform)]
+    return {"type": "MultiPolygon", "coordinates": polys}
+
+
 def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
              member: Member = Member()) -> dict:
     """Run one member of a fire-day; returns arrival minutes (inf = unburned) and run info."""
     dom = case.domain
     duration_h = max(max(opts.windows_h), float(opts.oracle_max_h))
-    perimeter, burned_pts, extra_nonfuel = initial_state(dom, case.day, opts.ignition)
+    perimeter, burned_pts, extra_nonfuel = initial_state(
+        dom, case.day, "perimeter" if opts.ignition == "active" else opts.ignition)
+    active = active_geometry(dom, case.day, opts.active_days) if opts.ignition == "active" else None
     fuel_grid = fuel_grid_for(dom, case.day, opts, extra_nonfuel)
     terrain = terrain_grid_for(dom) if opts.use_terrain else None
     hourly = member.apply(case.hourly)[: int(math.ceil(duration_h))]
+    spinup = member.apply(case.spinup) if opts.ffmc_spinup else ()
     green = opts.greenup_doy <= case.day < opts.leafoff_doy
     clat = dom.lat_max - 0.5 * dom.rows * dom.cell_lat
     clng = dom.lng_min + 0.5 * dom.cols * dom.cell_lng
@@ -250,7 +302,9 @@ def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
         ffmc=case.ffmc, dmc=case.dmc, dc=case.dc,
         grass_cure=opts.grass_cure_green if green else opts.grass_cure_dormant,
         percent_conifer=opts.percent_conifer, percent_dead_fir=opts.percent_dead_fir,
-        day_of_year=case.day, elevation_m=elev, hourly_weather=hourly,
+        day_of_year=case.day, elevation_m=elev, hourly_weather=spinup + hourly,
+        start_hour=case.start.hour + case.start.minute / 60.0,
+        burning_period=opts.burning_period,
     )
     front = [FireVertex(lat=a, lng=b) for a, b in perimeter] if perimeter else None
     sim = Simulator(config, fuel_grid, terrain, initial_front=front, initial_burned=burned_pts,
@@ -268,6 +322,7 @@ def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
         dt_minutes=1.0, weather_schedule=schedule,
         snapshot_interval_minutes=duration_h * 60.0, enable_spotting=opts.enable_spotting,
         initial_perimeter=perimeter, initial_burned=burned_pts, compute_perimeter=False,
+        active_edges=active, active_edge_buffer_m=opts.active_buffer_m,
     )
     run_s = time.perf_counter() - t0
     arrival = frames[-1].arrival if frames and frames[-1].arrival is not None else \
@@ -364,6 +419,8 @@ def run_fire_day(case: FireDayCase, opts: RunOptions = RunOptions(),
         "fire_id": case.fire_id, "year": case.domain.year, "day": case.day,
         "date": case.start.date().isoformat(), "start_hour": case.start.hour,
         "ignition": opts.ignition, "spotting": opts.enable_spotting,
+        "options": {"active_days": opts.active_days, "active_buffer_m": opts.active_buffer_m,
+                    "ffmc_spinup": opts.ffmc_spinup, "burning_period": opts.burning_period},
         "ffmc": case.ffmc, "dmc": case.dmc, "dc": case.dc, "fwi": case.fwi, "bui": case.bui,
         "fwi_class": fwi_class(case.fwi) if not math.isnan(case.fwi) else None,
         "res_m": round(min(case.domain.dx, case.domain.dy), 1),
