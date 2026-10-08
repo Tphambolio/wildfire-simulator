@@ -11,10 +11,16 @@ distribution, ignition probability or number of spots:
   and the WUI ember multiplier;
 - the landing distance is uniform between 30 % and 100 % of the maximum;
 - the direction is von Mises around the downwind direction, tighter in stronger wind.
+
+Random draws come from a ``random.Random`` passed in by the caller, never from the global
+``random`` module, so a run is repeatable: ``Simulator`` seeds it from
+``SimulationConfig.seed``, or, when that is ``None``, from ``derive_seed(config)`` (a hash of
+the run's inputs). The same inputs give the same spot fires in any process.
 """
 
 from __future__ import annotations
 
+import hashlib
 import math
 import random
 from dataclasses import dataclass
@@ -41,6 +47,16 @@ MAX_SPOT_PROB = 0.15
 INTENSITY_REF_KW_M = 30000.0
 
 
+def derive_seed(*parts: object) -> int:
+    """Deterministic 63-bit seed from the ``repr`` of the given inputs.
+
+    Uses SHA-256 rather than ``hash()``, which is salted per process for strings, so the
+    seed is the same in every process and on every machine.
+    """
+    digest = hashlib.sha256(repr(parts).encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") >> 1
+
+
 @dataclass
 class SpotFire:
     """A spot fire ignited by wind-lofted embers."""
@@ -62,6 +78,8 @@ def check_ember_spotting(
     dt_minutes: float,
     check_interval: int = 4,
     intensity_multiplier: float = 1.0,
+    *,
+    rng: random.Random,
 ) -> list[SpotFire]:
     """Check for ember spotting from the fire front.
 
@@ -77,6 +95,7 @@ def check_ember_spotting(
         default_fuel: Fallback fuel type.
         dt_minutes: Current timestep (affects probability scaling).
         check_interval: Check every Nth vertex (performance tuning).
+        rng: Random source for all draws (seeded by the caller for repeatability).
 
     Returns:
         List of SpotFire objects for new ignition points.
@@ -117,12 +136,12 @@ def check_ember_spotting(
         # Scale probability by timestep (calibrated for 5-min steps)
         spot_prob = base_prob * (dt_minutes / 5.0) * max(0.0, intensity_multiplier)
 
-        if random.random() > spot_prob:
+        if rng.random() > spot_prob:
             continue  # No spot fire this timestep
 
         # Maximum distance from Albini's models; landing point sampled below it (heuristic)
         max_distance = max_spot_distance(fuel.value, hfi, fbp.cfb, conditions.wind_speed)
-        spot_distance = max_distance * random.uniform(0.3, 1.0)
+        spot_distance = max_distance * rng.uniform(0.3, 1.0)
 
         if spot_distance < 10.0:
             continue  # Too short to matter
@@ -133,7 +152,7 @@ def check_ember_spotting(
         # Concentration parameter: higher wind = more focused ember shower
         kappa = max(1.0, conditions.wind_speed / 10.0)
         # Sample from von Mises
-        spot_angle_rad = _von_mises_sample(spread_dir_rad, kappa)
+        spot_angle_rad = _von_mises_sample(spread_dir_rad, kappa, rng)
 
         # Convert to lat/lng displacement
         m_per_lng = _m_per_deg_lng(vertex.lat)
@@ -161,13 +180,13 @@ def check_ember_spotting(
     return spot_fires
 
 
-def _von_mises_sample(mu: float, kappa: float) -> float:
+def _von_mises_sample(mu: float, kappa: float, rng: random.Random) -> float:
     """Sample from von Mises distribution using rejection method.
 
     Simple implementation — for small kappa, falls back to uniform.
     """
     if kappa < 0.01:
-        return random.uniform(0, 2 * math.pi)
+        return rng.uniform(0, 2 * math.pi)
 
     # Best-Fisher algorithm for von Mises sampling
     a = 1.0 + math.sqrt(1.0 + 4.0 * kappa * kappa)
@@ -175,13 +194,13 @@ def _von_mises_sample(mu: float, kappa: float) -> float:
     r = (1.0 + b * b) / (2.0 * b)
 
     while True:
-        u1 = random.random()
+        u1 = rng.random()
         z = math.cos(math.pi * u1)
         f = (1.0 + r * z) / (r + z)
         c = kappa * (r - f)
-        u2 = random.random()
+        u2 = rng.random()
 
         if c * (2.0 - c) > u2 or math.log(c / u2) + 1.0 >= c:
-            u3 = random.random()
+            u3 = rng.random()
             theta = mu + math.copysign(math.acos(f), u3 - 0.5)
             return theta

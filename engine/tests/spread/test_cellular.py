@@ -530,8 +530,6 @@ class TestCASpottingIntegration:
     """
 
     def _run_extreme(self, enable_spotting: bool, spotting_intensity: float = 1.0, seed: int = 0):
-        random.seed(seed)
-        np.random.seed(seed)
         conditions = SpreadConditions(
             wind_speed=55.0,
             wind_direction=270.0,
@@ -549,6 +547,7 @@ class TestCASpottingIntegration:
             snapshot_interval_minutes=30.0,
             enable_spotting=enable_spotting,
             spotting_intensity=spotting_intensity,
+            seed=seed,
         ), grid
 
     def test_no_spotting_when_disabled(self):
@@ -598,6 +597,101 @@ class TestCASpottingIntegration:
         assert all_spots == [], (
             "Expected no spot fires when spotting_intensity=0"
         )
+
+
+class TestSpottingRepeatability:
+    """Spotting draws come from a seeded local ``random.Random`` (docs/verification.md)."""
+
+    _COND = SpreadConditions(wind_speed=55.0, wind_direction=270.0, ffmc=95.0, dmc=85.0, dc=600.0)
+
+    def _spots(self, seed=None, **cfg):
+        from firesim.spread.simulator import Simulator
+        from firesim.types import SimulationConfig, WeatherInput
+
+        grid = make_uniform_grid(rows=40, cols=40, fuel=FuelType.C5, cell_deg=0.005)
+        lat = (grid.lat_min + grid.lat_max) / 2
+        lng = (grid.lng_min + grid.lng_max) / 2
+        config = SimulationConfig(
+            ignition_lat=lat, ignition_lng=lng,
+            weather=WeatherInput(30.0, 15.0, 55.0, 270.0, 0.0),
+            duration_hours=1.0, snapshot_interval_minutes=60.0,
+            ffmc=95.0, dmc=85.0, dc=600.0, seed=seed, **cfg,
+        )
+        frames = list(Simulator(config, fuel_grid=grid, enable_spotting=True,
+                                spotting_intensity=5.0).run())
+        return [(s["lat"], s["lng"], s["distance_m"]) for s in frames[-1].spot_fires or []]
+
+    def test_identical_runs_give_identical_spot_fires(self):
+        first = self._spots()
+        assert first, "expected spot fires under these conditions"
+        random.seed(12345)  # global state must not matter
+        assert self._spots() == first
+        assert self._spots(seed=7) == self._spots(seed=7)
+
+    def test_different_seeds_differ(self):
+        assert self._spots(seed=1) != self._spots(seed=2)
+
+    def test_global_random_state_untouched(self):
+        random.seed(99)
+        before = random.getstate()
+        self._spots(seed=3)
+        assert random.getstate() == before
+
+    def test_default_seed_is_derived_from_inputs(self):
+        from firesim.types import SimulationConfig, WeatherInput
+
+        w = WeatherInput(30.0, 15.0, 55.0, 270.0, 0.0)
+        a = SimulationConfig(ignition_lat=53.5, ignition_lng=-113.5, weather=w, duration_hours=1.0)
+        b = SimulationConfig(ignition_lat=53.5, ignition_lng=-113.5, weather=w, duration_hours=1.0)
+        c = SimulationConfig(ignition_lat=53.5, ignition_lng=-113.5, weather=w, duration_hours=2.0)
+        assert a.resolved_seed() == b.resolved_seed() != c.resolved_seed()
+        assert SimulationConfig(ignition_lat=53.5, ignition_lng=-113.5, weather=w,
+                                duration_hours=1.0, seed=5).resolved_seed() == 5
+
+    def test_grid_run_without_seed_is_repeatable(self):
+        grid = make_uniform_grid(rows=60, cols=60, fuel=FuelType.C5, cell_deg=0.005)
+
+        def run():
+            frames = run_cellular_simulation(
+                center_config(grid, duration_hours=1.5), grid, self._COND,
+                enable_spotting=True, spotting_intensity=5.0, snapshot_interval_minutes=60.0,
+            )
+            return [(s.lat, s.lng) for f in frames for s in (f.spot_fires or [])]
+
+        first = run()
+        assert first, "expected spot fires with the derived seed for these inputs"
+        random.seed(4321)
+        assert run() == first
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Known defect (2026-10-08, open item in docs/PROJECT_RECORD.md): a point ignition in a "
+    "narrow ellipse (grass, LB ~5) spreads far too slowly when the wind is off the grid axes; "
+    "established fronts are not affected."))
+def test_point_ignition_grass_diagonal_wind():
+    """Burned area of a point ignition should not depend on the wind's angle to the grid.
+
+    Observed 2026-10-08 (O-1a, 25 km/h, 50 m cells, 2 h, no acceleration): 43 cells with
+    the wind from 180 deg, 3 with it from 225 deg; cells on the downwind diagonal are
+    skipped and burn late. Starting from an observed perimeter instead, 225 and 270 deg
+    give the same downwind extent (601 vs 575 m).
+    """
+    fuel, cell_m, n = FuelType.O1a, 50.0, 60
+    dlat = cell_m / 111320.0
+    dlng = cell_m / (111320.0 * math.cos(math.radians(53.5)))
+    grid = FuelGrid([[fuel] * n for _ in range(n)], 53.5 - n * dlat / 2, 53.5 + n * dlat / 2,
+                    -113.5 - n * dlng / 2, -113.5 + n * dlng / 2, n, n)
+
+    def cells(wind_from):
+        cond = SpreadConditions(wind_speed=25.0, wind_direction=wind_from, ffmc=88.0,
+                                dmc=60.0, dc=300.0)
+        frames = run_cellular_simulation(
+            {"ignition_lat": 53.5, "ignition_lng": -113.5, "duration_hours": 2.0}, grid, cond,
+            acceleration=False, snapshot_interval_minutes=120.0, compute_perimeter=False,
+        )
+        return frames[-1].total_burned
+
+    assert cells(225.0) >= 0.5 * cells(180.0)
 
 
 class TestHeadSpeed:

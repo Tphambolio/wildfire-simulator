@@ -9,7 +9,8 @@ git history and the owner's recorded decisions.
 - **Live:** https://wildfire-simulator.vercel.app (frontend, Vercel) · API https://firesim-api.fly.dev/api/v1/health (Fly.io `firesim-api`, region yyz)
 - **Repo:** https://github.com/Tphambolio/wildfire-simulator (local: `~/dev/wildfire/wildfire-simulator-v3`), branch `master`
 - **Owner:** Travis Kennedy, P.Ag (City of Edmonton)
-- **Status at this revision:** `master` = `b1a0136` (PR #29, 2026-10-08), the same SHA the live API reports at `GET /api/v1/version`; tests 2026-10-08: engine 864 passed / 3 skipped, API 102, Vitest 255, Playwright 26, all green (§5).
+- **Tracked in Claude for Science project** `proj_4c36553a0c0c` (snapshots of this record are attached there; this file stays the source of truth)
+- **Status at this revision:** branch `fix/record-open-items` on `master` `03997fd` (PR #31, 2026-10-08); tests 2026-10-08 on the branch: engine 873 passed / 1 xfailed (known defect, §6) / 0 skipped, API 103, Vitest 272, Playwright 28, all green (§5).
 
 ---
 
@@ -53,16 +54,18 @@ Frontend → HTTP/WebSocket → API → engine; frames are streamed back over We
 | `engine/src/firesim/data/` | Fuel loader (code schemes incl. Edmonton canopy LiDAR, drone pipeline, CFS national), DEM loader, reprojection (`raster_grid.py`), WUI/water/building masks, synthetic demo grid |
 | `engine/src/firesim/validation/` | CFSDS validation harness (`cfsds.py`, `harness.py`, `metrics.py`, `report.py`, `weather.py`) |
 | `api/src/firesim_api/` | FastAPI: `routers/` (simulations, fwi, weather, health), `services/runner.py` (background runs, grid cache), `schemas/`, `ws/` |
-| `frontend/src/` | React 19 + TypeScript + Vite + MapLibre GL: `MapView`, Setup sections, Situation panel (`FireMetrics`, `EvacStatusPanel`, `CriticalAssetsPanel`, `EOCSummary`), `TimeSlider`, `EOCConsole` (ICS forms, ICS-209); shared tables `utils/fireClasses.ts`, `utils/fwiClass.ts`, `utils/time.ts` |
+| `frontend/src/` | React 19 + TypeScript + Vite + MapLibre GL: `MapView`, Setup sections, Situation panel (`FireMetrics`, `EvacStatusPanel`, `CriticalAssetsPanel`, `EOCSummary`), `TimeSlider`, `EOCConsole` (ICS forms, ICS Canada 209-WF); shared tables `utils/fireClasses.ts`, `utils/fwiClass.ts`, `utils/time.ts` |
 | `scripts/build_edmonton_assets.py` | Builds `frontend/public/edmonton/assets.geojson` (critical assets) from open sources |
+| `scripts/build_edmonton_roads.py` | Builds `frontend/public/edmonton/roads.geojson` (motorway to secondary + ramps) from Overpass |
 | `scripts/validate.py`, `scripts/validation/` | Validation runs (prepare / run / report / compare), CFSDS fetch, optional WISE fire-day runs |
 
 **External data the code calls at run time:** Open-Meteo forecast API (`frontend/src/services/api.ts`,
 `api/.../routers/weather.py`); CWFIS GeoServer WFS (`routers/weather.py`, current station
 weather/FWI); OSM raster tiles and OpenTopoMap tiles, optional Mapbox satellite (`MapView.tsx`);
 Nominatim geocoding and Overpass (`WeatherPanel.tsx`, `services/overpass.ts`). Build/validation
-time only: City of Edmonton Open Data (Socrata), StatCan ODHF, Overpass
-(`build_edmonton_assets.py`); Open-Meteo ERA5 archive (`validation/weather.py`); CFSDS (OSF),
+time only: City of Edmonton Open Data (Socrata, incl. Parcel Addresses `ut27-nrpn`), Government
+of Alberta continuing care list (open.alberta.ca), StatCan ODHF, Overpass
+(`build_edmonton_assets.py`, `build_edmonton_roads.py`); Open-Meteo ERA5 archive (`validation/weather.py`); CFSDS (OSF),
 CFS national FBP grids, MRDEM (`scripts/validation/`).
 
 **Build / deploy:** push to `master` → GitHub Actions (`engine-tests (3.11)`, `engine-tests (3.12)`,
@@ -84,7 +87,7 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | 2026-10-06 | FWI classes = CWFIS national FWI map intervals (0-5 / 6-15 / 16-22 / 23-29 / 30+), one table for engine, API and UI; not an official danger rating | `43f0800` (PR #9); `engine/src/firesim/fwi/classes.py` |
 | 2026-10-06 | RPAS stand-off distance and 2 km crown-fire personnel rule removed; generic "fire authority / SFOC / CARs" reminder only, no distances | Unsourced, could be read as permission (`5f3be56`, `5771c73`, PR #14; at the owner's direction) |
 | 2026-10-06 | Never put SFOC numbers or SFOC condition IDs in the public repo | Owner rule (`CLAUDE.md`, City of Edmonton notes) |
-| 2026-10-06 | EOC redesign: primary user is the EOC Planning section; main screen built around resource deployment; desktop/laptop only; dark theme (light only for print/export); EOC console simplified and centred on the ICS Canada 209 | Owner brief (redesign note 2026-10-06); dark tokens `f0a3c28` (PR #15), map-first layout `d8affaa` (PR #16). ICS-209 generator still follows the NIMS layout (§6) |
+| 2026-10-06 | EOC redesign: primary user is the EOC Planning section; main screen built around resource deployment; desktop/laptop only; dark theme (light only for print/export); EOC console simplified and centred on the ICS Canada 209 | Owner brief (redesign note 2026-10-06); dark tokens `f0a3c28` (PR #15), map-first layout `d8affaa` (PR #16). 209 rebuilt on ICS Canada Form 209-WF `d34b349` (2026-10-08, below) |
 | 2026-10-06 | FireSim must never suggest evacuation tiers; Planning sets Order / Alert / Watch, drawn as blue outlines | Owner decision; implemented `c815fcf` (PR #20, merged 2026-10-07) |
 | 2026-10-06 | Times in America/Edmonton; Alberta permanent UTC-6 from 2026-06-18 (IANA tzdata 2026c); old tz data shows MST after 2026-11-01 | `89a0a4b`; `docs/model-card.md` |
 | 2026-10-07 | Positioning: preparedness/training tool now; Prometheus-level real-time accuracy is the later goal. Build order: validation harness → ensemble-first product → fixed-horizon 209 snapshots → time-available vs time-needed → trigger buffers / ember reach → exercise/replay | Owner, after the internal EOC best-practice review [R1]. Review's "avoid" list stands: no evac tier suggestions, no headline single arrival time, no per-building loss probability, no barrier credit for rivers/roads |
@@ -92,7 +95,12 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | 2026-10-07 | Measure every prediction improvement on the CFSDS validation harness (Bennett et al. 2026 protocol), held-out fires for settings | `498fec7` (PR #22), `37311ef`/`6934822` (PR #27) |
 | 2026-10-08 | UI defaults = held-out validated set-up (burning period 10-20 h, FFMC spin-up with hourly forecast, active edges when marked); API defaults stay off | `c35e308`, `c53fafb` (PR #28); `docs/model-card.md` |
 | 2026-10-08 | Critical assets and roads are automatic from open sources (no user JSON); report arrival times (single run + ensemble P10) per asset instead of a 50 %-burn-probability flag | Owner decision 2026-10-08; `0751583` (PR #29) |
-| 2026-10-08 | The EOC location may be published (manual point in `assets.geojson`) | Owner, 2026-10-08 (roadmap note); `docs/data-sources.md` |
+| 2026-10-08 | ~~The EOC location may be published (manual point in `assets.geojson`)~~ **Superseded** the same day (below: EOC point left out) | Owner, 2026-10-08 (roadmap note); `docs/data-sources.md` |
+| 2026-10-08 | Critical-asset data gaps closed: care facilities from the current Government of Alberta continuing care list (geocoded with City address points) + ODHF + OSM, merged by name within 150 m with every source kept per feature; ODHF-only sites flagged "possibly closed", OSM-only "verify" (11 → 127 sites); EOC kept but marked "Unverified manual point" everywhere (no public source gives its address; superseded by the next row); roads rebuilt from OSM incl. `secondary` and ramps by a kept script; generic same-name de-duplication within 300 m (30 merged); burn-probability area table labelled model output | `2357a02` (PR #31, merged `03997fd`); `docs/data-sources.md` |
+| 2026-10-08 | The EOC point is left out of the critical-assets layer: no public source gives the EOC's location and the old manual point was unverifiable (supersedes "The EOC location may be published") | Owner decision 2026-10-08; PR #33 (`fix/drop-eoc-point`, `8da78f5`; open at the time of writing); `assets.geojson` 623 features |
+| 2026-10-08 | Situation report = ICS Canada Form 209-WF (May 2021), not NIMS ICS-209. Model-filled blocks tagged MODEL OUTPUT (7, 27, 29, 30B, 36, 38, 42); observed blocks 9 (status) and 28 (observed behaviour) user-entered only; projections at 12/24/48/72 h in clock time from the ensemble (P50, P10) where available; run ID + model version stamped; unsourced HFI→complexity mapping removed; other ICS forms cite their ICS Canada counterparts (layouts are adaptations) | Owner choice (ICS Canada); form checked against icscanada.ca PDF; `d34b349`; `docs/ics-canada-209.md` |
+| 2026-10-08 | Engine runs are repeatable: spotting draws from a private `random.Random` seeded by `SimulationConfig.seed` (API `seed`) or a SHA-256 of the other inputs; no global random state | `f681189`; `docs/verification.md` §5 |
+| 2026-10-08 | Real-raster integration tests start from known O-1a fuel cells of the reprojected grid and must run, not skip | `af052e4` |
 | standing | Ask the owner before each merge (auto-merge is enabled but still ask) | `CLAUDE.md` (CI/CD); owner notes |
 | standing | Run the full verification stack, including browser E2E, before calling work done | Owner feedback note (2026-06-16) |
 | standing | No Claude/Anthropic references in code committed to City of Edmonton systems (`git.edmonton.ca`); this GitHub repo is separate | `CLAUDE.md` |
@@ -179,12 +187,13 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 | Source | Use | Licence |
 |---|---|---|
 | Edmonton FBP fuel grid `data/Edmonton_FBP_FuelLayer_20251105_10m.tif` | Spatial fuel (codes 2 C-2, 12 D-2, 14 M-2, 31 O-1a, 32 O-1b, 99 non-fuel; `canopy_lidar` scheme) | City of Edmonton internal product. Lineage [R2]: **20 m** cells, EPSG:3776, built 2026-03-20 by `build_fuel_raster.py` (Urban-Forestry LiDAR repo, commit `223dd29`) from the City's 2025 leaf-on vegetation LiDAR, a conifer/deciduous crown classifier and uPLVI / Naturalized Areas polygons; committed to FireSim 2026-04-05 (`c1f3804`). Filename (date, "10m") is wrong. Never accuracy-assessed |
-| `data/edmonton_dem.tif` | Slope and aspect | Open Government Canada (per `CLAUDE.md`) |
-| `data/edmonton_buildings.geojson.gz`, `data/edmonton_neighbourhoods.geojson` | Building mask, exposure, building index; neighbourhoods | City of Edmonton Open Data, OGL – City of Edmonton |
-| `data/edmonton_water_bodies.geojson.gz` | Optional non-fuel mask (**off by default**) | OpenStreetMap (ODbL) per `docs/verification.md`/[R2]; `CLAUDE.md` lists "City Open Data" (inconsistent; see §6) |
+| `data/edmonton_dem.tif` | Slope and aspect | 30 m, EPSG:26912, TIFF date 2011; recorded as Open Government Canada, exact product not recorded (likely NRCan CDEM; **unverified**) |
+| `data/edmonton_buildings.geojson.gz` | Building mask, exposure, building index | Microsoft Canadian Building Footprints, ODbL (file metadata: 346,238 footprints, generated 2025-11-16; corrected 2026-10-08, `45e68d2`; was listed as City Open Data). Its `type`/`height`/`material`/`roof_type` attributes have no documented source and are not used |
+| `data/edmonton_neighbourhoods.geojson` | Neighbourhoods, building index | City of Edmonton Open Data `65fr-66s6`, OGL – City of Edmonton |
+| `data/edmonton_water_bodies.geojson.gz` | Optional non-fuel mask (**off by default**) | OpenStreetMap (ODbL; features carry `osm_id`); `CLAUDE.md` corrected 2026-10-08 (`45e68d2`) |
 | `data/wui_zones.geojson.gz` | WUI modifiers (**off by default**) | **No documented source** |
-| `frontend/public/edmonton/assets.geojson` (509 features, built 2026-10-08) | Critical assets: fire/police stations, recreation and seniors centres, schools, LRT (City Open Data `b4y7-zhnz`, `e7aq-scxv`, `nz3t-vyg3`, `zmac-3mxq`, `gfxq-u8uu`, `996c-239n`, `fhxi-cnhe`); hospitals/care (StatCan ODHF v1.1, 2020-04-20); water/wastewater, power plants, substations ≥ 69 kV (OSM via Overpass); EOC manual point | OGL – City of Edmonton; OGL – Canada; ODbL 1.0 (derived database, share-alike). EOC point: public information |
-| `frontend/public/edmonton/roads.geojson` | Major roads (motorway/trunk/primary), 2026-03-22 | ODbL 1.0 (extraction script not kept) |
+| `frontend/public/edmonton/assets.geojson` (624 features, rebuilt 2026-10-08, PR #31; 623 after PR #33 drops the EOC point) | Critical assets: fire/police stations, recreation and seniors centres, schools, LRT (City Open Data `b4y7-zhnz`, `e7aq-scxv`, `nz3t-vyg3`, `zmac-3mxq`, `gfxq-u8uu`, `996c-239n`, `fhxi-cnhe`); 127 hospitals/care facilities from the Government of Alberta continuing care list (extract as of June 2026, geocoded with City Parcel Addresses `ut27-nrpn`, 102/104), StatCan ODHF v1.1 (2020-04-20; 26/28 coordinate-less records geocoded) and OSM (flagged "verify"); water/wastewater, power plants, substations ≥ 69 kV (OSM via Overpass). No manual points: the EOC is not in the layer (PR #33) | OGL – City of Edmonton; OGL – Alberta; OGL – Canada; ODbL 1.0 (derived database, share-alike) |
+| `frontend/public/edmonton/roads.geojson` | Major roads, motorway to secondary + ramps, 816 features, rebuilt 2026-10-08 by `scripts/build_edmonton_roads.py` (Overpass, joined per road, Douglas-Peucker 5 m) | ODbL 1.0, © OpenStreetMap contributors |
 | `frontend/public/edmonton/neighbourhoods.geojson` | Neighbourhood arrival + Planning-set status (`65fr-66s6`) | OGL – City of Edmonton |
 | Open-Meteo forecast API | Hourly forecast weather aligned to the scenario start | Open-Meteo terms (CC BY 4.0 data) |
 | CWFIS GeoServer WFS (`cwfis.cfs.nrcan.gc.ca/geoserver/public/ows`) | Current station weather / FWI (`/api/v1/weather/current`); HFI and FWI legend limits | NRCan / CWFIS (OGL – Canada, assumed; not checked) |
@@ -223,7 +232,19 @@ Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/de
 - **CFSDS validation:** Barber et al. (2024) DOB rasters; metrics unit-tested on shapes with known answers; W.I.S.E. comparison numbers from Bennett et al. (2026) Table 1 plus nine local W.I.S.E. runs.
 - **Frontend fixture:** recorded from the real engine by `npm run fixture:record` (`frontend/tests/fixtures/record_fixture.py`).
 
-**Latest results (2026-10-08, local workstation, worktree at `b1a0136`; machine heavily loaded by validation runs):**
+**Latest results (2026-10-08, branch `fix/record-open-items` rebased on `03997fd`, local workstation, machine loaded):**
+
+| Suite | Result | Wall time |
+|---|---|---|
+| Engine pytest | **873 passed, 1 xfailed** (strict xfail: `test_point_ignition_grass_diagonal_wind`, §6), 0 skipped | 291 s |
+| API pytest | **103 passed** (1 Starlette deprecation warning) | 112 s |
+| `npx tsc --noEmit -p tsconfig.app.json` | exit 0 | |
+| `npm run build` | built | 29 s |
+| Vitest (`npm test`) | **272 passed** in 16 files | |
+| Playwright + axe (`E2E_PORT=4391`, `E2E_SKIP_BUILD=1`) | **28 passed**, first attempt | 10.4 min |
+
+The three real-raster integration tests now run (no skips). Earlier results, worktree at
+`b1a0136` (machine heavily loaded by validation runs):
 
 | Suite | Result | Wall time | Environment |
 |---|---|---|---|
@@ -235,8 +256,8 @@ Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/de
 | Vitest (`npm test`) | **255 passed** in 15 files, 0 failed | 7.8 s (10 s with start-up) | Vitest 5.0.3 |
 | Playwright + axe (`npx playwright test`, `E2E_PORT=4391`) | **26 passed**, 0 failed, first attempt (no rerun needed) | 9.6 min (incl. production build) | Playwright 1.63.0, Chromium/SwiftShader, 1 worker |
 
-The 3 engine skips are the real-raster integration tests described in §6 (ignition point on a
-non-fuel cell). The live API reported `git_sha` `b1a0136` at `GET /api/v1/version` and the live
+The 3 engine skips at `b1a0136` were the real-raster integration tests (ignition on a non-fuel
+cell), fixed in `af052e4`. The live API reported `git_sha` `b1a0136` at `GET /api/v1/version` and the live
 frontend returned HTTP 200 the same day; no browser check of the live site was made for this
 docs-only change. The E2E suite runs against a local production build with a mocked API, not
 against the live site.
@@ -247,19 +268,22 @@ against the live site.
 - [ ] **Real RPAS thermal perimeters untested:** active edges were validated only with a CFSDS previous-day proxy; validate with real thermal flights and measure mid-day restarts.
 - [ ] **Edmonton fuel grid never accuracy-assessed:** needs a stratified check (≥ 50 cells per class, confusion matrix, Wilson intervals), embedded metadata, correct filename, seasonal (green-up) switching; `percent_conifer.tif` is not read [R2].
 - [ ] **National fuel grid integration:** CFS Current-Year FBP layer (100 m, OGL – Canada) as the base outside Edmonton; decide the code-13 stand-in (≈ 18 % of Canada); only uniform or synthetic fuel outside Edmonton today.
-- [ ] **Water layer rebuild** from authoritative hydrography (City, CanVec/NRCan); repair invalid polygons; mask only where the LiDAR grid is non-fuel. Also reconcile `CLAUDE.md` ("City Open Data") with the docs (OSM) on the current file's source.
+- [ ] **Water layer rebuild** from authoritative hydrography (City, CanVec/NRCan); repair invalid polygons; mask only where the LiDAR grid is non-fuel.
 - [ ] **Name clash:** "FireSim" is a module of Technosylva's Wildfire Analyst; rename before any release outside the City.
-- [ ] **ICS Canada 209:** the owner's brief centres the console on the ICS Canada 209, but `frontend/src/utils/ics209.ts` and `icsForms.ts` still follow the NIMS ICS-209 (Rev. 2021-08) layout; fixed-horizon 209-WF snapshots are on the roadmap.
 - [ ] Per-fuel calibration (D-2 and small days remain poor); per-cell percent conifer; current fuel grid with burn scars.
-- [ ] Three real-raster integration tests (`engine/tests/data/test_fuel_loader_real.py` lines 121/161/206) skip even with the Edmonton grid present: "Ignition point falls in non-fuel cell in real raster" (seen 2026-10-08; plausibly since the 2026-10-07 reprojection fix moved cells). Move the test ignition onto fuel so they run.
-- [ ] Spotting is not repeatable in the engine (unseeded global `random`; seeded only in the harness).
 - [ ] `load_fuel_grid` treats a geographic raster's degrees as metres (noted in `docs/validation.md`; check whether the 2026-10-07 reprojection fix resolved it).
+- [ ] **Grid-model point ignitions with off-axis wind (found 2026-10-08):** a point ignition in a narrow ellipse (O-1a, LB about 5) barely spreads when the wind is off the grid axes: 50 m cells, 2 h, 25 km/h, no acceleration: 43 cells burned with wind from 180°, 3 from 225° (cells on the downwind diagonal are skipped and burn late). Starting from a perimeter, 225° and 270° agree (601 vs 575 m downwind). Recorded as a strict xfail, `engine/tests/spread/test_cellular.py::test_point_ignition_grass_diagonal_wind` (`f681189`); the real-raster tests use a west wind until it is fixed. Affects grass-fire point ignitions in the UI and possibly the validation's Bennett-ignition runs.
+- [ ] ICS 209-WF follow-ups: the ICS Canada 209 instructions cover the all-hazards 209; the block 9 code expansions (OC/BH/UC/O) and whether Alberta agencies file 209-WF are unverified; 30B uses a 100 m exposure band as "threatened" (a FireSim choice, not from the form); runs shorter than 12 h leave the 12-72 h horizons "not projected".
 - [ ] Heterogeneous fuel, real terrain, barriers and spotting not compared with WISE, Burn-P3 or Cell2Fire.
 - [ ] Unverified citations: Alexander (2010) full reference; Fox-Hughes et al. (2024) title; Byram (1959), Thomas (1963), Tran et al. (1992) originals; Class 1/6 meanings and an Alexander & De Groot (1988) citation flagged for the owner's check in the redesign notes.
 - [ ] Roadmap after ensemble: time-available vs time-needed per zone, trigger buffers / ember reach (river is not a barrier), exercise/replay mode.
 - [ ] Minor UI: "Click map to set ignition point" hint lingers after a typed ignition (owner note 2026-10-08; status not re-checked).
-- [ ] Edmonton `roads.geojson` extraction script was not kept; `secondary` roads absent.
-- [ ] ODHF lacks coordinates for 43 Edmonton care/clinic records; EOC point is manual.
+- [ ] Critical assets (after PR #31): 2 Alberta and 2 ODHF care sites could not be positioned; group homes and sites under 10 units excluded by design; OSM-only care sites flagged "verify".
+
+Closed 2026-10-08: ICS Canada 209 (`d34b349`, `8f349e6`); skipped real-raster tests (`af052e4`); spotting
+repeatability (`f681189`); `CLAUDE.md` water and building sources (`45e68d2`); roads
+extraction script and `secondary` roads, ODHF care records without coordinates (`2357a02`,
+PR #31); EOC manual point, left out of the layer (PR #33, `8da78f5`). See the decisions log (§3).
 
 ## 7. Work log
 
@@ -270,6 +294,16 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into �
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-08 | PR #33 (`8da78f5`, not yet merged) | fix(data): leave the EOC point out of the critical-assets layer |
+| 2026-10-08 | `8f349e6` | fix(frontend): keep PR #31's labels in the 209-WF after rebase |
+| 2026-10-08 | `d34b349` | feat(frontend): ICS Canada Form 209-WF situation report replaces NIMS ICS-209 |
+| 2026-10-08 | `45e68d2` | docs: correct CLAUDE.md data-file sources |
+| 2026-10-08 | `af052e4` | test(engine): run the real-raster simulation tests from known fuel cells |
+| 2026-10-08 | `f681189` | fix(engine+api): repeatable ember spotting with a seeded local RNG |
+| 2026-10-08 | `03997fd` | Merge pull request #31 from Tphambolio/fix/asset-data-gaps |
+| 2026-10-08 | `2357a02` | fix(frontend): resolve critical-asset data gaps (care facilities, EOC, roads, duplicates) |
+| 2026-10-08 | `a80c265` | Merge pull request #30 from Tphambolio/docs/project-record |
+| 2026-10-08 | `7c71205` | docs: project record (decisions, methods and sources, data licences, tests, open items, work log) |
 | 2026-10-08 | `b1a0136` | Merge pull request #29 from Tphambolio/feat/critical-assets |
 | 2026-10-08 | `0751583` | feat(frontend): automatic critical assets and roads with modelled arrival times |
 | 2026-10-08 | `eda7239` | Merge pull request #28 from Tphambolio/feat/skill-options-ui |

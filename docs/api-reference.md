@@ -58,6 +58,10 @@ Start a new fire spread simulation.
   RPAS active edges they raised one-day F1 on held-out Alberta fires from 0.12 to 0.21
   (docs/validation.md). The API keeps them off so existing clients see no change.
 - `ensemble` members inherit `burning_period` and the spin-up.
+- `seed` (optional integer): seed for the stochastic parts of the run (ember spotting, with
+  `enable_spotting`). Omitted, it is derived from the other inputs, so identical requests give
+  identical results; set it to rerun the same inputs with different draws
+  (docs/verification.md, "Spotting is repeatable").
 - `cells_mode` (grid runs): `"cumulative"` (default) repeats every burned cell in each frame;
   `"incremental"` sends only the cells burned since the previous frame (a 24 h run: about
   1.6 MB instead of 35 MB). Multi-day runs are always cumulative.

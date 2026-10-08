@@ -139,7 +139,6 @@ def run_monte_carlo(
         }
 
         try:
-            random.seed(iter_seed)  # Set global seed for CA's random calls
             frames = run_cellular_simulation(
                 config,
                 fuel_grid=fuel_grid,
@@ -149,8 +148,8 @@ def run_monte_carlo(
                 dt_minutes=dt_minutes,
                 snapshot_interval_minutes=mc_config.duration_hours * 60.0,  # final only
                 compute_perimeter=False,
+                seed=iter_seed,
             )
-            random.seed()  # Restore non-deterministic state
 
             # Accumulate burned cells from the final frame
             if frames:

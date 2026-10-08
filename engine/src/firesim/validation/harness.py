@@ -31,7 +31,6 @@ default member the run is the deterministic forecast.
 from __future__ import annotations
 
 import math
-import random
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -311,10 +310,6 @@ def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
     sim = Simulator(config, fuel_grid, terrain, initial_front=front, initial_burned=burned_pts,
                     enable_spotting=opts.enable_spotting)
     schedule = sim.weather_schedule()
-    if opts.enable_spotting:
-        # The spotting model draws from the global ``random`` module; seed it per fire-day and
-        # member so spotting runs are repeatable.
-        random.seed(f"{case.fire_id}:{case.day}:{member.name}")
     t0 = time.perf_counter()
     # The same call Simulator._run_cellular makes, without building per-cell frame dicts.
     frames = run_cellular_simulation(
@@ -324,6 +319,8 @@ def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
         snapshot_interval_minutes=duration_h * 60.0, enable_spotting=opts.enable_spotting,
         initial_perimeter=perimeter, initial_burned=burned_pts, compute_perimeter=False,
         active_edges=active, active_edge_buffer_m=opts.active_buffer_m,
+        # Spotting seed per fire-day and member (same draws as the former global seeding)
+        seed=f"{case.fire_id}:{case.day}:{member.name}",
     )
     run_s = time.perf_counter() - t0
     arrival = frames[-1].arrival if frames and frames[-1].arrival is not None else \

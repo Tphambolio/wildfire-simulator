@@ -99,134 +99,78 @@ class TestRealGridLoad:
 # ---------------------------------------------------------------------------
 
 
+# West Edmonton, south-west Edmonton and north-east fringe grassland (O-1a)
+_IGNITIONS = [(53.45586, -113.67106), (53.38669, -113.62875), (53.67684, -113.41265)]
+_CONDITIONS = dict(wind_speed=25.0, wind_direction=270.0, ffmc=88.0, dmc=60.0, dc=300.0)
+
+
+@pytest.fixture(scope="module")
+def runs(edmonton_grid):
+    """One-hour grid-model runs from each of ``_IGNITIONS``."""
+    from firesim.spread.cellular import run_cellular_simulation
+    from firesim.spread.huygens import SpreadConditions
+
+    cond = SpreadConditions(**_CONDITIONS)
+    return [
+        run_cellular_simulation(
+            {"ignition_lat": lat, "ignition_lng": lng, "duration_hours": 1.0},
+            fuel_grid=edmonton_grid, conditions=cond, snapshot_interval_minutes=60.0,
+        )
+        for lat, lng in _IGNITIONS
+    ]
+
+
 class TestRealGridSimulation:
-    """Run a short CA simulation over a known fire-prone location."""
+    """Run a short grid-model simulation from known fuel cells of the real raster.
 
-    # Sturgeon County / northwest Edmonton fringe — confirmed within raster extent
-    # and has C1/O1b fuel cover near the river valley
-    IGN_LAT = 53.623
-    IGN_LNG = -113.624
+    The ignition points were picked (2026-10-08) from the 100 m grid as produced by the
+    reprojecting loader: each is O-1a with O-1a in the 3 x 13 block of cells around it
+    (one row either side, 2 cells upwind, 10 cells downwind), so a west wind can carry the
+    fire about 1 km before it meets other fuel. ``test_ignitions_are_on_fuel`` guards that
+    choice; if the raster or the loader changes, re-pick the points rather than skip.
+    The wind is due west because point ignitions in narrow (grass) ellipses are badly
+    under-spread when the wind is off the grid axes (see
+    ``engine/tests/spread/test_cellular.py::test_point_ignition_grass_diagonal_wind``).
+    """
 
-    def test_simulation_produces_burned_cells(self):
-        """A 1-hour CA sim from a fueled ignition point must burn at least 1 cell."""
-        from firesim.data.fuel_loader import load_fuel_grid
-        from firesim.spread.cellular import run_cellular_simulation
-        from firesim.spread.huygens import SpreadConditions
+    IGNITIONS = _IGNITIONS
+    CONDITIONS = _CONDITIONS
 
-        grid = load_fuel_grid(_EDMONTON_FBP, target_resolution_m=100.0)
+    def test_ignitions_are_on_fuel(self, edmonton_grid):
+        from firesim.fbp.constants import FuelType
 
-        # Verify ignition cell has fuel (skip if it falls in a non-fuel patch)
-        fuel_at_ignition = grid.get_fuel_at(self.IGN_LAT, self.IGN_LNG)
-        if fuel_at_ignition is None:
-            pytest.skip("Ignition point falls in non-fuel cell in real raster")
+        for lat, lng in self.IGNITIONS:
+            assert edmonton_grid.get_fuel_at(lat, lng) == FuelType.O1a, (lat, lng)
 
-        conditions = SpreadConditions(
-            wind_speed=25.0,      # km/h — moderate
-            wind_direction=225.0,  # SW
-            ffmc=88.0,
-            dmc=60.0,
-            dc=300.0,
-        )
-        config = {
-            "ignition_lat": self.IGN_LAT,
-            "ignition_lng": self.IGN_LNG,
-            "duration_hours": 1.0,
-        }
+    def test_fire_spreads_from_the_ignition_cell(self, runs):
+        """No snapping, and the fire leaves the ignition cell within the hour."""
+        for frames in runs:
+            final = frames[-1]
+            assert final.ignition_snapped_m == 0.0
+            assert final.total_burned >= 3
+            assert final.area_ha == pytest.approx(final.total_burned * 1.0, rel=0.01)  # 1 ha cells
 
-        frames = run_cellular_simulation(
-            config,
-            fuel_grid=grid,
-            conditions=conditions,
-            dt_minutes=2.0,
-            snapshot_interval_minutes=60.0,
-        )
+    def test_burned_cells_are_fuel_inside_the_grid(self, runs, edmonton_grid):
+        g = edmonton_grid
+        for frames in runs:
+            for cell in frames[-1].burned_cells:
+                assert g.lat_min <= cell.lat <= g.lat_max
+                assert g.lng_min <= cell.lng <= g.lng_max
+                fuel = g.get_fuel_at(cell.lat, cell.lng)
+                assert fuel is not None and fuel.value == cell.fuel_type
 
-        assert len(frames) >= 1, "No frames produced"
-        final = frames[-1]
-        assert final.total_burned >= 1, (
-            f"Zero cells burned in 1-hour simulation — "
-            f"ignition fuel: {fuel_at_ignition}, wind: {conditions.wind_speed} km/h"
-        )
+    def test_head_runs_downwind_at_the_fbp_rate(self, runs):
+        """West wind: the fire runs east, no further than the FBP head rate allows (O-1a,
+        ST-X-3) and at least half of it, and backs west by less than one cell."""
+        import math
 
-    def test_burned_cells_within_grid_bounds(self):
-        """All burned cell coordinates must lie within the raster extent."""
-        from firesim.data.fuel_loader import load_fuel_grid
-        from firesim.spread.cellular import run_cellular_simulation
-        from firesim.spread.huygens import SpreadConditions
+        from firesim.fbp.constants import FuelType
+        from firesim.spread.huygens import SpreadConditions, fbp_for_conditions
 
-        grid = load_fuel_grid(_EDMONTON_FBP, target_resolution_m=100.0)
-
-        fuel_at_ignition = grid.get_fuel_at(self.IGN_LAT, self.IGN_LNG)
-        if fuel_at_ignition is None:
-            pytest.skip("Ignition point falls in non-fuel cell in real raster")
-
-        conditions = SpreadConditions(
-            wind_speed=25.0,
-            wind_direction=225.0,
-            ffmc=88.0,
-            dmc=60.0,
-            dc=300.0,
-        )
-        config = {
-            "ignition_lat": self.IGN_LAT,
-            "ignition_lng": self.IGN_LNG,
-            "duration_hours": 1.0,
-        }
-
-        frames = run_cellular_simulation(
-            config,
-            fuel_grid=grid,
-            conditions=conditions,
-            dt_minutes=2.0,
-            snapshot_interval_minutes=60.0,
-        )
-
-        if not frames or frames[-1].total_burned == 0:
-            pytest.skip("No cells burned — cannot validate coordinates")
-
-        final = frames[-1]
-        for cell in final.burned_cells:
-            assert grid.lat_min <= cell.lat <= grid.lat_max, (
-                f"Burned cell lat {cell.lat} outside grid [{grid.lat_min}, {grid.lat_max}]"
-            )
-            assert grid.lng_min <= cell.lng <= grid.lng_max, (
-                f"Burned cell lng {cell.lng} outside grid [{grid.lng_min}, {grid.lng_max}]"
-            )
-
-    def test_burn_area_plausible(self):
-        """1-hour burn area should be <10,000 ha (no runaway) but >0."""
-        from firesim.data.fuel_loader import load_fuel_grid
-        from firesim.spread.cellular import run_cellular_simulation
-        from firesim.spread.huygens import SpreadConditions
-
-        grid = load_fuel_grid(_EDMONTON_FBP, target_resolution_m=100.0)
-
-        fuel_at_ignition = grid.get_fuel_at(self.IGN_LAT, self.IGN_LNG)
-        if fuel_at_ignition is None:
-            pytest.skip("Ignition point falls in non-fuel cell in real raster")
-
-        conditions = SpreadConditions(
-            wind_speed=25.0,
-            wind_direction=225.0,
-            ffmc=88.0,
-            dmc=60.0,
-            dc=300.0,
-        )
-        config = {
-            "ignition_lat": self.IGN_LAT,
-            "ignition_lng": self.IGN_LNG,
-            "duration_hours": 1.0,
-        }
-
-        frames = run_cellular_simulation(
-            config,
-            fuel_grid=grid,
-            conditions=conditions,
-            dt_minutes=2.0,
-            snapshot_interval_minutes=60.0,
-        )
-
-        final = frames[-1]
-        assert 0.0 < final.area_ha < 10_000.0, (
-            f"Burn area {final.area_ha:.1f} ha implausible for 1-hour run"
-        )
+        ros = fbp_for_conditions(SpreadConditions(**self.CONDITIONS), FuelType.O1a).ros_final
+        for (lat, lng), frames in zip(self.IGNITIONS, runs):
+            m_per_lng = 111320.0 * math.cos(math.radians(lat))
+            east = max((c.lng - lng) * m_per_lng for c in frames[-1].burned_cells)
+            west = max((lng - c.lng) * m_per_lng for c in frames[-1].burned_cells)
+            assert 0.5 * ros * 60.0 <= east <= ros * 60.0, (east, ros)
+            assert west < 100.0
