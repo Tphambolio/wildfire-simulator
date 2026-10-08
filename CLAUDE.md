@@ -153,7 +153,7 @@ Neighbourhoods card `EvacStatusPanel.tsx`, `EOCSummary.tsx`) · clock-time timel
 Planning (`utils/evacZones.ts`); FireSim never suggests Order/Alert/Watch. Critical assets card
 `CriticalAssetsPanel.tsx` (`utils/assets.ts`): arrival within 500 m / inside for each asset and
 first reach per major road, from the bundled `public/edmonton/assets.geojson`
-(`scripts/build_edmonton_assets.py`, sources in `docs/data-sources.md`) or a user layer. EOC console tab: `EOCConsole.tsx`
+(`scripts/build_edmonton_assets.py`; roads `scripts/build_edmonton_roads.py`; sources in `docs/data-sources.md`) or a user layer. EOC console tab: `EOCConsole.tsx`
 (ICS forms `utils/icsForms.ts`, ICS-209 `utils/ics209.ts`). Shared tables: `utils/fireClasses.ts`
 (HFI classes, Cole & Alexander 1995), `utils/fwiClass.ts`, `utils/time.ts`,
 `utils/suppressionAdvisory.ts`. Design tokens: `src/styles/tokens.css` (dark default).

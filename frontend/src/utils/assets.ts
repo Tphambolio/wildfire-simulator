@@ -66,11 +66,11 @@ export function isAssetCategory(v: unknown): v is AssetCategory {
 }
 
 /** Short attribution of the bundled Edmonton layers for the map (the basemap credits OSM). */
-export const EDMONTON_MAP_ATTRIBUTION = "City of Edmonton Open Data · Statistics Canada ODHF";
+export const EDMONTON_MAP_ATTRIBUTION = "City of Edmonton Open Data · Government of Alberta · Statistics Canada ODHF";
 
 /** Sources and licences of the bundled Edmonton layers, for the card footer. */
 export const EDMONTON_ATTRIBUTION =
-  "City of Edmonton Open Data (Open Government Licence – City of Edmonton) · Statistics Canada ODHF (Open Government Licence – Canada) · © OpenStreetMap contributors (ODbL)";
+  "City of Edmonton Open Data (Open Government Licence – City of Edmonton) · Government of Alberta continuing care list (Open Government Licence – Alberta) · Statistics Canada ODHF (Open Government Licence – Canada) · © OpenStreetMap contributors (ODbL)";
 
 // ── Assets ──────────────────────────────────────────────────────────────────
 
@@ -80,16 +80,33 @@ export interface Asset {
   category: AssetCategory;
   detail: string | null;
   source: string;
+  /** Every source of the asset (names, de-duplicated; the bundled layer's `sources`) */
+  sources: string[];
   licence: string;
+  /** Data-quality flag to show with the asset, e.g. "Unverified manual point" */
+  verify: string | null;
   /** Symbol and label position, [lng, lat] */
   anchor: [number, number];
   /** Distances are measured to this (a point, or a site outline) */
   geometry: GeoJSON.Geometry;
 }
 
+/** Source names from a `sources` list ([{source, source_id}] or strings), primary first. */
+export function sourceNames(list: unknown, primary: string): string[] {
+  const out = [primary];
+  if (Array.isArray(list)) {
+    for (const s of list) {
+      const n = typeof s === "string" ? s : s && typeof s === "object" ? (s as { source?: unknown }).source : null;
+      if (typeof n === "string" && n && !out.includes(n)) out.push(n);
+    }
+  }
+  return out;
+}
+
 /**
  * Assets from a GeoJSON layer: the bundled schema {name, category, source, source_id, licence,
- * detail, anchor}, or any user layer (points and polygons; lines are roads, not assets).
+ * sources, detail, verify, anchor}, or any user layer (points and polygons; lines are roads, not
+ * assets).
  */
 export function assetsFromGeoJSON(
   fc: GeoJSON.FeatureCollection | null | undefined,
@@ -110,13 +127,16 @@ export function assetsFromGeoJSON(
     let id = `${opts.idPrefix ?? ""}${p.source_id ?? i}`;
     if (seen.has(id)) id = `${id}#${i}`;
     seen.add(id);
+    const source = String(p.source ?? opts.source ?? "Your layer");
     out.push({
       id,
       name: featureName(f) === "Community" ? `Feature ${i + 1}` : featureName(f),
       category: isAssetCategory(p.category) ? p.category : opts.category ?? "custom",
       detail: p.detail != null ? String(p.detail) : p.type != null ? String(p.type) : null,
-      source: String(p.source ?? opts.source ?? "Your layer"),
+      source,
+      sources: sourceNames(p.sources, source),
       licence: String(p.licence ?? opts.licence ?? ""),
+      verify: typeof p.verify === "string" && p.verify ? p.verify : null,
       anchor,
       geometry: g,
     });
@@ -397,6 +417,8 @@ export function roadReach(
     const shape = toShape(idx, g);
     if (!overlaps(idx, shape.bbox, tol)) continue;
     const name = roadName(f);
+    // Unnamed stretches (a ramp joined to no named road) are drawn, not listed by name
+    const named = name !== "Unnamed road";
     for (const line of shape.lines) {
       for (let s = 1; s < line.length; s++) {
         const [x1, y1] = line[s - 1];
@@ -416,7 +438,7 @@ export function roadReach(
           }
           if (!Number.isFinite(h)) continue;
           pieces.push({ name, coords: [toLngLat(ax, ay), toLngLat(bx, by)], h });
-          if (h < (first.get(name) ?? Infinity)) first.set(name, h);
+          if (named && h < (first.get(name) ?? Infinity)) first.set(name, h);
         }
       }
     }
@@ -516,6 +538,26 @@ export interface CriticalReach {
   bufferM: number;
 }
 
+/**
+ * Data-quality notes for the card footer: the unverified EOC point, and how many assets no
+ * current official source confirms (flagged "verify" in the bundled layer).
+ */
+export function assetDataNotes(assets: Asset[]): string[] {
+  const notes: string[] = [];
+  const eoc = assets.filter((a) => a.category === "eoc" && a.verify);
+  for (const a of eoc) notes.push(`${a.name}: ${a.verify?.toLowerCase()} (no public address found); check before use.`);
+  const others = assets.filter((a) => a.category !== "eoc" && a.verify);
+  if (others.length > 0) {
+    notes.push(`${others.length} care ${others.length === 1 ? "facility is" : "facilities are"} in no current official list (marked “verify”).`);
+  }
+  return notes;
+}
+
+/** The asset's name with its data-quality flag: "City of Edmonton EOC [Unverified manual point]". */
+export function assetLabel(a: Asset): string {
+  return a.verify ? `${a.name} [${a.verify}]` : a.name;
+}
+
 /** Plain-text lines for the situation report (labelled as model output). */
 export function criticalReachLines(r: CriticalReach): string[] {
   const lines: string[] = [];
@@ -526,7 +568,7 @@ export function criticalReachLines(r: CriticalReach): string[] {
   for (const g of groupRows(r.assets)) {
     lines.push(`  ${ASSET_CATEGORIES[g.category].label}:`);
     for (const row of g.rows) {
-      lines.push(`    ${row.asset.name}: ${assetReachPhrases(row, r.start, r.hasEnsemble, r.bufferM).join("; ")}`);
+      lines.push(`    ${assetLabel(row.asset)}: ${assetReachPhrases(row, r.start, r.hasEnsemble, r.bufferM).join("; ")}`);
     }
   }
   if (r.roads.length > 0) {
@@ -548,6 +590,8 @@ export function criticalReachFeatures(r: CriticalReach): GeoJSON.Feature[] {
       name: row.asset.name,
       category: row.asset.category,
       source: row.asset.source,
+      sources: row.asset.sources.join("; "),
+      verify: row.asset.verify,
       licence: row.asset.licence,
       within_m: r.bufferM,
       near_hours_single: t(row.single?.near),
@@ -592,7 +636,8 @@ export function assetsToMapGeoJSON(
             name: a.name,
             category: a.category,
             detail: a.detail,
-            source: a.source,
+            source: a.sources.join("; "),
+            verify: a.verify,
             reached: row ? 1 : 0,
             icon: `asset-${a.category}${row ? "-reached" : ""}`,
             label: row && first !== null ? `${a.name} · ${ARRIVAL_BUFFER_M} m by ${clock(first, start)}${hasEnsemble && row.worst ? " (worst-credible)" : ""}` : null,

@@ -16,10 +16,10 @@ import { openApp, runToCompletion, setIgnitionAtMapCentre, waitForMapQuiet } fro
 const SHOT_DIR = process.env.SHOT_DIR;
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
-async function shot(page: Page, name: string) {
+async function shot(page: Page, name: string, prefix = "assets") {
   if (!SHOT_DIR) return;
   mkdirSync(SHOT_DIR, { recursive: true });
-  await page.screenshot({ path: `${SHOT_DIR}/assets_${name}.png` });
+  await page.screenshot({ path: `${SHOT_DIR}/${prefix}_${name}.png` });
 }
 
 async function seriousAxe(page: Page): Promise<string[]> {
@@ -68,7 +68,7 @@ test.describe("critical assets", () => {
     await expect(sub).toContainText(/Inside the modelled fire by \d{2}:\d{2}/);
     await expect(card.locator(".assets-group-h", { hasText: "Power plants and substations" })).toBeVisible();
     // Major roads reached, first reach per named road
-    await expect(card.locator(".road-row", { hasText: "Anthony Henday Drive NW" })).toContainText(/Fire on the road by \d{2}:\d{2}/);
+    await expect(card.locator(".road-row").filter({ has: page.locator(".asset-row-name", { hasText: /^Anthony Henday Drive NW$/ }) })).toContainText(/Fire on the road by \d{2}:\d{2}/);
     // Sources in the card footer
     await expect(card.locator(".assets-sources")).toContainText("City of Edmonton Open Data");
     await expect(card.locator(".assets-sources")).toContainText("Statistics Canada ODHF");
@@ -117,6 +117,31 @@ test.describe("critical assets", () => {
     await card.scrollIntoViewIfNeeded();
     await waitForMapQuiet(page);
     await shot(page, "ensemble");
+    expect(await textBelow12px(page)).toEqual([]);
+    expect(await seriousAxe(page)).toEqual([]);
+  });
+
+  test("data gaps: EOC flagged as unverified, care facilities to verify, secondary roads and ramps reached", async ({ page }) => {
+    await mockApi(page);
+    await openApp(page);
+    const card = page.getByTestId("critical-assets");
+    // Data notes in the card, before any run
+    const notes = card.locator(".assets-data-note");
+    await expect(notes.first()).toContainText("City of Edmonton Emergency Operations Centre: unverified manual point");
+    await expect(notes.nth(1)).toContainText(/care facilit(y is|ies are) in no current official list/);
+    await expect(card.locator(".assets-sources")).toContainText("Government of Alberta");
+    await card.locator(".assets-data-notes").scrollIntoViewIfNeeded();
+    await shot(page, "card_notes", "gaps");
+
+    await setIgnitionAtMapCentre(page);
+    const t0 = Date.now();
+    await runToCompletion(page);
+    // Roads now include secondary roads and named ramps
+    await expect(card.locator(".road-row").first()).toBeVisible();
+    console.log(`[perf] run completion to roads listed (browser, incl. replay): ${Date.now() - t0} ms; roads listed: ${await card.locator(".road-row").count()}`);
+    await card.locator(".road-row").first().scrollIntoViewIfNeeded();
+    await waitForMapQuiet(page);
+    await shot(page, "after_run", "gaps");
     expect(await textBelow12px(page)).toEqual([]);
     expect(await seriousAxe(page)).toEqual([]);
   });

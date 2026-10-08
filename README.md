@@ -73,10 +73,12 @@ the weather and run. Edmonton data paths and other settings: [docs/deployment.md
 ## Data
 
 The Edmonton layers in `frontend/public/edmonton/` load automatically with the Edmonton fuel
-grid: critical assets (`assets.geojson`, 509 features: City of Edmonton Open Data, Statistics
-Canada ODHF, © OpenStreetMap contributors), major roads (OpenStreetMap) and neighbourhoods
-(City Open Data). Sources, licences, dates and refresh: [docs/data-sources.md](docs/data-sources.md).
-Rebuild the assets with `python3 scripts/build_edmonton_assets.py`. Other jurisdictions add
+grid: critical assets (`assets.geojson`, 624 features: City of Edmonton Open Data, Government
+of Alberta continuing care list, Statistics Canada ODHF, © OpenStreetMap contributors), major
+roads (`roads.geojson`, motorway to secondary with ramps, © OpenStreetMap contributors) and
+neighbourhoods (City Open Data). Sources, licences, dates and refresh:
+[docs/data-sources.md](docs/data-sources.md). Rebuild with
+`python3 scripts/build_edmonton_assets.py` and `python3 scripts/build_edmonton_roads.py`. Other jurisdictions add
 their own GeoJSON under Setup, "Add your own layer".
 
 ## Testing

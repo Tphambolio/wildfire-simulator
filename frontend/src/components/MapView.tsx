@@ -775,11 +775,17 @@ export default function MapView({
       title.className = "map-popup-title";
       title.textContent = String(p.name ?? "Asset");
       el.appendChild(title);
+      if (p.verify && p.verify !== "null") {
+        const v = document.createElement("div");
+        v.className = "map-popup-warn";
+        v.textContent = String(p.verify);
+        el.appendChild(v);
+      }
       const lines = [
         ASSET_CATEGORIES[(p.category as AssetCategory) ?? "custom"]?.label ?? "",
         p.detail && p.detail !== "null" ? String(p.detail) : "",
         p.label && p.label !== "null" ? `Model output: fire within ${String(p.label).split(" · ").slice(1).join(" · ")}` : "No modelled fire within 500 m in this run",
-        p.source ? `Source: ${String(p.source)}` : "",
+        p.source ? `${String(p.source).includes(";") ? "Sources" : "Source"}: ${String(p.source)}` : "",
       ].filter(Boolean);
       for (const t of lines) {
         const d = document.createElement("div");
