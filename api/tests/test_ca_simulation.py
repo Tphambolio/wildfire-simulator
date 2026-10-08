@@ -568,3 +568,59 @@ class TestHourlyWeatherAPI:
                 assert result["status"] == "completed", result.get("error")
                 north.append(max(p[0] for p in result["frames"][-1]["perimeter"]))
         assert north[1] > north[0]
+
+
+class TestPerimeterOverrideActiveEdges:
+    """RPAS perimeter correction with only part of the perimeter marked active."""
+
+    def _square(self, fx, half=0.12):
+        lat, lng = fx["ignition_lat"], fx["ignition_lng"]
+        lat_min, lat_max, lng_min, lng_max = _wgs84_bounds(Path(fx["fuel_path"]))
+        dlat, dlng = (lat_max - lat_min) * half, (lng_max - lng_min) * half
+        # south-west quadrant (the water is north-east)
+        lat, lng = lat - 1.2 * dlat, lng - 1.2 * dlng
+        ring = [[lng - dlng, lat - dlat], [lng + dlng, lat - dlat], [lng + dlng, lat + dlat],
+                [lng - dlng, lat + dlat], [lng - dlng, lat - dlat]]
+        east = {"type": "LineString", "coordinates": [[lng + dlng, lat - dlat],
+                                                      [lng + dlng, lat + dlat]]}
+        return {"type": "Polygon", "coordinates": [ring]}, east, lng - dlng
+
+    def test_inactive_edges_do_not_spread(self, spatial_fixtures):
+        perimeter, east, west_lng = self._square(spatial_fixtures)
+        payload = dict(_ca_payload(spatial_fixtures), wui_zones_path=None, buildings_path=None)
+        with TestClient(create_app()) as tc:
+            src = tc.post("/api/v1/simulations", json=payload).json()["simulation_id"]
+            assert _sync_wait_for_completion(tc, src)["status"] == "completed"
+            results = []
+            for extra in ({}, {"active_edges": east, "active_edge_buffer_m": 60.0}):
+                resp = tc.post("/api/v1/simulations/perimeter-override", json={
+                    "simulation_id": src, "perimeter_geojson": perimeter, "duration_hours": 0.5,
+                    **extra})
+                assert resp.status_code == 200, resp.text
+                result = _sync_wait_for_completion(tc, resp.json()["simulation_id"])
+                assert result["status"] == "completed", result.get("error")
+                results.append(result["frames"][-1])
+        full, head = results
+        assert head["area_ha"] < full["area_ha"]
+        assert min(c["lng"] for c in full["burned_cells"]) < west_lng
+        assert min(c["lng"] for c in head["burned_cells"]) > west_lng
+
+    def test_active_edges_rejected_without_fuel_grid(self):
+        payload = {"ignition_lat": 53.5, "ignition_lng": -113.5,
+                   "weather": {"wind_speed": 20.0, "wind_direction": 270.0},
+                   "duration_hours": 0.25, "snapshot_interval_minutes": 15.0}
+        square = {"type": "Polygon", "coordinates": [[[-113.501, 53.499], [-113.499, 53.499],
+                                                      [-113.499, 53.501], [-113.501, 53.501],
+                                                      [-113.501, 53.499]]]}
+        with TestClient(create_app()) as tc:
+            src = tc.post("/api/v1/simulations", json=payload).json()["simulation_id"]
+            _sync_wait_for_completion(tc, src)
+            resp = tc.post("/api/v1/simulations/perimeter-override", json={
+                "simulation_id": src, "perimeter_geojson": square,
+                "active_edges": {"type": "Point", "coordinates": [-113.499, 53.5]}})
+            assert resp.status_code == 422
+            assert "fuel grid" in resp.text
+            resp = tc.post("/api/v1/simulations/perimeter-override", json={
+                "simulation_id": src, "perimeter_geojson": square,
+                "active_edges": {"type": "Feature", "geometry": None}})
+            assert resp.status_code == 422

@@ -167,6 +167,16 @@ a Feature, in [lng, lat]), `duration_hours` and `snapshot_interval_minutes`. The
 starts burned and spreads as an established fire (no point-ignition acceleration), with the
 grid model when the run had a fuel grid.
 
+Optional `active_edges`: a GeoJSON geometry in [lng, lat] marking where the observed fire is
+still active, e.g. hot edges or heat seen on an RPAS thermal flight (LineString /
+MultiLineString along the active edges, Polygon / MultiPolygon of active zones, Point /
+MultiPoint hotspots). Burned cells within `active_edge_buffer_m` of it (default one fuel-grid
+cell, max 5,000 m) spread; the rest of the observed area is burned out and does not spread,
+though fire from an active edge can later reach the fuel beyond an inactive edge. Omit it to
+treat the whole perimeter as active (the previous behaviour). Grid model only: a source run
+without a fuel grid returns 422. On observed Alberta fires this raised one-day skill
+(docs/validation.md).
+
 ### POST /api/v1/simulations/burn-probability
 
 Monte Carlo burn probability (synchronous). Varies the ignition point (`jitter_m`), wind speed
