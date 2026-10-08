@@ -95,8 +95,9 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | 2026-10-07 | Measure every prediction improvement on the CFSDS validation harness (Bennett et al. 2026 protocol), held-out fires for settings | `498fec7` (PR #22), `37311ef`/`6934822` (PR #27) |
 | 2026-10-08 | UI defaults = held-out validated set-up (burning period 10-20 h, FFMC spin-up with hourly forecast, active edges when marked); API defaults stay off | `c35e308`, `c53fafb` (PR #28); `docs/model-card.md` |
 | 2026-10-08 | Critical assets and roads are automatic from open sources (no user JSON); report arrival times (single run + ensemble P10) per asset instead of a 50 %-burn-probability flag | Owner decision 2026-10-08; `0751583` (PR #29) |
-| 2026-10-08 | The EOC location may be published (manual point in `assets.geojson`) | Owner, 2026-10-08 (roadmap note); `docs/data-sources.md` |
-| 2026-10-08 | Critical-asset data gaps closed: care facilities from the current Government of Alberta continuing care list (geocoded with City address points) + ODHF + OSM, merged by name within 150 m with every source kept per feature; ODHF-only sites flagged "possibly closed", OSM-only "verify" (11 → 127 sites); EOC kept but marked "Unverified manual point" everywhere (no public source gives its address); roads rebuilt from OSM incl. `secondary` and ramps by a kept script; generic same-name de-duplication within 300 m (30 merged); burn-probability area table labelled model output | `2357a02` (PR #31, merged `03997fd`); `docs/data-sources.md` |
+| 2026-10-08 | ~~The EOC location may be published (manual point in `assets.geojson`)~~ **Superseded** the same day (below: EOC point left out) | Owner, 2026-10-08 (roadmap note); `docs/data-sources.md` |
+| 2026-10-08 | Critical-asset data gaps closed: care facilities from the current Government of Alberta continuing care list (geocoded with City address points) + ODHF + OSM, merged by name within 150 m with every source kept per feature; ODHF-only sites flagged "possibly closed", OSM-only "verify" (11 → 127 sites); EOC kept but marked "Unverified manual point" everywhere (no public source gives its address; superseded by the next row); roads rebuilt from OSM incl. `secondary` and ramps by a kept script; generic same-name de-duplication within 300 m (30 merged); burn-probability area table labelled model output | `2357a02` (PR #31, merged `03997fd`); `docs/data-sources.md` |
+| 2026-10-08 | The EOC point is left out of the critical-assets layer: no public source gives the EOC's location and the old manual point was unverifiable (supersedes "The EOC location may be published") | Owner decision 2026-10-08; PR #33 (`fix/drop-eoc-point`, `8da78f5`; open at the time of writing); `assets.geojson` 623 features |
 | 2026-10-08 | Situation report = ICS Canada Form 209-WF (May 2021), not NIMS ICS-209. Model-filled blocks tagged MODEL OUTPUT (7, 27, 29, 30B, 36, 38, 42); observed blocks 9 (status) and 28 (observed behaviour) user-entered only; projections at 12/24/48/72 h in clock time from the ensemble (P50, P10) where available; run ID + model version stamped; unsourced HFI→complexity mapping removed; other ICS forms cite their ICS Canada counterparts (layouts are adaptations) | Owner choice (ICS Canada); form checked against icscanada.ca PDF; `d34b349`; `docs/ics-canada-209.md` |
 | 2026-10-08 | Engine runs are repeatable: spotting draws from a private `random.Random` seeded by `SimulationConfig.seed` (API `seed`) or a SHA-256 of the other inputs; no global random state | `f681189`; `docs/verification.md` §5 |
 | 2026-10-08 | Real-raster integration tests start from known O-1a fuel cells of the reprojected grid and must run, not skip | `af052e4` |
@@ -191,7 +192,7 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 | `data/edmonton_neighbourhoods.geojson` | Neighbourhoods, building index | City of Edmonton Open Data `65fr-66s6`, OGL – City of Edmonton |
 | `data/edmonton_water_bodies.geojson.gz` | Optional non-fuel mask (**off by default**) | OpenStreetMap (ODbL; features carry `osm_id`); `CLAUDE.md` corrected 2026-10-08 (`45e68d2`) |
 | `data/wui_zones.geojson.gz` | WUI modifiers (**off by default**) | **No documented source** |
-| `frontend/public/edmonton/assets.geojson` (624 features, rebuilt 2026-10-08, PR #31) | Critical assets: fire/police stations, recreation and seniors centres, schools, LRT (City Open Data `b4y7-zhnz`, `e7aq-scxv`, `nz3t-vyg3`, `zmac-3mxq`, `gfxq-u8uu`, `996c-239n`, `fhxi-cnhe`); 127 hospitals/care facilities from the Government of Alberta continuing care list (extract as of June 2026, geocoded with City Parcel Addresses `ut27-nrpn`, 102/104), StatCan ODHF v1.1 (2020-04-20; 26/28 coordinate-less records geocoded) and OSM (flagged "verify"); water/wastewater, power plants, substations ≥ 69 kV (OSM via Overpass); EOC **unverified manual point** | OGL – City of Edmonton; OGL – Alberta; OGL – Canada; ODbL 1.0 (derived database, share-alike). EOC point: public information, unverified |
+| `frontend/public/edmonton/assets.geojson` (624 features, rebuilt 2026-10-08, PR #31; 623 after PR #33 drops the EOC point) | Critical assets: fire/police stations, recreation and seniors centres, schools, LRT (City Open Data `b4y7-zhnz`, `e7aq-scxv`, `nz3t-vyg3`, `zmac-3mxq`, `gfxq-u8uu`, `996c-239n`, `fhxi-cnhe`); 127 hospitals/care facilities from the Government of Alberta continuing care list (extract as of June 2026, geocoded with City Parcel Addresses `ut27-nrpn`, 102/104), StatCan ODHF v1.1 (2020-04-20; 26/28 coordinate-less records geocoded) and OSM (flagged "verify"); water/wastewater, power plants, substations ≥ 69 kV (OSM via Overpass). No manual points: the EOC is not in the layer (PR #33) | OGL – City of Edmonton; OGL – Alberta; OGL – Canada; ODbL 1.0 (derived database, share-alike) |
 | `frontend/public/edmonton/roads.geojson` | Major roads, motorway to secondary + ramps, 816 features, rebuilt 2026-10-08 by `scripts/build_edmonton_roads.py` (Overpass, joined per road, Douglas-Peucker 5 m) | ODbL 1.0, © OpenStreetMap contributors |
 | `frontend/public/edmonton/neighbourhoods.geojson` | Neighbourhood arrival + Planning-set status (`65fr-66s6`) | OGL – City of Edmonton |
 | Open-Meteo forecast API | Hourly forecast weather aligned to the scenario start | Open-Meteo terms (CC BY 4.0 data) |
@@ -277,12 +278,12 @@ against the live site.
 - [ ] Unverified citations: Alexander (2010) full reference; Fox-Hughes et al. (2024) title; Byram (1959), Thomas (1963), Tran et al. (1992) originals; Class 1/6 meanings and an Alexander & De Groot (1988) citation flagged for the owner's check in the redesign notes.
 - [ ] Roadmap after ensemble: time-available vs time-needed per zone, trigger buffers / ember reach (river is not a barrier), exercise/replay mode.
 - [ ] Minor UI: "Click map to set ignition point" hint lingers after a typed ignition (owner note 2026-10-08; status not re-checked).
-- [ ] Critical assets (after PR #31): the EOC point is an unverified manual point (no public address found); 2 Alberta and 2 ODHF care sites could not be positioned; group homes and sites under 10 units excluded by design; OSM-only care sites flagged "verify".
+- [ ] Critical assets (after PR #31): 2 Alberta and 2 ODHF care sites could not be positioned; group homes and sites under 10 units excluded by design; OSM-only care sites flagged "verify".
 
 Closed 2026-10-08: ICS Canada 209 (`d34b349`, `8f349e6`); skipped real-raster tests (`af052e4`); spotting
 repeatability (`f681189`); `CLAUDE.md` water and building sources (`45e68d2`); roads
 extraction script and `secondary` roads, ODHF care records without coordinates (`2357a02`,
-PR #31). See the decisions log (§3).
+PR #31); EOC manual point, left out of the layer (PR #33, `8da78f5`). See the decisions log (§3).
 
 ## 7. Work log
 
@@ -293,6 +294,7 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into �
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-08 | PR #33 (`8da78f5`, not yet merged) | fix(data): leave the EOC point out of the critical-assets layer |
 | 2026-10-08 | `8f349e6` | fix(frontend): keep PR #31's labels in the 209-WF after rebase |
 | 2026-10-08 | `d34b349` | feat(frontend): ICS Canada Form 209-WF situation report replaces NIMS ICS-209 |
 | 2026-10-08 | `45e68d2` | docs: correct CLAUDE.md data-file sources |
