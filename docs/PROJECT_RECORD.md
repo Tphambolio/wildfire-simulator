@@ -10,7 +10,7 @@ git history and the owner's recorded decisions.
 - **Repo:** https://github.com/Tphambolio/wildfire-simulator (local: `~/dev/wildfire/wildfire-simulator-v3`), branch `master`
 - **Owner:** Travis Kennedy, P.Ag (City of Edmonton)
 - **Tracked in Claude for Science project** `proj_4c36553a0c0c` (snapshots of this record are attached there; this file stays the source of truth)
-- **Status at this revision:** branch `fix/record-open-items` on `master` `03997fd` (PR #31, 2026-10-08); tests 2026-10-08 on the branch: engine 873 passed / 1 xfailed (known defect, §6) / 0 skipped, API 103, Vitest 272, Playwright 28, all green (§5).
+- **Status at this revision:** `master` `dd523f6` (PR #33, 2026-10-08); tests 2026-10-08 on PR #32's branch before merge: engine 873 passed / 1 xfailed (known defect, §6) / 0 skipped, API 103, Vitest 272, Playwright 28, all green (§5).
 
 ---
 
@@ -97,7 +97,7 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | 2026-10-08 | Critical assets and roads are automatic from open sources (no user JSON); report arrival times (single run + ensemble P10) per asset instead of a 50 %-burn-probability flag | Owner decision 2026-10-08; `0751583` (PR #29) |
 | 2026-10-08 | ~~The EOC location may be published (manual point in `assets.geojson`)~~ **Superseded** the same day (below: EOC point left out) | Owner, 2026-10-08 (roadmap note); `docs/data-sources.md` |
 | 2026-10-08 | Critical-asset data gaps closed: care facilities from the current Government of Alberta continuing care list (geocoded with City address points) + ODHF + OSM, merged by name within 150 m with every source kept per feature; ODHF-only sites flagged "possibly closed", OSM-only "verify" (11 → 127 sites); EOC kept but marked "Unverified manual point" everywhere (no public source gives its address; superseded by the next row); roads rebuilt from OSM incl. `secondary` and ramps by a kept script; generic same-name de-duplication within 300 m (30 merged); burn-probability area table labelled model output | `2357a02` (PR #31, merged `03997fd`); `docs/data-sources.md` |
-| 2026-10-08 | The EOC point is left out of the critical-assets layer: no public source gives the EOC's location and the old manual point was unverifiable (supersedes "The EOC location may be published") | Owner decision 2026-10-08; PR #33 (`fix/drop-eoc-point`, `8da78f5`; open at the time of writing); `assets.geojson` 623 features |
+| 2026-10-08 | The EOC point is left out of the critical-assets layer: no public source gives the EOC's location and the old manual point was unverifiable (supersedes "The EOC location may be published") | Owner decision 2026-10-08; PR #33 (`8da78f5`, merged `dd523f6`); `assets.geojson` 623 features |
 | 2026-10-08 | Situation report = ICS Canada Form 209-WF (May 2021), not NIMS ICS-209. Model-filled blocks tagged MODEL OUTPUT (7, 27, 29, 30B, 36, 38, 42); observed blocks 9 (status) and 28 (observed behaviour) user-entered only; projections at 12/24/48/72 h in clock time from the ensemble (P50, P10) where available; run ID + model version stamped; unsourced HFI→complexity mapping removed; other ICS forms cite their ICS Canada counterparts (layouts are adaptations) | Owner choice (ICS Canada); form checked against icscanada.ca PDF; `d34b349`; `docs/ics-canada-209.md` |
 | 2026-10-08 | Engine runs are repeatable: spotting draws from a private `random.Random` seeded by `SimulationConfig.seed` (API `seed`) or a SHA-256 of the other inputs; no global random state | `f681189`; `docs/verification.md` §5 |
 | 2026-10-08 | Real-raster integration tests start from known O-1a fuel cells of the reprojected grid and must run, not skip | `af052e4` |
@@ -192,7 +192,7 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 | `data/edmonton_neighbourhoods.geojson` | Neighbourhoods, building index | City of Edmonton Open Data `65fr-66s6`, OGL – City of Edmonton |
 | `data/edmonton_water_bodies.geojson.gz` | Optional non-fuel mask (**off by default**) | OpenStreetMap (ODbL; features carry `osm_id`); `CLAUDE.md` corrected 2026-10-08 (`45e68d2`) |
 | `data/wui_zones.geojson.gz` | WUI modifiers (**off by default**) | **No documented source** |
-| `frontend/public/edmonton/assets.geojson` (624 features, rebuilt 2026-10-08, PR #31; 623 after PR #33 drops the EOC point) | Critical assets: fire/police stations, recreation and seniors centres, schools, LRT (City Open Data `b4y7-zhnz`, `e7aq-scxv`, `nz3t-vyg3`, `zmac-3mxq`, `gfxq-u8uu`, `996c-239n`, `fhxi-cnhe`); 127 hospitals/care facilities from the Government of Alberta continuing care list (extract as of June 2026, geocoded with City Parcel Addresses `ut27-nrpn`, 102/104), StatCan ODHF v1.1 (2020-04-20; 26/28 coordinate-less records geocoded) and OSM (flagged "verify"); water/wastewater, power plants, substations ≥ 69 kV (OSM via Overpass). No manual points: the EOC is not in the layer (PR #33) | OGL – City of Edmonton; OGL – Alberta; OGL – Canada; ODbL 1.0 (derived database, share-alike) |
+| `frontend/public/edmonton/assets.geojson` (623 features: rebuilt 2026-10-08 in PR #31, EOC point dropped in PR #33) | Critical assets: fire/police stations, recreation and seniors centres, schools, LRT (City Open Data `b4y7-zhnz`, `e7aq-scxv`, `nz3t-vyg3`, `zmac-3mxq`, `gfxq-u8uu`, `996c-239n`, `fhxi-cnhe`); 127 hospitals/care facilities from the Government of Alberta continuing care list (extract as of June 2026, geocoded with City Parcel Addresses `ut27-nrpn`, 102/104), StatCan ODHF v1.1 (2020-04-20; 26/28 coordinate-less records geocoded) and OSM (flagged "verify"); water/wastewater, power plants, substations ≥ 69 kV (OSM via Overpass). No manual points: the EOC is not in the layer (PR #33) | OGL – City of Edmonton; OGL – Alberta; OGL – Canada; ODbL 1.0 (derived database, share-alike) |
 | `frontend/public/edmonton/roads.geojson` | Major roads, motorway to secondary + ramps, 816 features, rebuilt 2026-10-08 by `scripts/build_edmonton_roads.py` (Overpass, joined per road, Douglas-Peucker 5 m) | ODbL 1.0, © OpenStreetMap contributors |
 | `frontend/public/edmonton/neighbourhoods.geojson` | Neighbourhood arrival + Planning-set status (`65fr-66s6`) | OGL – City of Edmonton |
 | Open-Meteo forecast API | Hourly forecast weather aligned to the scenario start | Open-Meteo terms (CC BY 4.0 data) |
@@ -283,7 +283,7 @@ against the live site.
 Closed 2026-10-08: ICS Canada 209 (`d34b349`, `8f349e6`); skipped real-raster tests (`af052e4`); spotting
 repeatability (`f681189`); `CLAUDE.md` water and building sources (`45e68d2`); roads
 extraction script and `secondary` roads, ODHF care records without coordinates (`2357a02`,
-PR #31); EOC manual point, left out of the layer (PR #33, `8da78f5`). See the decisions log (§3).
+PR #31); EOC manual point, left out of the layer (PR #33, `8da78f5`, merged `dd523f6`). See the decisions log (§3).
 
 ## 7. Work log
 
@@ -294,7 +294,11 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into �
 
 | Date | Commit | Summary |
 |---|---|---|
-| 2026-10-08 | PR #33 (`8da78f5`, not yet merged) | fix(data): leave the EOC point out of the critical-assets layer |
+| 2026-10-08 | `dd523f6` | Merge pull request #33 from Tphambolio/fix/drop-eoc-point |
+| 2026-10-08 | `27a3a02` | Merge pull request #32 from Tphambolio/fix/record-open-items |
+| 2026-10-08 | `d97f587` | docs: record the owner's decision to leave the EOC point out (PR #33) |
+| 2026-10-08 | `8da78f5` | fix(data): leave the EOC point out of the critical-assets layer |
+| 2026-10-08 | `89aa36f` | docs: record closes four open items and PR #31; Claude for Science project id |
 | 2026-10-08 | `8f349e6` | fix(frontend): keep PR #31's labels in the 209-WF after rebase |
 | 2026-10-08 | `d34b349` | feat(frontend): ICS Canada Form 209-WF situation report replaces NIMS ICS-209 |
 | 2026-10-08 | `45e68d2` | docs: correct CLAUDE.md data-file sources |
