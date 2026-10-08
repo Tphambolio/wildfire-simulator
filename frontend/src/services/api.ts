@@ -1,6 +1,7 @@
 /** API client for the FireSim backend. */
 
 import type { SimulationCreate, MultiDaySimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse, PerimeterOverrideRequest, HourlyWeatherParams } from "../types/simulation";
+import type { EnsembleResponse } from "../utils/ensemble";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -31,6 +32,23 @@ export async function createMultiDaySimulation(
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     throw new Error(err.detail || "Failed to start multi-day simulation");
   }
+  return resp.json();
+}
+
+/** Thrown by getEnsemble when the run has no ensemble (404). */
+export class NoEnsembleError extends Error {}
+
+/**
+ * Ensemble progress, and once complete the P10/P50/P90 arrival and burn-probability rasters
+ * (see utils/ensemble.ts). 404 = no ensemble for this run (NoEnsembleError).
+ */
+export async function getEnsemble(simId: string, signal?: AbortSignal): Promise<EnsembleResponse> {
+  const resp = await fetch(`${API_BASE}/api/v1/simulations/${simId}/ensemble`, { signal });
+  if (resp.status === 404) {
+    const err = await resp.json().catch(() => ({ detail: "" }));
+    throw new NoEnsembleError(err.detail || "No ensemble for this run");
+  }
+  if (!resp.ok) throw new Error(`Ensemble request failed: ${resp.status}`);
   return resp.json();
 }
 

@@ -14,6 +14,10 @@ interface SituationPanelProps {
   totalFrames: number;
   status: string | null;
   scenarioStart: Date | null;
+  /** Shown above the single-run KPIs (the ensemble "Range of outcomes" card) */
+  headline?: ReactNode;
+  /** Caption over the KPIs, e.g. "Single run (P50-like)" when an ensemble is the headline */
+  kpiCaption?: string | null;
   children?: ReactNode;
 }
 
@@ -49,7 +53,7 @@ function statusLine(status: string | null, totalFrames: number, last: Simulation
 }
 
 const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function SituationPanel(
-  { frame, frameIndex, totalFrames, status, scenarioStart, children },
+  { frame, frameIndex, totalFrames, status, scenarioStart, headline, kpiCaption, children },
   ref,
 ) {
   // The "last" frame for progress is the newest one; the KPIs follow the timeline selection
@@ -79,6 +83,9 @@ const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function Sit
         </div>
       </header>
 
+      {headline}
+
+      {frame && kpiCaption && <div className="situation-kpi-caption">{kpiCaption}</div>}
       {frame && (
         <div className="situation-kpis">
           <div className="kpi">

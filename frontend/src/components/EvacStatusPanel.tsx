@@ -12,7 +12,7 @@ import {
   ARRIVAL_BUFFER_M,
   EVAC_TIERS,
   TIER_STYLE,
-  arrivalLabel,
+  arrivalTime,
   type EvacTier,
   type EvacTierRecord,
   type NeighbourhoodArrival,
@@ -20,7 +20,10 @@ import {
 import { formatClock } from "../utils/time";
 
 interface EvacStatusPanelProps {
+  /** Single (deterministic) run */
   arrivals: NeighbourhoodArrival[];
+  /** Ensemble worst-credible (P10) arrivals; when present they lead and the single run is secondary */
+  worstArrivals?: NeighbourhoodArrival[] | null;
   scenarioStart: Date | null;
   hasRun: boolean;
   records: EvacTierRecord[];
@@ -69,6 +72,7 @@ function TierSelect({
 
 function EvacStatusPanel({
   arrivals,
+  worstArrivals = null,
   scenarioStart,
   hasRun,
   records,
@@ -85,6 +89,16 @@ function EvacStatusPanel({
   const tierOf = new Map(records.map((r) => [r.neighbourhood, r.tier]));
   const [pickName, setPickName] = useState("");
   const [pickTier, setPickTier] = useState<EvacTier | "">("Watch");
+  // Rows: P10 first when the ensemble is in, with the single-run time beside it
+  const single = new Map(arrivals.map((a) => [a.name, a.arrivalHours]));
+  const rows: Array<{ name: string; worst: number | null; single: number | null }> = worstArrivals
+    ? [
+        ...worstArrivals.map((a) => ({ name: a.name, worst: a.arrivalHours, single: single.get(a.name) ?? null })),
+        ...arrivals
+          .filter((a) => !worstArrivals.some((w) => w.name === a.name))
+          .map((a) => ({ name: a.name, worst: null, single: a.arrivalHours })),
+      ]
+    : arrivals.map((a) => ({ name: a.name, worst: null, single: a.arrivalHours }));
   const sorted = [...records].sort(
     (a, b) => EVAC_TIERS.indexOf(a.tier) - EVAC_TIERS.indexOf(b.tier) || a.neighbourhood.localeCompare(b.neighbourhood),
   );
@@ -93,12 +107,12 @@ function EvacStatusPanel({
     <section className="evac-status" aria-labelledby={`${id}-h`}>
       <h3 id={`${id}-h`} className="evac-status-h">Neighbourhoods</h3>
       <p className="hint-sm">
-        Fire arrival is modelled for this run. Evacuation status is set by Planning: FireSim does not
-        recommend evacuation tiers.
+        Fire arrival is modelled for this run{worstArrivals ? ": worst-credible (P10 of the ensemble) first, the single run beside it" : ""}.
+        Evacuation status is set by Planning: FireSim does not recommend evacuation tiers.
       </p>
 
       <h4 className="evac-status-sub">Modelled fire within {ARRIVAL_BUFFER_M} m</h4>
-      {arrivals.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="hint-sm evac-empty">
           {hasRun
             ? `No neighbourhood within ${ARRIVAL_BUFFER_M} m of the modelled fire.`
@@ -109,15 +123,29 @@ function EvacStatusPanel({
           <thead>
             <tr>
               <th scope="col">Neighbourhood</th>
-              <th scope="col">Fire within {ARRIVAL_BUFFER_M} m by</th>
+              {worstArrivals ? (
+                <>
+                  <th scope="col">Fire within {ARRIVAL_BUFFER_M} m by, worst-credible</th>
+                  <th scope="col">Single run</th>
+                </>
+              ) : (
+                <th scope="col">Fire within {ARRIVAL_BUFFER_M} m by</th>
+              )}
               <th scope="col">Status (Planning)</th>
             </tr>
           </thead>
           <tbody>
-            {arrivals.map((a) => (
+            {rows.map((a) => (
               <tr key={a.name}>
                 <th scope="row">{a.name}</th>
-                <td className="evac-arrival-time">{arrivalLabel(a.arrivalHours, scenarioStart).replace(/^Fire within \d+ m by /, "")}</td>
+                {worstArrivals && (
+                  <td className="evac-arrival-time evac-arrival-worst">
+                    {a.worst !== null ? arrivalTime(a.worst, scenarioStart) : "not reached"}
+                  </td>
+                )}
+                <td className={`evac-arrival-time${worstArrivals ? " evac-arrival-single" : ""}`}>
+                  {a.single !== null ? arrivalTime(a.single, scenarioStart) : "not reached"}
+                </td>
                 <td>
                   <TierSelect
                     name={a.name}

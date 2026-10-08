@@ -330,6 +330,29 @@ export function neighbourhoodArrivals(
   if (!communities || frames.length === 0) return [];
   const pts = firePoints(frames);
   const perimeterMode = !frames.some((f) => (f.burned_cells?.length ?? 0) > 0);
+  return arrivalsFromPoints(pts, communities, bufferM, perimeterMode ? frames : null);
+}
+
+/**
+ * The same, from fire points sorted by time (e.g. the cells of the ensemble's P10 arrival
+ * raster, utils/ensemble.ts arrivalPoints): the earliest point within `bufferM`.
+ */
+export function neighbourhoodArrivalsFromPoints(
+  pts: { lat: number; lng: number; h: number }[],
+  communities: GeoJSON.FeatureCollection | null | undefined,
+  bufferM: number = ARRIVAL_BUFFER_M,
+): NeighbourhoodArrival[] {
+  if (!communities) return [];
+  return arrivalsFromPoints(pts, communities, bufferM, null);
+}
+
+function arrivalsFromPoints(
+  pts: { lat: number; lng: number; h: number }[],
+  communities: GeoJSON.FeatureCollection,
+  bufferM: number,
+  /** Perimeter runs: frames, to catch a neighbourhood swept over with no vertex near it */
+  perimeterFrames: SimulationFrame[] | null,
+): NeighbourhoodArrival[] {
   if (pts.length === 0) return [];
   let fMinLat = Infinity, fMaxLat = -Infinity, fMinLng = Infinity, fMaxLng = -Infinity;
   for (const p of pts) {
@@ -352,7 +375,8 @@ export function neighbourhoodArrivals(
       if (q.lng < bx0 || q.lng > bx1 || q.lat < by0 || q.lat > by1) continue;
       if (distanceM(p, q.lat, q.lng) <= bufferM) { arrival = q.h; break; }
     }
-    if (perimeterMode) {
+    if (perimeterFrames) {
+      const frames = perimeterFrames;
       // A neighbourhood the perimeter has swept over, with no vertex near it
       const ring = (polygonsOf(feat.geometry)[0]?.[0]) ?? [];
       for (const f of frames) {
@@ -370,12 +394,23 @@ export function neighbourhoodArrivals(
 
 /** "Fire within 500 m by 15:32" (or "by T+1:05" without a start time). */
 export function arrivalLabel(arrivalHours: number, start: Date | null, bufferM: number = ARRIVAL_BUFFER_M): string {
-  const when = start ? formatClockAt(start, arrivalHours) : formatElapsed(arrivalHours);
-  return `Fire within ${bufferM} m by ${when}`;
+  return `Fire within ${bufferM} m by ${arrivalTime(arrivalHours, start)}`;
 }
 
-/** Arrival outlines for the map: neighbourhood polygons with their label. */
-export function arrivalsToGeoJSON(arrivals: NeighbourhoodArrival[], start: Date | null): GeoJSON.FeatureCollection {
+/** "15:32" (or "T+1:05" without a start time). */
+export function arrivalTime(arrivalHours: number, start: Date | null): string {
+  return start ? formatClockAt(start, arrivalHours) : formatElapsed(arrivalHours);
+}
+
+/**
+ * Arrival outlines for the map: neighbourhood polygons with their label. With `worstCredible`
+ * the times are the ensemble's P10 arrival and the label says so.
+ */
+export function arrivalsToGeoJSON(
+  arrivals: NeighbourhoodArrival[],
+  start: Date | null,
+  worstCredible = false,
+): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: arrivals.map((a) => ({
@@ -384,7 +419,9 @@ export function arrivalsToGeoJSON(arrivals: NeighbourhoodArrival[], start: Date 
       properties: {
         neighbourhood: a.name,
         arrival_hours: +a.arrivalHours.toFixed(3),
-        arrival_label: arrivalLabel(a.arrivalHours, start),
+        arrival_label: worstCredible
+          ? `Worst-credible: fire within ${ARRIVAL_BUFFER_M} m by ${arrivalTime(a.arrivalHours, start)}`
+          : arrivalLabel(a.arrivalHours, start),
       },
     })),
   };

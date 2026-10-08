@@ -279,6 +279,9 @@ function WeatherPanel({
   const [weatherMessage, setWeatherMessage] = useState<string | null>(null);
   const [fwiLoading, setFwiLoading] = useState(false);
   const [mcIterations, setMcIterations] = useState(50);
+  // Range of outcomes (ensemble) after grid runs: on by default, 30 members
+  const [ensembleOn, setEnsembleOn] = useState(true);
+  const [ensembleMembers, setEnsembleMembers] = useState(30);
   const [weatherSource, setWeatherSource] = useState<string | null>(null);
   const [weatherTimestamp, setWeatherTimestamp] = useState<string | null>(null);
   const [stationName, setStationName] = useState<string | null>(null);
@@ -311,6 +314,10 @@ function WeatherPanel({
     setSimMode(scenarioToLoad.simMode);
     setMultiDayDays(scenarioToLoad.multiDayDays);
     setMcIterations(scenarioToLoad.mcIterations);
+    if (scenarioToLoad.ensembleMembers !== undefined) {
+      setEnsembleOn(scenarioToLoad.ensembleMembers !== null);
+      if (scenarioToLoad.ensembleMembers) setEnsembleMembers(scenarioToLoad.ensembleMembers);
+    }
   }, [scenarioToLoad]);
 
   // ── Provide config snapshot to parent for saving ──────────────────────────
@@ -333,12 +340,14 @@ function WeatherPanel({
       simMode,
       multiDayDays,
       mcIterations,
+      ensembleMembers: ensembleOn ? ensembleMembers : null,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     ignitionPoint, weather, fwi, fuelType, useEdmontonGrid, useSyntheticCA,
     enableSpotting, spottingIntensity, includeWater, includeBuildings, includeWUI,
     includeDEM, durationHours, snapshotMinutes, simMode, multiDayDays, mcIterations,
+    ensembleOn, ensembleMembers,
   ]);
 
   // ── Auto-fetch CWFIS weather when ignition point is first set ─────────────
@@ -501,6 +510,8 @@ function WeatherPanel({
       use_ca_mode: useSyntheticCA && !useEdmontonGrid,
       enable_spotting: enableSpotting,
       spotting_intensity: spottingIntensity,
+      // The ensemble needs a fuel grid (grid runs only)
+      ensemble: ensembleOn && useEdmontonGrid ? { n_members: ensembleMembers } : null,
     });
   };
 
@@ -1152,7 +1163,8 @@ function WeatherPanel({
         title="Run options"
         summary={
           simMode === "single"
-            ? `Single event · ${durationHours} h · ${snapshotMinutes} min snapshots`
+            ? `Single event · ${durationHours} h · ${snapshotMinutes} min snapshots${
+                useEdmontonGrid ? (ensembleOn ? ` · range of outcomes (${ensembleMembers})` : " · single run only") : ""}`
             : `Multi-day · ${multiDayDays.length} days · ${snapshotMinutes} min snapshots`
         }
       >
@@ -1197,6 +1209,37 @@ function WeatherPanel({
             onChange={(e) => setSnapshotMinutes(Number(e.target.value))}
           />
         </label>
+        {simMode === "single" && (
+          <div className="ensemble-option" role="group" aria-label="Range of outcomes">
+            <label>
+              <input
+                type="checkbox"
+                checked={ensembleOn && useEdmontonGrid}
+                disabled={!useEdmontonGrid}
+                onChange={(e) => setEnsembleOn(e.target.checked)}
+              />
+              Range of outcomes (ensemble)
+            </label>
+            {ensembleOn && useEdmontonGrid && (
+              <label>
+                Members: <strong>{ensembleMembers}</strong>
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  step={10}
+                  value={ensembleMembers}
+                  onChange={(e) => setEnsembleMembers(Number(e.target.value))}
+                />
+              </label>
+            )}
+            <p className="hint-sm">
+              {useEdmontonGrid
+                ? `Re-runs the fire ${ensembleMembers} times with varied wind, moisture and spread rate after the single run: about 1 s per member on the server, longer for large fires. The spread of outcomes is uncalibrated: the variations are defaults, not fitted to observed fires.`
+                : "Needs the Edmonton fuel grid (grid runs only)."}
+            </p>
+          </div>
+        )}
         {simMode === "multiday" && (
           <MultiDayPanel
             days={multiDayDays}
