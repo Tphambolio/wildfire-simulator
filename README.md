@@ -70,6 +70,15 @@ cd frontend && npm install && npm run dev
 Open http://localhost:3000, click the map to set an ignition point, set
 the weather and run. Edmonton data paths and other settings: [docs/deployment.md](docs/deployment.md).
 
+## Data
+
+The Edmonton layers in `frontend/public/edmonton/` load automatically with the Edmonton fuel
+grid: critical assets (`assets.geojson`, 509 features: City of Edmonton Open Data, Statistics
+Canada ODHF, © OpenStreetMap contributors), major roads (OpenStreetMap) and neighbourhoods
+(City Open Data). Sources, licences, dates and refresh: [docs/data-sources.md](docs/data-sources.md).
+Rebuild the assets with `python3 scripts/build_edmonton_assets.py`. Other jurisdictions add
+their own GeoJSON under Setup, "Add your own layer".
+
 ## Testing
 
 ```bash
@@ -96,6 +105,7 @@ docs/       Model card, verification, FBP reference, architecture, API, deployme
 - [docs/fbp-reference.md](docs/fbp-reference.md): FBP equations and inputs
 - [docs/building-exposure.md](docs/building-exposure.md): exposure metrics and their sources
 - [docs/architecture.md](docs/architecture.md): components and spread models
+- [docs/data-sources.md](docs/data-sources.md): bundled datasets, licences, dates, refresh
 - [docs/api-reference.md](docs/api-reference.md), [docs/deployment.md](docs/deployment.md)
 
 ## Name

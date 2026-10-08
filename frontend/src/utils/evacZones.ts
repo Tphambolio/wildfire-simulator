@@ -255,7 +255,7 @@ function distanceM(p: Prepared, lat: number, lng: number): number {
   return best;
 }
 
-function perimeterContains(perimeter: number[][], lat: number, lng: number): boolean {
+export function perimeterContains(perimeter: number[][], lat: number, lng: number): boolean {
   let inside = false;
   for (let i = 0, j = perimeter.length - 1; i < perimeter.length; j = i++) {
     const [latI, lngI] = perimeter[i];
@@ -272,7 +272,7 @@ function perimeterContains(perimeter: number[][], lat: number, lng: number): boo
  * incremental (`cells_offset` > 0, as streamed): both give the same set. Runs without cells
  * (Huygens): perimeter vertices at each frame's time.
  */
-function firePoints(frames: SimulationFrame[]): { lat: number; lng: number; h: number }[] {
+export function firePoints(frames: SimulationFrame[]): { lat: number; lng: number; h: number }[] {
   const hasCells = frames.some((f) => (f.burned_cells?.length ?? 0) > 0);
   const out: { lat: number; lng: number; h: number }[] = [];
   if (hasCells) {

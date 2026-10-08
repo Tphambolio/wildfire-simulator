@@ -63,7 +63,16 @@ grass curing, percent conifer / dead fir, foliar moisture or date. The UI defaul
 held-out validated set-up: burning period 10-20 h, spin-up when hourly forecast weather is
 used, active edges when marked; the API defaults are off. Outputs: perimeters,
 burned cells with arrival time, speed and head/flank/back, head summary, arrival-time grid,
-intensity and fire type, spot fires, building exposure, burn probability.
+intensity and fire type, spot fires, building exposure, burn probability, and the first
+time the modelled fire is within 500 m of (and inside) each neighbourhood and critical asset
+and on each major road (single run and ensemble worst-credible P10; clock time, model output
+only).
+
+Bundled reference layers (Edmonton; loaded with the Edmonton fuel grid): critical assets from
+City of Edmonton Open Data, Statistics Canada ODHF and OpenStreetMap (ODbL), major roads from
+OpenStreetMap, neighbourhoods from City Open Data, plus one manual point (the EOC). Sources,
+licences, dates and the refresh command: `docs/data-sources.md`. Asset arrival depends on the
+completeness and positions of these layers (e.g. ODHF lacks coordinates for many care homes).
 
 ## Evidence
 

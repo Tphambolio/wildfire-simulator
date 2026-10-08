@@ -1,0 +1,226 @@
+/*
+ * Critical assets card (Situation panel), asset layers (Setup), and the asset / road labels on
+ * the map. Symbols are shape + letter (not colour-only); reached roads use --watched-line.
+ */
+
+.assets-card {
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+
+.assets-card-h {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-lg);
+  color: var(--text);
+}
+
+.assets-empty {
+  margin: 0 0 var(--sp-2);
+}
+
+.assets-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin: var(--sp-2) 0;
+}
+
+.assets-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: var(--target-min);
+  max-width: 100%;
+  padding: 2px var(--sp-2) 2px 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.assets-chip[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent-text);
+  color: var(--text);
+}
+
+.assets-chip[aria-pressed="false"] .asset-symbol {
+  opacity: 0.45;
+}
+
+.assets-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 13em;
+}
+
+.assets-chip-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.assets-chip[aria-pressed="true"] .assets-chip-count {
+  color: var(--text-2);
+}
+
+.assets-chip-all {
+  padding-left: var(--sp-2);
+}
+
+.asset-symbol {
+  flex-shrink: 0;
+}
+
+.assets-group {
+  margin-top: var(--sp-2);
+}
+
+.assets-group-h {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.assets-group-n {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.assets-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.asset-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  min-height: var(--target-min);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-align: left;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.asset-row:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.asset-row-name {
+  font-weight: 600;
+}
+
+.asset-row-time {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.asset-row-inside {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.road-row {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+}
+
+.road-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 6px;
+  background: var(--watched-line);
+  border: 1.5px solid #ffffff;
+  border-radius: 2px;
+}
+
+.assets-card > label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.assets-sources {
+  margin: var(--sp-3) 0 0;
+}
+
+/* Setup: asset layers */
+.asset-layers-own {
+  margin-top: var(--sp-2);
+}
+
+.asset-layers-own summary {
+  min-height: var(--target-min);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.asset-layers-error {
+  color: var(--danger-text);
+}
+
+.asset-layers-list {
+  list-style: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.asset-layers-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+}
+
+.asset-layers-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Map: label of a reached asset (DOM marker: the basemap has no glyphs) */
+.map-asset-label {
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111827;
+  border: 1.5px solid #111827;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  white-space: nowrap;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

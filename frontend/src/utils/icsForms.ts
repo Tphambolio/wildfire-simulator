@@ -23,6 +23,8 @@
 import type { SimulationFrame } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { PlanningEvacZone } from "./evacZones";
+import type { CriticalReach } from "./assets";
+import { clock } from "./assets";
 import type { IncidentAnnotation } from "../types/incident";
 import { RPAS_NOTE, buildSuppressionAdvisory } from "./suppressionAdvisory";
 
@@ -34,7 +36,8 @@ export interface ICSFormOptions {
   runParams: RunParams | null;
   ignitionPoint: { lat: number; lng: number } | null;
   fuelTypeLabel?: string;
-  atRiskCounts?: { roads: number; communities: number; infrastructure: number };
+  /** Assets and major roads reached by the modelled fire (model output, never an instruction) */
+  criticalReach?: CriticalReach | null;
   /** Evacuation status set by Planning (reported as entered, never generated) */
   evacZones?: PlanningEvacZone[];
   /** base64 PNG from maplibregl canvas.toDataURL() */
@@ -346,7 +349,7 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
     if (spread.fireType.toLowerCase().includes("crown")) awarenessItems.push("Crown fire conditions — unpredictable rate of spread, extreme ember cast");
   }
   awarenessItems.push(...evacStatusItems(opts));
-  if (opts.atRiskCounts?.infrastructure) awarenessItems.push(`${opts.atRiskCounts.infrastructure} infrastructure features at risk`);
+  awarenessItems.push(...reachedItems(opts));
   if (awarenessItems.length === 0) awarenessItems.push("No additional situational awareness items. Maintain LACES protocol.");
 
   const safetyItems = [
@@ -847,10 +850,37 @@ function evacStatusItems(opts: ICSFormOptions): string[] {
   return (opts.evacZones ?? []).map((z) => `Evacuation ${z.tier} (set by Planning): ${z.neighbourhoods.join(", ")}`);
 }
 
+// ── Assets reached by the modelled fire (model output, never an objective) ────
+
+/** Situational-awareness lines: assets and roads the modelled fire reaches, in clock time. */
+export function reachedItems(opts: Pick<ICSFormOptions, "criticalReach">): string[] {
+  const r = opts.criticalReach;
+  if (!r || r.assets.length + r.roads.length === 0) return [];
+  const t = (h: number | null | undefined) => (h == null ? "not reached" : clock(h, r.start));
+  const when = (worst: number | null | undefined, single: number | null | undefined) =>
+    r.hasEnsemble ? `${t(worst)} / ${t(single)}` : t(single);
+  const items: string[] = [];
+  const label = r.hasEnsemble ? "worst-credible / single run" : "single run";
+  if (r.assets.length > 0) {
+    const list = r.assets
+      .slice(0, 12)
+      .map((a) => `${a.asset.name} (${when(a.worst?.near, a.single?.near)})`)
+      .join("; ");
+    const more = r.assets.length > 12 ? `; and ${r.assets.length - 12} more` : "";
+    items.push(`Assets reached by the modelled fire, within ${r.bufferM} m (model output, ${label}): ${list}${more}`);
+  }
+  if (r.roads.length > 0) {
+    items.push(
+      `Major roads reached by the modelled fire (model output, ${label}): ${r.roads.map((x) => `${x.name} (${when(x.worst, x.single)})`).join("; ")}`,
+    );
+  }
+  return items;
+}
+
 // ── Shared objectives builder ─────────────────────────────────────────────────
 
 function buildObjectives(
-  opts: ICSFormOptions,
+  _opts: ICSFormOptions,
   spread: SpreadStats | null,
   suppression: SuppressionSummary | null,
 ): string[] {
@@ -860,9 +890,6 @@ function buildObjectives(
   }
   if (suppression) {
     objectives.push(`Execute ${suppression.strategy} tactics per suppression advisory (Intensity Class ${suppression.intensityClass})`);
-  }
-  if (opts.atRiskCounts?.infrastructure) {
-    objectives.push(`Protect ${opts.atRiskCounts.infrastructure} at-risk infrastructure feature(s) within burn probability zone`);
   }
   if (objectives.length === 0) {
     objectives.push("Run simulation to generate specific measurable objectives.");

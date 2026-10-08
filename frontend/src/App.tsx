@@ -7,8 +7,8 @@ import type { RunParams, SkillOptionsState } from "./components/WeatherPanel";
 import FireMetrics from "./components/FireMetrics";
 import EOCSummary from "./components/EOCSummary";
 import TimeSlider from "./components/TimeSlider";
-import OverlayPanel from "./components/OverlayPanel";
-import type { OverlayLayers, LayerType } from "./components/OverlayPanel";
+import AssetLayersPanel, { type UserLayer } from "./components/AssetLayersPanel";
+import CriticalAssetsPanel from "./components/CriticalAssetsPanel";
 import ScenarioPanel from "./components/ScenarioPanel";
 import EvacStatusPanel from "./components/EvacStatusPanel";
 import { FUEL_TYPES } from "./types/simulation";
@@ -19,6 +19,7 @@ import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityR
 import { useRecon } from "./hooks/useRecon";
 import { clockAt } from "./utils/time";
 import {
+  ARRIVAL_BUFFER_M,
   arrivalsToGeoJSON,
   featureName,
   neighbourhoodArrivals,
@@ -52,6 +53,23 @@ import {
   probabilityPixels,
   type EnsembleMapLayers,
 } from "./utils/ensemble";
+import {
+  CATEGORY_ORDER,
+  EDMONTON_ATTRIBUTION,
+  EDMONTON_MAP_ATTRIBUTION,
+  assetReach,
+  assetRows,
+  assetsFromGeoJSON,
+  assetsToMapGeoJSON,
+  fireFromEnsemble,
+  fireFromFrames,
+  roadPiecesToGeoJSON,
+  roadReach,
+  roadRows,
+  type Asset,
+  type AssetCategory,
+  type CriticalReach,
+} from "./utils/assets";
 
 /**
  * Export burn probability contour polygons as GeoJSON.
@@ -181,64 +199,6 @@ function exportPerimeterGeoJSON(
   URL.revokeObjectURL(url);
 }
 
-// ── At-risk computation ──────────────────────────────────────────────────────
-
-/** Returns true if the coordinate [lng, lat] falls in a cell with P ≥ threshold. */
-function isAtRisk(
-  lng: number,
-  lat: number,
-  data: BurnProbabilityResponse,
-  threshold: number,
-): boolean {
-  const { burn_probability, rows, cols, lat_min, lat_max, lng_min, lng_max } = data;
-  if (lat < lat_min || lat > lat_max || lng < lng_min || lng > lng_max) return false;
-  const cellLat = (lat_max - lat_min) / rows;
-  const cellLng = (lng_max - lng_min) / cols;
-  const r = Math.max(0, Math.min(rows - 1, Math.floor((lat_max - lat) / cellLat)));
-  const c = Math.max(0, Math.min(cols - 1, Math.floor((lng - lng_min) / cellLng)));
-  return (burn_probability[r]?.[c] ?? 0) >= threshold;
-}
-
-/** Check if any coordinate in a coordinate array is at-risk. */
-function coordsAtRisk(coords: number[][], data: BurnProbabilityResponse, threshold: number): boolean {
-  return coords.some(([lng, lat]) => isAtRisk(lng, lat, data, threshold));
-}
-
-/**
- * Annotate each feature with `_at_risk: 1 | 0` based on whether any of its
- * vertices/coordinates fall in a burn-probability cell at or above `threshold`.
- * Returns a new FeatureCollection with counts.
- */
-function annotateAndCount(
-  fc: GeoJSON.FeatureCollection,
-  data: BurnProbabilityResponse,
-  threshold = 0.5,
-): { annotated: GeoJSON.FeatureCollection; count: number } {
-  let count = 0;
-  const features = fc.features.map((f) => {
-    let atRisk = false;
-    const g = f.geometry;
-    if (g.type === "Point") {
-      atRisk = isAtRisk(g.coordinates[0], g.coordinates[1], data, threshold);
-    } else if (g.type === "MultiPoint") {
-      atRisk = g.coordinates.some(([lng, lat]) => isAtRisk(lng, lat, data, threshold));
-    } else if (g.type === "LineString") {
-      atRisk = coordsAtRisk(g.coordinates as number[][], data, threshold);
-    } else if (g.type === "MultiLineString") {
-      atRisk = g.coordinates.some((line) => coordsAtRisk(line as number[][], data, threshold));
-    } else if (g.type === "Polygon") {
-      atRisk = coordsAtRisk(g.coordinates[0] as number[][], data, threshold);
-    } else if (g.type === "MultiPolygon") {
-      atRisk = g.coordinates.some((poly) =>
-        coordsAtRisk(poly[0] as number[][], data, threshold)
-      );
-    }
-    if (atRisk) count++;
-    return { ...f, properties: { ...(f.properties ?? {}), _at_risk: atRisk ? 1 : 0 } };
-  });
-  return { annotated: { ...fc, features }, count };
-}
-
 // ── EOC start screen — shown when no incident is active ──────────────────────
 
 function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
@@ -278,13 +238,10 @@ function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
   );
 }
 
-// ── Default overlay state ────────────────────────────────────────────────────
+// ── Bundled Edmonton layers (loaded with the Edmonton fuel grid) ─────────────
 
-const DEFAULT_OVERLAY_LAYERS: OverlayLayers = {
-  roads: { data: null, visible: true },
-  communities: { data: null, visible: true },
-  infrastructure: { data: null, visible: true },
-};
+const EDMONTON_ASSETS_URL = "./edmonton/assets.geojson";
+const EDMONTON_ROADS_URL = "./edmonton/roads.geojson";
 
 export default function App() {
   const [ignitionPoint, setIgnitionPoint] = useState<{
@@ -296,7 +253,17 @@ export default function App() {
   const [burnProbError, setBurnProbError] = useState<string | null>(null);
   const [showBurnProbView, setShowBurnProbView] = useState(false);
   const [lastRunParams, setLastRunParams] = useState<RunParams | null>(null);
-  const [overlayLayers, setOverlayLayers] = useState<OverlayLayers>(DEFAULT_OVERLAY_LAYERS);
+  // Neighbourhood polygons (arrival outlines, evacuation status), loaded on startup
+  const [communities, setCommunities] = useState<GeoJSON.FeatureCollection | null>(null);
+  // Critical assets and major roads: Edmonton layers (automatic with the Edmonton grid), user layers
+  const [edmontonAssets, setEdmontonAssets] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [edmontonRoads, setEdmontonRoads] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [edmontonNote, setEdmontonNote] = useState("Loading with the Edmonton fuel grid…");
+  const [userLayers, setUserLayers] = useState<UserLayer[]>([]);
+  const [assetsVisible, setAssetsVisible] = useState(true);
+  const [roadsReachedVisible, setRoadsReachedVisible] = useState(true);
+  const [shownCategories, setShownCategories] = useState<ReadonlySet<AssetCategory>>(() => new Set(CATEGORY_ORDER));
+  const [focusRequest, setFocusRequest] = useState<{ lngLat: [number, number]; n: number } | null>(null);
   // Evacuation status outlines (set by Planning) and modelled-arrival outlines on the map
   const [evacZonesVisible, setEvacZonesVisible] = useState(true);
   const [arrivalOutlinesVisible, setArrivalOutlinesVisible] = useState(true);
@@ -337,27 +304,31 @@ export default function App() {
   } = useIncident();
   const currentConfigRef = useRef<Omit<ScenarioConfig, "id" | "createdAt" | "name" | "description"> | null>(null);
 
-  // Compute at-risk annotations whenever burn prob data or overlay data changes
-  const overlayAnnotated = useMemo(() => {
-    const annotate = (data: GeoJSON.FeatureCollection | null) =>
-      data && burnProbabilityData
-        ? annotateAndCount(data, burnProbabilityData)
-        : { annotated: data, count: 0 };
-    return {
-      roads: annotate(overlayLayers.roads.data),
-      communities: annotate(overlayLayers.communities.data),
-      infrastructure: annotate(overlayLayers.infrastructure.data),
-    };
-  }, [burnProbabilityData, overlayLayers]);
-
-  const overlayAtRiskCounts = useMemo(() => ({
-    roads: overlayAnnotated.roads.count,
-    communities: overlayAnnotated.communities.count,
-    infrastructure: overlayAnnotated.infrastructure.count,
-  }), [overlayAnnotated]);
+  // Edmonton assets and major roads load with the Edmonton grid (no upload needed)
+  const loadEdmontonLayers = useCallback(async () => {
+    try {
+      const [a, r] = await Promise.all([EDMONTON_ASSETS_URL, EDMONTON_ROADS_URL].map(async (u) => {
+        const resp = await fetch(u);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return (await resp.json()) as GeoJSON.FeatureCollection;
+      }));
+      setEdmontonAssets(a);
+      setEdmontonRoads(r);
+    } catch {
+      setEdmontonNote("The Edmonton asset layers could not be loaded. Reload the page to try again.");
+    }
+  }, []);
 
   const handleEdmontonGridChange = useCallback(async (path: string | null) => {
-    if (!path) { setFuelGridImage(null); return; }
+    if (!path) {
+      setFuelGridImage(null);
+      setEdmontonAssets(null);
+      setEdmontonRoads(null);
+      setEdmontonNote("Not loaded: the Edmonton fuel grid is off. Add your own layer under Setup.");
+      return;
+    }
+    setEdmontonNote("Loading with the Edmonton fuel grid…");
+    void loadEdmontonLayers();
     // Retry up to 3 times — the Fly.io machine may be suspended on first load
     // and needs a few seconds to resume before the image endpoint responds.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -371,27 +342,22 @@ export default function App() {
       }
     }
     setFuelGridImage(null);
-  }, []);
+  }, [loadEdmontonLayers]);
 
-  const handleOverlayLoad = useCallback((type: LayerType, data: GeoJSON.FeatureCollection) => {
-    setOverlayLayers((prev) => ({ ...prev, [type]: { ...prev[type], data } }));
+  const handleAddLayer = useCallback((name: string, data: GeoJSON.FeatureCollection) => {
+    setUserLayers((prev) => [...prev, { id: `${Date.now().toString(36)}${prev.length}`, name, data }]);
   }, []);
-
-  const handleOverlayToggle = useCallback((type: LayerType, visible: boolean) => {
-    setOverlayLayers((prev) => ({ ...prev, [type]: { ...prev[type], visible } }));
-  }, []);
-
-  const handleOverlayClear = useCallback((type: LayerType) => {
-    setOverlayLayers((prev) => ({ ...prev, [type]: { data: null, visible: true } }));
+  const handleRemoveLayer = useCallback((id: string) => {
+    setUserLayers((prev) => prev.filter((l) => l.id !== id));
   }, []);
 
   // Pre-load Edmonton neighbourhoods on startup (arrival outlines and evacuation status).
   useEffect(() => {
     fetch("./edmonton/neighbourhoods.geojson")
       .then((r) => (r.ok ? r.json() : null))
-      .then((fc) => { if (fc) handleOverlayLoad("communities", fc as GeoJSON.FeatureCollection); })
+      .then((fc) => { if (fc) setCommunities(fc as GeoJSON.FeatureCollection); })
       .catch(() => {});
-  }, [handleOverlayLoad]);
+  }, []);
 
   const {
     status,
@@ -513,7 +479,6 @@ export default function App() {
 
   // Neighbourhoods: modelled earliest fire arrival within 500 m (a model fact, whole run).
   // With an ensemble, the worst-credible (P10) arrival leads and the single run is secondary.
-  const communities = overlayLayers.communities.data;
   const arrivals = useMemo(() => neighbourhoodArrivals(frames, communities), [frames, communities]);
   const worstArrivals = useMemo(
     () => (ensGrids ? neighbourhoodArrivalsFromPoints(arrivalPoints(ensGrids, "p10"), communities) : null),
@@ -566,6 +531,68 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
   }, [evacZones, incident]);
+
+  // ── Critical assets and major roads: modelled arrival (single run, worst-credible P10) ──
+  const assets = useMemo<Asset[]>(
+    () => [
+      ...assetsFromGeoJSON(edmontonAssets, { idPrefix: "edm:" }),
+      ...userLayers.flatMap((l) => assetsFromGeoJSON(l.data, { idPrefix: `${l.id}:`, category: "custom", source: l.name })),
+    ],
+    [edmontonAssets, userLayers],
+  );
+  const roads = useMemo<GeoJSON.FeatureCollection | null>(() => {
+    const lines = userLayers.flatMap((l) =>
+      l.data.features.filter((f) => f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString"),
+    );
+    if (!edmontonRoads && lines.length === 0) return null;
+    return { type: "FeatureCollection", features: [...(edmontonRoads?.features ?? []), ...lines] };
+  }, [edmontonRoads, userLayers]);
+  const singleFire = useMemo(() => fireFromFrames(frames), [frames]);
+  const worstFire = useMemo(() => (ensGrids ? fireFromEnsemble(ensGrids, "p10") : null), [ensGrids]);
+  const singleAssetReach = useMemo(() => assetReach(singleFire, assets), [singleFire, assets]);
+  const worstAssetReach = useMemo(() => (worstFire ? assetReach(worstFire, assets) : null), [worstFire, assets]);
+  const singleRoadReach = useMemo(() => roadReach(singleFire, roads), [singleFire, roads]);
+  const worstRoadReach = useMemo(() => (worstFire ? roadReach(worstFire, roads) : null), [worstFire, roads]);
+  const hasEnsemble = !!worstFire;
+  const criticalReach = useMemo<CriticalReach>(
+    () => ({
+      assets: assetRows(assets, singleAssetReach, worstAssetReach),
+      roads: roadRows(singleRoadReach.first, worstRoadReach?.first ?? null),
+      hasEnsemble,
+      start: scenarioStart,
+      bufferM: ARRIVAL_BUFFER_M,
+    }),
+    [assets, singleAssetReach, worstAssetReach, singleRoadReach, worstRoadReach, hasEnsemble, scenarioStart],
+  );
+  const assetPoints = useMemo(
+    () => (assets.length ? assetsToMapGeoJSON(assets, criticalReach.assets, shownCategories, scenarioStart, hasEnsemble) : null),
+    [assets, criticalReach, shownCategories, scenarioStart, hasEnsemble],
+  );
+  const roadsReached = useMemo(
+    () => roadPiecesToGeoJSON(singleRoadReach.pieces, worstRoadReach?.pieces ?? null),
+    [singleRoadReach, worstRoadReach],
+  );
+  const assetSources = useMemo(() => {
+    const out: string[] = [];
+    if (edmontonAssets) out.push(EDMONTON_ATTRIBUTION);
+    for (const l of userLayers) out.push(`Your layer: ${l.name}`);
+    return out;
+  }, [edmontonAssets, userLayers]);
+  const assetAttribution = edmontonAssets ? EDMONTON_MAP_ATTRIBUTION : null;
+  const toggleCategory = useCallback((c: AssetCategory) => {
+    setShownCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      return next;
+    });
+  }, []);
+  const showAllCategories = useCallback(() => setShownCategories(new Set(CATEGORY_ORDER)), []);
+  const focusAsset = useCallback((a: Asset) => {
+    setAssetsVisible(true);
+    setShownCategories((prev) => (prev.has(a.category) ? prev : new Set([...prev, a.category])));
+    setFocusRequest((prev) => ({ lngLat: a.anchor, n: (prev?.n ?? 0) + 1 }));
+  }, []);
 
   // Compute arrival time isochrones from simulation frames
   const isochrones = useMemo(
@@ -718,15 +745,15 @@ export default function App() {
           />
           <div className="setup-more-label">More</div>
           <SetupSection
-            title="Map overlays & isochrones"
-            summary={`Isochrones ${isochronesVisible ? "on" : "off"}`}
+            title="Assets, roads & isochrones"
+            summary={`${assets.length} asset${assets.length === 1 ? "" : "s"}${userLayers.length ? ` (${userLayers.length} own layer${userLayers.length === 1 ? "" : "s"})` : ""} · isochrones ${isochronesVisible ? "on" : "off"}`}
           >
-            <OverlayPanel
-              layers={overlayLayers}
-              atRiskCounts={overlayAtRiskCounts}
-              onLayerLoad={handleOverlayLoad}
-              onLayerToggle={handleOverlayToggle}
-              onLayerClear={handleOverlayClear}
+            <AssetLayersPanel
+              edmonton={edmontonAssets ? { assets: edmontonAssets.features.length, roads: edmontonRoads?.features.length ?? 0 } : null}
+              edmontonNote={edmontonNote}
+              userLayers={userLayers}
+              onAddLayer={handleAddLayer}
+              onRemoveLayer={handleRemoveLayer}
             />
             <IsochronePanel
               isochrones={isochrones}
@@ -827,13 +854,13 @@ export default function App() {
             runParams={lastRunParams}
             ignitionPoint={ignitionPoint}
             fuelTypeLabel={lastRunParams?.fuel_type ? `${lastRunParams.fuel_type} — ${FUEL_TYPES[lastRunParams.fuel_type] ?? ""}` : undefined}
-            overlayRoads={overlayAnnotated.roads.annotated as GeoJSON.FeatureCollection | null}
-            overlayRoadsVisible={overlayLayers.roads.visible}
-            overlayCommunities={overlayAnnotated.communities.annotated as GeoJSON.FeatureCollection | null}
-            overlayCommunitiesVisible={overlayLayers.communities.visible}
-            overlayInfrastructure={overlayAnnotated.infrastructure.annotated as GeoJSON.FeatureCollection | null}
-            overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
-            atRiskCounts={overlayAtRiskCounts}
+            overlayCommunities={communities}
+            assetPoints={assetPoints}
+            assetsVisible={assetsVisible}
+            roadsReached={roadsReached}
+            roadsReachedVisible={roadsReachedVisible}
+            assetAttribution={assetAttribution}
+            criticalReach={criticalReach}
             evacZones={evacZones}
             evacZonesVisible={evacZonesVisible}
             isochrones={isochrones}
@@ -898,12 +925,13 @@ export default function App() {
             ignitionPoint={ignitionPoint}
             burnProbabilityData={burnProbabilityData}
             showBurnProbView={showBurnProbView}
-            overlayRoads={overlayAnnotated.roads.annotated as GeoJSON.FeatureCollection | null}
-            overlayRoadsVisible={overlayLayers.roads.visible}
-            overlayCommunities={overlayAnnotated.communities.annotated as GeoJSON.FeatureCollection | null}
-            overlayCommunitiesVisible={overlayLayers.communities.visible}
-            overlayInfrastructure={overlayAnnotated.infrastructure.annotated as GeoJSON.FeatureCollection | null}
-            overlayInfrastructureVisible={overlayLayers.infrastructure.visible}
+            overlayCommunities={communities}
+            assetPoints={assetPoints}
+            assetsVisible={assetsVisible}
+            roadsReached={roadsReached}
+            roadsReachedVisible={roadsReachedVisible}
+            assetAttribution={assetAttribution}
+            focusRequest={focusRequest}
             evacZones={evacZones}
             evacZonesVisible={evacZonesVisible}
             isochrones={isochrones}
@@ -964,6 +992,24 @@ export default function App() {
             onExport={exportEvacStatus}
             incidentName={incident?.name ?? null}
           />
+          <CriticalAssetsPanel
+            assets={assets}
+            rows={criticalReach.assets}
+            roads={criticalReach.roads}
+            hasEnsemble={hasEnsemble}
+            scenarioStart={scenarioStart}
+            hasRun={frames.length > 0}
+            shown={shownCategories}
+            onToggleCategory={toggleCategory}
+            onShowAll={showAllCategories}
+            onFocus={focusAsset}
+            assetsVisible={assetsVisible}
+            onAssetsVisible={setAssetsVisible}
+            roadsVisible={roadsReachedVisible}
+            onRoadsVisible={setRoadsReachedVisible}
+            sources={assetSources}
+            loadNote={edmontonNote}
+          />
           <EOCSummary
             frames={frames}
             burnProbData={burnProbabilityData}
@@ -974,10 +1020,7 @@ export default function App() {
                 ? `${lastRunParams.fuel_type} — ${FUEL_TYPES[lastRunParams.fuel_type] ?? ""}`
                 : undefined
             }
-            atRiskCounts={overlayAtRiskCounts}
-            overlayRoads={overlayAnnotated.roads.annotated as GeoJSON.FeatureCollection | null}
-            overlayCommunities={overlayAnnotated.communities.annotated as GeoJSON.FeatureCollection | null}
-            overlayInfrastructure={overlayAnnotated.infrastructure.annotated as GeoJSON.FeatureCollection | null}
+            criticalReach={criticalReach}
             evacZones={evacZones}
           />
         </SituationPanel>
