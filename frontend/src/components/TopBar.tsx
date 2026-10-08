@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { formatClock, formatDate, zoneAbbrev } from "../utils/time";
 
-const LIMITS_URL = "https://github.com/Tphambolio/wildfire-simulator/blob/master/docs/verification.md";
+const LIMITS_URL = "https://github.com/Tphambolio/wildfire-simulator/blob/master/docs/model-card.md";
 
 /** Wall clock in America/Edmonton, updated every 15 s. */
 export function EdmontonClock() {
@@ -74,9 +74,9 @@ export default function TopBar({ incidentName, incidentSub, activeTab, onTabChan
           href={LIMITS_URL}
           target="_blank"
           rel="noreferrer"
-          title="FBP equations match the cffdrs reference implementation; spread has not been validated against observed fires or Prometheus/WISE. Use for planning, training and what-if analysis, not as an operational forecast."
+          title="FBP equations match the cffdrs reference implementation and spread was compared with WISE. A first validation on 143 Alberta fire-days shows low one-day skill (F1 about 0.15-0.24) and over-predicted growth on most days, similar to WISE with default settings. Use for preparedness, training and what-if analysis, not as an operational forecast."
         >
-          Planning tool · not validated against observed fires
+          Training &amp; planning tool · low one-day skill on observed fires
         </a>
         <EdmontonClock />
       </div>
