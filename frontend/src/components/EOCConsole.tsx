@@ -25,6 +25,7 @@ import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "./WeatherPanel";
 import type { PlanningEvacZone } from "../utils/evacZones";
+import type { CriticalReach } from "../utils/assets";
 import type { Isochrone } from "../utils/isochrones";
 import {
   buildICS201HTML,
@@ -55,13 +56,16 @@ interface EOCConsoleProps {
   ignitionPoint: { lat: number; lng: number } | null;
   fuelTypeLabel?: string;
   // Overlays
-  overlayRoads?: GeoJSON.FeatureCollection | null;
-  overlayRoadsVisible?: boolean;
   overlayCommunities?: GeoJSON.FeatureCollection | null;
   overlayCommunitiesVisible?: boolean;
-  overlayInfrastructure?: GeoJSON.FeatureCollection | null;
-  overlayInfrastructureVisible?: boolean;
-  atRiskCounts?: { roads: number; communities: number; infrastructure: number };
+  /** Critical assets (map symbols) and major roads reached by the modelled fire */
+  assetPoints?: GeoJSON.FeatureCollection | null;
+  assetsVisible?: boolean;
+  roadsReached?: GeoJSON.FeatureCollection | null;
+  roadsReachedVisible?: boolean;
+  assetAttribution?: string | null;
+  /** Assets and roads reached by the modelled fire (model output, for the summary and forms) */
+  criticalReach?: CriticalReach | null;
   // Evacuation status set by Planning
   evacZones?: PlanningEvacZone[];
   evacZonesVisible?: boolean;
@@ -109,13 +113,14 @@ export default function EOCConsole({
   runParams,
   ignitionPoint,
   fuelTypeLabel,
-  overlayRoads = null,
-  overlayRoadsVisible = true,
   overlayCommunities = null,
   overlayCommunitiesVisible = true,
-  overlayInfrastructure = null,
-  overlayInfrastructureVisible = true,
-  atRiskCounts,
+  assetPoints = null,
+  assetsVisible = true,
+  roadsReached = null,
+  roadsReachedVisible = true,
+  assetAttribution = null,
+  criticalReach = null,
   evacZones = [],
   evacZonesVisible = true,
   isochrones = [],
@@ -395,11 +400,11 @@ export default function EOCConsole({
     runParams,
     ignitionPoint,
     fuelTypeLabel,
-    atRiskCounts,
+    criticalReach,
     evacZones,
     mapSnapshotDataUrl: snapshot ?? mapSnapshot,
     annotations: incidentAnnotations,
-  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, evacZones, mapSnapshot, incidentAnnotations]);
+  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, mapSnapshot, incidentAnnotations]);
 
   // ── Suppression advisory for ICS-209 ─────────────────────────────────────
 
@@ -427,7 +432,7 @@ export default function EOCConsole({
   const renderForm = useCallback((formId: ICSFormId, snapshot?: string) => {
     const opts = buildFormOptions(snapshot);
     if (formId === "ics209") {
-      openICS209Report({ frames, burnProbData: burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, evacZones, suppAdvisory: getSuppressionAdvisory() });
+      openICS209Report({ frames, burnProbData: burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, suppAdvisory: getSuppressionAdvisory() });
       return; // ICS-209 opens in new window, not iframe
     }
     let html = "";
@@ -441,7 +446,7 @@ export default function EOCConsole({
     else if (formId === "full-iap") html = buildFullIAPHTML(opts);
     setFormHtml(html);
     setSelectedForm(formId);
-  }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, overlayRoads, overlayCommunities, overlayInfrastructure, evacZones, getSuppressionAdvisory]);
+  }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, getSuppressionAdvisory]);
 
   const handleFormSelect = useCallback(async (formId: ICSFormId) => {
     const snap = await captureMapSnapshot();
@@ -527,12 +532,13 @@ export default function EOCConsole({
             ignitionPoint={ignitionPoint}
             burnProbabilityData={burnProbabilityData}
             showBurnProbView={showBurnProbView}
-            overlayRoads={overlayRoads}
-            overlayRoadsVisible={overlayRoadsVisible}
             overlayCommunities={overlayCommunities}
             overlayCommunitiesVisible={overlayCommunitiesVisible}
-            overlayInfrastructure={overlayInfrastructure}
-            overlayInfrastructureVisible={overlayInfrastructureVisible}
+            assetPoints={assetPoints}
+            assetsVisible={assetsVisible}
+            roadsReached={roadsReached}
+            roadsReachedVisible={roadsReachedVisible}
+            assetAttribution={assetAttribution}
             evacZones={evacZones}
             evacZonesVisible={evacZonesVisible}
             isochrones={isochrones}
@@ -778,10 +784,7 @@ export default function EOCConsole({
                 runParams={runParams}
                 ignitionPoint={ignitionPoint}
                 fuelTypeLabel={fuelTypeLabel}
-                atRiskCounts={atRiskCounts}
-                overlayRoads={overlayRoads}
-                overlayCommunities={overlayCommunities}
-                overlayInfrastructure={overlayInfrastructure}
+                criticalReach={criticalReach}
                 evacZones={evacZones}
               />
             )}

@@ -9,6 +9,7 @@ import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulati
 import type { RunParams } from "../components/WeatherPanel";
 import type { PlanningEvacZone } from "./evacZones";
 import { planningZonesToGeoJSON } from "./evacZones";
+import { criticalReachFeatures, type CriticalReach } from "./assets";
 
 // ── Geometry helpers ────────────────────────────────────────────────────────
 
@@ -38,9 +39,8 @@ export interface ExportOptions {
   runParams: RunParams | null;
   ignitionPoint: { lat: number; lng: number } | null;
   fuelTypeLabel?: string;
-  overlayRoads?: GeoJSON.FeatureCollection | null;
-  overlayCommunities?: GeoJSON.FeatureCollection | null;
-  overlayInfrastructure?: GeoJSON.FeatureCollection | null;
+  /** Assets and major roads reached by the modelled fire (model output) */
+  criticalReach?: CriticalReach | null;
   /** Evacuation status set by Planning (Order / Alert / Watch), as entered */
   evacZones?: PlanningEvacZone[];
 }
@@ -191,25 +191,8 @@ export function buildGeoJSON(opts: ExportOptions): object {
     }
   }
 
-  // 5. At-risk infrastructure (from overlay layers — only _at_risk features)
-  const overlayLayerMap: [string, GeoJSON.FeatureCollection | null | undefined][] = [
-    ["community", opts.overlayCommunities],
-    ["road", opts.overlayRoads],
-    ["infrastructure", opts.overlayInfrastructure],
-  ];
-  for (const [layerName, fc] of overlayLayerMap) {
-    if (!fc) continue;
-    for (const f of fc.features) {
-      if (f.properties?._at_risk) {
-        const { _at_risk, ...rest } = f.properties ?? {};
-        void _at_risk; // intentionally unused — removing internal flag from export
-        features.push({
-          ...f,
-          properties: { ...rest, layer: `at_risk_${layerName}` },
-        });
-      }
-    }
-  }
+  // 5. Assets reached by the modelled fire (model output, with clock times)
+  if (opts.criticalReach) features.push(...criticalReachFeatures(opts.criticalReach));
 
   // 6. Evacuation status set by Planning (neighbourhood polygons tagged with the tier)
   if (opts.evacZones && opts.evacZones.length > 0) {

@@ -14,12 +14,16 @@ import { EVAC_COLOR, EVAC_TIERS, TIER_STYLE, featureName, labelPoint, planningZo
 import type { Isochrone } from "../utils/isochrones";
 import { isochronesToGeoJSON, isochroneLabelsGeoJSON } from "../utils/isochrones";
 import { PROB_STOPS, probCss, ringsFeature, type EnsembleMapLayers } from "../utils/ensemble";
+import { ASSET_CATEGORIES, CATEGORY_ORDER, type AssetCategory } from "../utils/assets";
+import { symbolImage } from "../utils/assetSymbols";
 
 /** Ensemble line colour: ink, one colour for every arrival line (design spec §3.3, §6.2) */
 const ENS_INK = "#1f2937";
 /** Observed (RPAS) perimeter and active edges: orange-red, distinct from the modelled fire */
 const RECON_PERIMETER = "#6d28d9";
 const RECON_ACTIVE = "#ff4500";
+/** Major roads reached by the modelled fire (tokens.css --watched-line) */
+const ROAD_REACHED = "#0e7490";
 const RECON_LAYERS = [
   "recon-perimeter-casing", "recon-perimeter-line", "recon-active-casing", "recon-active-line",
   "recon-draft-line", "recon-draft-points",
@@ -194,13 +198,19 @@ interface MapViewProps {
   ignitionPoint: { lat: number; lng: number } | null;
   burnProbabilityData?: BurnProbabilityResponse | null;
   showBurnProbView?: boolean;
-  /** Annotated overlay GeoJSON (features include _at_risk: 0|1 property) */
-  overlayRoads?: GeoJSON.FeatureCollection | null;
-  overlayRoadsVisible?: boolean;
+  /** Neighbourhood polygons (click one to see its arrival and set its evacuation status) */
   overlayCommunities?: GeoJSON.FeatureCollection | null;
   overlayCommunitiesVisible?: boolean;
-  overlayInfrastructure?: GeoJSON.FeatureCollection | null;
-  overlayInfrastructureVisible?: boolean;
+  /** Critical assets: symbol points from utils/assets.ts assetsToMapGeoJSON (icon, reached, label) */
+  assetPoints?: GeoJSON.FeatureCollection | null;
+  assetsVisible?: boolean;
+  /** Major-road stretches reached by the modelled fire (utils/assets.ts roadPiecesToGeoJSON) */
+  roadsReached?: GeoJSON.FeatureCollection | null;
+  roadsReachedVisible?: boolean;
+  /** Attribution of the asset and road layers (shown in the map attribution) */
+  assetAttribution?: string | null;
+  /** Fly to a point (card "show on the map"); a new `n` repeats the request */
+  focusRequest?: { lngLat: [number, number]; n: number } | null;
   /** Evacuation status set by Planning (never generated): blue outlines by tier */
   evacZones?: PlanningEvacZone[];
   evacZonesVisible?: boolean;
@@ -252,12 +262,14 @@ export default function MapView({
   ignitionPoint,
   burnProbabilityData,
   showBurnProbView = false,
-  overlayRoads = null,
-  overlayRoadsVisible = true,
   overlayCommunities = null,
   overlayCommunitiesVisible = true,
-  overlayInfrastructure = null,
-  overlayInfrastructureVisible = true,
+  assetPoints = null,
+  assetsVisible = true,
+  roadsReached = null,
+  roadsReachedVisible = true,
+  assetAttribution = null,
+  focusRequest = null,
   evacZones = [],
   evacZonesVisible = true,
   arrivalOutlines = null,
@@ -344,6 +356,8 @@ export default function MapView({
     pulseAnimRef.current = requestAnimationFrame(animatePulse);
   }, []);
   const spotPopupRef = useRef<maplibregl.Popup | null>(null);
+  // Attribution of the asset layers, read when the layers are (re-)added
+  const assetAttributionRef = useRef<string | null>(assetAttribution);
   // Latest evac status / arrival data and setter for the neighbourhood popup (built in addFireLayers)
   const evacPopupDataRef = useRef<{
     records: EvacTierRecord[];
@@ -679,25 +693,7 @@ export default function MapView({
       },
     });
 
-    // ── Infrastructure overlay layers ──────────────────────────────────────
-    // Roads (LineString)
-    if (m.getSource("overlay-roads")) {
-      if (m.getLayer("overlay-roads-line")) m.removeLayer("overlay-roads-line");
-      m.removeSource("overlay-roads");
-    }
-    m.addSource("overlay-roads", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    m.addLayer({
-      id: "overlay-roads-line",
-      type: "line",
-      source: "overlay-roads",
-      paint: {
-        "line-color": ["case", ["==", ["get", "_at_risk"], 1], "#ff3d00", "#4fc3f7"],
-        "line-width": ["case", ["==", ["get", "_at_risk"], 1], 3, 1.5],
-        "line-opacity": ["case", ["==", ["get", "_at_risk"], 1], 0.95, 0.65],
-      },
-    });
-
-    // Communities (Polygon)
+    // ── Neighbourhood polygons (plain; arrival and status are drawn by the layers below) ──
     if (m.getSource("overlay-communities")) {
       if (m.getLayer("overlay-communities-fill")) m.removeLayer("overlay-communities-fill");
       if (m.getLayer("overlay-communities-outline")) m.removeLayer("overlay-communities-outline");
@@ -708,64 +704,93 @@ export default function MapView({
       id: "overlay-communities-fill",
       type: "fill",
       source: "overlay-communities",
-      paint: {
-        "fill-color": ["case", ["==", ["get", "_at_risk"], 1], "#ff3d00", "#26c6da"],
-        "fill-opacity": ["case", ["==", ["get", "_at_risk"], 1], 0.25, 0.12],
-      },
+      paint: { "fill-color": "#26c6da", "fill-opacity": 0.06 },
     });
     m.addLayer({
       id: "overlay-communities-outline",
       type: "line",
       source: "overlay-communities",
-      paint: {
-        "line-color": ["case", ["==", ["get", "_at_risk"], 1], "#ff3d00", "#26c6da"],
-        "line-width": ["case", ["==", ["get", "_at_risk"], 1], 2.5, 1.5],
-        "line-opacity": 0.9,
-        "line-dasharray": ["case", ["==", ["get", "_at_risk"], 1],
-          ["literal", [1, 0]], ["literal", [3, 2]]],
-      },
+      paint: { "line-color": "#26c6da", "line-width": 1, "line-opacity": 0.6, "line-dasharray": [3, 2] },
     });
 
-    // Infrastructure points
-    if (m.getSource("overlay-infra")) {
-      if (m.getLayer("overlay-infra-circle")) m.removeLayer("overlay-infra-circle");
-      m.removeSource("overlay-infra");
-    }
-    m.addSource("overlay-infra", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    // ── Major roads reached by the modelled fire: --watched-line on a white casing ──
+    // Single run solid; worst-credible (ensemble P10) dashed, drawn under it
+    for (const id of ["roads-reached-casing", "roads-reached-worst", "roads-reached-line"]) if (m.getLayer(id)) m.removeLayer(id);
+    if (m.getSource("roads-reached")) m.removeSource("roads-reached");
+    m.addSource("roads-reached", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     m.addLayer({
-      id: "overlay-infra-circle",
-      type: "circle",
-      source: "overlay-infra",
-      paint: {
-        "circle-radius": ["case", ["==", ["get", "_at_risk"], 1], 8, 6],
-        "circle-color": ["case", ["==", ["get", "_at_risk"], 1], "#ff3d00", "#29b6f6"],
-        "circle-stroke-width": 2,
-        "circle-stroke-color": ["case", ["==", ["get", "_at_risk"], 1], "#ffcc00", "#ffffff"],
-        "circle-opacity": 0.92,
-      },
+      id: "roads-reached-casing", type: "line", source: "roads-reached",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#ffffff", "line-width": 8, "line-opacity": 0.9 },
+    });
+    m.addLayer({
+      id: "roads-reached-worst", type: "line", source: "roads-reached",
+      filter: ["==", ["get", "run"], "worst"],
+      layout: { "line-join": "round" },
+      paint: { "line-color": ROAD_REACHED, "line-width": 5, "line-dasharray": [1.5, 1] },
+    });
+    m.addLayer({
+      id: "roads-reached-line", type: "line", source: "roads-reached",
+      filter: ["==", ["get", "run"], "single"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": ROAD_REACHED, "line-width": 5 },
     });
 
-    // Click handler for infrastructure points — show name/type popup
-    m.on("click", "overlay-infra-circle", (e) => {
-      if (e.originalEvent === ignitionClickRef.current) return;
-      if (!e.features || !e.features.length) return;
-      const props = e.features[0].properties as Record<string, unknown>;
-      const name = (props.name ?? props.label ?? props.NAME ?? "Infrastructure point") as string;
-      const type = (props.type ?? props.TYPE ?? "") as string;
-      const atRisk = props._at_risk === 1;
-      new maplibregl.Popup({ closeButton: true, maxWidth: "200px" })
-        .setLngLat(e.lngLat)
-        .setHTML(
-          `<div class="map-popup">
-            <strong class="map-popup-title">${name}</strong><br/>
-            ${type ? `<span class="map-popup-muted">${type}</span><br/>` : ""}
-            ${atRisk ? '<span class="map-popup-warn">⚠ At-risk (P ≥ 50%)</span>' : ""}
-          </div>`
-        )
-        .addTo(m);
+    // ── Critical assets: shape + letter symbols (canvas icons, no glyphs), reached on top ──
+    for (const c of CATEGORY_ORDER) {
+      for (const reached of [false, true]) {
+        const name = `asset-${c}${reached ? "-reached" : ""}`;
+        if (m.hasImage(name)) continue;
+        const img = symbolImage(c, reached, 2);
+        if (img) m.addImage(name, img, { pixelRatio: 2 });
+      }
+    }
+    if (m.getLayer("assets-symbol")) m.removeLayer("assets-symbol");
+    if (m.getSource("assets")) m.removeSource("assets");
+    m.addSource("assets", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+      attribution: assetAttributionRef.current ?? undefined,
     });
-    m.on("mouseenter", "overlay-infra-circle", () => { m.getCanvas().style.cursor = "pointer"; });
-    m.on("mouseleave", "overlay-infra-circle", () => { m.getCanvas().style.cursor = ""; });
+    m.addLayer({
+      id: "assets-symbol",
+      type: "symbol",
+      source: "assets",
+      layout: {
+        "icon-image": ["get", "icon"],
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        "symbol-sort-key": ["get", "reached"],
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.75, 12, 1],
+      },
+    });
+    m.on("click", "assets-symbol", (e) => {
+      if (e.originalEvent === ignitionClickRef.current || drawingRef.current) return;
+      const f = e.features?.[0];
+      if (!f) return;
+      const p = f.properties as Record<string, unknown>;
+      const el = document.createElement("div");
+      el.className = "map-popup";
+      const title = document.createElement("strong");
+      title.className = "map-popup-title";
+      title.textContent = String(p.name ?? "Asset");
+      el.appendChild(title);
+      const lines = [
+        ASSET_CATEGORIES[(p.category as AssetCategory) ?? "custom"]?.label ?? "",
+        p.detail && p.detail !== "null" ? String(p.detail) : "",
+        p.label && p.label !== "null" ? `Model output: fire within ${String(p.label).split(" · ").slice(1).join(" · ")}` : "No modelled fire within 500 m in this run",
+        p.source ? `Source: ${String(p.source)}` : "",
+      ].filter(Boolean);
+      for (const t of lines) {
+        const d = document.createElement("div");
+        d.className = "map-popup-muted";
+        d.textContent = t;
+        el.appendChild(d);
+      }
+      new maplibregl.Popup({ closeButton: true, maxWidth: "260px" }).setLngLat(e.lngLat).setDOMContent(el).addTo(m);
+    });
+    m.on("mouseenter", "assets-symbol", () => { m.getCanvas().style.cursor = "pointer"; });
+    m.on("mouseleave", "assets-symbol", () => { m.getCanvas().style.cursor = ""; });
 
     // ── Neighbourhood layers: modelled arrival (ink) and evacuation status set by Planning (blue) ──
     for (const id of ["nbhd-arrival-line", "nbhd-arrival-casing",
@@ -960,6 +985,8 @@ export default function MapView({
     m.on("click", "overlay-communities-fill", (e) => {
       if (e.originalEvent === ignitionClickRef.current || drawingRef.current) return;
       if (!e.features || !e.features.length) return;
+      // An asset symbol on top takes the click
+      if (m.getLayer("assets-symbol") && m.queryRenderedFeatures(e.point, { layers: ["assets-symbol"] }).length > 0) return;
       const name = featureName(e.features[0] as unknown as GeoJSON.Feature);
       const data = evacPopupDataRef.current;
       const el = document.createElement("div");
@@ -1624,18 +1651,20 @@ export default function MapView({
     }
   }, [fuelOpacity, mapReady]);
 
-  // Sync overlay GeoJSON sources
+  // Sync the neighbourhood, asset and reached-road sources
   useEffect(() => {
     if (!map.current || !mapReady) return;
     const m = map.current;
     const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-    const roadsSrc = m.getSource("overlay-roads") as maplibregl.GeoJSONSource | undefined;
-    if (roadsSrc) roadsSrc.setData(overlayRoads ?? empty);
-    const commSrc = m.getSource("overlay-communities") as maplibregl.GeoJSONSource | undefined;
-    if (commSrc) commSrc.setData(overlayCommunities ?? empty);
-    const infraSrc = m.getSource("overlay-infra") as maplibregl.GeoJSONSource | undefined;
-    if (infraSrc) infraSrc.setData(overlayInfrastructure ?? empty);
-  }, [overlayRoads, overlayCommunities, overlayInfrastructure, mapReady, fireLayersVersion]);
+    (m.getSource("overlay-communities") as maplibregl.GeoJSONSource | undefined)?.setData(overlayCommunities ?? empty);
+    (m.getSource("assets") as maplibregl.GeoJSONSource | undefined)?.setData(assetPoints ?? empty);
+    (m.getSource("roads-reached") as maplibregl.GeoJSONSource | undefined)?.setData(roadsReached ?? empty);
+    // What is drawn, for tests and debugging (the map itself is a canvas)
+    const reached = (assetPoints?.features ?? []).filter((f) => f.properties?.reached === 1).map((f) => String(f.properties?.name));
+    mapContainer.current?.setAttribute("data-assets", String(assetPoints?.features.length ?? 0));
+    mapContainer.current?.setAttribute("data-assets-reached", JSON.stringify(reached));
+    mapContainer.current?.setAttribute("data-roads-reached", String(roadsReached?.features.length ?? 0));
+  }, [overlayCommunities, assetPoints, roadsReached, mapReady, fireLayersVersion]);
 
   // Overlay layer visibility
   useEffect(() => {
@@ -1644,11 +1673,57 @@ export default function MapView({
     const setVis = (id: string, v: boolean) => {
       if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", v ? "visible" : "none");
     };
-    setVis("overlay-roads-line", overlayRoadsVisible);
     setVis("overlay-communities-fill", overlayCommunitiesVisible);
     setVis("overlay-communities-outline", overlayCommunitiesVisible);
-    setVis("overlay-infra-circle", overlayInfrastructureVisible);
-  }, [overlayRoadsVisible, overlayCommunitiesVisible, overlayInfrastructureVisible, mapReady, fireLayersVersion]);
+    setVis("assets-symbol", assetsVisible);
+    for (const id of ["roads-reached-casing", "roads-reached-worst", "roads-reached-line"]) setVis(id, roadsReachedVisible);
+  }, [overlayCommunitiesVisible, assetsVisible, roadsReachedVisible, mapReady, fireLayersVersion]);
+
+  // Labels of reached assets (DOM markers: no map glyphs needed, >= 12 px; aria-hidden, the
+  // Critical assets card is the accessible list)
+  const assetLabelMarkersRef = useRef<maplibregl.Marker[]>([]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady) return;
+    for (const mk of assetLabelMarkersRef.current) mk.remove();
+    assetLabelMarkersRef.current = [];
+    if (!assetsVisible) return;
+    for (const f of assetPoints?.features ?? []) {
+      const label = f.properties?.label;
+      if (!label || f.geometry.type !== "Point") continue;
+      const el = document.createElement("div");
+      el.className = "map-asset-label";
+      el.setAttribute("aria-hidden", "true");
+      // Decorative (the card is the accessible list): not a button, as MapLibre would make it
+      el.setAttribute("role", "none");
+      el.textContent = String(label);
+      assetLabelMarkersRef.current.push(
+        new maplibregl.Marker({ element: el, anchor: "left", offset: [14, 0] })
+          .setLngLat(f.geometry.coordinates as [number, number])
+          .addTo(m),
+      );
+    }
+  }, [assetPoints, assetsVisible, mapReady]);
+
+  // Attribution of the asset and road layers
+  useEffect(() => {
+    assetAttributionRef.current = assetAttribution;
+    const m = map.current;
+    if (!m || !mapReady) return;
+    const src = m.getSource("assets") as unknown as { attribution?: string } | undefined;
+    if (src && src.attribution !== (assetAttribution ?? undefined)) {
+      src.attribution = assetAttribution ?? undefined;
+      // Re-read source attributions
+      (m as unknown as { _controls?: Array<{ _updateAttributions?: () => void }> })._controls?.forEach((c) => c._updateAttributions?.());
+    }
+  }, [assetAttribution, mapReady, fireLayersVersion]);
+
+  // Fly to an asset chosen in the card
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady || !focusRequest) return;
+    m.flyTo({ center: focusRequest.lngLat, zoom: Math.max(m.getZoom(), 14), duration: 700 });
+  }, [focusRequest, mapReady]);
 
   // Sync the evacuation status (Planning) and modelled arrival sources
   useEffect(() => {

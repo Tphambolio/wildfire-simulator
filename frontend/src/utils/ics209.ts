@@ -11,6 +11,7 @@
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { PlanningEvacZone } from "./evacZones";
+import { assetReachPhrases, roadReachPhrase, type CriticalReach } from "./assets";
 import type { SuppressionAdvisory } from "./suppressionAdvisory";
 import { fwiClassColor } from "./fwiClass";
 
@@ -269,7 +270,8 @@ export interface ICS209Options {
   runParams: RunParams | null;
   ignitionPoint: { lat: number; lng: number } | null;
   fuelTypeLabel?: string;
-  atRiskCounts?: { roads: number; communities: number; infrastructure: number };
+  /** Assets and major roads reached by the modelled fire (model output, never an instruction) */
+  criticalReach?: CriticalReach | null;
   /** Evacuation status set by Planning (never generated) */
   evacZones?: PlanningEvacZone[];
   suppAdvisory?: SuppressionAdvisory | null;
@@ -295,7 +297,7 @@ function sectionHeader(title: string, gray = false): string {
 }
 
 export function buildICS209HTML(opts: ICS209Options): string {
-  const { frames, burnProbData, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, evacZones, suppAdvisory } = opts;
+  const { frames, burnProbData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, suppAdvisory } = opts;
 
   const now = new Date();
   const nowStr = now.toISOString().replace("T", " ").slice(0, 16) + " UTC";
@@ -497,16 +499,25 @@ export function buildICS209HTML(opts: ICS209Options): string {
     </div>`;
   }
 
-  // ── Section: At-risk infrastructure ──────────────────────────────────────
+  // ── Section: Assets reached by the modelled fire (model output) ───────────
 
   let infraBlock = "";
-  if (atRiskCounts && (atRiskCounts.roads + atRiskCounts.communities + atRiskCounts.infrastructure) > 0) {
+  if (criticalReach && criticalReach.assets.length + criticalReach.roads.length > 0) {
+    const label = criticalReach.hasEnsemble ? "worst-credible / single run" : "single run";
+    const assetItems = criticalReach.assets
+      .map((r) => `<li>${esc(r.asset.name)}: ${esc(assetReachPhrases(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.bufferM).join("; "))}</li>`)
+      .join("");
+    const roadItems = criticalReach.roads
+      .map((r) => `<li>${esc(r.name)}: ${esc(roadReachPhrase(r, criticalReach.start, criticalReach.hasEnsemble))}</li>`)
+      .join("");
     infraBlock = `
-    ${sectionHeader("SECTION F — INFRASTRUCTURE AT RISK (within P ≥ 50% zone)")}
+    ${sectionHeader(`SECTION F — ASSETS REACHED BY THE MODELLED FIRE (${label})`)}
     <div class="row">
-      ${block("Communities", `<span class="big" style="color:#e65100">${atRiskCounts.communities}</span>`, "w2")}
-      ${block("Road Segments", `<span class="big" style="color:#e65100">${atRiskCounts.roads}</span>`, "w2")}
-      ${block("Critical Infrastructure", `<span class="big" style="color:#e65100">${atRiskCounts.infrastructure}</span>`, "w2")}
+      <div class="block w6" style="flex:3; padding:4px 6px;">
+        <div class="block-label">Model output for this run, not an instruction</div>
+        ${assetItems ? `<ul style="margin:2px 0 0 16px;padding:0;">${assetItems}</ul>` : `<div>No asset within ${criticalReach.bufferM} m of the modelled fire.</div>`}
+        ${roadItems ? `<div class="block-label" style="margin-top:4px;">Major roads</div><ul style="margin:2px 0 0 16px;padding:0;">${roadItems}</ul>` : ""}
+      </div>
     </div>`;
   }
 

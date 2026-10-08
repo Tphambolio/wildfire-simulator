@@ -10,6 +10,7 @@ import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulati
 import type { RunParams } from "./WeatherPanel";
 import { buildGeoJSON, buildKML, downloadFile } from "../utils/geoExport";
 import type { PlanningEvacZone } from "../utils/evacZones";
+import { ASSET_CATEGORIES, assetReachPhrases, criticalReachLines, groupRows, roadReachPhrase, type CriticalReach } from "../utils/assets";
 import { openICS209Report } from "../utils/ics209";
 import HfiClassChip from "./HfiClassChip";
 import { fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
@@ -23,12 +24,8 @@ interface EOCSummaryProps {
   ignitionPoint: { lat: number; lng: number } | null;
   /** Fuel type label shown in params recap */
   fuelTypeLabel?: string;
-  /** At-risk feature counts from infrastructure overlay (P ≥ 50% intersection) */
-  atRiskCounts?: { roads: number; communities: number; infrastructure: number };
-  /** Annotated overlay GeoJSON for inclusion in GeoJSON export */
-  overlayRoads?: GeoJSON.FeatureCollection | null;
-  overlayCommunities?: GeoJSON.FeatureCollection | null;
-  overlayInfrastructure?: GeoJSON.FeatureCollection | null;
+  /** Assets and major roads reached by the modelled fire (model output, never an instruction) */
+  criticalReach?: CriticalReach | null;
   /** Evacuation status set by Planning (never generated), for export and the ICS report */
   evacZones?: PlanningEvacZone[];
 }
@@ -138,7 +135,7 @@ function buildICSText(
   params: RunParams | null,
   ignition: { lat: number; lng: number } | null,
   fuelTypeLabel?: string,
-  atRiskCounts?: { roads: number; communities: number; infrastructure: number },
+  criticalReach?: CriticalReach | null,
   dayStats?: DayStats[] | null,
   evacZones?: PlanningEvacZone[],
   suppAdvisory?: SuppressionAdvisory | null
@@ -218,14 +215,11 @@ function buildICSText(
     lines.push("");
   }
 
-  const hasAtRisk = atRiskCounts &&
-    (atRiskCounts.roads + atRiskCounts.communities + atRiskCounts.infrastructure) > 0;
-  if (hasAtRisk && atRiskCounts) {
+  const hasAtRisk = !!criticalReach && (criticalReach.assets.length + criticalReach.roads.length) > 0;
+  if (hasAtRisk && criticalReach) {
     const n = sectionBase + (spread ? 1 : 0) + (burnArea ? 1 : 0);
-    lines.push(`${n}. INFRASTRUCTURE AT RISK (within P ≥ 50% zone)`);
-    if (atRiskCounts.communities > 0) lines.push(`  Communities:       ${atRiskCounts.communities}`);
-    if (atRiskCounts.roads > 0) lines.push(`  Road segments:     ${atRiskCounts.roads}  — assess route closures`);
-    if (atRiskCounts.infrastructure > 0) lines.push(`  Critical infra:    ${atRiskCounts.infrastructure}  — coordinate with utilities`);
+    lines.push(`${n}. ASSETS REACHED BY THE MODELLED FIRE (${criticalReach.hasEnsemble ? "worst-credible / single run" : "single run"})`);
+    lines.push(...criticalReachLines(criticalReach));
     lines.push("");
   }
 
@@ -241,8 +235,7 @@ function buildICSText(
 
   if (suppAdvisory) {
     const hasEvac = evacZones && evacZones.length > 0;
-    const hasAtRisk = atRiskCounts &&
-      (atRiskCounts.roads + atRiskCounts.communities + atRiskCounts.infrastructure) > 0;
+    const hasAtRisk = !!criticalReach && (criticalReach.assets.length + criticalReach.roads.length) > 0;
     const nBase = (spread ? 1 : 0) + (burnArea ? 1 : 0) + (hasAtRisk ? 1 : 0) + (hasEvac ? 1 : 0);
     const nSupp = (dayStats && dayStats.length > 0 ? 5 : 4) + nBase;
 
@@ -315,10 +308,7 @@ export default function EOCSummary({
   runParams,
   ignitionPoint,
   fuelTypeLabel,
-  atRiskCounts,
-  overlayRoads,
-  overlayCommunities,
-  overlayInfrastructure,
+  criticalReach = null,
   evacZones,
 }: EOCSummaryProps) {
   const spread = extractSpreadStats(frames);
@@ -328,7 +318,7 @@ export default function EOCSummary({
   if (!spread && !burnArea && !runParams) return null;
 
   const suppAdvisoryEarly = spread ? buildSuppressionAdvisory(spread) : null;
-  const icsText = buildICSText(spread, burnArea, runParams, ignitionPoint, fuelTypeLabel, atRiskCounts, dayStats, evacZones, suppAdvisoryEarly);
+  const icsText = buildICSText(spread, burnArea, runParams, ignitionPoint, fuelTypeLabel, criticalReach, dayStats, evacZones, suppAdvisoryEarly);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(icsText).catch(() => {
@@ -351,13 +341,13 @@ export default function EOCSummary({
       runParams,
       ignitionPoint,
       fuelTypeLabel,
-      atRiskCounts,
+      criticalReach,
       evacZones,
       suppAdvisory,
     });
   };
 
-  const exportOpts = { frames, burnProbData, runParams, ignitionPoint, fuelTypeLabel, overlayRoads, overlayCommunities, overlayInfrastructure, evacZones };
+  const exportOpts = { frames, burnProbData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones };
   const timestamp = new Date().toISOString().slice(0, 10);
 
   const handleExportGeoJSON = () => {
@@ -397,7 +387,7 @@ export default function EOCSummary({
               <button
                 className="ts-btn ts-speed"
                 onClick={handleExportGeoJSON}
-                title="Download GeoJSON — fire perimeter, burn probability, spot fires, at-risk infrastructure"
+                title="Download GeoJSON — fire perimeter, burn probability, spot fires, assets reached by the modelled fire"
               >
                 GeoJSON
               </button>
@@ -550,38 +540,35 @@ export default function EOCSummary({
         </section>
       )}
 
-      {/* At-risk infrastructure (from overlay layers) */}
-      {atRiskCounts &&
-        (atRiskCounts.roads + atRiskCounts.communities + atRiskCounts.infrastructure) > 0 && (
-        <section className="eoc-section eoc-at-risk-section">
-          <h4 className="text-warning">⚠ At-Risk Infrastructure</h4>
-          <div className="eoc-sublabel">Features within P ≥ 50% burn zone</div>
-          <div className="eoc-grid">
-            {atRiskCounts.communities > 0 && (
-              <>
-                <span className="eoc-label">Communities</span>
-                <span className="eoc-value eoc-highlight">
-                  {atRiskCounts.communities}
-                </span>
-              </>
-            )}
-            {atRiskCounts.roads > 0 && (
-              <>
-                <span className="eoc-label">Road segments</span>
-                <span className="eoc-value eoc-highlight">
-                  {atRiskCounts.roads}
-                </span>
-              </>
-            )}
-            {atRiskCounts.infrastructure > 0 && (
-              <>
-                <span className="eoc-label">Infra points</span>
-                <span className="eoc-value eoc-highlight">
-                  {atRiskCounts.infrastructure}
-                </span>
-              </>
-            )}
+      {/* Assets and major roads reached by the modelled fire (model output, not an instruction) */}
+      {criticalReach && (criticalReach.assets.length + criticalReach.roads.length) > 0 && (
+        <section className="eoc-section eoc-reached-section">
+          <h4>Assets reached by the modelled fire</h4>
+          <div className="eoc-sublabel">
+            Model output for this run ({criticalReach.hasEnsemble ? "worst-credible / single run" : "single run"}), not an instruction.
           </div>
+          {groupRows(criticalReach.assets).map((g) => (
+            <div key={g.category} className="eoc-reached-group">
+              <div className="eoc-sublabel eoc-strong">{ASSET_CATEGORIES[g.category].label}</div>
+              <ul className="eoc-resource-list">
+                {g.rows.map((r) => (
+                  <li key={r.asset.id}>
+                    {r.asset.name}: {assetReachPhrases(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.bufferM).join("; ")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {criticalReach.roads.length > 0 && (
+            <>
+              <div className="eoc-sublabel eoc-strong">Major roads</div>
+              <ul className="eoc-resource-list">
+                {criticalReach.roads.map((r) => (
+                  <li key={r.name}>{r.name}: {roadReachPhrase(r, criticalReach.start, criticalReach.hasEnsemble)}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
       )}
 
