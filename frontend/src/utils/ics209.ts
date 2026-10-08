@@ -495,7 +495,7 @@ export function buildICS209HTML(opts: ICS209Options): string {
   let burnProbBlock = "";
   if (burnArea) {
     burnProbBlock = `
-    ${sectionHeader("BURN PROBABILITY (MONTE CARLO), MODEL OUTPUT", true)}
+    ${sectionHeader("BURN PROBABILITY (MONTE CARLO/ENSEMBLE), MODEL OUTPUT", true)}
     ${row(
       block("P ≥ 75% (High Confidence)", "model", `${burnArea.p75Ha.toFixed(1)} ha`, "w2"),
       block("P ≥ 50% (Probable)", "model", `${burnArea.p50Ha.toFixed(1)} ha`, "w2"),
