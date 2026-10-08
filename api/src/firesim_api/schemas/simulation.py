@@ -267,6 +267,14 @@ class SimulationCreate(BaseModel):
             ">1 = increased ember density). Only used when enable_spotting is True."
         ),
     )
+    seed: int | None = Field(
+        default=None,
+        description=(
+            "Seed for the stochastic parts of the run (ember spotting). Omit to derive it "
+            "from the other inputs, so identical requests give identical results; set it "
+            "to rerun the same inputs with different random draws."
+        ),
+    )
 
 
     @field_validator("start_time")

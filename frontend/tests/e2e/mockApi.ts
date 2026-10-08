@@ -137,6 +137,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return json(route, fixture);
     }
     if (path === "/api/v1/health") return json(route, { status: "ok" });
+    if (path === "/api/v1/version") return json(route, { version: "3.0.0", git_sha: "e2e0sha" });
     return json(route, { detail: `not mocked: ${req.method()} ${path}` }, 404);
   });
 

@@ -37,7 +37,8 @@ import {
   buildICS214HTML,
   buildFullIAPHTML,
 } from "../utils/icsForms";
-import { openICS209Report } from "../utils/ics209";
+import { openICS209Report, type ICS209RunContext } from "../utils/ics209";
+import { getVersion } from "../services/api";
 import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
 import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
 import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation } from "../types/incident";
@@ -84,6 +85,8 @@ interface EOCConsoleProps {
   /** Previous operational period's final perimeter — shown as ghost on Day 2+ */
   ghostPerimeter?: [number, number][] | null;
   incidentName?: string;
+  /** Run ID, start time and ensemble, for the ICS 209-WF */
+  run209?: ICS209RunContext | null;
   onIncidentNameChange?: (name: string) => void;
 }
 
@@ -100,7 +103,7 @@ const ICS_FORM_LABELS: Record<ICSFormId, string> = {
   ics204: "ICS-204 Assignments",
   ics205: "ICS-205 Comms Plan",
   ics206: "ICS-206 Medical Plan",
-  ics209: "ICS-209 Status Summary",
+  ics209: "ICS 209-WF Status Summary",
   ics214: "ICS-214 Activity Log",
   "full-iap": "Full IAP Package",
 };
@@ -134,6 +137,7 @@ export default function EOCConsole({
   onFetchFacilities,
   ghostPerimeter = null,
   incidentName: incidentNameProp,
+  run209 = null,
   onIncidentNameChange,
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("situation");
@@ -432,7 +436,7 @@ export default function EOCConsole({
   const renderForm = useCallback((formId: ICSFormId, snapshot?: string) => {
     const opts = buildFormOptions(snapshot);
     if (formId === "ics209") {
-      openICS209Report({ frames, burnProbData: burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, suppAdvisory: getSuppressionAdvisory() });
+      openICS209Report({ frames, burnProbData: burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, suppAdvisory: getSuppressionAdvisory(), run: run209, incidentName }, getVersion);
       return; // ICS-209 opens in new window, not iframe
     }
     let html = "";
@@ -446,7 +450,7 @@ export default function EOCConsole({
     else if (formId === "full-iap") html = buildFullIAPHTML(opts);
     setFormHtml(html);
     setSelectedForm(formId);
-  }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, getSuppressionAdvisory]);
+  }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, getSuppressionAdvisory, run209, incidentName]);
 
   const handleFormSelect = useCallback(async (formId: ICSFormId) => {
     const snap = await captureMapSnapshot();
@@ -498,8 +502,8 @@ export default function EOCConsole({
           <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Print EOC Console">
             🖨 Print
           </button>
-          <button className="eoc-action-btn" onClick={() => handleFormSelect("ics209")} title="Open ICS-209">
-            ICS-209
+          <button className="eoc-action-btn" onClick={() => handleFormSelect("ics209")} title="Open ICS Canada 209-WF">
+            ICS 209-WF
           </button>
           <button className="eoc-action-btn" onClick={() => handleFormSelect("full-iap")} title="Generate Full IAP Package">
             Full IAP
@@ -786,6 +790,8 @@ export default function EOCConsole({
                 fuelTypeLabel={fuelTypeLabel}
                 criticalReach={criticalReach}
                 evacZones={evacZones}
+                run209={run209}
+                incidentName={incidentName}
               />
             )}
 
@@ -794,7 +800,7 @@ export default function EOCConsole({
               <div className="eoc-forms-panel">
                 <div className="eoc-forms-header">
                   <span className="eoc-forms-title">ICS FORMS</span>
-                  <span className="eoc-forms-subtitle">NIMS Incident Action Plan</span>
+                  <span className="eoc-forms-subtitle">ICS Canada forms</span>
                 </div>
 
                 {/* Initial forms */}

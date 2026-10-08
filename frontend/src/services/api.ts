@@ -35,6 +35,13 @@ export async function createMultiDaySimulation(
   return resp.json();
 }
 
+/** API version and deployed git SHA (GET /api/v1/version), stamped on briefings. */
+export async function getVersion(): Promise<{ version: string; git_sha: string }> {
+  const resp = await fetch(`${API_BASE}/api/v1/version`);
+  if (!resp.ok) throw new Error(`Version request failed: ${resp.status}`);
+  return resp.json();
+}
+
 /** Thrown by getEnsemble when the run has no ensemble (404). */
 export class NoEnsembleError extends Error {}
 

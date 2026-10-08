@@ -41,8 +41,8 @@ preparedness and training in the wildland-urban interface.
 - **Building exposure**: distance bands, worst-case radiant flux and a flux-time dose index
   per building (exposure, not ignition).
 - **Burn probability** (Monte Carlo over ignition point, wind speed and RH).
-- **EOC console**: incidents and operational periods, ICS forms and an ICS-209 situation
-  report built from the run.
+- **EOC console**: incidents and operational periods, ICS forms and an ICS Canada 209-WF situation
+  report built from the run ([docs/ics-canada-209.md](docs/ics-canada-209.md)).
 - **Neighbourhoods**: the modelled time the fire is first within 500 m of each
   neighbourhood. The evacuation status (Order / Alert / Watch) is set by Planning and drawn as
   blue outlines with line styles and labels. The model never suggests a tier.

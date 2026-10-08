@@ -2,21 +2,26 @@
  * ICS form HTML generators — ported and adapted from CrisisKit AI (forms.py).
  *
  * Each function returns a complete, print-ready HTML document auto-populated
- * from FireSim V3 simulation outputs.  Forms follow NIMS ICS structure and
- * are designed for EOC / ICS field use; open in new window or render in iframe.
+ * from FireSim V3 simulation outputs, for EOC / ICS use; open in new window or render in iframe.
  *
- * Forms included:
- *   ICS-201  Incident Briefing            (landscape, fully auto-populated)
- *   ICS-202  Incident Objectives          (portrait, fully auto-populated)
- *   ICS-203  Organization Assignment List (portrait, structured template)
- *   ICS-204  Assignment List              (portrait)
- *   ICS-205  Communications Plan          (portrait, structured template)
- *   ICS-206  Medical Plan                 (portrait, structured template)
- *   ICS-214  Activity Log                 (portrait, blank template)
+ * Forms included, with their ICS Canada counterparts (https://icscanada.ca/resources/ics-forms/,
+ * checked 2026-10-08; every form here has one):
+ *   ICS 201  Incident Briefing            (landscape)  ICS Canada Form 201
+ *   ICS 202  Incident Objectives          (portrait)   ICS Canada Form 202
+ *   ICS 203  Organization Assignment List (portrait)   ICS Canada Form 203
+ *   ICS 204  Assignment List              (portrait)   ICS Canada Form 204-WF (wildfire) / 204-AH
+ *   ICS 205  Communications Plan          (portrait)   ICS Canada Form 205
+ *   ICS 206  Medical Plan                 (portrait)   ICS Canada Form 206
+ *   ICS 214  Activity Log                 (portrait)   ICS Canada Form 214
+ * The ICS 209 is ICS Canada Form 209-WF, built block by block in ics209.ts.
+ *
+ * These layouts are FireSim adaptations with lettered sections that carry each form's purpose;
+ * they are not block-by-block reproductions of the ICS Canada forms (block numbering not
+ * checked). Transcribe onto the ICS Canada forms for official use.
  *
  * References:
  *   CrisisKit AI — github.com/Tphambolio/crisiskitAI (forms.py)
- *   NIMS ICS-201 through ICS-209 (FEMA/NWCG 2021 revisions)
+ *   ICS Canada forms and instructions — icscanada.ca/resources/ics-forms/
  *   Alexander & de Groot (1988) — FBP intensity class thresholds
  */
 
@@ -378,7 +383,7 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
     icsBlock("6", "Weather Outlook", kvTable(weatherRows)),
     icsBlock("7", "Control Measures & Evacuation Status (set by Planning)", renderList(controlItems)),
     icsBlock("8", "Attachments / References", renderList([
-      "ICS-209 Incident Status Summary (attached)",
+      "ICS 209-WF Incident Status Summary (attached)",
       "FireSim V3 GeoJSON perimeter export",
       "Burn probability GeoJSON (if Monte Carlo run completed)",
       "Alberta Emergency Management Act — evacuation zone authority",
