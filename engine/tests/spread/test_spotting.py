@@ -148,23 +148,23 @@ class TestVonMisesSample:
     """
 
     def test_returns_float(self):
-        val = _von_mises_sample(mu=0.0, kappa=1.0)
+        val = _von_mises_sample(mu=0.0, kappa=1.0, rng=random.Random(0))
         assert isinstance(val, float)
 
     def test_very_low_kappa_returns_uniform(self):
         """kappa < 0.01 should fall back to uniform [0, 2π]."""
-        random.seed(99)
-        samples = [_von_mises_sample(mu=0.0, kappa=0.0) for _ in range(200)]
+        rng = random.Random(99)
+        samples = [_von_mises_sample(mu=0.0, kappa=0.0, rng=rng) for _ in range(200)]
         # Uniform on [0, 2π]: mean ≈ π ± large variance
         mean = statistics.mean(samples)
         assert 0.5 < mean < 2 * math.pi - 0.5
 
     def test_high_kappa_clusters_around_mu(self):
         """With kappa=50, >90% of samples should be within 0.3 rad of mu."""
-        random.seed(123)
+        rng = random.Random(123)
         mu = math.pi / 2  # 90 degrees
         kappa = 50.0
-        samples = [_von_mises_sample(mu=mu, kappa=kappa) for _ in range(500)]
+        samples = [_von_mises_sample(mu=mu, kappa=kappa, rng=rng) for _ in range(500)]
 
         def angular_diff(a, b):
             d = abs(a - b) % (2 * math.pi)
@@ -176,10 +176,10 @@ class TestVonMisesSample:
 
     def test_mean_direction_aligned_with_mu(self):
         """Mean circular direction of von Mises samples should approximate mu."""
-        random.seed(777)
+        rng = random.Random(777)
         mu = 1.5  # radians
         kappa = 10.0
-        samples = [_von_mises_sample(mu=mu, kappa=kappa) for _ in range(1000)]
+        samples = [_von_mises_sample(mu=mu, kappa=kappa, rng=rng) for _ in range(1000)]
         # Circular mean
         sin_mean = statistics.mean(math.sin(s) for s in samples)
         cos_mean = statistics.mean(math.cos(s) for s in samples)
@@ -195,12 +195,12 @@ class TestVonMisesSample:
         Use circular variance (1 - R̄) which properly handles the wrap-around
         nature of angular data. Lower values indicate tighter concentration.
         """
-        random.seed(42)
+        rng = random.Random(42)
         mu = 0.0
 
         def circular_variance(kappa):
             """Circular variance: 0 = perfectly concentrated, 1 = uniform."""
-            samples = [_von_mises_sample(mu=mu, kappa=kappa) for _ in range(500)]
+            samples = [_von_mises_sample(mu=mu, kappa=kappa, rng=rng) for _ in range(500)]
             sin_mean = statistics.mean(math.sin(s - mu) for s in samples)
             cos_mean = statistics.mean(math.cos(s - mu) for s in samples)
             r_bar = math.sqrt(sin_mean ** 2 + cos_mean ** 2)
@@ -221,7 +221,7 @@ class TestCrownFireThreshold:
 
     def test_low_intensity_no_spot_fires(self, moderate_conditions):
         """Moderate conditions (C2, low weather) should stay below crown threshold."""
-        random.seed(0)
+        rng = random.Random(0)
         front = make_front()
         grid = make_fuel_grid(fuel=FuelType.C2)
         # C2 with moderate weather will typically have HFI < 4000 kW/m
@@ -233,6 +233,7 @@ class TestCrownFireThreshold:
             default_fuel=FuelType.C2,
             dt_minutes=5.0,
             check_interval=1,
+            rng=rng,
         )
         # May or may not produce spots depending on FBP output; but if HFI < threshold, none
         # We verify the function returns a list (may be empty)
@@ -240,13 +241,13 @@ class TestCrownFireThreshold:
 
     def test_returns_spot_fires_only_when_crown(self, extreme_conditions):
         """Under extreme conditions with crown-capable fuel, some spots are possible."""
-        random.seed(10)
+        rng = random.Random(10)
         # Run many trials to get at least one spot fire
         front = make_front(n=80)
         grid = make_fuel_grid(fuel=FuelType.C5, rows=20, cols=20)
         all_spots = []
         for seed in range(30):
-            random.seed(seed)
+            rng = random.Random(seed)
             spots = check_ember_spotting(
                 front=front,
                 conditions=extreme_conditions,
@@ -255,6 +256,7 @@ class TestCrownFireThreshold:
                 default_fuel=FuelType.C5,
                 dt_minutes=5.0,
                 check_interval=1,
+                rng=rng,
             )
             all_spots.extend(spots)
         # Not asserting any spots were produced (stochastic) but result must be a list
@@ -271,12 +273,12 @@ class TestNonFuelLandingRejection:
 
     def test_landing_on_nonfuel_grid_produces_no_spots(self, extreme_conditions):
         """All-non-fuel grid: even if embers are generated, no SpotFire is kept."""
-        random.seed(20)
+        rng = random.Random(20)
         front = make_front(n=80)
         nonfuel_grid = make_nonfuel_grid()
         all_spots = []
         for seed in range(50):
-            random.seed(seed)
+            rng = random.Random(seed)
             spots = check_ember_spotting(
                 front=front,
                 conditions=extreme_conditions,
@@ -285,6 +287,7 @@ class TestNonFuelLandingRejection:
                 default_fuel=FuelType.C5,
                 dt_minutes=5.0,
                 check_interval=1,
+                rng=rng,
             )
             all_spots.extend(spots)
         assert all_spots == [], (
@@ -293,7 +296,7 @@ class TestNonFuelLandingRejection:
 
     def test_spot_fires_respect_fuel_grid_bounds(self, extreme_conditions):
         """Spot fires outside the fuel grid must not be created."""
-        random.seed(30)
+        rng = random.Random(30)
         # Small grid; fire front center at grid center but embers can fly out of bounds
         lat_center = 53.5
         lng_center = -113.5
@@ -304,7 +307,7 @@ class TestNonFuelLandingRejection:
 
         all_spots = []
         for seed in range(50):
-            random.seed(seed)
+            rng = random.Random(seed)
             spots = check_ember_spotting(
                 front=front,
                 conditions=extreme_conditions,
@@ -313,6 +316,7 @@ class TestNonFuelLandingRejection:
                 default_fuel=FuelType.C5,
                 dt_minutes=5.0,
                 check_interval=1,
+                rng=rng,
             )
             all_spots.extend(spots)
 
@@ -364,7 +368,7 @@ class TestSpottingDistanceScaling:
         grid = make_fuel_grid(fuel=FuelType.C5, rows=30, cols=30)
         all_spots = []
         for seed in range(n_trials):
-            random.seed(seed)
+            rng = random.Random(seed)
             spots = check_ember_spotting(
                 front=front,
                 conditions=conditions,
@@ -373,6 +377,7 @@ class TestSpottingDistanceScaling:
                 default_fuel=FuelType.C5,
                 dt_minutes=5.0,
                 check_interval=1,
+                rng=rng,
             )
             all_spots.extend(spots)
         return all_spots
@@ -408,7 +413,7 @@ class TestSpottingDistanceScaling:
 
     def test_spot_distance_positive(self):
         """All spot fire distances must be > 10 m (code filters < 10 m)."""
-        random.seed(50)
+        rng = random.Random(50)
         conditions = SpreadConditions(
             wind_speed=50.0,
             wind_direction=270.0,
@@ -453,7 +458,7 @@ class TestWindDirectionalBias:
 
     def test_spot_fires_predominantly_downwind(self):
         """Spots should land east of source when wind is from west."""
-        random.seed(99)
+        rng = random.Random(99)
         lat_center = 53.5
         lng_center = -113.5
         conditions = SpreadConditions(
@@ -473,7 +478,7 @@ class TestWindDirectionalBias:
 
         all_spots = []
         for seed in range(200):
-            random.seed(seed)
+            rng = random.Random(seed)
             spots = check_ember_spotting(
                 front=front,
                 conditions=conditions,
@@ -482,6 +487,7 @@ class TestWindDirectionalBias:
                 default_fuel=FuelType.C5,
                 dt_minutes=5.0,
                 check_interval=1,
+                rng=rng,
             )
             all_spots.extend(spots)
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
+import random
 from collections import defaultdict
 from dataclasses import replace
 from typing import Generator
@@ -122,6 +123,8 @@ class Simulator:
         self.acceleration = acceleration
         self.active_edges = active_edges
         self.active_edge_buffer_m = active_edge_buffer_m
+        # Seed for ember spotting (config.seed, else a hash of the config): repeatable runs
+        self.seed = config.resolved_seed()
         if active_edges is not None and fuel_grid is None:
             logger.warning("active_edges needs the grid model (a fuel grid); ignored")
 
@@ -173,6 +176,7 @@ class Simulator:
         # minutes at which each front was ignited (None = established, no acceleration)
         ignited_at: list[float | None] = [front_ignited if self.acceleration else None]
         all_spot_fires: list[SpotFire] = []
+        rng = random.Random(self.seed)  # spotting draws; never the global random module
 
         # Yield initial frame (t=0)
         merged = self._merge_fronts(fronts)
@@ -226,6 +230,7 @@ class Simulator:
                         spread_modifier_grid=self.spread_modifier_grid,
                         default_fuel=self.default_fuel,
                         dt_minutes=dt,
+                        rng=rng,
                     )
                     timestep_spots.extend(spots)
 
@@ -298,6 +303,7 @@ class Simulator:
             ),
             initial_burned=self.initial_burned,
             active_edges=self.active_edges,
+            seed=self.seed,
             active_edge_buffer_m=self.active_edge_buffer_m,
         )
 

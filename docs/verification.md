@@ -159,6 +159,19 @@ could not catch the errors.
   `engine/tests/spread/test_albini.py`). Emission, probability and landing distance are
   heuristic, stand sizes per fuel type are assumed, terrain is ignored and active crown fires
   are underestimated, so treat spot fire output as illustrative.
+- **Spotting is repeatable** (2026-10-08). Every spotting draw comes from a private
+  `random.Random`, never the global `random` module. Its seed is `SimulationConfig.seed`
+  (API field `seed`) or, when that is unset, a SHA-256 hash of all the other configuration
+  fields (`SimulationConfig.resolved_seed`, `firesim.spread.spotting.derive_seed`), so the
+  same inputs give the same spot fires in any process; setting a different seed reruns the
+  same inputs with different draws. `run_cellular_simulation(seed=...)` takes the seed directly
+  (default: a hash of its config and first weather period); the burn-probability and
+  validation runs pass per-member seeds. Before this, spotting used the unseeded global
+  generator and only the validation harness seeded it. Tests:
+  `engine/tests/spread/test_cellular.py::TestSpottingRepeatability` (identical runs give
+  identical spot fires; different seeds differ; global state untouched). Ensemble members get
+  distinct derived seeds because their perturbed inputs differ; an explicit `seed` is shared
+  by all members.
 - **Burn probability** varies only ignition point, wind speed and RH; it is not a Burn-P3-style
   ensemble over historical weather and ignitions.
 - **Weather**: an hourly stream is supported; hourly FFMC matches cffdrs `hffmc` (5,760 cases,

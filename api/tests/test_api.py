@@ -245,6 +245,23 @@ async def test_start_time_round_trips_and_sets_day_of_year(client):
     assert explicit.fuel_config_kwargs()["day_of_year"] == 200
 
 
+async def test_seed_round_trips(client):
+    """Optional spotting seed: stored with the config; default None (derived from the inputs)."""
+    from firesim_api.schemas.simulation import SimulationCreate
+
+    base = {
+        "ignition_lat": 53.5, "ignition_lng": -113.5,
+        "weather": {"wind_speed": 10.0, "wind_direction": 270.0},
+        "duration_hours": 0.5, "snapshot_interval_minutes": 15.0,
+    }
+    assert SimulationCreate(**base).seed is None
+    resp = await client.post("/api/v1/simulations", json={**base, "seed": 7})
+    assert resp.status_code in (200, 201)
+    sim_id = resp.json()["simulation_id"]
+    data = (await client.get(f"/api/v1/simulations/{sim_id}")).json()
+    assert data["config"]["seed"] == 7
+
+
 async def test_start_time_needs_an_offset(client):
     payload = {
         "ignition_lat": 53.5, "ignition_lng": -113.5,

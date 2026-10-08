@@ -331,6 +331,7 @@ class SimulationRunner:
                 hourly_weather=params.engine_hourly_weather(),
                 start_hour=params.start_hour(),
                 burning_period=_burning_period(params),
+                seed=getattr(params, "seed", None),
             )
 
             from firesim_api.settings import settings
@@ -780,6 +781,7 @@ class SimulationRunner:
                 start_hour=clock[0],
                 hourly_weather=clock[1],
                 burning_period=_burning_period(req),
+                seed=getattr(params, "seed", None),
             )
 
             dem_path = params.dem_path or settings.dem_path

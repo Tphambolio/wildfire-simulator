@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import Enum
 
 
@@ -111,6 +111,18 @@ class SimulationConfig:
     start_hour: float | None = None
     burning_period: tuple[float, float] | None = None
     burning_period_off_factor: float = 0.0
+    # Seed for the stochastic parts of a run (ember spotting). None = derived from all the
+    # other fields (firesim.spread.spotting.derive_seed), so identical inputs give identical
+    # runs; set it to rerun the same inputs with different random draws.
+    seed: int | None = None
+
+    def resolved_seed(self) -> int:
+        """The seed actually used: ``seed``, or a hash of every other field."""
+        if self.seed is not None:
+            return self.seed
+        from firesim.spread.spotting import derive_seed
+
+        return derive_seed(*(getattr(self, f.name) for f in fields(self) if f.name != "seed"))
 
 
 @dataclass(frozen=True)

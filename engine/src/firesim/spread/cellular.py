@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import math
+import random
 from collections import deque
 from dataclasses import dataclass
 
@@ -45,7 +46,7 @@ from firesim.spread.huygens import (
     SpreadModifierGrid,
     TerrainGrid,
 )
-from firesim.spread.spotting import SpotFire, check_ember_spotting
+from firesim.spread.spotting import SpotFire, check_ember_spotting, derive_seed
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,7 @@ def run_cellular_simulation(
     weather_schedule: list[tuple[float, SpreadConditions]] | None = None,
     active_edges: dict | None = None,
     active_edge_buffer_m: float | None = None,
+    seed: int | str | None = None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -175,6 +177,10 @@ def run_cellular_simulation(
             active (the default).
         active_edge_buffer_m: Distance (m) from ``active_edges`` within which starting cells
             are burning. Default: one cell.
+        seed: Seed for the spotting model's private ``random.Random``. None = derived from
+            ``config`` and the first weather period (``derive_seed``), so a run is repeatable
+            either way; the global ``random`` module is never used. A string is hashed by
+            ``random.Random`` deterministically (SHA-512, seeding version 2).
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -195,6 +201,7 @@ def run_cellular_simulation(
 
     schedule = sorted(weather_schedule, key=lambda e: e[0]) if weather_schedule else [(0.0, conditions)]
     conditions = schedule[0][1]
+    rng = random.Random(seed if seed is not None else derive_seed(sorted(config.items()), conditions))
     cell_keys = _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center)
     params = _CellParams.evaluate(cell_keys, conditions)
     period = 0
@@ -298,7 +305,7 @@ def run_cellular_simulation(
                     newly = np.argwhere((arrival > slice_start) & (arrival <= t))
                     for spot in _spot_from_front(
                         newly, center, conditions, fuel_grid, spread_modifier_grid,
-                        default_fuel, t - slice_start, spotting_intensity,
+                        default_fuel, t - slice_start, spotting_intensity, rng,
                     ):
                         r = int((lat_max - spot.lat) / cell_lat)
                         c = int((spot.lng - lng_min) / cell_lng)
@@ -811,6 +818,7 @@ def _spot_from_front(
     default_fuel: FuelType,
     dt_minutes: float,
     spotting_intensity: float,
+    rng: random.Random,
 ) -> list[SpotFire]:
     """Ember spotting (Albini 1979) from cells the front reached in the last interval."""
     if len(front) == 0:
@@ -826,6 +834,7 @@ def _spot_from_front(
         dt_minutes=dt_minutes,
         check_interval=1,
         intensity_multiplier=spotting_intensity,
+        rng=rng,
     )
 
 

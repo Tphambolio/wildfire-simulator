@@ -1,7 +1,5 @@
 """Per-cell crown base height / crown fuel load layers on the fuel grid."""
 
-import random
-
 import pytest
 
 from firesim.fbp.constants import FuelType
@@ -50,7 +48,6 @@ def test_cfl_scales_crown_consumption():
 
 @pytest.mark.parametrize("cbh,expect_crown", [(None, False), (0.5, True)])
 def test_cellular_uses_cell_cbh(cbh, expect_crown):
-    random.seed(0)
     frames = run_cellular_simulation(
         dict(ignition_lat=53.5, ignition_lng=-113.5, duration_hours=0.5),
         _grid(cbh=cbh), _COND,
