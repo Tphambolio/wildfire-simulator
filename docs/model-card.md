@@ -68,11 +68,17 @@ time the modelled fire is within 500 m of (and inside) each neighbourhood and cr
 and on each major road (single run and ensemble worst-credible P10; clock time, model output
 only).
 
-Bundled reference layers (Edmonton; loaded with the Edmonton fuel grid): critical assets from
-City of Edmonton Open Data, Statistics Canada ODHF and OpenStreetMap (ODbL), major roads from
-OpenStreetMap, neighbourhoods from City Open Data, plus one manual point (the EOC). Sources,
-licences, dates and the refresh command: `docs/data-sources.md`. Asset arrival depends on the
-completeness and positions of these layers (e.g. ODHF lacks coordinates for many care homes).
+Bundled reference layers (Edmonton; loaded with the Edmonton fuel grid): critical assets (624)
+from City of Edmonton Open Data, the Government of Alberta continuing care list (June 2026,
+geocoded with City address points), Statistics Canada ODHF (2020) and OpenStreetMap (ODbL),
+every source recorded per asset; major roads (motorway to secondary with ramps, OSM
+2026-10-08); neighbourhoods from City Open Data; plus one **unverified manual point** (the
+EOC: no public source gives its address, flagged in the data and the UI). Sources, licences,
+dates, match rates and the refresh commands: `docs/data-sources.md`. Asset arrival depends on
+the completeness and positions of these layers: group homes and care sites under 10 units are
+not included, 2 Alberta sites and 2 ODHF records could not be positioned, and 13 care sites in
+no current official list are marked "verify". Burn probability (P ≥ 25/50/75 % areas in the
+EOC summary and ICS-209) is labelled as Monte Carlo/ensemble model output.
 
 ## Evidence
 

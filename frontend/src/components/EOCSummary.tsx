@@ -10,7 +10,7 @@ import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulati
 import type { RunParams } from "./WeatherPanel";
 import { buildGeoJSON, buildKML, downloadFile } from "../utils/geoExport";
 import type { PlanningEvacZone } from "../utils/evacZones";
-import { ASSET_CATEGORIES, assetReachPhrases, criticalReachLines, groupRows, roadReachPhrase, type CriticalReach } from "../utils/assets";
+import { ASSET_CATEGORIES, assetLabel, assetReachPhrases, criticalReachLines, groupRows, roadReachPhrase, type CriticalReach } from "../utils/assets";
 import { openICS209Report } from "../utils/ics209";
 import HfiClassChip from "./HfiClassChip";
 import { fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
@@ -207,7 +207,7 @@ function buildICSText(
 
   if (burnArea) {
     const n = sectionBase + (spread ? 1 : 0);
-    lines.push(`${n}. BURN PROBABILITY (Monte Carlo — ${params?.n_iterations ?? "?"} iterations)`);
+    lines.push(`${n}. BURN PROBABILITY (MONTE CARLO/ENSEMBLE), MODEL OUTPUT — ${params?.n_iterations ?? "?"} iterations`);
     lines.push(`  Area P ≥ 75%:  ${burnArea.p75Ha.toFixed(1)} ha  (high confidence burn zone)`);
     lines.push(`  Area P ≥ 50%:  ${burnArea.p50Ha.toFixed(1)} ha  (probable burn zone)`);
     lines.push(`  Area P ≥ 25%:  ${burnArea.p25Ha.toFixed(1)} ha  (possible burn zone)`);
@@ -517,7 +517,7 @@ export default function EOCSummary({
       {/* Burn probability area stats */}
       {burnArea && (
         <section className="eoc-section">
-          <h4>Burn Probability · {runParams?.n_iterations ?? "?"} iter</h4>
+          <h4>Burn probability (Monte Carlo/ensemble), model output · {runParams?.n_iterations ?? "?"} iter</h4>
           <div className="eoc-bp-table">
             <div className="eoc-bp-row eoc-bp-header">
               <span>Threshold</span>
@@ -553,7 +553,7 @@ export default function EOCSummary({
               <ul className="eoc-resource-list">
                 {g.rows.map((r) => (
                   <li key={r.asset.id}>
-                    {r.asset.name}: {assetReachPhrases(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.bufferM).join("; ")}
+                    {assetLabel(r.asset)}: {assetReachPhrases(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.bufferM).join("; ")}
                   </li>
                 ))}
               </ul>

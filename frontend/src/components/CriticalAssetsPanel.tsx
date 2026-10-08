@@ -9,6 +9,8 @@ import { memo, useId } from "react";
 import {
   ASSET_CATEGORIES,
   CATEGORY_ORDER,
+  assetDataNotes,
+  assetLabel,
   assetReachPhrases,
   groupRows,
   roadReachPhrase,
@@ -68,6 +70,7 @@ function CriticalAssetsPanel({
   const categories = CATEGORY_ORDER.filter((c) => counts.has(c));
   const visibleRows = rows.filter((r) => shown.has(r.asset.category));
   const groups = groupRows(visibleRows);
+  const dataNotes = assetDataNotes(assets);
   const allShown = categories.every((c) => shown.has(c));
 
   return (
@@ -129,9 +132,10 @@ function CriticalAssetsPanel({
                         type="button"
                         className="asset-row"
                         onClick={() => onFocus(r.asset)}
-                        aria-label={`${r.asset.name}: ${assetReachPhrases(r, scenarioStart, hasEnsemble).join("; ")}. Show on the map`}
+                        aria-label={`${assetLabel(r.asset)}: ${assetReachPhrases(r, scenarioStart, hasEnsemble).join("; ")}. Show on the map`}
                       >
                         <span className="asset-row-name">{r.asset.name}</span>
+                        {r.asset.verify && <span className="asset-row-verify">{r.asset.verify}</span>}
                         {assetReachPhrases(r, scenarioStart, hasEnsemble).map((t) => (
                           <span key={t} className={`asset-row-time${t.startsWith("Inside") ? " asset-row-inside" : ""}`}>
                             {t}
@@ -173,6 +177,13 @@ function CriticalAssetsPanel({
         <input type="checkbox" checked={roadsVisible} onChange={(e) => onRoadsVisible(e.target.checked)} />
         Show reached roads on the map
       </label>
+      {dataNotes.length > 0 && (
+        <ul className="assets-data-notes" aria-label="Data notes">
+          {dataNotes.map((t) => (
+            <li key={t} className="assets-data-note">{t}</li>
+          ))}
+        </ul>
+      )}
       {sources.length > 0 && (
         <p className="hint-sm assets-sources">
           Sources: {sources.join(" · ")}

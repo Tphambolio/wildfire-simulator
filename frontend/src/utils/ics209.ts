@@ -11,7 +11,7 @@
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { PlanningEvacZone } from "./evacZones";
-import { assetReachPhrases, roadReachPhrase, type CriticalReach } from "./assets";
+import { assetLabel, assetReachPhrases, roadReachPhrase, type CriticalReach } from "./assets";
 import type { SuppressionAdvisory } from "./suppressionAdvisory";
 import { fwiClassColor } from "./fwiClass";
 
@@ -454,7 +454,7 @@ export function buildICS209HTML(opts: ICS209Options): string {
   let burnProbBlock = "";
   if (burnArea) {
     burnProbBlock = `
-    ${sectionHeader("SECTION D — BURN PROBABILITY (Monte Carlo)", true)}
+    ${sectionHeader("SECTION D — BURN PROBABILITY (MONTE CARLO/ENSEMBLE), MODEL OUTPUT", true)}
     <div class="row">
       ${block("P ≥ 75% (High Confidence)", `${burnArea.p75Ha.toFixed(1)} ha`, "w2")}
       ${block("P ≥ 50% (Probable)", `${burnArea.p50Ha.toFixed(1)} ha`, "w2")}
@@ -505,7 +505,7 @@ export function buildICS209HTML(opts: ICS209Options): string {
   if (criticalReach && criticalReach.assets.length + criticalReach.roads.length > 0) {
     const label = criticalReach.hasEnsemble ? "worst-credible / single run" : "single run";
     const assetItems = criticalReach.assets
-      .map((r) => `<li>${esc(r.asset.name)}: ${esc(assetReachPhrases(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.bufferM).join("; "))}</li>`)
+      .map((r) => `<li>${esc(assetLabel(r.asset))}: ${esc(assetReachPhrases(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.bufferM).join("; "))}</li>`)
       .join("");
     const roadItems = criticalReach.roads
       .map((r) => `<li>${esc(r.name)}: ${esc(roadReachPhrase(r, criticalReach.start, criticalReach.hasEnsemble))}</li>`)

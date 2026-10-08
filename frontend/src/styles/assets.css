@@ -133,6 +133,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.asset-row-verify,
+.assets-data-note {
+  font-size: var(--fs-xs);
+  color: var(--warning-text);
+}
+
+.asset-row-verify {
+  font-weight: 600;
+}
+
 .asset-row-inside {
   color: var(--text);
   font-weight: 600;
@@ -167,6 +177,11 @@
 
 .assets-sources {
   margin: var(--sp-3) 0 0;
+}
+
+.assets-data-notes {
+  margin: var(--sp-3) 0 0;
+  padding-left: var(--sp-4);
 }
 
 /* Setup: asset layers */

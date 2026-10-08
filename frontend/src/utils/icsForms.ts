@@ -24,7 +24,7 @@ import type { SimulationFrame } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { PlanningEvacZone } from "./evacZones";
 import type { CriticalReach } from "./assets";
-import { clock } from "./assets";
+import { assetLabel, clock } from "./assets";
 import type { IncidentAnnotation } from "../types/incident";
 import { RPAS_NOTE, buildSuppressionAdvisory } from "./suppressionAdvisory";
 
@@ -864,7 +864,7 @@ export function reachedItems(opts: Pick<ICSFormOptions, "criticalReach">): strin
   if (r.assets.length > 0) {
     const list = r.assets
       .slice(0, 12)
-      .map((a) => `${a.asset.name} (${when(a.worst?.near, a.single?.near)})`)
+      .map((a) => `${assetLabel(a.asset)} (${when(a.worst?.near, a.single?.near)})`)
       .join("; ");
     const more = r.assets.length > 12 ? `; and ${r.assets.length - 12} more` : "";
     items.push(`Assets reached by the modelled fire, within ${r.bufferM} m (model output, ${label}): ${list}${more}`);
