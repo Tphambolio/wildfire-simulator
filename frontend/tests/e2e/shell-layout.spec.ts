@@ -111,7 +111,8 @@ test.describe("map-first layout", () => {
     await expect(page.locator(".ts-now-clock")).toHaveText(/^\d{2}:\d{2}(?:[A-Z]{2,4}|GMT[-+]\d+)$/);
     await expect(page.getByRole("slider", { name: "Timeline" })).toHaveAttribute(
       "aria-valuetext",
-      /^\d{2}:\d{2} (?:[A-Z]{2,4}|GMT[-+]\d+), T\+4:00$/,
+      // runs start "now": outside the default 10:00-20:00 burning period the value says so
+      /^\d{2}:\d{2} (?:[A-Z]{2,4}|GMT[-+]\d+), T\+4:00(?:, no spread \(outside the burning period 10:00–20:00\))?$/,
     );
   });
 

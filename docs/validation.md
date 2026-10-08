@@ -115,7 +115,7 @@ not days, as the unit. The active zone comes from CFSDS's interpolated day of bu
 is cleaner than a real thermal flight in some ways (whole perimeter, no smoke or canopy
 occlusion) and coarser in others (MODIS/VIIRS timing, 90 m); real RPAS edges should be
 validated separately. The burning period is a fixed clock window, so it cannot represent
-overnight runs or days that burn late; it is set per run in the engine and is not a default.
+overnight runs or days that burn late; it is opt-in in the engine and the API (`burning_period`, `ffmc_spin_up`), and on by default in the UI (Run options, 10-20 h), where it can be turned off.
 The deterministic skill above is reported alone; ensemble and RPAS-corrected (mid-day
 re-start) skill are not yet measured.
 

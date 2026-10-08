@@ -78,6 +78,8 @@ export interface MockOptions {
 
 export interface MockState {
   posts: Array<Record<string, unknown>>;
+  /** POST /simulations/perimeter-override bodies */
+  overridePosts: Array<Record<string, unknown>>;
   wsConnections: number;
   polls: number;
   ensemblePolls: number;
@@ -89,7 +91,7 @@ const json = (route: Route, body: unknown, status = 200) =>
 export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockState> {
   const mode = opts.mode ?? "ws";
   const frameDelayMs = opts.frameDelayMs ?? 40;
-  const state: MockState = { posts: [], wsConnections: 0, polls: 0, ensemblePolls: 0 };
+  const state: MockState = { posts: [], overridePosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0 };
   const ensembleStep = opts.ensembleStep ?? 8;
 
   // External requests: tiles get a blank PNG, everything else is aborted
@@ -113,6 +115,11 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === "/api/v1/simulations" && req.method() === "POST") {
       const body = req.postDataJSON() as Record<string, unknown>;
       state.posts.push(body);
+      return json(route, { simulation_id: fixture.simulation_id, status: "running", config: fixture.config, frames: [], error: null });
+    }
+    if (path === "/api/v1/simulations/perimeter-override" && req.method() === "POST") {
+      // The restart replays the same fixture frames
+      state.overridePosts.push(req.postDataJSON() as Record<string, unknown>);
       return json(route, { simulation_id: fixture.simulation_id, status: "running", config: fixture.config, frames: [], error: null });
     }
     if (path === `/api/v1/simulations/${fixture.simulation_id}/arrival`) return json(route, arrival);

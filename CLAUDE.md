@@ -64,7 +64,7 @@ docker compose up --build
 | `spread/slope.py` | ST-X-3 eq 39 slope factor (slope itself is applied via net effective wind in the FBP calculator) |
 | `spread/spotting.py`, `spread/albini.py` | Ember spotting (opt-in): Albini/Chase/Morris maximum distance (surface-fire or torching-tree model); emission, probability and landing are heuristic (illustrative) |
 | `exposure.py` | Building exposure: distance bands, Cohen (2004) radiant flux and flux-time index from the grid run's flame panels (exposure, not ignition; `docs/building-exposure.md`) |
-| `spread/diurnal.py` | Opt-in burning period (`SimulationConfig.burning_period`); hourly FFMC spin-up = hourly records with negative `hours_from_start` |
+| `spread/diurnal.py` | Opt-in burning period (`SimulationConfig.burning_period` + `start_hour`; grid and Huygens; a point ignition outside it waits for it); hourly FFMC spin-up = hourly records with negative `hours_from_start`, from 17:00 local (`hourly_for_run`) |
 | `spread/simulator.py` | `Simulator` class — main orchestrator, yields `SimulationFrame` per snapshot |
 | `spread/montecarlo.py` | Burn probability (jitter ignition, wind speed, RH over N iterations) |
 | `fwi/classes.py` | FWI display classes (CWFIS FWI map intervals) |
@@ -124,7 +124,9 @@ WebSocket events are `{"type": "simulation.frame", "simulation_id": ..., "frame"
 `head_ros_m_min`, `max_hfi_kw_m`, `fire_type`, `flame_length_m`, `burned_cells`, `cells_offset`,
 `head`, `building_exposure`, ...) are documented in `docs/api-reference.md` — keep that file, the
 Pydantic schema and `frontend/src/types/simulation.ts` in step. Requests can set `start_time`,
-`hourly_weather` and `cells_mode: "incremental"` (the frontend uses incremental).
+`hourly_weather` and `cells_mode: "incremental"` (the frontend uses incremental), and the
+spread-skill options `burning_period` / `ffmc_spin_up` (API default off, UI default on; hours
+on `start_time`'s own clock) and, on perimeter-override, `active_edges`.
 
 ### Environment Variables
 ```
@@ -152,6 +154,10 @@ Planning (`utils/evacZones.ts`); FireSim never suggests Order/Alert/Watch. EOC c
 (ICS forms `utils/icsForms.ts`, ICS-209 `utils/ics209.ts`). Shared tables: `utils/fireClasses.ts`
 (HFI classes, Cole & Alexander 1995), `utils/fwiClass.ts`, `utils/time.ts`,
 `utils/suppressionAdvisory.ts`. Design tokens: `src/styles/tokens.css` (dark default).
+Spread-skill options: Setup → Run options "Diurnal burning" (burning period, evening FFMC
+spin-up; `utils/skillOptions.ts`), timeline shading outside the burning period; RPAS restart
+(`PerimeterOverridePanel.tsx`, state in `hooks/useRecon.ts`, `utils/activeEdges.ts`): observed
+perimeter, active edges drawn on the map or picked by side, drawn by MapView (`recon` prop).
 
 ### Services / Hooks
 - `src/services/api.ts` — All API calls + WebSocket URL builder

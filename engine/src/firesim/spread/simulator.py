@@ -185,8 +185,21 @@ class Simulator:
 
             new_fronts: list[list[FireVertex]] = []
             timestep_spots: list[SpotFire] = []
+            # ROS multiplier of the period (burning period: 0 outside it). The Huygens front
+            # moves ROS x k x dt, i.e. as far as in k x dt at the full rate.
+            k_ros = conditions.ros_multiplier
+            if k_ros <= 0.0:
+                # No spread (and no spotting) in this period. A point ignition that has not
+                # spread yet holds until spread resumes: its acceleration starts from then.
+                ignited_at = [
+                    t if t is None or t < elapsed_minutes - 1e-9 else elapsed_minutes + dt
+                    for t in ignited_at
+                ]
 
             for f, t_ign in zip(fronts, ignited_at):
+                if k_ros <= 0.0:
+                    new_fronts.append(f)
+                    continue
                 window = (
                     None if t_ign is None
                     else (elapsed_minutes - t_ign, elapsed_minutes + dt - t_ign)
@@ -196,7 +209,7 @@ class Simulator:
                     conditions=conditions,
                     fuel_grid=self.fuel_grid,
                     terrain_grid=self.terrain_grid,
-                    dt_minutes=dt,
+                    dt_minutes=dt * k_ros,
                     default_fuel=self.default_fuel,
                     num_rays=self.num_rays,
                     spread_modifier_grid=self.spread_modifier_grid,
@@ -568,8 +581,11 @@ class Simulator:
         # Calculate area
         area_ha = calculate_polygon_area_ha(front)
 
-        # Head-fire FBP metrics for the default fuel on flat ground, current weather
-        fbp = fbp_for_conditions(self.conditions_at(time_hours * 60.0), self.default_fuel)
+        # Head-fire FBP metrics for the default fuel on flat ground, current weather; the rate
+        # and intensity are scaled by the period's ROS multiplier (0 outside a burning period)
+        cond = self.conditions_at(time_hours * 60.0)
+        fbp = fbp_for_conditions(cond, self.default_fuel)
+        k_ros = cond.ros_multiplier
 
         # Build fuel breakdown
         fuel_breakdown: dict[str, float] = {}
@@ -596,10 +612,11 @@ class Simulator:
             time_hours=time_hours,
             perimeter=perimeter,
             area_ha=area_ha,
-            head_ros_m_min=fbp.ros_final,
-            max_hfi_kw_m=fbp.hfi,
+            head_ros_m_min=fbp.ros_final * k_ros,
+            max_hfi_kw_m=fbp.hfi * k_ros,
             fire_type=fbp.fire_type,
-            flame_length_m=fbp.flame_length,
+            flame_length_m=(fbp.flame_length if k_ros == 1.0
+                            else calculate_flame_length(fbp.hfi * k_ros, fbp.cfb)),
             fuel_breakdown=fuel_breakdown,
             spot_fires=[
                 {

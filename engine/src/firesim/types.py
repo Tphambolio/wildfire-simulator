@@ -105,8 +105,8 @@ class SimulationConfig:
     hourly_weather: tuple[HourlyWeather, ...] | None = None
     # Records with negative ``hours_from_start`` (e.g. from 17:00 the previous afternoon, when
     # the daily FFMC applies) only advance the hourly FFMC to the start ("spin-up").
-    # Opt-in burning period (grid model): fire spreads at full rate only between these local
-    # clock hours each day, and at ``burning_period_off_factor`` x ROS outside them
+    # Opt-in burning period (grid and Huygens models): fire spreads at full rate only between
+    # these local clock hours each day, and at ``burning_period_off_factor`` x ROS outside them
     # (firesim.spread.diurnal). Needs ``start_hour``, the local clock hour at t = 0.
     start_hour: float | None = None
     burning_period: tuple[float, float] | None = None

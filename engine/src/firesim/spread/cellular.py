@@ -207,6 +207,7 @@ def run_cellular_simulation(
     start = _initial_region(fuel_grid, fuel, initial_perimeter, initial_burned, cell_lat, cell_lng)
     snapped_m = 0.0
     phi = None
+    t_ign = 0.0  # minute the point ignition starts to spread (acceleration counts from it)
     if start is not None:
         acceleration = False  # an existing fire is already at equilibrium spread
         arrival[start] = 0.0
@@ -231,9 +232,23 @@ def run_cellular_simulation(
         ign_row, ign_col, snapped_m = _snap_ignition(
             fuel_grid, config["ignition_lat"], config["ignition_lng"], cell_lat, cell_lng, dy
         )
-        if ign_row is not None and params.head[ign_row, ign_col] > 1e-6:
-            phi, t = _initial_front(params, ign_row, ign_col, dx, dy, duration, arrival, cross_ros,
-                                    acceleration)
+        # A point ignition in a period with no spread (e.g. before a burning period opens)
+        # holds until the first period in which the ignition cell spreads; its growth and
+        # acceleration start then.
+        p0, k = params, period
+        while (ign_row is not None and p0.head[ign_row, ign_col] <= 1e-6
+               and k + 1 < len(schedule) and schedule[k + 1][0] < duration - 1e-9):
+            k += 1
+            p0 = _CellParams.evaluate(cell_keys, schedule[k][1])
+        if ign_row is not None and p0.head[ign_row, ign_col] > 1e-6:
+            if k != period:
+                period, params, conditions = k, p0, schedule[k][1]
+                t_ign = schedule[k][0]
+            phi, t = _initial_front(params, ign_row, ign_col, dx, dy, duration - t_ign, arrival,
+                                    cross_ros, acceleration)
+            if t_ign > 0.0:
+                arrival[np.isfinite(arrival)] += t_ign
+                t += t_ign
 
     if phi is not None:
         near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
@@ -276,7 +291,7 @@ def run_cellular_simulation(
                 continue
             step = min(CFL * h_min / speed, next_slice - t, next_change() - t)
             _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros,
-                     acceleration)
+                     acceleration, t_ign)
             t += step
             if t >= next_slice - 1e-9:
                 if enable_spotting and spotting_intensity > 0.0:
@@ -625,8 +640,10 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceler
     return phi, t0
 
 
-def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acceleration=True):
-    """Advance phi by one time step inside the window ``win`` (in place)."""
+def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acceleration=True,
+             t_ign=0.0):
+    """Advance phi by one time step inside the window ``win`` (in place); acceleration counts
+    from the ignition minute ``t_ign``."""
     sub = phi[win]
     pad = np.pad(sub, 2, mode="edge")
     C = pad[2:-2, 2:-2]
@@ -656,8 +673,9 @@ def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acc
     hx, hy, fuel = p.hx[win], p.hy[win], p.fuel[win]
     if acceleration:  # mean FBP acceleration over the step and LB(t) at its midpoint
         alpha = p.alpha[win]
-        g = 1.0 - (np.exp(-alpha * t) - np.exp(-alpha * (t + step))) / (alpha * step)
-        lb_t = (p.lb[win] - 1.0) * (1.0 - np.exp(-alpha * (t + 0.5 * step))) + 1.0
+        ta = t - t_ign
+        g = 1.0 - (np.exp(-alpha * ta) - np.exp(-alpha * (ta + step))) / (alpha * step)
+        lb_t = (p.lb[win] - 1.0) * (1.0 - np.exp(-alpha * (ta + 0.5 * step))) + 1.0
         a, c = a * g, c * g
         b = a / lb_t
     gx, gy = 0.5 * (dxm + dxp), 0.5 * (dym + dyp)

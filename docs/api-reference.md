@@ -39,6 +39,25 @@ Start a new fire spread simulation.
   `"2026-04-28T13:40:00-06:00"` (a time without an offset is rejected with 422). Frame
   `time_hours` and `hourly_weather[].hours_from_start` count from it, and when
   `fuel_modifiers.day_of_year` is not set its local date sets the foliar moisture day of year.
+- `burning_period` (optional, default off): `{"start_hour": 10, "end_hour": 20}` or `[10, 20]`,
+  local clock hours 0-24 with start before end (else 422). Fire spreads only between these
+  hours each day and not at all outside them (Prometheus / W.I.S.E. "burning conditions"); a
+  point ignition outside the period holds until it opens. Hours are on the clock of
+  `start_time`'s own UTC offset, so `start_time` is required (422 without it) and should
+  carry the scenario's local offset (the UI sends America/Edmonton, UTC-6 in Alberta from
+  2026). Both models (grid and uniform-fuel Huygens). Frames outside the period report the
+  fire as it was: no growth, and the Huygens head ROS/HFI as 0.
+- `ffmc_spin_up` (optional, default `false`): start the hourly FFMC at 17:00 local
+  (`start_time`'s clock) on or before the start, from `fwi_overrides.ffmc` taken as the daily
+  value then (about 16:00 LST; Lawson et al. 1996), and run it through the night on
+  `hourly_weather`. Needs `start_time` and `hourly_weather` records back to that 17:00
+  (`hours_from_start` down to -24; e.g. -13 for a 06:00 start) and for the run (422 if
+  missing). Without it, records before the start are dropped (the one in force at the start
+  applies from 0).
+- The UI turns both on by default (10-20 h; spin-up when hourly forecast weather is used): with
+  RPAS active edges they raised one-day F1 on held-out Alberta fires from 0.12 to 0.21
+  (docs/validation.md). The API keeps them off so existing clients see no change.
+- `ensemble` members inherit `burning_period` and the spin-up.
 - `cells_mode` (grid runs): `"cumulative"` (default) repeats every burned cell in each frame;
   `"incremental"` sends only the cells burned since the previous frame (a 24 h run: about
   1.6 MB instead of 35 MB). Multi-day runs are always cumulative.
@@ -157,7 +176,9 @@ Multi-day scenario: `days` is a list of 1-7 daily noon weather records
 codes are advanced day to day from `fwi_overrides` (Van Wagner & Pickett 1985; `month` sets
 the day-length factors) and each day's
 grid run continues from the previous day's burned area. Frames carry `day`. Cells are always
-cumulative.
+cumulative. Optional `start_time` (each day runs 24 h from its clock time) and
+`burning_period` (as above, applied every day; needs `start_time`). No FFMC spin-up: multi-day
+runs have daily weather only.
 
 ### POST /api/v1/simulations/perimeter-override
 
@@ -176,6 +197,12 @@ though fire from an active edge can later reach the fuel beyond an inactive edge
 treat the whole perimeter as active (the previous behaviour). Grid model only: a source run
 without a fuel grid returns 422. On observed Alberta fires this raised one-day skill
 (docs/validation.md).
+
+Optional `start_time` (time of the observed perimeter, ISO 8601 with offset; default the source
+run's `start_time`), `burning_period` and `ffmc_spin_up` (as for POST /simulations; not
+inherited from the source run). The source run's `hourly_weather` is re-based to `start_time`
+(before 2026-10 the restart ignored it and used the constant `weather`); with `ffmc_spin_up`
+it must reach back to 17:00 before the restart (422 otherwise).
 
 ### POST /api/v1/simulations/burn-probability
 

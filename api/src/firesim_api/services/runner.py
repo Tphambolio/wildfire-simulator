@@ -21,6 +21,8 @@ from firesim_api.schemas.simulation import (
     PerimeterOverrideRequest,
     SimulationCreate,
     SimulationStatus,
+    engine_hourly,
+    local_start_hour,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,19 +82,34 @@ def _fuel_kwargs(params) -> dict:
     return params.fuel_modifiers.config_kwargs()
 
 
-def _hourly_weather(params) -> tuple[HourlyWeather, ...] | None:
-    """Engine hourly weather records from an API request, if it has a stream."""
-    records = getattr(params, "hourly_weather", None)
-    if not records:
-        return None
-    return tuple(
-        HourlyWeather(
-            hours_from_start=r.hours_from_start, temperature=r.temperature,
-            relative_humidity=r.relative_humidity, wind_speed=r.wind_speed,
-            wind_direction=r.wind_direction, precipitation=r.precipitation,
-        )
-        for r in records
-    )
+def _burning_period(params) -> tuple[float, float] | None:
+    """Engine burning period (local clock hours) from an API request, if set."""
+    bp = getattr(params, "burning_period", None)
+    return bp.as_tuple() if bp is not None else None
+
+
+def _override_clock(
+    req: PerimeterOverrideRequest, source: SimulationCreate
+) -> tuple[float | None, tuple[HourlyWeather, ...] | None]:
+    """Local start hour and hourly weather for a perimeter restart.
+
+    The restart starts at ``req.start_time`` (default: the source's start). The source's hourly
+    stream is re-based to it, keeping the spin-up hours before it if ``req.ffmc_spin_up``.
+
+    Raises:
+        ValueError: a burning period or spin-up without any start time, or a stream that
+            cannot spin up.
+    """
+    start = req.start_time or source.start_time
+    if start is None and (req.burning_period is not None or req.ffmc_spin_up):
+        raise ValueError("burning_period / ffmc_spin_up need start_time (on the request or the "
+                         "source simulation)")
+    shift = 0.0
+    if start is not None and source.start_time is not None:
+        shift = (start - source.start_time).total_seconds() / 3600.0
+    start_hour = local_start_hour(start)
+    hourly = engine_hourly(source.hourly_weather, shift, start_hour, req.ffmc_spin_up)
+    return start_hour, hourly
 
 
 def _synthetic_seed(lat: float, lng: float) -> int:
@@ -311,7 +328,9 @@ class SimulationRunner:
                 dmc=fwi.dmc if fwi else 40.0,
                 dc=fwi.dc if fwi else 200.0,
                 **_fuel_kwargs(params),
-                hourly_weather=_hourly_weather(params),
+                hourly_weather=params.engine_hourly_weather(),
+                start_hour=params.start_hour(),
+                burning_period=_burning_period(params),
             )
 
             from firesim_api.settings import settings
@@ -575,6 +594,9 @@ class SimulationRunner:
                     dmc=day_fwi.dmc,
                     dc=day_fwi.dc,
                     **params.fuel_modifiers.config_kwargs(),
+                    # each day runs 24 h from the same clock time
+                    start_hour=local_start_hour(params.start_time),
+                    burning_period=_burning_period(params),
                 )
 
                 simulator = Simulator(
@@ -693,6 +715,8 @@ class SimulationRunner:
         except (ValueError, KeyError, TypeError, IndexError) as exc:
             raise ValueError(f"Invalid perimeter GeoJSON: {exc}") from exc
 
+        clock = _override_clock(req, original.config)  # ValueError -> 422
+
         logger.info(
             "Perimeter override: source=%s vertices=%d dur=%.1fh",
             req.simulation_id, len(initial_front), req.duration_hours,
@@ -706,7 +730,7 @@ class SimulationRunner:
 
         thread = threading.Thread(
             target=self._execute_perimeter_override,
-            args=(run, original.config, initial_front, req, on_frame),
+            args=(run, original.config, initial_front, req, on_frame, clock),
             daemon=True,
         )
         thread.start()
@@ -720,8 +744,12 @@ class SimulationRunner:
         initial_front: list,
         req: PerimeterOverrideRequest,
         on_frame: Callable[[str, SimulationFrame], None] | None,
+        clock: tuple[float | None, tuple[HourlyWeather, ...] | None] = (None, None),
     ) -> None:
-        """Execute a simulation from a corrected drone-recon fire front."""
+        """Execute a simulation from a corrected drone-recon fire front.
+
+        ``clock`` is (local start hour, hourly weather) from ``_override_clock``.
+        """
         run.status = SimulationStatus.RUNNING
 
         try:
@@ -749,6 +777,9 @@ class SimulationRunner:
                 dmc=fwi.dmc if fwi and fwi.dmc is not None else 40.0,
                 dc=fwi.dc if fwi and fwi.dc is not None else 200.0,
                 **_fuel_kwargs(params),
+                start_hour=clock[0],
+                hourly_weather=clock[1],
+                burning_period=_burning_period(req),
             )
 
             dem_path = params.dem_path or settings.dem_path

@@ -1,0 +1,196 @@
+/* ── Spread-skill options: burning period, FFMC spin-up, RPAS active edges ──────────────── */
+/* Loaded after index.css (main.tsx); colours and sizes from tokens.css. */
+
+/* Setup → Run options: "Diurnal burning" */
+fieldset.skill-options {
+  margin-top: var(--sp-3);
+}
+
+.skill-options .hint-sm {
+  margin: 2px 0 var(--sp-2);
+}
+
+label.field-hour {
+  flex: 0 0 auto;
+}
+
+label.field-hour > input {
+  width: 64px;
+  min-height: var(--target-min);
+}
+
+/* Timeline: hours outside the burning period (no spread modelled) */
+.ts-off-band {
+  position: absolute;
+  top: 6px;
+  height: var(--target-min);
+  pointer-events: none;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--text-3) 34%, transparent) 0 3px,
+    transparent 3px 7px
+  );
+  border-left: 1px solid var(--text-3);
+  border-right: 1px solid var(--text-3);
+}
+
+.ts-now-off {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--warning-text);
+  white-space: nowrap;
+}
+
+/* Situation: burning period note */
+.situation-burning {
+  margin: var(--sp-2) var(--sp-4) 0;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.situation-burning.off {
+  color: var(--warning-text);
+  background: var(--warning-soft);
+}
+
+/* RPAS perimeter restart */
+.recon-panel .field-group > legend {
+  font-size: var(--fs-sm);
+}
+
+.recon-panel .recon-input {
+  width: 64px;
+  min-height: var(--target-min);
+  font-size: var(--fs-sm);
+}
+
+.recon-btn {
+  margin-top: var(--sp-2);
+}
+
+.recon-loaded {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--success-text);
+}
+
+.recon-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recon-mode label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--target-min);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.recon-mode input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-text);
+}
+
+.recon-draw-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+}
+
+.recon-lines {
+  list-style: none;
+  margin: 0 0 var(--sp-2);
+  padding: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.recon-lines li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 28px;
+}
+
+.recon-lines li .btn-inline {
+  margin-left: auto;
+}
+
+/* Legend swatch: thick orange-red dashes, as on the map */
+.recon-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 4px dashed var(--active-edge);
+}
+
+.recon-sides > legend {
+  font-weight: 400 !important;
+  color: var(--text-2) !important;
+}
+
+.recon-side-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px var(--sp-2);
+}
+
+.recon-side-grid label {
+  min-height: var(--target-min);
+  align-items: center;
+  font-size: var(--fs-sm);
+}
+
+.recon-buffer {
+  margin-top: var(--sp-2);
+}
+
+.recon-buffer > input {
+  width: 96px;
+  min-height: var(--target-min);
+}
+
+.recon-restart {
+  margin-top: var(--sp-1);
+}
+
+.recon-buffer + .hint-sm {
+  margin-top: var(--sp-2);
+}
+
+/* Map: "active (RPAS)" label on each active edge (DOM marker, like the ensemble labels) */
+.map-recon-label {
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.94);
+  color: #a12a00; /* 7:1 on white */
+  border: 2px dashed var(--active-edge);
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.recon-draw-hint {
+  top: auto;
+  bottom: var(--sp-4);
+  transform: translateX(-50%);
+  max-width: min(520px, 90%);
+  text-align: center;
+  border-color: var(--active-edge);
+}

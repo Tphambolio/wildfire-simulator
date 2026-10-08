@@ -43,6 +43,7 @@ from firesim.data.fuel_loader import CODE_SCHEMES
 from firesim.fbp.constants import FuelType
 from firesim.fwi.classes import fwi_class
 from firesim.spread.cellular import burned_outline, run_cellular_simulation
+from firesim.spread.diurnal import SPINUP_FROM_HOUR as _DIURNAL_SPINUP_FROM_HOUR
 from firesim.spread.huygens import FireVertex, FuelGrid, TerrainGrid
 from firesim.spread.simulator import Simulator
 from firesim.types import HourlyWeather, SimulationConfig, WeatherInput
@@ -143,8 +144,8 @@ def crop_for_day(domain: FireDomain, day: int, margin_m: float = 20000.0) -> Fir
 
 
 # The daily FFMC describes mid-afternoon moisture (about 16:00 LST = 17:00 MDT; Lawson et al.
-# 1996), so the hourly FFMC spin-up starts there on the previous day.
-SPINUP_FROM_HOUR = 17
+# 1996), so the hourly FFMC spin-up starts there on the previous day (firesim.spread.diurnal).
+SPINUP_FROM_HOUR = int(_DIURNAL_SPINUP_FROM_HOUR)
 
 
 def build_case(domain: FireDomain, day: int, groups: dict[int, dict], records,

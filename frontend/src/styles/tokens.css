@@ -66,6 +66,8 @@
   --evac-text: #6b9bff;    /* evac labels and line swatches on panels */
   --watched-line: #0e7490;
   --isochrone: #1f2937;
+  --active-edge: #ff4500;  /* RPAS active edges (MapView RECON_ACTIVE) and their panel swatch */
+  --observed-perimeter: #6d28d9; /* observed (RPAS) perimeter (MapView RECON_PERIMETER) */
 
   /* ── Type (12 px minimum anywhere) ── */
   --font-ui: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif;

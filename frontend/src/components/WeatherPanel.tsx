@@ -10,6 +10,23 @@ import SetupSection from "./SetupSection";
 import { edmontonDayOfYear, formatClock, formatDate, roundToMinute, toDateTimeInputs, toEdmontonIso, zonedWallTimeToMs, zoneAbbrev } from "../utils/time";
 import { formatDecimal, parseCanadaCoordinate, parseCoordinatePair, splitPair } from "../utils/coords";
 import { fwiClass, fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
+import {
+  DEFAULT_BURNING_PERIOD,
+  VALIDATION_DOC_URL,
+  formatBurningPeriod,
+  skillRequestFields,
+  spinupFromMs,
+  validateBurningHours,
+} from "../utils/skillOptions";
+import type { BurningPeriod } from "../types/simulation";
+
+/** Setup's skill options as they apply to a restart from an observed perimeter */
+export interface SkillOptionsState {
+  /** Burning period to apply (null = off or invalid) */
+  burningPeriod: BurningPeriod | null;
+  /** Evening FFMC spin-up wanted (only effective with hourly forecast weather) */
+  spinUp: boolean;
+}
 
 // ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
 function computeISI(ffmc: number, windSpeedKmh: number): number {
@@ -154,6 +171,8 @@ interface WeatherPanelProps {
   onEdmontonGridChange?: (fuelGridPath: string | null) => void;
   /** Element at the bottom of the Setup column that holds the sticky Run bar */
   runBarTarget?: HTMLElement | null;
+  /** Current burning period / spin-up settings (for the observed-perimeter restart) */
+  onSkillOptions?: (opts: SkillOptionsState) => void;
 }
 
 function WeatherPanel({
@@ -169,6 +188,7 @@ function WeatherPanel({
   onConfigSnapshot,
   onEdmontonGridChange,
   runBarTarget,
+  onSkillOptions,
 }: WeatherPanelProps) {
   const fieldId = useId();
 
@@ -282,6 +302,11 @@ function WeatherPanel({
   // Range of outcomes (ensemble) after grid runs: on by default, 30 members
   const [ensembleOn, setEnsembleOn] = useState(true);
   const [ensembleMembers, setEnsembleMembers] = useState(30);
+  // Spread-skill options (docs/validation.md): on by default in the UI (the API defaults off)
+  const [burningOn, setBurningOn] = useState(true);
+  const [bpStart, setBpStart] = useState(DEFAULT_BURNING_PERIOD.start_hour);
+  const [bpEnd, setBpEnd] = useState(DEFAULT_BURNING_PERIOD.end_hour);
+  const [spinUpOn, setSpinUpOn] = useState(true);
   const [weatherSource, setWeatherSource] = useState<string | null>(null);
   const [weatherTimestamp, setWeatherTimestamp] = useState<string | null>(null);
   const [stationName, setStationName] = useState<string | null>(null);
@@ -318,6 +343,14 @@ function WeatherPanel({
       setEnsembleOn(scenarioToLoad.ensembleMembers !== null);
       if (scenarioToLoad.ensembleMembers) setEnsembleMembers(scenarioToLoad.ensembleMembers);
     }
+    if (scenarioToLoad.burningPeriod !== undefined) {
+      setBurningOn(scenarioToLoad.burningPeriod !== null);
+      if (scenarioToLoad.burningPeriod) {
+        setBpStart(scenarioToLoad.burningPeriod.start_hour);
+        setBpEnd(scenarioToLoad.burningPeriod.end_hour);
+      }
+    }
+    if (scenarioToLoad.ffmcSpinUp !== undefined) setSpinUpOn(scenarioToLoad.ffmcSpinUp);
   }, [scenarioToLoad]);
 
   // ── Provide config snapshot to parent for saving ──────────────────────────
@@ -341,14 +374,26 @@ function WeatherPanel({
       multiDayDays,
       mcIterations,
       ensembleMembers: ensembleOn ? ensembleMembers : null,
+      burningPeriod: burningOn ? { start_hour: bpStart, end_hour: bpEnd } : null,
+      ffmcSpinUp: spinUpOn,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     ignitionPoint, weather, fwi, fuelType, useEdmontonGrid, useSyntheticCA,
     enableSpotting, spottingIntensity, includeWater, includeBuildings, includeWUI,
     includeDEM, durationHours, snapshotMinutes, simMode, multiDayDays, mcIterations,
-    ensembleOn, ensembleMembers,
+    ensembleOn, ensembleMembers, burningOn, bpStart, bpEnd, spinUpOn,
   ]);
+
+  // ── Skill options: errors, and the settings a perimeter restart reuses ────
+  const burningError = burningOn ? validateBurningHours(bpStart, bpEnd) : null;
+  const spinUpAvailable = simMode === "single" && useHourlyForecast;
+  useEffect(() => {
+    onSkillOptions?.({
+      burningPeriod: burningOn && !burningError ? { start_hour: bpStart, end_hour: bpEnd } : null,
+      spinUp: spinUpOn && spinUpAvailable,
+    });
+  }, [onSkillOptions, burningOn, burningError, bpStart, bpEnd, spinUpOn, spinUpAvailable]);
 
   // ── Auto-fetch CWFIS weather when ignition point is first set ─────────────
   const autoFetchedRef = useRef<string | null>(null);
@@ -470,15 +515,27 @@ function WeatherPanel({
     const atMs = runStartMs();
     if (!ignitionPoint || hasErrors || atMs === null) return;
     let hourly = null;
+    const spinWanted = spinUpOn && useHourlyForecast;
     if (useHourlyForecast) {
       try {
-        // Forecast hours aligned to the scenario start, not to now (design spec §2.3)
-        hourly = await fetchHourlyForecast(ignitionPoint.lat, ignitionPoint.lng, durationHours, atMs);
+        // Forecast hours aligned to the scenario start, not to now (design spec §2.3); with
+        // the spin-up, also the hours from 17:00 before the start
+        hourly = await fetchHourlyForecast(
+          ignitionPoint.lat, ignitionPoint.lng, durationHours, atMs,
+          spinWanted ? spinupFromMs(atMs) : undefined,
+        );
         const at = new Date(atMs);
-        setWeatherMessage(`Hourly forecast: ${hourly.length} h from Open-Meteo, from ${formatClock(at)} ${zoneAbbrev(at)}`);
+        const nRun = hourly.filter((r) => r.hours_from_start > -1).length;
+        setWeatherMessage(`Hourly forecast: ${nRun} h from Open-Meteo, from ${formatClock(at)} ${zoneAbbrev(at)}`);
       } catch (err) {
         setWeatherMessage(`Hourly forecast unavailable (${(err as Error).message}); using constant weather`);
       }
+    }
+    const skill = skillRequestFields(
+      { burningOn, startHour: bpStart, endHour: bpEnd, spinUpOn: spinWanted }, hourly, atMs,
+    );
+    if (spinWanted && skill.spinUpSkipped) {
+      setWeatherMessage((m) => `${m ?? ""}${m ? " · " : ""}FFMC spin-up skipped: ${skill.spinUpSkipped}`);
     }
     onRunParams?.({
       weather,
@@ -512,6 +569,8 @@ function WeatherPanel({
       spotting_intensity: spottingIntensity,
       // The ensemble needs a fuel grid (grid runs only)
       ensemble: ensembleOn && useEdmontonGrid ? { n_members: ensembleMembers } : null,
+      burning_period: skill.burning_period,
+      ffmc_spin_up: skill.ffmc_spin_up,
     });
   };
 
@@ -531,6 +590,10 @@ function WeatherPanel({
       water_path: useEdmontonGrid && includeWater ? EDMONTON_WATER_PATH : null,
       buildings_path: useEdmontonGrid && includeBuildings ? EDMONTON_BUILDINGS_PATH : null,
       dem_path: useEdmontonGrid && includeDEM ? EDMONTON_DEM_PATH : null,
+      start_time: toEdmontonIso(atMs),
+      burning_period: skillRequestFields(
+        { burningOn, startHour: bpStart, endHour: bpEnd, spinUpOn: false }, null, atMs,
+      ).burning_period,
     }, atMs);
   };
 
@@ -618,7 +681,9 @@ function WeatherPanel({
         ? `Fix the start time: ${startError}`
         : simMode === "single" && hasErrors
           ? `Fix the inputs: ${errorList.join("; ")}`
-          : null;
+          : burningError
+            ? `Fix the burning period: ${burningError}`
+            : null;
   const canRun = disabledReason === null && (simMode === "single" || !!onStartMultiDaySimulation);
 
   // Ctrl+Enter runs from anywhere (spec §2.2)
@@ -1162,11 +1227,17 @@ function WeatherPanel({
         num={4}
         title="Run options"
         summary={
-          simMode === "single"
+          (simMode === "single"
             ? `Single event · ${durationHours} h · ${snapshotMinutes} min snapshots${
                 useEdmontonGrid ? (ensembleOn ? ` · range of outcomes (${ensembleMembers})` : " · single run only") : ""}`
-            : `Multi-day · ${multiDayDays.length} days · ${snapshotMinutes} min snapshots`
+            : `Multi-day · ${multiDayDays.length} days · ${snapshotMinutes} min snapshots`) +
+          (burningError
+            ? " · check the burning period"
+            : burningOn
+              ? ` · burns ${formatBurningPeriod({ start_hour: bpStart, end_hour: bpEnd })}`
+              : " · burns all day")
         }
+        attention={!!burningError}
       >
         {onStartMultiDaySimulation && (
           <div className="sim-mode-tabs" role="group" aria-label="Run mode">
@@ -1240,6 +1311,79 @@ function WeatherPanel({
             </p>
           </div>
         )}
+        <fieldset className="field-group skill-options" aria-describedby={`${fieldId}-skill-evidence`}>
+          <legend>Diurnal burning</legend>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={burningOn}
+              onChange={(e) => setBurningOn(e.target.checked)}
+            />
+            <span>
+              Burning period{" "}
+              {burningError ? "" : formatBurningPeriod({ start_hour: bpStart, end_hour: bpEnd })}{" "}
+              {bpStart === DEFAULT_BURNING_PERIOD.start_hour && bpEnd === DEFAULT_BURNING_PERIOD.end_hour
+                ? "(validated on Alberta fires)"
+                : `(validated: ${formatBurningPeriod(DEFAULT_BURNING_PERIOD)})`}
+            </span>
+          </label>
+          {burningOn && (
+            <div className="field-row field-row-nowrap check-row-indent">
+              <label className="field field-hour">
+                From (h)
+                <input
+                  type="number"
+                  min={0}
+                  max={24}
+                  step={1}
+                  value={Number.isNaN(bpStart) ? "" : bpStart}
+                  onChange={(e) => setBpStart(e.target.valueAsNumber)}
+                  aria-invalid={!!burningError}
+                  aria-describedby={burningError ? `${fieldId}-bp-err` : undefined}
+                />
+              </label>
+              <label className="field field-hour">
+                To (h)
+                <input
+                  type="number"
+                  min={0}
+                  max={24}
+                  step={1}
+                  value={Number.isNaN(bpEnd) ? "" : bpEnd}
+                  onChange={(e) => setBpEnd(e.target.valueAsNumber)}
+                  aria-invalid={!!burningError}
+                  aria-describedby={burningError ? `${fieldId}-bp-err` : undefined}
+                />
+              </label>
+            </div>
+          )}
+          {burningError && <div className="input-error" id={`${fieldId}-bp-err`} role="alert">{burningError}</div>}
+          <p className="hint-sm">
+            No spread outside these local hours; with spin-up and RPAS active edges it raised
+            one-day skill on held-out Alberta fires (F1 0.12 to 0.21).
+          </p>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={spinUpOn && spinUpAvailable}
+              disabled={!spinUpAvailable}
+              onChange={(e) => setSpinUpOn(e.target.checked)}
+            />
+            <span>Evening FFMC spin-up</span>
+          </label>
+          <p className="hint-sm">
+            {simMode === "multiday"
+              ? "Not for multi-day runs (daily weather only)."
+              : spinUpAvailable
+                ? "Starts the hourly FFMC at 17:00 the evening before from the FFMC in 2, so morning spread is not overstated (Lawson et al. 1996)."
+                : "Needs hourly forecast weather (2 Weather & FWI): starts the hourly FFMC at 17:00 the evening before."}
+          </p>
+          <p className="hint-sm" id={`${fieldId}-skill-evidence`}>
+            <a href={VALIDATION_DOC_URL} target="_blank" rel="noopener noreferrer" className="hint-link">
+              Evidence: held-out validation (docs/validation.md)
+            </a>
+          </p>
+        </fieldset>
         {simMode === "multiday" && (
           <MultiDayPanel
             days={multiDayDays}
