@@ -199,10 +199,11 @@ The engine works without real data using `synthetic_grid.py` (generates a mixed-
 
 | File | Source | Used by |
 |------|--------|---------|
-| `Edmonton_FBP_FuelLayer_*_10m.tif` | City of Edmonton canopy-LiDAR fuel product (20 m grid despite the name; codes 2, 12, 14, 31, 32, 99) | `fuel_loader.py` |
-| `edmonton_dem.tif` | Open Government Canada | `dem_loader.py` |
-| `edmonton_water_bodies.geojson.gz` | City Open Data | `wui_loader.py` |
-| `edmonton_buildings.geojson.gz`, `edmonton_neighbourhoods.geojson` | City Open Data | building index, mask, exposure |
+| `Edmonton_FBP_FuelLayer_*_10m.tif` | City of Edmonton canopy-LiDAR fuel product (20 m grid in EPSG:3776 despite the name; codes 2, 12, 14, 31, 32, 99, with 0 = no data) | `fuel_loader.py` |
+| `edmonton_dem.tif` | 30 m DEM, UTM 12N (EPSG:26912), file dated 2011; recorded as Open Government Canada, exact product not recorded (likely NRCan CDEM; unverified) | `dem_loader.py` |
+| `edmonton_water_bodies.geojson.gz` | OpenStreetMap (ODbL; features carry `osm_id`), 2,275 polygons. **Off by default** (2026-10-07): it covers about 3,700 ha the LiDAR grid maps as vegetation, and the LiDAR grid already maps water as non-fuel (`docs/verification.md`) | `fuel_loader.py` (`water_path` mask) |
+| `edmonton_buildings.geojson.gz` | Microsoft Canadian Building Footprints (ODbL), 346,238 footprints, generated 2025-11-16 per the file metadata. The `type`/`height`/`material`/`roof_type` attributes have no documented source; exposure uses only the footprint geometry | `building_index.py`: mask, inside-perimeter counts, exposure |
+| `edmonton_neighbourhoods.geojson` | City of Edmonton Open Data, Neighbourhoods `65fr-66s6` (OGL – City of Edmonton), 407 polygons | building index, neighbourhood card |
 | `wui_zones.geojson.gz` | Custom, **no documented source** — off by default; don't present results using it as measured | `wui_loader.py` |
 
 ---
