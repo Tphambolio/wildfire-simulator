@@ -43,6 +43,7 @@ The suite:
 | `performance.spec.ts` | 0 WebGL draw calls in 3 s of idle (no spot fires), before and after a run. |
 | `a11y.spec.ts` | axe (WCAG 2.x A/AA): fails only on serious/critical violations that are not in `tests/e2e/axe-baseline.json`. After fixing violations, re-record with `UPDATE_AXE_BASELINE=1 npx playwright test a11y` and commit the baseline. |
 | `layout.spec.ts` | Reports (does not enforce yet) the number of visible text nodes below 12 px, in the console and as an attachment. |
+| `skill-options.spec.ts` | Burning period on by default (request, hour validation, timeline shading, Situation note); evening FFMC spin-up with hourly forecast (records from 17:00 the evening before); RPAS restart with active edges drawn on the map and picked by side (`active_edges`, buffer, observation time); the ignition hint ends after a typed ignition; axe clean. |
 | `evac.spec.ts` | Neighbourhoods: no evacuation tier appears after a run until Planning sets one; setting a status from the map popup draws the labelled blue outline and survives reload; arrival-table and picker (keyboard) path; axe clean. |
 
 ### Regenerating the fixture

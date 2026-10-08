@@ -188,6 +188,10 @@ test.describe("ignition and start time", () => {
     await page.getByLabel(/^Time \(/).fill("14:05"); // 20:05 UTC
     await page.locator(".setup-section-toggle", { hasText: "Weather & FWI" }).click();
     await page.getByLabel("Use hourly forecast weather").check();
+    // Without the evening FFMC spin-up (on by default; skill-options.spec covers it), the
+    // stream starts at the scenario start
+    await page.locator(".setup-section-toggle", { hasText: "Run options" }).click();
+    await page.getByLabel("Evening FFMC spin-up").uncheck();
     await runButton(page).click();
     await expect(page.locator(".status-badge.status-completed")).toHaveText("completed", { timeout: 30_000 });
 

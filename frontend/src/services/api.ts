@@ -143,6 +143,7 @@ export async function fetchHourlyForecast(
   lng: number,
   hours: number,
   startMs: number = Date.now(),
+  fromMs?: number,
 ): Promise<HourlyWeatherParams[]> {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
@@ -151,13 +152,17 @@ export async function fetchHourlyForecast(
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Forecast request failed: ${resp.status}`);
   const data = await resp.json();
-  return forecastStream(data.hourly, startMs, hours);
+  return forecastStream(data.hourly, startMs, hours, fromMs);
 }
 
 /**
  * Slice Open-Meteo hourly data (UTC hour starts) into records for a scenario starting at
  * ``startMs``: the hour containing the start applies from 0, and each later hour from its
  * own start (fractional hours after the scenario start), up to the end of the run.
+ *
+ * With ``fromMs`` (the FFMC spin-up start, before ``startMs``) the hours from the one
+ * containing ``fromMs`` are included too, with negative ``hours_from_start`` (the first at
+ * exactly ``fromMs``); the hour containing the start keeps its own (negative) start.
  */
 export function forecastStream(
   h: {
@@ -166,15 +171,18 @@ export function forecastStream(
   },
   startMs: number,
   hours: number,
+  fromMs?: number,
 ): HourlyWeatherParams[] {
   const t0 = h.time.map((t) => Date.parse(t.endsWith("Z") ? t : t + "Z"));
-  const first = t0.findIndex((t) => t + 3600_000 > startMs);
+  const spin = fromMs !== undefined && fromMs < startMs;
+  const from = spin ? fromMs : startMs;
+  const first = t0.findIndex((t) => t + 3600_000 > from);
   if (first < 0) throw new Error("Forecast has no hours at or after the scenario start");
   const endMs = startMs + hours * 3600_000;
   const out: HourlyWeatherParams[] = [];
   for (let i = first; i < t0.length && t0[i] < endMs; i++) {
     out.push({
-      hours_from_start: Math.max(0, (t0[i] - startMs) / 3600_000),
+      hours_from_start: spin ? (Math.max(t0[i], from) - startMs) / 3600_000 : Math.max(0, (t0[i] - startMs) / 3600_000),
       temperature: h.temperature_2m[i],
       relative_humidity: h.relative_humidity_2m[i],
       wind_speed: h.wind_speed_10m[i],

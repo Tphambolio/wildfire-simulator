@@ -25,8 +25,15 @@ export interface FuelModifiers {
   elevation_m?: number | null;
 }
 
+/** Daily burning period: local clock hours (start_time's clock) between which fire spreads. */
+export interface BurningPeriod {
+  start_hour: number; // 0-24
+  end_hour: number; // 0-24, after start_hour
+}
+
 /** One hour of weather for the hourly stream (applies until the next record). */
 export interface HourlyWeatherParams {
+  /** Hours after the start; negative (back to -24) = before it, used only for the FFMC spin-up */
   hours_from_start: number;
   temperature: number;
   relative_humidity: number;
@@ -59,6 +66,10 @@ export interface SimulationCreate {
   spotting_intensity?: number;
   /** Grid runs: run an ensemble after the deterministic run (GET /simulations/{id}/ensemble) */
   ensemble?: EnsembleParams | null;
+  /** No spread outside these local hours (needs start_time). API default: off */
+  burning_period?: BurningPeriod | null;
+  /** Hourly FFMC from 17:00 local before the start (needs hourly_weather back to then). API default: off */
+  ffmc_spin_up?: boolean;
 }
 
 /**
@@ -146,6 +157,9 @@ export interface MultiDaySimulationCreate {
   water_path?: string | null;
   buildings_path?: string | null;
   dem_path?: string | null;
+  /** Scenario start (ISO with offset); each day runs 24 h from its clock time */
+  start_time?: string | null;
+  burning_period?: BurningPeriod | null;
 }
 
 export type SimulationStatus = "pending" | "running" | "paused" | "completed" | "cancelled" | "failed";
@@ -252,6 +266,10 @@ export interface ScenarioConfig {
   mcIterations: number;
   /** Range of outcomes (ensemble) members for grid runs; null = off (absent in older saves) */
   ensembleMembers?: number | null;
+  /** Burning period (null = off); absent in older saves = the default 10-20 h */
+  burningPeriod?: BurningPeriod | null;
+  /** Evening FFMC spin-up (with hourly forecast weather); absent in older saves = on */
+  ffmcSpinUp?: boolean;
   lastRunStats?: {
     areaHa: number;
     timeHours: number;
@@ -264,6 +282,14 @@ export interface PerimeterOverrideRequest {
   perimeter_geojson: GeoJSON.Geometry;
   duration_hours?: number;
   snapshot_interval_minutes?: number;
+  /** Where the fire is still active (lng/lat geometry); omitted = the whole perimeter */
+  active_edges?: GeoJSON.Geometry | null;
+  /** Distance (m) from active_edges counted active; omitted = one fuel-grid cell */
+  active_edge_buffer_m?: number | null;
+  /** Time of the observed perimeter (ISO with offset); default: the source run's start */
+  start_time?: string | null;
+  burning_period?: BurningPeriod | null;
+  ffmc_spin_up?: boolean;
 }
 
 export const FUEL_TYPES: Record<string, string> = {

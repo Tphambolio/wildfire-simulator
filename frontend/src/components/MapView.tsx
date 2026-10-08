@@ -17,6 +17,13 @@ import { PROB_STOPS, probCss, ringsFeature, type EnsembleMapLayers } from "../ut
 
 /** Ensemble line colour: ink, one colour for every arrival line (design spec §3.3, §6.2) */
 const ENS_INK = "#1f2937";
+/** Observed (RPAS) perimeter and active edges: orange-red, distinct from the modelled fire */
+const RECON_PERIMETER = "#6d28d9";
+const RECON_ACTIVE = "#ff4500";
+const RECON_LAYERS = [
+  "recon-perimeter-casing", "recon-perimeter-line", "recon-active-casing", "recon-active-line",
+  "recon-draft-line", "recon-draft-points",
+];
 /** Ensemble layers (bottom to top); the burn-probability raster goes below the first */
 const ENS_LINE_LAYERS = [
   "ens-p90-casing", "ens-p90-line",
@@ -219,6 +226,22 @@ interface MapViewProps {
   fitRequest?: number;
   /** Ensemble (range of outcomes): P10 arrival lines, P10/P50 extent now, P90, burn probability */
   ensemble?: EnsembleMapLayers | null;
+  /** Observed (RPAS) perimeter and its active edges, and the edge being drawn */
+  recon?: ReconMapLayers | null;
+  /** Drawing an active edge: a map click (or Enter at the keyboard crosshair) adds a vertex */
+  onReconDrawPoint?: (lng: number, lat: number) => void;
+  /** Drawing an active edge: double-click ends the line */
+  onReconDrawFinish?: () => void;
+}
+
+/** What the RPAS perimeter panel shows on the map (GeoJSON [lng, lat]). */
+export interface ReconMapLayers {
+  perimeter: GeoJSON.Geometry | null;
+  /** Active edges: drawn lines and selected perimeter sides */
+  lines: Array<Array<[number, number]>>;
+  /** The line being drawn */
+  draft: Array<[number, number]>;
+  drawing: boolean;
 }
 
 export default function MapView({
@@ -250,6 +273,9 @@ export default function MapView({
   spotFiresVisible: spotFiresVisibleProp,
   fitRequest = 0,
   ensemble = null,
+  recon = null,
+  onReconDrawPoint,
+  onReconDrawFinish,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -260,6 +286,22 @@ export default function MapView({
   // Ignition placement mode — true while operator is picking a start point
   const [ignitionMode, setIgnitionMode] = useState(!ignitionPoint);
   const ignitionModeRef = useRef(!ignitionPoint);
+  // An ignition set by any means (map click, keyboard, typed coordinates, scenario load) ends
+  // placement mode; adjusting state during render is React's pattern for prop changes
+  const [prevIgnition, setPrevIgnition] = useState(ignitionPoint);
+  if (ignitionPoint !== prevIgnition) {
+    setPrevIgnition(ignitionPoint);
+    if (ignitionPoint && ignitionMode) setIgnitionMode(false);
+  }
+  // Drawing an active edge for the RPAS perimeter restart: map clicks add vertices
+  const drawingRef = useRef(false);
+  const onReconDrawPointRef = useRef(onReconDrawPoint);
+  const onReconDrawFinishRef = useRef(onReconDrawFinish);
+  useEffect(() => {
+    drawingRef.current = !!recon?.drawing;
+    onReconDrawPointRef.current = onReconDrawPoint;
+    onReconDrawFinishRef.current = onReconDrawFinish;
+  }, [recon?.drawing, onReconDrawPoint, onReconDrawFinish]);
   // The click that placed the ignition point; feature popups ignore it
   const ignitionClickRef = useRef<MouseEvent | null>(null);
   // Keyboard ignition (design spec §7, 2.1.1): with the map focused, a crosshair moves with the
@@ -872,10 +914,51 @@ export default function MapView({
       paint: { "line-color": ENS_INK, "line-width": 3.5 },
     });
 
+    // ── Observed (RPAS) perimeter and its active edges (thick orange-red dashes) ──
+    for (const id of RECON_LAYERS) if (m.getLayer(id)) m.removeLayer(id);
+    for (const src of ["recon-perimeter", "recon-active", "recon-draft"]) if (m.getSource(src)) m.removeSource(src);
+    m.addSource("recon-perimeter", { type: "geojson", data: emptyFc });
+    m.addSource("recon-active", { type: "geojson", data: emptyFc });
+    m.addSource("recon-draft", { type: "geojson", data: emptyFc });
+    m.addLayer({
+      id: "recon-perimeter-casing", type: "line", source: "recon-perimeter",
+      layout: { "line-join": "round" },
+      paint: { "line-color": "#ffffff", "line-width": 4, "line-opacity": 0.8 },
+    });
+    m.addLayer({
+      id: "recon-perimeter-line", type: "line", source: "recon-perimeter",
+      layout: { "line-join": "round" },
+      paint: { "line-color": RECON_PERIMETER, "line-width": 2 },
+    });
+    m.addLayer({
+      id: "recon-active-casing", type: "line", source: "recon-active",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.85 },
+    });
+    m.addLayer({
+      id: "recon-active-line", type: "line", source: "recon-active",
+      layout: { "line-join": "round" },
+      paint: { "line-color": RECON_ACTIVE, "line-width": 6, "line-dasharray": [2, 1] },
+    });
+    m.addLayer({
+      id: "recon-draft-line", type: "line", source: "recon-draft",
+      filter: ["==", ["geometry-type"], "LineString"],
+      layout: { "line-join": "round" },
+      paint: { "line-color": RECON_ACTIVE, "line-width": 3, "line-dasharray": [1, 1] },
+    });
+    m.addLayer({
+      id: "recon-draft-points", type: "circle", source: "recon-draft",
+      filter: ["==", ["geometry-type"], "Point"],
+      paint: {
+        "circle-radius": 5, "circle-color": RECON_ACTIVE,
+        "circle-stroke-color": "#ffffff", "circle-stroke-width": 2,
+      },
+    });
+
     // Click a neighbourhood: its name, the modelled arrival, and its evacuation status, which
     // Planning can set here (None / Watch / Alert / Order). FireSim never sets it.
     m.on("click", "overlay-communities-fill", (e) => {
-      if (e.originalEvent === ignitionClickRef.current) return;
+      if (e.originalEvent === ignitionClickRef.current || drawingRef.current) return;
       if (!e.features || !e.features.length) return;
       const name = featureName(e.features[0] as unknown as GeoJSON.Feature);
       const data = evacPopupDataRef.current;
@@ -953,7 +1036,12 @@ export default function MapView({
     });
 
     m.on("click", (e) => {
-      if (readOnlyRef.current || !ignitionModeRef.current) return;
+      if (readOnlyRef.current) return;
+      if (drawingRef.current) {
+        onReconDrawPointRef.current?.(e.lngLat.lng, e.lngLat.lat);
+        return;
+      }
+      if (!ignitionModeRef.current) return;
       ignitionClickRef.current = e.originalEvent;
       onMapClick(e.lngLat.lat, e.lngLat.lng);
       // Exit placement mode after setting ignition
@@ -1013,6 +1101,11 @@ export default function MapView({
             return;
           }
           const at = kbAt(c.x, c.y);
+          if (drawingRef.current) {
+            onReconDrawPointRef.current?.(at.lng, at.lat);
+            setKbAnnounce(`Active-edge point added ${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`);
+            return;
+          }
           onMapClickRef.current(at.lat, at.lng);
           ignitionModeRef.current = false;
           setIgnitionMode(false);
@@ -1055,6 +1148,13 @@ export default function MapView({
       m.on("move", onKbMove);
     }
 
+    // Double-click ends an active-edge line (instead of zooming)
+    m.on("dblclick", (e) => {
+      if (!drawingRef.current) return;
+      e.preventDefault();
+      onReconDrawFinishRef.current?.();
+    });
+
     map.current = m;
 
     const resizeTimer = setTimeout(() => m.resize(), 200);
@@ -1087,12 +1187,54 @@ export default function MapView({
   }, [basemap, mapReady, addFireLayers]);
 
   // Sync ignitionMode state → ref (used in map click handler) + cursor
+  const reconDrawing = !!recon?.drawing;
   useEffect(() => {
     ignitionModeRef.current = ignitionMode;
     if (map.current && mapReady) {
-      map.current.getCanvas().style.cursor = ignitionMode ? "crosshair" : "";
+      map.current.getCanvas().style.cursor = ignitionMode || reconDrawing ? "crosshair" : "";
     }
-  }, [ignitionMode, mapReady]);
+  }, [ignitionMode, reconDrawing, mapReady]);
+
+  // Observed perimeter, active edges and the edge being drawn
+  const reconLabelMarkersRef = useRef<maplibregl.Marker[]>([]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !mapReady) return;
+    const set = (id: string, fc: GeoJSON.FeatureCollection) =>
+      (m.getSource(id) as maplibregl.GeoJSONSource | undefined)?.setData(fc);
+    const fc = (features: GeoJSON.Feature[]): GeoJSON.FeatureCollection => ({ type: "FeatureCollection", features });
+    const perimeter = recon?.perimeter ?? null;
+    const lines = recon?.lines ?? [];
+    const draft = recon?.draft ?? [];
+    set("recon-perimeter", fc(perimeter ? [{ type: "Feature", properties: {}, geometry: perimeter }] : []));
+    set("recon-active", fc(lines.map((coordinates) => ({
+      type: "Feature", properties: {}, geometry: { type: "LineString", coordinates },
+    }))));
+    set("recon-draft", fc([
+      ...(draft.length >= 2 ? [{ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: draft } }] : []),
+      ...draft.map((p) => ({ type: "Feature" as const, properties: {}, geometry: { type: "Point" as const, coordinates: p } })),
+    ]));
+    // "active (RPAS)" label at the middle of each active line (DOM markers: no map glyphs needed)
+    for (const mk of reconLabelMarkersRef.current) mk.remove();
+    reconLabelMarkersRef.current = lines.map((line) => {
+      const i = Math.max(0, Math.floor((line.length - 1) / 2));
+      const [a, b] = [line[i], line[Math.min(i + 1, line.length - 1)]];
+      const label = document.createElement("div");
+      label.className = "map-recon-label";
+      label.setAttribute("aria-hidden", "true");
+      label.textContent = "active (RPAS)";
+      return new maplibregl.Marker({ element: label, anchor: "bottom", offset: [0, -8] })
+        .setLngLat([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
+        .addTo(m);
+    });
+    // What is drawn, for tests and debugging (the map itself is a canvas)
+    const el = mapContainer.current;
+    if (el) {
+      el.setAttribute("data-recon-perimeter", perimeter ? "1" : "0");
+      el.setAttribute("data-recon-active", String(lines.length));
+      el.setAttribute("data-recon-draft", String(draft.length));
+    }
+  }, [recon, mapReady, fireLayersVersion]);
 
   // Update ignition marker
   useEffect(() => {
@@ -1929,9 +2071,15 @@ export default function MapView({
       </div>}
 
       {/* Placement mode hint overlay (hidden in readOnly mode and while the keyboard crosshair is up) */}
-      {!readOnly && ignitionMode && !kbCursor && (
+      {!readOnly && ignitionMode && !reconDrawing && !kbCursor && (
         <div className="mcp-placement-hint">
           Click map to set ignition point
+        </div>
+      )}
+      {!readOnly && reconDrawing && (
+        <div className="mcp-placement-hint recon-draw-hint">
+          Drawing an active edge: click along the perimeter (or Enter at the keyboard crosshair);
+          double-click or Finish line to end
         </div>
       )}
 
@@ -1943,7 +2091,7 @@ export default function MapView({
             {kbCursor.lat.toFixed(4)}, {kbCursor.lng.toFixed(4)}
           </div>
           <div className="kb-hint" aria-hidden="true">
-            Arrow keys move · Shift: larger steps · Enter sets the ignition · +/− zoom · Esc hides
+            Arrow keys move · Shift: larger steps · Enter {reconDrawing ? "adds an active-edge point" : "sets the ignition"} · +/− zoom · Esc hides
           </div>
         </>
       )}

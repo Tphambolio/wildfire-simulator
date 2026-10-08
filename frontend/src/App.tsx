@@ -3,7 +3,7 @@
 import { lazy, Suspense, useCallback, useState, useMemo, useRef, useEffect } from "react";
 import MapView from "./components/MapView";
 import WeatherPanel from "./components/WeatherPanel";
-import type { RunParams } from "./components/WeatherPanel";
+import type { RunParams, SkillOptionsState } from "./components/WeatherPanel";
 import FireMetrics from "./components/FireMetrics";
 import EOCSummary from "./components/EOCSummary";
 import TimeSlider from "./components/TimeSlider";
@@ -15,7 +15,9 @@ import { FUEL_TYPES } from "./types/simulation";
 import { useSimulation } from "./hooks/useSimulation";
 import { useScenarios } from "./hooks/useScenarios";
 import { computeBurnProbability, fetchFuelGridImage } from "./services/api";
-import type { SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
+import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
+import { useRecon } from "./hooks/useRecon";
+import { clockAt } from "./utils/time";
 import {
   arrivalsToGeoJSON,
   featureName,
@@ -416,19 +418,34 @@ export default function App() {
   // Ensemble size requested with the current run (null = none: multi-day, perimeter restart)
   const [ensembleMembers, setEnsembleMembers] = useState<number | null>(null);
 
+  // Spread-skill options: Setup's current settings (reused by the perimeter restart), and the
+  // burning period of the current run (timeline shading, Situation note)
+  const [skillOptions, setSkillOptions] = useState<SkillOptionsState>({ burningPeriod: null, spinUp: false });
+  const [runBurningPeriod, setRunBurningPeriod] = useState<BurningPeriod | null>(null);
+  const [lastRunSpinUp, setLastRunSpinUp] = useState(false);
+
+  // RPAS perimeter restart: observed perimeter, active edges, drawing on the map
+  const recon = useRecon();
+  const { cancelDrawing: cancelReconDrawing } = recon;
+
   const handlePerimeterOverride = useCallback(
     (req: PerimeterOverrideRequest) => {
-      setScenarioStart(new Date());
+      const at = req.start_time ? Date.parse(req.start_time) : NaN;
+      setScenarioStart(new Date(Number.isFinite(at) ? at : Date.now()));
       setEnsembleMembers(null);
+      setRunBurningPeriod(req.burning_period ?? null);
+      cancelReconDrawing();
       startPerimeterOverride(req);
     },
-    [startPerimeterOverride]
+    [startPerimeterOverride, cancelReconDrawing]
   );
 
   const handleStartMultiDay = useCallback(
     (req: Parameters<typeof startMultiDaySimulation>[0], startMs: number) => {
       setScenarioStart(new Date(startMs));
       setEnsembleMembers(null);
+      setRunBurningPeriod(req.burning_period ?? null);
+      setLastRunSpinUp(false);
       startMultiDaySimulation(req);
     },
     [startMultiDaySimulation]
@@ -595,6 +612,8 @@ export default function App() {
       const start = params.start_time ? Date.parse(params.start_time) : NaN;
       setScenarioStart(new Date(Number.isFinite(start) ? start : Date.now()));
       setEnsembleMembers(params.ensemble?.n_members ?? null);
+      setRunBurningPeriod(params.burning_period ?? null);
+      setLastRunSpinUp(!!params.ffmc_spin_up);
       startSimulation(params);
     },
     [startSimulation]
@@ -695,6 +714,7 @@ export default function App() {
             onConfigSnapshot={handleConfigSnapshot}
             onEdmontonGridChange={handleEdmontonGridChange}
             runBarTarget={runBarEl}
+            onSkillOptions={setSkillOptions}
           />
           <div className="setup-more-label">More</div>
           <SetupSection
@@ -718,12 +738,23 @@ export default function App() {
           </SetupSection>
           <SetupSection
             title="Observed perimeter (RPAS)"
-            summary={simulationId ? "Restart this run from an observed perimeter" : "Available after a run"}
+            summary={
+              !simulationId
+                ? "Available after a run"
+                : recon.state.perimeter
+                  ? `Perimeter loaded · ${recon.state.mode === "whole" ? "whole perimeter active" : `${recon.lines.length} active edge${recon.lines.length === 1 ? "" : "s"}`}`
+                  : "Restart this run from an observed perimeter"
+            }
           >
             <PerimeterOverridePanel
               simulationId={simulationId}
               onOverrideStart={handlePerimeterOverride}
               isRunning={isRunning}
+              recon={recon}
+              modelledPerimeter={currentFrame?.perimeter ?? null}
+              observedAtMs={scenarioStart && currentFrame ? clockAt(scenarioStart, currentFrame.time_hours).getTime() : null}
+              burningPeriod={skillOptions.burningPeriod}
+              spinUp={skillOptions.spinUp && lastRunSpinUp}
             />
           </SetupSection>
           <SetupSection
@@ -885,6 +916,9 @@ export default function App() {
             onSetEvacTier={handleSetEvacTier}
             evacTierRecords={evacTierRecords}
             ensemble={ensembleMap}
+            recon={recon.mapLayers}
+            onReconDrawPoint={recon.addPoint}
+            onReconDrawFinish={recon.finishDrawing}
           />
         </MapErrorBoundary>
       </main>
@@ -908,6 +942,7 @@ export default function App() {
             />
           }
           kpiCaption={ensemble.phase !== "off" ? "Single run (P50-like)" : null}
+          burningPeriod={runBurningPeriod}
         >
           <FireMetrics
             frame={currentFrame}
@@ -956,6 +991,7 @@ export default function App() {
             currentIndex={currentFrameIndex}
             onIndexChange={setFrameIndex}
             scenarioStart={scenarioStart}
+            burningPeriod={runBurningPeriod}
           />
         </div>
       )}

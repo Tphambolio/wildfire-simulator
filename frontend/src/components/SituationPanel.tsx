@@ -4,8 +4,9 @@
  */
 
 import { forwardRef, type ReactNode } from "react";
-import type { SimulationFrame } from "../types/simulation";
+import type { BurningPeriod, SimulationFrame } from "../types/simulation";
 import { clockAt, formatClock, formatElapsed, zoneAbbrev } from "../utils/time";
+import { formatBurningPeriod, formatHour, inBurningPeriod } from "../utils/skillOptions";
 import HfiClassChip from "./HfiClassChip";
 
 interface SituationPanelProps {
@@ -18,6 +19,8 @@ interface SituationPanelProps {
   headline?: ReactNode;
   /** Caption over the KPIs, e.g. "Single run (P50-like)" when an ensemble is the headline */
   kpiCaption?: string | null;
+  /** Burning period of the run (null = fire spreads at any hour) */
+  burningPeriod?: BurningPeriod | null;
   children?: ReactNode;
 }
 
@@ -53,7 +56,7 @@ function statusLine(status: string | null, totalFrames: number, last: Simulation
 }
 
 const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function SituationPanel(
-  { frame, frameIndex, totalFrames, status, scenarioStart, headline, kpiCaption, children },
+  { frame, frameIndex, totalFrames, status, scenarioStart, headline, kpiCaption, burningPeriod = null, children },
   ref,
 ) {
   // The "last" frame for progress is the newest one; the KPIs follow the timeline selection
@@ -82,6 +85,16 @@ const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function Sit
           {statusLine(status, totalFrames, frame, scenarioStart)}
         </div>
       </header>
+
+      {frame && scenarioStart && burningPeriod && (
+        <div
+          className={`situation-burning${inBurningPeriod(scenarioStart.getTime(), frame.time_hours, burningPeriod) ? "" : " off"}`}
+        >
+          {inBurningPeriod(scenarioStart.getTime(), frame.time_hours, burningPeriod)
+            ? `Burning period ${formatBurningPeriod(burningPeriod)}: fire spreading.`
+            : `Outside the burning period (${formatBurningPeriod(burningPeriod)}): no spread modelled until ${formatHour(burningPeriod.start_hour)}.`}
+        </div>
+      )}
 
       {headline}
 

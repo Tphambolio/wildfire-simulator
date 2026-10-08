@@ -44,7 +44,7 @@ head fire intensity and FWI codes mean.
 |---|---|---|
 | Fire behaviour | FBP System, 18 fuel types | ST-X-3 (1992), GLC-X-10 (2009); `cffdrs` |
 | Weather / moisture | FWI System; hourly FFMC | Van Wagner & Pickett (1985); Van Wagner (1977) PS-X-69; `cffdrs` |
-| Diurnal burning (opt-in) | Hourly FFMC spin-up from the previous afternoon; burning period (spread only between set hours) | Beck et al. (2002); Lawson et al. (1996); Tymstra et al. (2010) |
+| Diurnal burning (opt-in in the API, on by default in the UI) | Hourly FFMC spin-up from 17:00 local before the start; burning period (spread only between set hours, 10-20 h validated; a point ignition outside it waits for it) | Beck et al. (2002); Lawson et al. (1996); Tymstra et al. (2010) |
 | Growth (spatial fuel) | Level set advected with the Huygens velocity of each cell's FBP ellipse | Richards (1990); Lautenberger (2013) |
 | Growth (uniform fuel) | Huygens wavelets (convex front) | Richards (1990) |
 | Crown fire | Van Wagner (1977) initiation; CFB eq 58; C-6 crown rate | ST-X-3 |
@@ -54,9 +54,14 @@ head fire intensity and FWI codes mean.
 | Burn probability | Monte Carlo over ignition point, wind speed and RH | (method, not a validated product) |
 | Classes | HFI classes 1-6; FWI classes | Cole & Alexander (1995) and CWFIS HFI map; CWFIS FWI map |
 
-Inputs: ignition point or observed perimeter (optionally with its active edges), weather (constant or hourly), FWI codes, FBP
+Inputs: ignition point or observed perimeter (optionally with its active edges: lines drawn
+along the perimeter or whole sides, from an RPAS thermal flight; the rest is treated as burned
+out), start time, weather (constant or hourly, optionally from 17:00 the evening before for
+the FFMC spin-up), FWI codes, burning period (local hours), FBP
 fuel grid (Edmonton: City canopy-LiDAR product), optional DEM, water and building masks,
-grass curing, percent conifer / dead fir, foliar moisture or date. Outputs: perimeters,
+grass curing, percent conifer / dead fir, foliar moisture or date. The UI defaults are the
+held-out validated set-up: burning period 10-20 h, spin-up when hourly forecast weather is
+used, active edges when marked; the API defaults are off. Outputs: perimeters,
 burned cells with arrival time, speed and head/flank/back, head summary, arrival-time grid,
 intensity and fire type, spot fires, building exposure, burn probability.
 
@@ -84,6 +89,9 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   is treated as active and the fire burns 06-23 h. Marking the active edges (`active_edges`)
   and a burning period reduce this but make the largest wind-driven runs more under-predicted.
   Show it as a range, not a line.
+- The burning period is a fixed clock window: overnight runs and days that burn late are not
+  represented (no spread outside it), and a run started at night shows no growth until it
+  opens. Turn it off in Run options to model an overnight run.
 - No suppression is modelled.
 - Weather: constant or hourly; DMC and DC fixed within a run; forecast quality is
   Open-Meteo's. Wind direction is the dominant source of error in fire growth models.

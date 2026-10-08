@@ -4,8 +4,9 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { SimulationFrame } from "../types/simulation";
+import type { BurningPeriod, SimulationFrame } from "../types/simulation";
 import { clockAt, formatClock, formatElapsed, zoneAbbrev } from "../utils/time";
+import { formatBurningPeriod, inBurningPeriod, offPeriods } from "../utils/skillOptions";
 
 interface TimeSliderProps {
   frames: SimulationFrame[];
@@ -13,6 +14,8 @@ interface TimeSliderProps {
   onIndexChange: (index: number) => void;
   /** Scenario start (when the run was started). Without it, only T+ labels are shown. */
   scenarioStart?: Date | null;
+  /** Burning period of the run: the hours outside it are shaded (no spread modelled) */
+  burningPeriod?: BurningPeriod | null;
 }
 
 const SPEEDS = [
@@ -23,6 +26,19 @@ const SPEEDS = [
 ];
 const DEFAULT_SPEED_IDX = 1; // 1×
 const MAX_TICKS = 6;
+
+/** Position (0-100 %) of `hours` along the track, which spaces frames evenly by index. */
+function hoursToPct(frames: SimulationFrame[], hours: number): number {
+  const n = frames.length;
+  if (n < 2) return 0;
+  if (hours <= frames[0].time_hours) return 0;
+  for (let i = 1; i < n; i++) {
+    const a = frames[i - 1].time_hours;
+    const b = frames[i].time_hours;
+    if (hours <= b) return ((i - 1 + (b > a ? (hours - a) / (b - a) : 1)) / (n - 1)) * 100;
+  }
+  return 100;
+}
 
 /** Frame indices to label along the track: first, last and evenly spaced ones between. */
 function tickIndices(n: number, maxTicks = MAX_TICKS): number[] {
@@ -41,6 +57,7 @@ export default function TimeSlider({
   currentIndex,
   onIndexChange,
   scenarioStart = null,
+  burningPeriod = null,
 }: TimeSliderProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speedIdx, setSpeedIdx] = useState(DEFAULT_SPEED_IDX);
@@ -129,6 +146,12 @@ export default function TimeSlider({
     : formatElapsed(hours);
   const valueText = now ? `${formatClock(now)} ${zoneAbbrev(now)}, ${formatElapsed(hours)}` : formatElapsed(hours);
   const ticks = tickIndices(frames.length);
+  // Hours outside the burning period (no spread modelled), shaded on the track
+  const bpLabel = burningPeriod ? formatBurningPeriod(burningPeriod) : "";
+  const offBands = scenarioStart && burningPeriod
+    ? offPeriods(scenarioStart.getTime(), maxHours, burningPeriod)
+    : [];
+  const outside = !!(scenarioStart && burningPeriod && !inBurningPeriod(scenarioStart.getTime(), hours, burningPeriod));
 
   return (
     <div className="time-slider">
@@ -170,6 +193,11 @@ export default function TimeSlider({
           </span>
         ) : null}
         <span className={now ? "ts-now-elapsed" : "ts-now-clock"}>{elapsed}</span>
+        {outside && (
+          <span className="ts-now-off" title={`Outside the burning period ${bpLabel}: no spread is modelled`}>
+            No spread
+          </span>
+        )}
       </div>
 
       <div className="ts-range-wrap">
@@ -185,9 +213,27 @@ export default function TimeSlider({
           className="ts-range"
           style={{ "--pct": `${pct}%` } as React.CSSProperties}
           aria-label="Timeline"
-          aria-valuetext={valueText}
+          aria-valuetext={outside ? `${valueText}, no spread (outside the burning period ${bpLabel})` : valueText}
           title={`Frame ${currentIndex + 1} of ${frames.length}`}
         />
+        {offBands.map(([a, b]) => {
+          const left = hoursToPct(frames, a);
+          const width = hoursToPct(frames, b) - left;
+          return (
+            <div
+              key={`off-${a}`}
+              className="ts-off-band"
+              style={{ left: `${left}%`, width: `${width}%` }}
+              title={`Outside the burning period ${bpLabel}: no spread`}
+              aria-hidden="true"
+            />
+          );
+        })}
+        {offBands.length > 0 && (
+          <span className="visually-hidden">
+            {`Burning period ${bpLabel}: no spread is modelled outside it (shaded).`}
+          </span>
+        )}
         {dayBoundaries.map((d) => {
           const tickPct = (d / maxHours) * 100;
           return (
