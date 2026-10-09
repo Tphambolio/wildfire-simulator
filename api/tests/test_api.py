@@ -312,3 +312,13 @@ async def test_ensemble_404_when_not_requested(client):
     sim_id = (await client.post("/api/v1/simulations", json=payload)).json()["simulation_id"]
     resp = await client.get(f"/api/v1/simulations/{sim_id}/ensemble")
     assert resp.status_code == 404
+
+
+def test_ensemble_params_defaults_are_the_engine_calibration():
+    """The API defaults are the calibrated engine defaults (firesim.spread.ensemble)."""
+    from firesim.spread.ensemble import DEFAULT_SIGMAS
+    from firesim_api.schemas.simulation import EnsembleParams
+
+    p = EnsembleParams()
+    for k, v in DEFAULT_SIGMAS.items():
+        assert getattr(p, k) == v, k

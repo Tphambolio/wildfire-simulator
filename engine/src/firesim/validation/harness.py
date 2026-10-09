@@ -31,6 +31,7 @@ default member the run is the deterministic forecast.
 from __future__ import annotations
 
 import math
+import random
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -277,9 +278,8 @@ def active_geometry(domain: FireDomain, day: int, days: int = 1) -> dict | None:
     return {"type": "MultiPolygon", "coordinates": polys}
 
 
-def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
-             member: Member = Member()) -> dict:
-    """Run one member of a fire-day; returns arrival minutes (inf = unburned) and run info."""
+def _setup(case: FireDayCase, opts: RunOptions, member: Member) -> dict:
+    """Grids, starting state and base configuration of one fire-day run."""
     dom = case.domain
     duration_h = max(max(opts.windows_h), float(opts.oracle_max_h))
     perimeter, burned_pts, extra_nonfuel = initial_state(
@@ -306,26 +306,74 @@ def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
         start_hour=case.start.hour + case.start.minute / 60.0,
         burning_period=opts.burning_period,
     )
+    return {"config": config, "fuel_grid": fuel_grid, "terrain": terrain,
+            "perimeter": perimeter, "burned_pts": burned_pts, "active": active}
+
+
+def _run(setup: dict, config: SimulationConfig, opts: RunOptions,
+         ros_multiplier: float = 1.0, seed: str | None = None) -> tuple[np.ndarray, float, float]:
+    """Run the grid model for ``config`` on ``setup``'s grids: (arrival, run_s, fmc).
+    ``seed`` seeds the spotting model (used only with ``opts.enable_spotting``)."""
+    dom_shape = (setup["fuel_grid"].rows, setup["fuel_grid"].cols)
+    perimeter = setup["perimeter"]
     front = [FireVertex(lat=a, lng=b) for a, b in perimeter] if perimeter else None
-    sim = Simulator(config, fuel_grid, terrain, initial_front=front, initial_burned=burned_pts,
-                    enable_spotting=opts.enable_spotting)
+    sim = Simulator(config, setup["fuel_grid"], setup["terrain"], initial_front=front,
+                    initial_burned=setup["burned_pts"], enable_spotting=opts.enable_spotting)
     schedule = sim.weather_schedule()
+    if ros_multiplier != 1.0:
+        schedule = [(t, replace(c, ros_multiplier=c.ros_multiplier * ros_multiplier))
+                    for t, c in schedule]
+    duration_h = config.duration_hours
     t0 = time.perf_counter()
     # The same call Simulator._run_cellular makes, without building per-cell frame dicts.
     frames = run_cellular_simulation(
-        config={"ignition_lat": clat, "ignition_lng": clng, "duration_hours": duration_h},
-        fuel_grid=fuel_grid, conditions=schedule[0][1], terrain_grid=terrain,
+        config={"ignition_lat": config.ignition_lat, "ignition_lng": config.ignition_lng,
+                "duration_hours": duration_h},
+        fuel_grid=setup["fuel_grid"], conditions=schedule[0][1], terrain_grid=setup["terrain"],
         dt_minutes=1.0, weather_schedule=schedule,
         snapshot_interval_minutes=duration_h * 60.0, enable_spotting=opts.enable_spotting,
-        initial_perimeter=perimeter, initial_burned=burned_pts, compute_perimeter=False,
-        active_edges=active, active_edge_buffer_m=opts.active_buffer_m,
-        # Spotting seed per fire-day and member (same draws as the former global seeding)
-        seed=f"{case.fire_id}:{case.day}:{member.name}",
+        initial_perimeter=perimeter, initial_burned=setup["burned_pts"], compute_perimeter=False,
+        active_edges=setup["active"], active_edge_buffer_m=opts.active_buffer_m,
+        seed=seed,
     )
     run_s = time.perf_counter() - t0
     arrival = frames[-1].arrival if frames and frames[-1].arrival is not None else \
-        np.full((dom.rows, dom.cols), np.inf)
-    return {"arrival": arrival, "run_s": run_s, "fmc": schedule[0][1].fmc}
+        np.full(dom_shape, np.inf)
+    return arrival, run_s, schedule[0][1].fmc
+
+
+def simulate(case: FireDayCase, opts: RunOptions = RunOptions(),
+             member: Member = Member()) -> dict:
+    """Run one member of a fire-day; returns arrival minutes (inf = unburned) and run info."""
+    setup = _setup(case, opts, member)
+    # Spotting seed per fire-day and member (same draws as the former global seeding)
+    arrival, run_s, fmc = _run(setup, setup["config"], opts,
+                               seed=f"{case.fire_id}:{case.day}:{member.name}")
+    return {"arrival": arrival, "run_s": run_s, "fmc": fmc}
+
+
+def simulate_ensemble(case: FireDayCase, opts: RunOptions, ens) -> dict:
+    """The deterministic run plus ``ens.n_members`` members perturbed exactly as
+    ``firesim.spread.ensemble.run_ensemble`` perturbs them (same draws for the same seed).
+
+    Returns ``det`` (deterministic arrival), ``members`` (stacked member arrivals, minutes,
+    inf = unburned), the per-member perturbation records and the total model run time.
+    """
+    from firesim.spread.ensemble import perturb_config
+
+    setup = _setup(case, opts, Member())
+    det, run_s, fmc = _run(setup, setup["config"], opts, seed=f"{case.fire_id}:{case.day}:det")
+    base_fmc = Simulator(setup["config"], fuel_grid=setup["fuel_grid"])._foliar_moisture()
+    rng = random.Random(ens.seed)
+    stack = np.empty((ens.n_members,) + det.shape, dtype=np.float32)
+    records = []
+    for i in range(ens.n_members):
+        cfg, k_ros, rec = perturb_config(setup["config"], ens, rng, base_fmc)
+        stack[i], s, _ = _run(setup, cfg, opts, k_ros,
+                              seed=f"{case.fire_id}:{case.day}:ens{ens.seed}:{i}")
+        run_s += s
+        records.append(rec)
+    return {"det": det, "members": stack, "records": records, "run_s": run_s, "fmc": fmc}
 
 
 def _fuel_mix(domain: FireDomain, mask: np.ndarray, day: int, opts: RunOptions) -> dict[str, float]:

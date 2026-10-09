@@ -151,7 +151,7 @@
   color: var(--text-2);
 }
 
-/* Neighbourhoods: the worst-credible time leads, the single run is secondary */
+/* Neighbourhoods: the P10 (early) time leads, the single run is secondary */
 .evac-arrival-worst {
   font-weight: 700;
   color: var(--text);

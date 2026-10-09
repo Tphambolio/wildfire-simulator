@@ -29,7 +29,7 @@ Uniform fuel, 20 km/h wind, FFMC 92, BUI about 50. Burned area relative to FBP.
 | Huygens | O-1a 100 % cured, no acceleration | 0.96 | 0.96 |
 | Huygens | C-2, accelerating (vs eqs 73, 81) | 1.07 | 1.02 |
 | Huygens | O-1a, accelerating | 1.07 | 1.02 |
-| Level set, 50 m cells | C-2 / M-1 / O-1a, no acceleration | 0.95 / 0.96 / 0.90 | |
+| Level set, 50 m cells | C-2 / M-1 / O-1a, no acceleration (wind on a grid axis; any direction since 2026-10-09, below) | 0.96 / 0.97 / 0.91 | |
 | Level set, 50 m cells | C-2 / O-1a, accelerating | within 10 % / 12 % | |
 
 At equilibrium Huygens runs slightly small because each wavelet is a 36-point polygon inside
@@ -41,6 +41,72 @@ because of numerical smoothing at 50 m cells. Tests: `engine/tests/spread/test_f
 fire wraps through gaps, back cells are less intense than head cells, runs are deterministic)
 and `engine/tests/spread/test_grid_continuation.py` (RPAS perimeter and multi-day starts,
 outline encloses the burned cells).
+
+### Point ignitions with the wind off the grid axes (fixed 2026-10-09)
+
+**Defect** (found 2026-10-08). A point ignition in a narrow FBP ellipse barely spread in the
+grid model when the wind was off the grid axes: O-1a (grass cure 60 %, LB 4.9), 25 km/h,
+FFMC 88, 50 m cells, 2 h, no acceleration burned 43 cells with the wind from 180° and 3 with
+it from 225°. Fires started from a perimeter were not affected.
+
+**Root cause.** Two numerical faults, found by printing phi after the starting ellipse and by
+switching each part of the fix on and off (cells burned at 2 h, wind from 180° / 225° / 200°;
+FBP ellipse 47.6 cells):
+
+| Starting-ellipse connectivity | Starting phi | Advection | 180° | 225° | 200° |
+|---|---|---|---|---|---|
+| 4-connected (before) | head × (t_arrival − t0) | axis by axis | 43 | 3 | 28 |
+| 4-connected | signed distance | axis by axis | 42 | 1 | 23 |
+| corner links | head × (t_arrival − t0) | axis by axis | 43 | 26 | 36 |
+| corner links | head × (t_arrival − t0) | axis + diagonal | 43 | 40 | 40 |
+| corner links | signed distance | axis by axis | 42 | 25 | 33 |
+| **corner links (after)** | **signed distance** | **axis + diagonal** | **42** | **43** | **42** |
+
+1. *Connectivity of the starting ellipse (the gate).* The cells inside the exact starting
+   ellipse were kept only if 4-connected to the ignition cell (`ndimage.label` default), so
+   a needle-shaped ellipse lying along a diagonal was cut into single cells, all but the
+   ignition reset to "unburned". Corner-joined cells now count as connected when a fuel cell
+   that carries fire sits beside both: a narrow ellipse on a diagonal stays one piece, a
+   diagonal line of non-fuel still separates, and fuel with zero spread still cannot carry
+   (PR #24; D-2 below BUI 80 still does not spread, tested).
+2. *Cross-wind numerical diffusion.* The level set took U·∇phi axis by axis (u_x times the
+   upwind x difference plus u_y times the upwind y difference). With U on a diagonal this adds
+   diffusion across the wind, which fills the valley of phi across a front only a few cells
+   wide, so a grass fire thinned and its head slowed (with connectivity fixed, 4.1 m/min
+   between 1 and 3 h at 225° against FBP 6.9 and 6.7 at 180°). U is now split into non-negative parts along the grid axis and grid diagonal that
+   bracket it, each with its own one-sided ENO2 difference (a rotated upwind stencil); along an
+   axis this is the old scheme. The diagonal neighbour is used only when it is fuel and a cell
+   beside both is fuel (no leaks through diagonal walls, tested).
+3. *Starting phi.* phi used to start as head × (t_arrival − t0): it has the right zero contour,
+   but its other level sets are narrower copies of the ellipse, LB times steeper across the
+   head axis than along it, which adds to the kink the upwind differences see on a diagonal. It
+   is now the signed distance to the starting ellipse (exact, from a dense boundary sample).
+
+Unchanged: the FBP rates and ellipse (cffdrs-verified layer), the Huygens velocity, the
+starting ellipse itself, START_CELLS, the CFL number and the zero-ROS rule.
+
+**After the fix** (`engine/tests/spread/test_cellular.py::TestRotationalInvariance`,
+`::test_point_ignition_grass_diagonal_wind`, `::test_starting_ellipse_connects_through_corners_but_not_diagonal_walls`):
+
+| Case (50 m cells) | Before | After |
+|---|---|---|
+| O-1a 2 h, cells for wind from 0/45/…/315° | 43 / 3 / 43 / 3 / … | 42 / 43 / 42 / 43 / … (min/max 0.98) |
+| O-1a 3 h, 180° vs 225° | 97 vs 14 | 99 vs 95 |
+| Area / FBP ellipse, 1 h, 20 km/h, FFMC 92, wind 270° → 225°: C-2 | 0.95 → 0.88 | 0.96 → 0.94 |
+| same, M-1 | 0.97 → 0.87 | 0.97 → 0.97 |
+| same, O-1a (100 % cured) | 0.89 → 0.56 | 0.91 → 0.92 |
+| same with acceleration, C-2 / O-1a at 225° | 0.92 / 0.60 | 0.97 / 1.00 |
+| API, uniform O-1a raster (20 m EPSG:3776, run at 50 m), 25 km/h, 2 h, wind 180° vs 225° | 235 ha vs 166 ha | 241 ha vs 248 ha |
+
+So the old scheme was also 10-13 % short for C-2 and M-1 point ignitions on a diagonal, not
+only grass. The tests require each of six wind directions (0-225° in 45° steps) to be within
+12 % (grass, about 45 cells) or 5 % (C-2, about 800 cells) of their mean, and the burned
+centroid within 10° of downwind; the tolerance is the cell-count quantisation of the turned
+ellipse (see the test docstring). Remaining: on a pure grid axis the level set still runs about
+10 % small for grass at 50 m (narrow front, numerical smoothing), and the error shrinks with
+the cell size; the new stencil makes grid runs about 1.3-1.5× slower. Effect on the CFSDS validation (all 143
+fire-days): held-out F1 at 17 h 0.208 → 0.212 (active edges + spin-up + 10-20 h) and
+0.245 → 0.250 (Bennett start), within noise ([validation.md](validation.md)).
 
 ## 3. Comparison with WISE (independent model)
 

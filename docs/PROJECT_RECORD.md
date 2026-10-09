@@ -10,7 +10,7 @@ git history and the owner's recorded decisions.
 - **Repo:** https://github.com/Tphambolio/wildfire-simulator (local: `~/dev/wildfire/wildfire-simulator-v3`), branch `master`
 - **Owner:** Travis Kennedy, P.Ag (City of Edmonton)
 - **Tracked in Claude for Science project** `proj_4c36553a0c0c` (snapshots of this record are attached there; this file stays the source of truth)
-- **Status at this revision:** `master` `dd523f6` (PR #33, 2026-10-08); tests 2026-10-08 on PR #32's branch before merge: engine 873 passed / 1 xfailed (known defect, §6) / 0 skipped, API 103, Vitest 272, Playwright 28, all green (§5).
+- **Status at this revision:** branch `feat/ensemble-calibration` merged with `master` `615d132` (PR #35, grid diagonal-spread fix, merged 2026-10-09); tests 2026-10-09 on the merged branch: engine 884 passed / 0 xfailed, API 104, Vitest 272 (§5).
 
 ---
 
@@ -101,8 +101,10 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | 2026-10-08 | Situation report = ICS Canada Form 209-WF (May 2021), not NIMS ICS-209. Model-filled blocks tagged MODEL OUTPUT (7, 27, 29, 30B, 36, 38, 42); observed blocks 9 (status) and 28 (observed behaviour) user-entered only; projections at 12/24/48/72 h in clock time from the ensemble (P50, P10) where available; run ID + model version stamped; unsourced HFI→complexity mapping removed; other ICS forms cite their ICS Canada counterparts (layouts are adaptations) | Owner choice (ICS Canada); form checked against icscanada.ca PDF; `d34b349`; `docs/ics-canada-209.md` |
 | 2026-10-08 | Engine runs are repeatable: spotting draws from a private `random.Random` seeded by `SimulationConfig.seed` (API `seed`) or a SHA-256 of the other inputs; no global random state | `f681189`; `docs/verification.md` §5 |
 | 2026-10-08 | Real-raster integration tests start from known O-1a fuel cells of the reprojected grid and must run, not skip | `af052e4` |
+| 2026-10-09 | Grid model: point ignitions must burn the same area whatever the wind's angle to the grid. Fixed numerically, FBP physics unchanged: the starting ellipse is connected through cell corners (not across diagonal non-fuel, not through zero-ROS fuel), the level set uses a rotated upwind stencil (grid axis + grid diagonal bracketing the Huygens velocity) instead of axis-by-axis upwinding, and phi starts as the signed distance to the starting ellipse. Rotational invariance is now a test (O-1a within 12 %, C-2 within 5 % over six wind directions; head within 10° of downwind) | Grass point ignition 43 cells at 180° vs 3 at 225°; ablation in `docs/verification.md` §2. `4bcfb1d` (PR #35). Validation effect: §4.4 |
+| 2026-10-09 | Ensemble perturbation sizes = Alberta input-error climatology x one inflation factor (1.5) chosen on the calibration fires (wind dir 24°, ws log 0.405, FFMC 7.2, DMC/DC log 0.6, ROS log 0.825, FMC 15; curing 13.5 not inflated). "Worst-credible" dropped for P10 everywhere (API, docs, UI): P10 = reached by 1 in 10 members, the early end of the modelled range | Held-out ensemble calibration: coverage 20 → 49 %, CRPS skill vs single run +0.11 → +0.24, P10 held ≥ 90 % of observed growth on only 29 % of days (`docs/validation.md` "Ensemble calibration"; PR feat/ensemble-calibration) |
 | 2026-10-09 | Rebuild the Berkeley/UMD WUI structure-spread model (Purnomo, Qin, Trouvé, Gollner et al.; the ELMFIRE WUI extensions) **from the published literature only**, as an opt-in, illustrative layer: specification first, then a per-building unit layer, then the Hamada option; WU-E, embers and validation later | Owner decision 2026-10-09 after the structure-ignition paper check [R4]. Licence: ELMFIRE is AGPL v3 + Commons Clause, so its source is never opened, read, quoted or translated; every equation and constant is cited to a paper, section, equation and page (`docs/structure-spread-spec.md`) |
-| 2026-10-09 | Buildings are single units (graph nodes from the Microsoft footprints) coupled to the FBP grid front, not cells of the fuel grid | Qin et al. (2026) FSJ 104686 pp.7-9 [32]: structure spread converges only with cells ≤ half the structure size and separation; Edmonton side yards would need 1-3 m cells (`docs/structure-spread-spec.md` §2) |
+| 2026-10-09 | Buildings are single units (graph nodes from the Microsoft footprints) coupled to the FBP grid front, not cells of the fuel grid | Qin et al. (2026) FSJ 104686 pp.7-9 [37]: structure spread converges only with cells ≤ half the structure size and separation; Edmonton side yards would need 1-3 m cells (`docs/structure-spread-spec.md` §2) |
 | 2026-10-09 | Structure-spread defaults where the papers conflict (spec §7): design fire 150 kW/m² (PROCI) with 400 kW/m² as a scenario (**owner to confirm**); radiant fraction 0.3; PROCI SI flame-reach ellipse behind a verification gate; ember delay τ = 42 s; Hamada c₃ on V²; IJWF a = downwind; Hamada T in minutes; neighbour cutoff 30 m (heuristic, **owner to confirm**) | `docs/structure-spread-spec.md` §4.4, §7 |
 | standing | Ask the owner before each merge (auto-merge is enabled but still ask) | `CLAUDE.md` (CI/CD); owner notes |
 | standing | Run the full verification stack, including browser E2E, before calling work done | Owner feedback note (2026-06-16) |
@@ -126,19 +128,20 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | Flame length | Byram (1959) for CFB < 0.1; Thomas (1963) for CFB ≥ 0.1 | As recommended by Alexander & Cruz (2012) [15]; Byram 1959 and Thomas 1963 cited via code, not checked here |
 | Spotting maximum distance | `spread/albini.py`: torching-tree and wind-driven surface-fire models | Albini (1979, 1981, 1983) [11-13], Chase (1981, 1984) [14a,b], Morris (1987) [14c] |
 | Spotting emission, probability, landing | `spread/spotting.py` | **Heuristic** (no source gives these; illustrative only) |
-| Ensemble | `spread/ensemble.py`: perturbed wind direction (systematic per member), wind speed, FFMC, DMC/DC, curing, FMC, ROS multiplier → P10/P50/P90 arrival, burn probability | Wind direction as dominant error: Fox-Hughes et al. (2024) [23], Bennett et al. (2026) [20]; ROS error band: Cruz & Alexander (2013) [22]. **Sigmas are placeholders until calibrated** |
+| Ensemble | `spread/ensemble.py`: perturbed wind direction (systematic per member), wind speed, FFMC, DMC/DC, curing, FMC, ROS multiplier → P10/P50/P90 arrival, burn probability | Wind direction as dominant error: Fox-Hughes et al. (2024) [23], Bennett et al. (2026) [20]; ROS error band: Cruz & Alexander (2013) [22]. Sigmas: Alberta input-error climatology (GEM day-1 and ERA5 vs 14 ECCC stations, 2024-25; `scripts/validation/input_errors.py`) x 1.5 chosen on calibration fires; curing Anderson et al. (2011) [28]; FMC 10 % x 1.5 is a **judgement** (no published error statistic) |
 | Burn probability (simple) | `spread/montecarlo.py`: ignition ±100 m, wind ±10 %, RH ±5 % | Method only; not a validated or Burn-P3-style product |
 | Building exposure | `exposure.py`: distance bands (≤10, 10-30, 30-100, 100-500 m); solid-flame radiant flux (1200 K, 117.6 kW/m² and 200 kW/m² scenarios); flux-time criterion FTP = ∫(q − 13.1)^1.828 dt ≥ 11,501 | Cohen (2004) [18] (SIAM, eqs 2-4 after Tran et al. 1992, not checked); Cohen (2000) [18b]; NRC (2021) [19] p.27 bands and flux ranges. Exposure, **not** ignition probability |
 | HFI classes 1-6 | `frontend/src/utils/fireClasses.ts` | Cole & Alexander (1995) [21] meanings (C-2, level ground; class 6 = their "explosive" upper class 5); limits from CWFIS GeoServer `public:hfi` legend (read 2026-10-06) |
 | FWI classes | `fwi/classes.py`, `frontend/src/utils/fwiClass.ts` | CWFIS national FWI map intervals (GeoServer `public:fwi` legend) |
-| Structure-to-structure spread (**specified, not built**; opt-in, illustrative) | `docs/structure-spread-spec.md`: per-building units; Hamada option; WU-E flame contact + radiation + heat-dose FTP; ember generation, transport and ignition | Hamada via Himoto & Tanaka (2008) [31] eqs 42-43, Purnomo et al. (2026) FSJ 104651 [30] eq 2 + SI, Qin (2025) [33] eqs 2.66-2.80; WU-E: Purnomo et al. (2024) PROCI [28] eqs 1-8 + SI S1-S21, Purnomo et al. (2024) IJWF [29]; embers: Qin et al. (2026) FSJ 104686 [32], Qin (2025) [33]. FireSim adaptations marked [H], tuned values [T] in the spec |
+| Structure-to-structure spread (**specified, not built**; opt-in, illustrative) | `docs/structure-spread-spec.md`: per-building units; Hamada option; WU-E flame contact + radiation + heat-dose FTP; ember generation, transport and ignition | Hamada via Himoto & Tanaka (2008) [36] eqs 42-43, Purnomo et al. (2026) FSJ 104651 [35] eq 2 + SI, Qin (2025) [38] eqs 2.66-2.80; WU-E: Purnomo et al. (2024) PROCI [33] eqs 1-8 + SI S1-S21, Purnomo et al. (2024) IJWF [34]; embers: Qin et al. (2026) FSJ 104686 [37], Qin (2025) [38]. FireSim adaptations marked [H], tuned values [T] in the spec |
 | Validation metrics | `validation/metrics.py`: precision, recall, F1 (Dice), IoU, normalised area difference, Hausdorff, forward spread distance and bearing; ±35 % band | Bennett et al. (2026) [20] protocol; Fox-Hughes et al. (2024) [23]; Cruz & Alexander (2013) [22] |
 | Observed fire data | CFSDS day-of-burning rasters + daily summaries | Barber et al. (2024) [24] |
+| Ensemble scores | `validation/ensemble_scores.py`: Brier score and reliability of burn probability, P10/P50/P90 footprint scores, rank histogram and P10-P90 coverage of burned area, CRPS (ensemble estimator), spread-skill | Brier (1950) [29]; Gneiting & Raftery (2007) [30]; Hersbach (2000) [31]; Fortin et al. (2014) [32] |
 
 **Deliberate deviations and heuristics**
 - FFMC moisture coefficient 147.2 (ST-X-3 eq 46); cffdrs uses 147.27723 (ISI changes ≤ 1e-3). The cffdrs fixture is generated with 147.2.
 - Spotting: emission, probability, landing below the maximum, and per-fuel stand sizes (`STAND_DEFAULTS`) are assumptions; terrain correction not implemented; active crown fires use the torching model with several trees (underestimate). The active crown fire model of Albini, Alexander & Cruz (2012) is **not** implemented.
-- Ensemble perturbation sizes are placeholders until calibrated on observed fires and ECCC forecast-error statistics.
+- Ensemble perturbations are symmetric (median 1): the shared over-prediction bias is not corrected, so burn probability is over-confident; curing and FMC sizes are not validated.
 - Burning period is a fixed clock window (no overnight runs, ROS × 0 outside it).
 - DMC and DC are held fixed within a run.
 - Building exposure: blackbody 1200 K, emissivity 1 even for thin surface flames; no embers, no convective heating, no burning buildings or yard fuels.
@@ -180,19 +183,24 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 25. Hersbach, H., et al. (2020). The ERA5 global reanalysis. *Quarterly Journal of the Royal Meteorological Society* 146: 1999-2049.
 26. Beaudoin, A., et al. (2014). Mapping attributes of Canada's forests at moderate resolution through kNN and MODIS imagery. *Canadian Journal of Forest Research* 44: 521-532.
 27. Byram, G.M. (1959) and Thomas, P.H. (1963): flame length relations, cited in code via Alexander & Cruz (2012); originals not checked (unverified).
-
-28. Purnomo, D.M.J., Qin, Y., Theodori, M., Zamanialaei, M., Lautenberger, C., Trouvé, A., Gollner, M.J. (2024). Reconstructing modes of destruction in wildland-urban interface fires using a semi-physical level-set model. *Proceedings of the Combustion Institute* 40: 105755. doi:10.1016/j.proci.2024.105755. (Spec key PROCI24.)
-29. Purnomo, D.M.J., Qin, Y., Theodori, M., Zamanialaei, M., Lautenberger, C.W., Trouvé, A., Gollner, M.J. (2024). Integrating an urban fire model into an operational wildland fire model to simulate one dimensional wildland-urban interface fires: a parametric study. *International Journal of Wildland Fire* 33(10): WF24102. doi:10.1071/WF24102. (Read as publisher HTML; PDF and supplement not read.)
-30. Purnomo, D.M.J., Zamanialaei, M., Earle, M., Theodori, M., Qin, Y., Lautenberger, C., Trouvé, A., Gollner, M.J. (2026). Sensitivity of ELMFIRE to real-world input datasets for WUI fire modeling. *Fire Safety Journal* 161: 104651. doi:10.1016/j.firesaf.2026.104651. (The supplementary material is titled "Coupling urban and wildland fire spread models to investigate sensitivity of inputs in wildland urban interface fires simulations".)
-31. Himoto, K., Tanaka, T. (2008). Development and validation of a physics-based urban fire spread model. *Fire Safety Journal* 43(7): 477-494. (Read as the Kyoto University author manuscript.)
-32. Qin, Y., Purnomo, D.M.J., Theodori, M., Zamanialaei, M., Lautenberger, C., Gollner, M., Trouvé, A. (2026). Simulations of firebrand-driven fire spread in landscape-scale Wildland-Urban-Interface (WUI) and urban conflagration models. *Fire Safety Journal* 162: 104686. doi:10.1016/j.firesaf.2026.104686.
-33. Qin, Y. (2025). *A physics-based Eulerian framework for modeling firebrand showering in regional-scale wildland and WUI fire simulations.* PhD dissertation, University of Maryland (DRUM).
-34. Hamada, M. (1951). On the rate of fire spread. (Cited via [30], [31], [33]; **not read**.) Scawthorn / FEMA Hazus low-wind correction: cited via [30] SI and [33] p.39; **not read**.
-35. Maranghides, A., Johnsson, E.L. (2008). *Residential Structure Separation Fire Experiments.* NIST Technical Note 1600. (Design-fire source cited by [28]; not read here.)
+28. Anderson, S.A.J., Anderson, W.R., Hollis, J.J., Botha, E.J. (2011). A simple method for field-based grassland curing assessment. *International Journal of Wildland Fire* 20: 804-814.
+29. Brier, G.W. (1950). Verification of forecasts expressed in terms of probability. *Monthly Weather Review* 78: 1-3.
+30. Gneiting, T., Raftery, A.E. (2007). Strictly proper scoring rules, prediction, and estimation. *Journal of the American Statistical Association* 102: 359-378.
+31. Hersbach, H. (2000). Decomposition of the continuous ranked probability score for ensemble prediction systems. *Weather and Forecasting* 15: 559-570.
+32. Fortin, V., Abaza, M., Anctil, F., Turcotte, R. (2014). Why should ensemble spread match the RMSE of the ensemble mean? *Journal of Hydrometeorology* 15: 1708-1713.
+33. Purnomo, D.M.J., Qin, Y., Theodori, M., Zamanialaei, M., Lautenberger, C., Trouvé, A., Gollner, M.J. (2024). Reconstructing modes of destruction in wildland-urban interface fires using a semi-physical level-set model. *Proceedings of the Combustion Institute* 40: 105755. doi:10.1016/j.proci.2024.105755. (Spec key PROCI24.)
+34. Purnomo, D.M.J., Qin, Y., Theodori, M., Zamanialaei, M., Lautenberger, C.W., Trouvé, A., Gollner, M.J. (2024). Integrating an urban fire model into an operational wildland fire model to simulate one dimensional wildland-urban interface fires: a parametric study. *International Journal of Wildland Fire* 33(10): WF24102. doi:10.1071/WF24102. (Read as publisher HTML; PDF and supplement not read.)
+35. Purnomo, D.M.J., Zamanialaei, M., Earle, M., Theodori, M., Qin, Y., Lautenberger, C., Trouvé, A., Gollner, M.J. (2026). Sensitivity of ELMFIRE to real-world input datasets for WUI fire modeling. *Fire Safety Journal* 161: 104651. doi:10.1016/j.firesaf.2026.104651. (The supplementary material is titled "Coupling urban and wildland fire spread models to investigate sensitivity of inputs in wildland urban interface fires simulations".)
+36. Himoto, K., Tanaka, T. (2008). Development and validation of a physics-based urban fire spread model. *Fire Safety Journal* 43(7): 477-494. (Read as the Kyoto University author manuscript.)
+37. Qin, Y., Purnomo, D.M.J., Theodori, M., Zamanialaei, M., Lautenberger, C., Gollner, M., Trouvé, A. (2026). Simulations of firebrand-driven fire spread in landscape-scale Wildland-Urban-Interface (WUI) and urban conflagration models. *Fire Safety Journal* 162: 104686. doi:10.1016/j.firesaf.2026.104686.
+38. Qin, Y. (2025). *A physics-based Eulerian framework for modeling firebrand showering in regional-scale wildland and WUI fire simulations.* PhD dissertation, University of Maryland (DRUM).
+39. Hamada, M. (1951). On the rate of fire spread. (Cited via [35], [36], [38]; **not read**.) Scawthorn / FEMA Hazus low-wind correction: cited via [35] SI and [38] p.39; **not read**.
+40. Maranghides, A., Johnsson, E.L. (2008). *Residential Structure Separation Fire Experiments.* NIST Technical Note 1600. (Design-fire source cited by [33]; not read here.)
 
 **Internal reports** (owner's research, not peer reviewed; local, not in the repo):
 - [R1] *FireSim EOC best practice review* (2026-10-07), `~/dev/wildfire/reports/FireSim EOC best practice review.md`: post-incident reviews (Slave Lake, Fort McMurray, Jasper, Lytton, Marshall, Camp, Lahaina), ranked programme, "avoid" list, name clash with Technosylva's FireSim.
 - [R2] *Fuel type grids: Canada and global* (2026-10-07), `~/dev/wildfire/reports/Fuel type grids Canada global.md`: Edmonton grid provenance, loader misplacement, OSM water mask, CFS Current-Year national layer, code 13, global options.
+- [R5] *Grass diagonal spread fix validation* (2026-10-09), `~/dev/wildfire/reports/Grass diagonal spread fix validation 2026-10-09.md`: CFSDS held-out comparison before/after the grid-model diagonal-spread fix (PR #35), set-up, fire-days, F1 tables, commands; raw runs in `$FIRESIM_VALIDATION_DATA/diagfix/`. (R3/R4 are reserved for the structure-ignition reports on another branch.)
 - [R3] *Structure ignition in the WUI: a literature review for FireSim* (2026-10-06), `~/dev/wildfire/references/structure-ignition/structure_ignition_review.md`: repo audit of building outputs, structure-ignition literature, the Berkeley/UMD model and its code-only items.
 - [R4] *Structure ignition paper check: can FireSim rebuild the Berkeley/UMD WUI model from the literature alone?* (2026-10-09, revised the same day), `~/dev/wildfire/reports/Structure ignition paper check.md`: component-by-component check, conflicting published values, recall-only validation (precision 9-77 %), grid-convergence finding, build order. Basis of `docs/structure-spread-spec.md`.
 - Reference PDFs: `~/dev/wildfire/references/spotting/` (Albini, Chase, Morris originals + `spotting_equations.md`), `structure-ignition/` (Cohen 2000/2004, NRC 2021, Westhaver 2017, others + `structure_ignition_review.md`), `hfi-classes/` (Cole & Alexander 1995 poster, CWFIS legend notes).
@@ -218,15 +226,19 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 | CFS National FBP fuel types 2014b (250 m) | Validation fuel (`cfs_national_2014` scheme) | NRCan end-user agreement: internal use, not redistributed |
 | CFS national FBP grids, current (2024/2026, 30/100 m; `cfs_national` scheme) | Code scheme supported; not yet integrated as a national fuel path | Open Government Licence – Canada [R2] |
 | Canadian MRDEM 30 m DTM | Validation terrain | Open Government Licence – Canada |
+| ECCC MSC GeoMet `climate-hourly` (14 Alberta stations, May-Sep 2024-25) | Ensemble input-error climatology (station truth) | Open Government Licence – Canada |
+| GEM forecasts via Open-Meteo previous-runs API (day-1 values); ERA5 via Open-Meteo archive | Ensemble input-error climatology (forecast / reanalysis) | CC BY 4.0 (Open-Meteo); ECCC / Copernicus source licences |
 
 Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/dev/wildfire/validation-data`, ~0.6 GB).
 
-### 4.4 Validation results (summary of `docs/validation.md`, 2026-10-07)
+### 4.4 Validation results (summary of `docs/validation.md`, 2026-10-07 to 2026-10-09)
 
 - **Data:** 143 fire-days, 32 Alberta fires 2014-2024 (CFSDS), one burn day from the observed perimeter, Bennett et al. (2026) protocol, grid model, deterministic, no suppression.
 - **Baseline (first round):** one-day F1 at the default 06-23 h window **0.15** (whole perimeter start, operational) and **0.24** with Bennett's ignition (W.I.S.E. defaults 0.26 nationally; tuned W.I.S.E. 0.54). Growth over-predicted on 93 % of days (perimeter start), normalised area difference +0.67; head bearing error median ~50°; forward spread within ±35 % on ~20 % of days. On nine shared fire-days with identical inputs: W.I.S.E. 0.19 vs FireSim 0.24.
 - **Held-out (second round):** fires split by seeded hash (16 calibration / 16 test fires, 79 test fire-days), settings chosen on calibration only. Active edges (previous 2 days) + FFMC spin-up + burning period 10-20 h: test F1 **0.118 → 0.208** (ΔF1 +0.091, 95 % CI +0.056 to +0.125, bootstrap by fire); area difference +0.72 → +0.27; spread within ±35 % on 24 % of days. Oracle start 0.245. Largest wind-driven runs (Horse River 4-5 May 2016) under-predicted further.
-- **Not yet measured:** ensemble skill, RPAS-corrected mid-day restarts, real thermal-flight active edges.
+- **Grid diagonal-spread fix (2026-10-09, PR #35):** re-run of the chosen set-up and the Bennett start, all 143 fire-days, before (`a8f8f35`) and after (`4bcfb1d`); "before" reproduced the numbers above exactly. Held-out 17 h F1: active edges + spin-up + 10-20 h **0.208 → 0.212** (ΔF1 +0.004, 95 % CI −0.001 to +0.009); Bennett start + spin-up 0.245 → 0.250 (+0.005, +0.000 to +0.011). Earlier windows dip slightly (8 h −0.003 / −0.008; best hour −0.004 / −0.007, CIs exclude zero but tiny). Skill effectively unchanged; the fix is a correctness fix (grid-orientation independence), not a skill change [R5].
+- **Ensemble (third round, held-out; measured before the grid fix):** 20 members on the chosen set-up, 65 test fire-days (14 largest excluded by run time only). Calibrated sizes vs former placeholders: observed area inside members' P10-P90 **20 % → 49 %** (ideal ~80 %); CRPS of log10 area 0.546 → **0.471** (single run 0.616); Brier skill vs single run +0.18 → +0.25; spread/skill 4.7 → 1.6 (still too narrow); cells at ~95 % burn probability burned 33 % of the time; P50 F1 0.201 vs single run 0.195; **P10 footprint held ≥ 90 % of observed growth on 29 % of days**, so P10 is not a worst case.
+- **Not yet measured:** RPAS-corrected mid-day restarts, real thermal-flight active edges, ensemble skill on the largest runs.
 
 ## 5. Testing
 
@@ -247,7 +259,31 @@ Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/de
 - **CFSDS validation:** Barber et al. (2024) DOB rasters; metrics unit-tested on shapes with known answers; W.I.S.E. comparison numbers from Bennett et al. (2026) Table 1 plus nine local W.I.S.E. runs.
 - **Frontend fixture:** recorded from the real engine by `npm run fixture:record` (`frontend/tests/fixtures/record_fixture.py`).
 
-**Latest results (2026-10-08, branch `fix/record-open-items` rebased on `03997fd`, local workstation, machine loaded):**
+**Latest results (2026-10-09, branch `feat/ensemble-calibration` merged with `master` `615d132` (PR #35), local workstation):**
+
+| Suite | Result | Wall time |
+|---|---|---|
+| Engine pytest (`PYTHONPATH=engine/src`, `--import-mode=importlib`) | **884 passed**, 0 xfailed, 0 skipped | 52 s |
+| API pytest | **104 passed** (1 warning) | 21 s |
+| `npx tsc --noEmit -p tsconfig.app.json` | exit 0 | |
+| Vitest (`npm test`) | **272 passed** in 16 files | |
+| Playwright + axe | CI `frontend-e2e` on the merged branch | |
+
+Results on the ensemble branch before this merge (2026-10-09, rebased on `a8f8f35`): engine 879 passed / 1 xfailed, API 104, Vitest 272, Playwright 28.
+
+Results on PR #35 before this merge (2026-10-09, branch `fix/grass-diagonal-spread` at `4bcfb1d` on `a8f8f35`, local workstation, machine loaded by validation runs):
+
+| Suite | Result | Wall time |
+|---|---|---|
+| Engine pytest | **878 passed**, 0 xfailed, 0 skipped (the former strict xfail `test_point_ignition_grass_diagonal_wind` passes; +4 tests: `TestRotationalInvariance` ×3, starting-ellipse corner connectivity) | 163 s |
+| API pytest | **103 passed** (2 warnings) | 70 s |
+| `npx tsc --noEmit -p tsconfig.app.json` | exit 0 | |
+| `npm run build` | built | 15 s |
+| Vitest (`npm test`) | **272 passed** in 16 files | 7 s |
+| Playwright + axe (`E2E_PORT=4392`, `E2E_SKIP_BUILD=1`) | **28 passed**, first attempt | 6.9 min |
+| CI (PR #35) | engine-tests 3.11 / 3.12, frontend, frontend-e2e: pass | |
+
+Previous results (2026-10-08, branch `fix/record-open-items` rebased on `03997fd`, local workstation, machine loaded):
 
 | Suite | Result | Wall time |
 |---|---|---|
@@ -279,7 +315,7 @@ against the live site.
 
 ## 6. Open items
 
-- [ ] **Ensemble calibration in progress:** perturbation sigmas are placeholders; calibrate on the validation harness (and ECCC forecast-error statistics); measure ensemble skill (P10/P50 reliability).
+- [ ] **Ensemble still under-dispersed and over-confident** (held-out spread/skill 1.6; ~95 % burn probability → 33 % burned): the shared over-prediction bias needs a correction (e.g. per-fuel ROS adjustment from RPAS-observed growth) before widening further; validate on the largest runs; curing and FMC perturbation sizes unvalidated.
 - [ ] **Real RPAS thermal perimeters untested:** active edges were validated only with a CFSDS previous-day proxy; validate with real thermal flights and measure mid-day restarts.
 - [ ] **Edmonton fuel grid never accuracy-assessed:** needs a stratified check (≥ 50 cells per class, confusion matrix, Wilson intervals), embedded metadata, correct filename, seasonal (green-up) switching; `percent_conifer.tif` is not read [R2].
 - [ ] **National fuel grid integration:** CFS Current-Year FBP layer (100 m, OGL – Canada) as the base outside Edmonton; decide the code-13 stand-in (≈ 18 % of Canada); only uniform or synthetic fuel outside Edmonton today.
@@ -287,7 +323,6 @@ against the live site.
 - [ ] **Name clash:** "FireSim" is a module of Technosylva's Wildfire Analyst; rename before any release outside the City.
 - [ ] Per-fuel calibration (D-2 and small days remain poor); per-cell percent conifer; current fuel grid with burn scars.
 - [ ] `load_fuel_grid` treats a geographic raster's degrees as metres (noted in `docs/validation.md`; check whether the 2026-10-07 reprojection fix resolved it).
-- [ ] **Grid-model point ignitions with off-axis wind (found 2026-10-08):** a point ignition in a narrow ellipse (O-1a, LB about 5) barely spreads when the wind is off the grid axes: 50 m cells, 2 h, 25 km/h, no acceleration: 43 cells burned with wind from 180°, 3 from 225° (cells on the downwind diagonal are skipped and burn late). Starting from a perimeter, 225° and 270° agree (601 vs 575 m downwind). Recorded as a strict xfail, `engine/tests/spread/test_cellular.py::test_point_ignition_grass_diagonal_wind` (`f681189`); the real-raster tests use a west wind until it is fixed. Affects grass-fire point ignitions in the UI and possibly the validation's Bennett-ignition runs.
 - [ ] ICS 209-WF follow-ups: the ICS Canada 209 instructions cover the all-hazards 209; the block 9 code expansions (OC/BH/UC/O) and whether Alberta agencies file 209-WF are unverified; 30B uses a 100 m exposure band as "threatened" (a FireSim choice, not from the form); runs shorter than 12 h leave the 12-72 h horizons "not projected".
 - [ ] Heterogeneous fuel, real terrain, barriers and spotting not compared with WISE, Burn-P3 or Cell2Fire.
 - [ ] Unverified citations: Alexander (2010) full reference; Fox-Hughes et al. (2024) title; Byram (1959), Thomas (1963), Tran et al. (1992) originals; Class 1/6 meanings and an Alexander & De Groot (1988) citation flagged for the owner's check in the redesign notes.
@@ -301,6 +336,11 @@ repeatability (`f681189`); `CLAUDE.md` water and building sources (`45e68d2`); r
 extraction script and `secondary` roads, ODHF care records without coordinates (`2357a02`,
 PR #31); EOC manual point, left out of the layer (PR #33, `8da78f5`, merged `dd523f6`). See the decisions log (§3).
 
+Closed 2026-10-09: grid-model point ignitions with off-axis wind (found 2026-10-08; strict xfail
+`test_point_ignition_grass_diagonal_wind` now passes): root cause 4-connected labelling of the
+starting ellipse plus cross-wind numerical diffusion of axis-by-axis upwinding; fixed in `4bcfb1d`
+(PR #35). See the decisions log (§3) and `docs/verification.md` §2.
+
 ## 7. Work log
 
 Generated from git: `git log --since=2026-10-01 --format="| %ad | \`%h\` | %s |" --date=short`.
@@ -310,6 +350,12 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into �
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-09 | `9ef2655` | feat(frontend): P10 is the early end of the ensemble range, not worst-credible |
+| 2026-10-09 | `3dc62a7` | feat(engine+api): calibrated ensemble perturbation defaults |
+| 2026-10-09 | `57313eb` | feat(engine): probabilistic ensemble validation on observed fires |
+| 2026-10-09 | `4bcfb1d` | fix(engine): point ignitions spread the same with the wind on a grid diagonal |
+| 2026-10-08 | `a8f8f35` | Merge pull request #34 from Tphambolio/docs/record-after-33 |
+| 2026-10-08 | `33736fc` | docs: record PRs #32 and #33 as merged; refresh work log |
 | 2026-10-08 | `dd523f6` | Merge pull request #33 from Tphambolio/fix/drop-eoc-point |
 | 2026-10-08 | `27a3a02` | Merge pull request #32 from Tphambolio/fix/record-open-items |
 | 2026-10-08 | `d97f587` | docs: record the owner's decision to leave the EOC point out (PR #33) |
