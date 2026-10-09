@@ -21,6 +21,10 @@ puts FireSim's operational set-up level with W.I.S.E. defaults (0.26 nationally;
 nine shared Alberta days), still well short of tuned W.I.S.E. (0.54). See "Skill
 improvements and held-out results".
 
+## Grid diagonal-spread fix (2026-10-09)
+
+The grid model's point ignitions no longer depend on the wind's angle to the grid (`docs/verification.md` §2, PR #35). The fix also changes the level-set stencil for every grid run, so the chosen set-up and the Bennett start were re-run on all 143 fire-days with the code before (`a8f8f35`, reproducing the numbers below exactly) and after (`4bcfb1d`). Held-out F1 at 17 h: active edges + spin-up + 10-20 h 0.208 → 0.212 (ΔF1 +0.004, 95 % CI −0.001 to +0.009); Bennett start + spin-up 0.245 → 0.250 (+0.005, +0.000 to +0.011). At 8 h and at the best hour F1 dips by 0.003-0.008. Skill is effectively unchanged; the tables below are the pre-fix numbers. Report: `~/dev/wildfire/reports/Grass diagonal spread fix validation 2026-10-09.md`; runs in `$FIRESIM_VALIDATION_DATA/diagfix/`.
+
 ## Skill improvements and held-out results (second round, 2026-10-07)
 
 Three changes were tested on the same 143 fire-days, each separately and combined, after
