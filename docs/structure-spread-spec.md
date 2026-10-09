@@ -1,0 +1,384 @@
+# Structure-to-structure spread: specification
+
+Status: **specification, 2026-10-09.** Nothing here is validated in Canada. Every output built
+from it must be labelled **"illustrative — not validated in Canada"**.
+
+This is the specification for adding structure-to-structure fire spread to FireSim. It fixes one
+value for every equation and constant, with its source, and records each conflict between the
+published sources and the choice made. Code must follow this file; when the code departs from
+it, change this file in the same PR.
+
+Owner decision (2026-10-09): rebuild the Berkeley/UMD WUI model (the ELMFIRE WUI extensions of
+Purnomo, Qin, Trouvé, Gollner and co-workers) **from the published literature only**. ELMFIRE is
+AGPL v3 + Commons Clause; its source must not be opened, read, quoted or translated for this work
+(`docs/PROJECT_RECORD.md` §3). Every equation and constant below is cited to a paper, section,
+equation and page. Where a value is not published, this file says so and states the FireSim
+choice as a **heuristic**.
+
+Background notes (owner's internal reports, not peer reviewed):
+- *Structure ignition paper check* (2026-10-09), `~/dev/wildfire/reports/Structure ignition paper check.md`:
+  component-by-component check, conflicting values, grid-resolution finding, build order.
+- *Structure ignition in the WUI: a literature review for FireSim* (2026-10-06),
+  `~/dev/wildfire/references/structure-ignition/structure_ignition_review.md`.
+
+## 0. What this is and is not
+
+- It is a **what-if layer** for preparedness and training: under the modelled wildland fire and
+  wind, how fast could fire move through a neighbourhood if buildings burned and ignited each
+  other the way an empirical urban-fire model says.
+- It is **not** a prediction of which houses burn. It is not a loss probability, it does not
+  replace building exposure (`docs/building-exposure.md`), and it says nothing about
+  evacuation tiers. Exposure stays exposure. A building the model does not reach is **not safe**:
+  ember ignition (most WUI losses), yard fuels, sheds, fences and vehicles are not in stage 3.
+- The published validations are Californian, Rothermel/LANDFIRE-driven, and recall-heavy
+  (§8). None transfers to Edmonton without a Canadian test.
+
+## 1. Sources and labels
+
+| Key | Source | Read as |
+|---|---|---|
+| **PROCI24** | Purnomo D.M.J., Qin Y., Theodori M., Zamanialaei M., Lautenberger C., Trouvé A., Gollner M.J. (2024). Reconstructing modes of destruction in wildland-urban interface fires using a semi-physical level-set model. *Proc. Combust. Inst.* 40: 105755. doi:10.1016/j.proci.2024.105755 | PDF (7 pp.) + supplementary material (eqs S1-S21) |
+| **IJWF24** | Purnomo D.M.J., Qin Y., Theodori M., Zamanialaei M., Lautenberger C.W., Trouvé A., Gollner M.J. (2024). Integrating an urban fire model into an operational wildland fire model to simulate one dimensional wildland-urban interface fires: a parametric study. *Int. J. Wildland Fire* 33(10): WF24102. doi:10.1071/WF24102 | Publisher HTML (no page numbers; cited by section and equation). PDF and supplement not read |
+| **FSJ104651** | Purnomo D.M.J., Zamanialaei M., Earle M., Theodori M., Qin Y., Lautenberger C., Trouvé A., Gollner M.J. (2026). Sensitivity of ELMFIRE to real-world input datasets for WUI fire modeling. *Fire Safety J.* 161: 104651. doi:10.1016/j.firesaf.2026.104651 | PDF + supplementary material ("Overview of HAMADA model", "Overview of ember model"; the supplement has no page or equation numbers) |
+| **FSJ104686** | Qin Y., Purnomo D.M.J., Theodori M., Zamanialaei M., Lautenberger C., Gollner M., Trouvé A. (2026). Simulations of firebrand-driven fire spread in landscape-scale Wildland-Urban-Interface (WUI) and urban conflagration models. *Fire Safety J.* 162: 104686. doi:10.1016/j.firesaf.2026.104686 | PDF |
+| **Qin25** | Qin Y. (2025). *A physics-based Eulerian framework for modeling firebrand showering in regional-scale wildland and WUI fire simulations.* PhD dissertation, University of Maryland (DRUM). | PDF, 305 pp.; printed page numbers |
+| **HT08** | Himoto K., Tanaka T. (2008). Development and validation of a physics-based urban fire spread model. *Fire Safety J.* 43(7): 477-494. | Kyoto University repository author manuscript; pages are the manuscript's |
+| **Cohen04** | Cohen J.D. (2004). Relating flame radiation to home ignition using modeling and experimental crown fires. *Can. J. For. Res.* 34: 1616-1626. | PDF |
+| **NRC21** | National Research Council Canada (2021). *National Guide for Wildland-Urban Interface Fires.* | PDF |
+| **Hamada51** | Hamada M. (1951). On the rate of fire spread. (Cited by HT08 [4,5], FSJ104651 [15], Qin25 [33].) | **Not read**; known only through the three papers above |
+| **Scawthorn / Hazus** | Low-wind correction to Hamada, attributed to Scawthorn and the FEMA Hazus model by FSJ104651 SI and Qin25 p.39 | **Not read**; used as printed in FSJ104651 SI |
+
+Labels used below: **[P]** primary source read; **[H]** FireSim heuristic or adaptation (not
+published; stated reason); **[T]** tuned, not measured (calibrated to California fires or chosen
+by the authors to fit an outcome); **[U]** unverified or not published.
+
+PDFs and text extractions: `~/dev/wildfire/references/structure-ignition/` (`text/` holds the
+extractions used for this file).
+
+## 2. Building representation
+
+**Each building is one unit.** Units are built from the Microsoft Canadian Building Footprints
+(`data/edmonton_buildings.geojson.gz`, 346,238 footprints, ODbL), clipped to the run area, each
+with its own state. Buildings are **not** rasterised onto the FBP fuel grid.
+
+Why: FSJ104686 §3.4, §4 and §6 (pp.7-9) [P] show that structure-to-structure spread on a grid
+converges only when the cell size is at most half the structure size (SS) and half the
+structure separation distance (SSD), and that each structure must be treated as a single unit
+("single unit treatment", p.4). At 30 m cells the errors ranged from no spread to more than five
+times too fast (p.9). Edmonton side yards are a few metres wide, so a converged grid would need
+cells of about 1-3 m. The per-building (graph) treatment avoids this; it follows Qin25 §6.3.1
+(eqs 6.9-6.10, pp.168-170) [P], which pools heat and embers per building and emits from the
+centroid. It is a design departure from the published per-cell ELMFIRE coupling and must be
+verified against the FSJ104686 one-dimensional benchmark (Figs 5-7) before the WU-E and ember
+stages are used.
+
+Per unit (`engine/src/firesim/structures/units.py`):
+
+| Field | Definition | Note |
+|---|---|---|
+| `id` | index in the run's unit list | |
+| centroid | footprint centroid (lat, lng and local x, y in metres) | |
+| footprint | the footprint polygon, local metres | MultiPolygons kept whole |
+| `area_m2` | footprint area | |
+| `size_m` | `sqrt(area_m2)`: side of the equal-area square | Hamada assumes square plans (HT08 p.25) [P]; the square equivalent is an [H] |
+| separation | edge-to-edge distance to each neighbour (shapely `distance`, metres); nearest-neighbour separation per unit | Hamada's d is the "average separation of buildings" (HT08 p.25) [P]; FireSim uses the pair's own separation [H] |
+| neighbour graph | all pairs with separation ≤ `neighbour_cutoff_m` | cutoff: §4.4 |
+
+Local metres: an equirectangular frame centred on the run area (`x = (lng − lng0) · 111,320 ·
+cos(lat0)`, `y = (lat − lat0) · 111,320`). Over a run area of a few tens of km the distortion is
+well below the footprint accuracy. Footprints that are invalid are repaired with
+`make_valid`; empty ones are dropped.
+
+The footprint attributes `type`, `height`, `material` and `roof_type` in the data file have no
+documented source (every footprint is `wood_frame` / `asphalt_shingle`) and are **not used**.
+None of the published models uses construction, roof or height either (PROCI24 p.3: "These
+parameters are uniform for all structures"; Qin25 p.185).
+
+## 3. Coupling to the FBP wildland front
+
+Wildland intensity and flame length come from FireSim's FBP layer as the grid model already
+computes them for building exposure (`exposure.py`, `cellular.py: flame_emitters`): head fire
+intensity per burned cell; flame length Byram (1959) `0.0775 I^0.46` for surface fire and
+Thomas (1963) `0.0266 I^(2/3)` when CFB ≥ 0.1, as recommended by Alexander & Cruz (2012). FireSim
+does not use Rothermel.
+
+- **Time a unit is first reached by the front** `t_front`: the earliest arrival minute of a burned
+  grid cell whose edge is within `wildland_contact_m` of the unit's footprint (cell centre
+  distance minus half a cell, as `exposure.py` measures distance). Default `wildland_contact_m =
+  10 m`, the flame-contact band of `docs/building-exposure.md` (Cohen 2000: walls ignited only on
+  flame contact at 10 m in ICFME) **[H]**. The published coupling has no such distance: in
+  FSJ104651 (p.3) a structure cell next to a burning cell simply starts to burn at the Hamada
+  rate, and in PROCI24 (eq 8, p.3) the wildland cell's `HRR = I_f Δx` drives the WU-E heat
+  balance.
+- **Wind**: the run's 10 m open wind (FBP input) for the weather period in force, converted to
+  m/s. Hamada51's wind height is not stated in any source read [U]; FSJ104651 drove its runs with
+  RTMA 10-minute mean wind (gust for Thomas; Table 2, p.5). FSJ104686 (p.3) flies embers at the
+  6.1 m (20 ft) wind. FireSim uses the 10 m wind for Hamada [H]; the ember stage needs an
+  explicit 10 m → 6.1 m → 2 m reduction (§6).
+- **Burning period**: the wildland burning period (`diurnal.py`) does not apply to building
+  spread [H]: buildings burn regardless of fine-fuel moisture, and Hamada has no diurnal term.
+- **Wildland HRR into the WU-E stage** (later): `HRR = HFI · Δx` (PROCI24 eq 8, p.3; Qin25 eq
+  2.82, p.42) [P], with HFI from FBP. Published runs hold the vegetation HRR constant once lit
+  (Qin25 p.42); FireSim uses the flame residence already in `exposure.py` (cell size / normal
+  spread rate, 60 s where the front stops). This is a stated departure.
+- **Building → wildland** (later): PROCI24 (p.3) has interface wildland cells ignite by the same
+  heat-accumulation rule "with distinct parameter values", which are **not published** [U]. Not
+  specified here; a later stage must choose and label a rule.
+- The vegetation 250 kW/m² fix next to urban cells (Qin25 §8.4, p.227: "a crude but practical
+  fix") is **[T]** and is **not** adopted. FBP crown-fire HFI is large enough to test without it.
+
+## 4. Hamada option (stage 3)
+
+Empirical urban fire spread (Hamada51 via HT08, FSJ104651 SI and Qin25 §2.1.2). Japanese
+wooden-city calibration (HT08 p.25: β "deduced from the record of the past urban fires"). It
+lumps all spread modes (flame contact, radiation, and implicitly embers) into one rate (Qin25
+p.177, p.159).
+
+### 4.1 Equations
+
+For direction i ∈ {d (downwind), s (sidewind/crosswind), u (upwind)}, building size a₀ (m),
+separation d (m), combustible fraction f_b, wind V (m/s):
+
+```
+T_i  = (1 − f_b) [3 + 0.375 a₀ + 8 d / (c4_i + c5_i V)]
+       + f_b / C_i(V) · [5 + 0.625 a₀ + 16 d / (c4_i + c5_i V)]          (FSJ104651 SI; Qin25 eq 2.69, p.39)
+C_i(V) = c1_i (1 + c2_i V + c3_i V²)                                     (FSJ104651 SI; Qin25 eq 2.70, p.39 — typo, see C6)
+U_i  = (a₀ + d) / T_i                                                    (FSJ104651 eq 2, p.3; Qin25 eqs 2.77-2.79, p.40)
+```
+
+| i | c1 | c2 | c3 | c4 | c5 |
+|---|---|---|---|---|---|
+| d | 1.6 | 0.1 | 0.007 | 25.0 | 2.5 |
+| s | 1.0 | 0.0 | 0.005 | 5.0 | 0.25 |
+| u | 1.0 | 0.0 | 0.002 | 5.0 | 0.2 |
+
+(FSJ104651 SI table; Qin25 Table 2.2, p.39 — identical.) [P]
+
+**Units.** T_i in **minutes**, U_i in m/min. Neither FSJ104651 nor Qin25 states the unit of T;
+HT08 eqs 42-43 (p.25) give Hamada's rates explicitly in m/min with the same 3 + 3a/8 + 8d/(…)
+structure [P]. FireSim takes minutes from HT08.
+
+**Low-wind (Hazus) correction**, applied when V < 10 m/s (FSJ104651 SI; Qin25 eqs 2.71-2.73,
+p.39) [P]:
+
+```
+K_d' = K_d V/10 + (1 − V/10) √( ((K_d + K_u)/2) K_s )
+K_s' = K_s V/10 + (1 − V/10) √( ((K_d + K_u)/2) K_s )
+K_u' = K_u V/10 + (1 − V/10) √( ((K_d + K_u)/2) K_s )      (SI typo corrected, C7)
+```
+
+where K_i are the ellipse dimensions (Qin25 eqs 2.66-2.68, pp.38-39). Their time derivatives
+(FSJ104651 SI; Qin25 eqs 2.74-2.76, p.40) depend on t because K_s and K_u carry offsets. A
+building-to-building step is a steady crossing, so FireSim uses the **long-time limit** (K_i ≈ U_i t):
+
+```
+V_i = (V/10) U_i + (1 − V/10) √( ((U_d + U_u)/2) U_s )      for V < 10 m/s
+V_i = U_i                                                    for V ≥ 10 m/s
+```
+
+This limit is FireSim's derivation from the published eqs 2.74-2.79 **[H]**. At V = 0 all three
+rates equal the geometric term, so spread is isotropic, which is the stated purpose of the
+correction (FSJ104651 SI: the original "predicts an elliptical fire perimeter with an extended
+reach in the downwind direction even in the absence of wind").
+
+### 4.2 Direction
+
+The Hamada perimeter is an ellipse with downwind reach K_d, upwind reach K_u and crosswind
+extent K_s from the ignition point (Qin25 pp.38-39). FireSim builds the rate toward any bearing
+from that ellipse directly: semi-major (V_d + V_u)/2 along the downwind direction, semi-minor V_s,
+centre (V_d − V_u)/2 downwind of the burning building, and the rate toward angle θ from downwind
+is the distance from the burning building to the ellipse along θ — the same construction as the
+FBP ellipse (`spread/ellipse.py: calculate_ros_at_theta`, ST-X-3 eqs 82-89) with head = V_d,
+back = V_u, flank = V_s **[H]**. It returns V_d downwind and V_u upwind exactly. Departure from
+the level-set projection in Qin25 (eq 2.80 `LB = (V_u + V_d)/V_s`, then eqs 2.54-2.57 and 2.61-2.64)
+explained in C8.
+
+### 4.3 Building-to-building time
+
+For a burning unit j and a neighbour k at edge-to-edge separation d_jk and bearing θ_jk from
+the downwind direction:
+
+- a₀ = (size_j + size_k)/2 (the pair's mean square-equivalent side) [H]; d = d_jk [H].
+- Rates V_d, V_s, V_u from §4.1 with that a₀ and d and the wind in force; rate toward k
+  `R_jk = r(θ_jk)` from §4.2.
+- Crossing time `τ_jk = (a₀ + d_jk) / R_jk` (minutes). With the wind constant and k straight
+  downwind (V ≥ 10 m/s), τ_jk = T_d: Hamada's "time required for fire to reach adjacent
+  buildings" (FSJ104651 p.3; Qin25 p.39).
+- Wind changes during the crossing: progress accumulates at `R_jk(t) / (a₀ + d_jk)` per minute
+  through the piecewise-constant weather periods; k ignites when progress reaches 1 [H]. This is
+  the graph analogue of advancing the level set at a time-varying U.
+- First ignition times over the graph: Dijkstra from all units ignited by the wildland front
+  (`t_front`). The crossing times are non-negative and a later start never arrives earlier, so
+  the label-setting search is exact.
+- **No burnout** in Hamada (FSJ104651 pp.3, 17) [P]: a burning unit stays a source. FireSim
+  reports first ignition times only, so burnout would matter only if a source burned out before
+  a crossing finished; not modelled, stated as a limit.
+- **Ignition from the front**: a unit is involved at `t_front` (§3) [H].
+
+### 4.4 Defaults
+
+| Parameter | Default | Source / reason |
+|---|---|---|
+| f_b (combustible fraction) | 1.0 | Qin25 p.224: f_b = 1 for the Thomas Fire Hamada run [P]. Not measured for Edmonton. f_b < 1 lowers the wind term (see C9) |
+| `neighbour_cutoff_m` (largest separation that can carry spread) | **30 m** | **[H]** Hamada alone never stops spreading: τ is finite at any d (at V = 17.8 m/s, a₀ = 10 m, d = 100 m gives τ_d ≈ 4.3 min). The published level-set coupling limits a burning cell's influence to its 8 neighbours (FSJ104651 p.17, at 30 m cells). 30 m: IJWF24 Fig. 7a (no spread beyond 30 m separation for 10 m buildings without embers; model output) and NRC21 p.27 ("a 30 m distance is often used as the limit for significant radiative heating"). **Owner question** (most Edmonton front-to-front distances across a local street are about 30-40 m) |
+| `wildland_contact_m` | 10 m | §3 [H] |
+| wind | 10 m open wind of the period in force, km/h ÷ 3.6 | §3 [H] |
+
+### 4.5 Check values (from the equations above; used as unit tests)
+
+a₀ = d = 10 m, f_b = 1:
+
+| V (m/s) | T_d | T_s | T_u (min) | U_d (m/min) | U_d (m/s) |
+|---|---|---|---|---|---|
+| 0 | 11.031 | 43.25 | 43.25 | 1.813 | 0.030 |
+| 10 | 3.345 | 21.72 | 28.42 | 5.979 | 0.100 |
+| 17.8 | 1.695 | 10.91 | 18.33 | 11.80 | 0.197 |
+
+At V = 0 after the Hazus correction all rates are √(((1.813 + 0.462)/2) · 0.462) = 0.725 m/min.
+
+**Published worked value not reproduced.** Qin25 reports a Hamada rate of 0.34 m/s for a = d =
+10 m, fully combustible, 17.8 m/s wind (pp.159, 161, 167; baseline in Table 6.1, p.153). The
+published equations give 0.197 m/s. Qin25 also reports 0.2-0.6 m/s over its separation range
+(p.177) where the equations give about 0.14-0.29 m/s for d = 2.5-30 m. The ratio is about 1.7 in
+both. No published equation, unit or wind height read here explains it (T in seconds, wind in
+mph, or applying the Hazus blend above 10 m/s do not give 0.34). FireSim follows the equations
+and records the gap as a strict expected failure in the tests and as an open item.
+
+Published properties the code must show: rate increases with separation (Qin25 p.177: "the
+Hamada model also predicts an increasing ROSsurface with increasing separation distance, which
+appears counterintuitive"), although the **time** to cross a larger gap still increases; rate
+increases with wind (Qin25 p.178); isotropic at zero wind (FSJ104651 SI).
+
+## 5. WU-E option (stage 4, not built)
+
+Semi-physical: direct flame contact, point-source radiation, flux-time ignition (PROCI24 eqs 1-8,
+pp.2-3; IJWF24 eqs 2-15; Qin25 eqs 2.81-2.95, pp.41-46) [P]. Specified here so later stages
+start from fixed values.
+
+| Item | Equation | Chosen value | Source |
+|---|---|---|---|
+| Radiation | `q_r'' = χ HRR / (4π R²)`, zero beyond R = 100 m | **χ = 0.3** (C2) | PROCI24 eq 3, p.3; Qin25 eq 2.81, p.42 [P] |
+| Flame contact | `q_c = HRR · A_t / Δx²` | — | PROCI24 eq 2, p.2; IJWF24 eq 2; Qin25 eq 2.83, p.42 [P] |
+| Contact disables radiation | a target in flame contact receives no radiation term | — | PROCI24 p.2 [P] |
+| Flame reach ellipse | a (downwind), b (side), c (upwind) linear in v for v < 10 or > 17.3 m/s, quadratic for 10-17.3 m/s; coefficients linear in house size d and separation s | PROCI24 SI eqs S1-S21 (C3) | PROCI24 SI; = Qin25 Table 2.3 [P] |
+| Heat received | `q_t = α_c q_c + α_r q_r'' Δx²`; `α_c = (S_b + S_v)/S_t`; `α_r = absorptivity · α_c` | **α_c = 0.95, absorptivity 0.89** (IJWF24 baseline), α_c 0.5 as a scenario (Qin25 p.227) | PROCI24 eqs 4-5, p.3 (no values printed); IJWF24 eqs 11-12 and scenarios [P] |
+| Ignition | `Σ q_t Δt / A ≥ FTP` (per unit: A = footprint area) | **FTP = 10,500 kJ/m²** [T] | IJWF24 eq 13 and baseline; Qin25 p.227. PROCI24 (p.3) says "a uniform threshold is used" without the value [P] |
+| Design fire (per unit) | linear growth → plateau → linear decay; `HRR = HRRPUA · area` | **150 kW/m², 5 min growth, 1 min full, 60 min decay** (C1) | PROCI24 p.3, after Maranghides & Johnsson (NIST TN 1600) [P] |
+| Wildland source | `HRR = HFI · Δx`; flame reach from a wildland cell `3((3/5)v + 3) + d/2` | — | PROCI24 eq 8; IJWF24 eq 15 (after Jiang et al. 2021) [P] |
+| Point source position | unit centroid; distance R centroid to target footprint edge | — | [H], after Qin25 §6.3.1 single-unit treatment |
+
+The flux-time product here is the **heat dose** form of PROCI24/IJWF24 (kJ/m², no critical flux),
+not Cohen04's `∫(q − 13.1)^1.828 dt ≥ 11,501` used in `exposure.py`. The two must not be mixed in
+one output; the WU-E output must say which it uses.
+
+Verification gates before use: IJWF24 Fig. 3a (within 20 % of Hamada without embers), IJWF24
+Fig. 7a (no spread beyond 30 m for 10 m buildings without embers), PROCI24 pp.4-5 heat-flux
+ranges (Tubbs: flame contact 30-50, radiation 5-25 kW/m²; Thomas: 80-130 and 10-40).
+
+## 6. Embers (stages 6-7, not built)
+
+| Item | Equation / value | Source |
+|---|---|---|
+| Generation | `GR = GR' · HRR`; GR' = 33.3 pcs/(MW·s) vegetation, **10 pcs/(MW·s) structures [T]** (raised from 5.68; 5.68 kept as a scenario) | Qin25 eqs 3.1-3.2, p.61, p.147, Table 6.1 (p.153); FSJ104686 p.4 [P] |
+| Ember mass | 0.2 g | Qin25 eq 3.7; FSJ104686 p.3 [P] |
+| Transport, vegetation | Sardoy lognormal: μ = 1.47 I_f^0.54 v^−0.55 + 1.14 (Fr ≤ 1), 1.32 I_f^0.26 v^0.11 − 0.02 (Fr > 1); σ = 0.86 I_f^−0.21 v^0.44 + 0.19 (Fr ≤ 1), 4.95 I_f^−0.01 v^−0.02 − 3.48 (Fr > 1); Fr = v/√(g L_c); L_c = (1000 I_B / (ρ c_p T √g))^(2/3), I_B in MW/m, ρ = 1.1 kg/m³, c_p = 1.0 kJ/(kg K), T = 300 K | FSJ104651 SI; IJWF24 eqs 6-10; Qin25 eq 4.2, p.72 [P]. (IJWF24 HTML renders L_c without the exponent; Qin25 eq 4.2 is used) |
+| Transport, structures | Himoto lognormal, truncated at the 99th percentile; X_max = 65 / 84 / 109 m for 10 / 40 / 160 MW in a 17.9 m/s wind | Qin25 eqs 6.3-6.4; FSJ104686 p.3, Fig. 2 [P] |
+| Flight wind | 6.1 m (20 ft) wind | FSJ104686 p.3 [P]; FireSim must reduce its 10 m wind explicitly (method to be specified and labelled [H]) |
+| Pooling | per unit (footprint), emission from the centroid | Qin25 §6.3.1, eqs 6.9-6.10, pp.168-170; FSJ104686 p.4 [P] |
+| Ignition criterion | ψ ≥ C / ((v_air − v_min)(v_max − v_air)), **v_min = −0.073 m/s, v_max = 4.111 m/s, C = 0.211 g/cm²** (PTW, 2.0 % moisture) | FSJ104686 eq 1, p.3; Qin25 eq 5.12, p.120 [P]. One material, one moisture; "PTW (not zone-0 fuel)" (FSJ104686 p.4) |
+| Ignition delay | t_ign,small with P = 0.9 and **τ = 42 s** (C4), then t_ign,large = 300 s (t² growth) | FSJ104686 p.4; Qin25 pp.106, 121-123 [P] |
+| Check value | at 17.9 m/s wind, v_air ≈ 1.1 m/s at 2 m gives ψ* ≈ 0.059 g/cm² ≈ 2.95 × 10⁵ embers on a 10 × 10 m target | FSJ104686 p.5 [P] |
+| Simplified version (not adopted) | fixed 10 embers per time step per burning structure, P_ign = 1 **[T]** ("selected based on an analysis of different ember generation rates", FSJ104651 p.13) | FSJ104651 pp.7, 13 [P] |
+
+The ember models produce short-range (≲ 100 m) structure-to-structure transport (FSJ104686 p.3:
+"focus… is on short-distance firebrands"). They do not reproduce the 1-2 km spotting seen at
+Jasper and Fort McMurray; FireSim's Albini spotting (`spread/albini.py`) stays the long-range
+model.
+
+## 7. Conflicting published values and the choices made
+
+| # | Conflict | Values and sources | FireSim choice | Reason |
+|---|---|---|---|---|
+| C1 | Building design-fire peak HRR per unit area | **150 kW/m²**, 5 / 1 / 60 min (PROCI24 p.3); **400 kW/m²**, 300 / 3600 / 300 s (FSJ104686 p.2; Qin25 pp.146-147); **~500 kW/m²** with a plateau of about 10,000 s (Qin25 Fig. 8.6, p.228, read off the plot; Qin says it follows "the default setup in" PROCI24, which it does not match) | **150 kW/m² default; 400 kW/m² as a named scenario. Owner decision flagged.** | 150 is the value printed in the peer-reviewed paper whose WU-E runs were compared with structure losses; PROCI24 p.6 found 700 kW/m² over-predicts (Fig. S5c) and lower peaks "preferable" because heat is lost before reaching targets; plateau length has little effect (PROCI24 p.6; IJWF24 Fig. 6b). The ~500 value is read from a plot only. The evidence does not settle 150 vs 400, so both are run and labelled |
+| C2 | Radiant fraction χ | 0.3 (PROCI24 eq 3, p.3; Qin25 eq 2.81, p.42); 0.35 (IJWF24 eq 5) | **0.3** | Two sources incl. the peer-reviewed 2-D paper; IJWF24 is the earlier 1-D study |
+| C3 | Flame-reach formulas | Linear Jiang-style (IJWF24 eqs 3-4: a = (3/5)v + 3 + d/2, b = −(1/15)v + 3 + d/2); three-regime regression (PROCI24 SI eqs S1-S21 = Qin25 Table 2.3) | **PROCI24 SI**, behind a verification gate | Later, peer-reviewed, used for the 2-D runs compared with losses. But its intercepts are large (e.g. α₂ = 78.63 + 1.54d − 0.57s gives a downwind reach of about 120 m at v = 10 m/s, d = s = 10 m, versus 14 m from IJWF24 eq 3) and the two regimes are discontinuous at 10 m/s. Before use, stage 4 must compare the reach with IJWF24 and Hamada; if the PROCI24 reach is implausible, fall back to IJWF24 and record it |
+| C3a | PROCI24 SI duplicate intercepts | At v < 10 m/s the downwind (S5, α₂) and upwind (S9, γ₂) intercepts are identical (78.63 + 1.54d − 0.57s); Qin25 Table 2.3 repeats it | Use as printed; flag | Cannot be resolved from the published text; may be a transcription error carried into both. With α₁ > 0 > γ₁ the downwind reach still exceeds the upwind reach for v > 0 |
+| C3b | PROCI24 SI equation labels | Two equations labelled "S14" (α₂ and α₃); no S15 | Treat the second S14 as S15 (α₃ = 615.19 + 0.31d + 19.34s) | Labelling only; the sequence S13-S21 is otherwise complete |
+| C4 | Ember ignition delay τ (t_ign,small) | 42 s (FSJ104686 p.4, citing its ref [24]); 47 s (Qin25 p.121) | **42 s** | The peer-reviewed value; the dissertation precedes it |
+| C5 | Upwind/downwind label swap | IJWF24: the text calls a "downwind" and b "upwind"; Table 1 labels a "Upwind flame reach" and b "Downwind flame reach" | **a downwind, b upwind** (the text) | a = (3/5)v + 3 + d/2 grows with wind, b shrinks with wind: only the text's reading is physical |
+| C6 | Qin25 eq 2.70 typo | Qin25 eq 2.70 prints `C(V) = c1i(1 + c2i V + c4i V²)` | **c3 on V²** | FSJ104651 SI prints c3; Table 2.2 has a c3 column that eq 2.70 would otherwise never use |
+| C7 | FSJ104651 SI Hazus K_u' typo | SI prints `K_u' = K_u (K_u V/10) + …` (extra K_u factor) | `K_u' = K_u V/10 + (1 − V/10)√(((K_d + K_u)/2) K_s)` | Follows the K_d' and K_s' pattern and Qin25 eq 2.73 |
+| C8 | Hamada ellipse LB | Qin25 eq 2.80 and FSJ104651 SI: `LB = (V_d + V_u)/V_s`, then the rear-focus ellipse of eqs 2.54-2.57 | **Direct Hamada ellipse** (§4.2) | With V_s the crosswind reach from the ignition point (a half-width), eq 2.80 gives LB = 2 at zero wind after the Hazus correction, i.e. the downwind-elongated fire the correction exists to remove; and the rear-focus projection returns V_d/HB, not V_u, upwind. The direct ellipse returns V_d, V_s and V_u exactly and is a circle at zero wind |
+| C9 | f_b parameterisation | FSJ104651 SI / Qin25 eq 2.69 mix two brackets by f_b, with wind only in the f_b term; Hamada's original (HT08 eqs 42-43) instead weights building types (bare wood a′, mortar b′, fire-resistant c′) and has wind in both directions' numerators | **SI form**, f_b = 1 | It is the form the coupled model used; HT08 is cited only for units and as the independent original. With f_b < 1 the (1 − f_b) bracket has no wind term, so spread slows as f_b falls, as intended |
+| C10 | Hamada T units | Not stated in FSJ104651 SI or Qin25 | **minutes** | HT08 eqs 42-43 (p.25) give Hamada's rates in m/min |
+| C11 | Qin25 0.34 m/s Hamada rate | Qin25 pp.159, 161, 167 vs 0.197 m/s from the published equations | Follow the equations; strict xfail test; open item | §4.5 |
+| C12 | Wind height | 6.1 m / 20 ft (FSJ104686 p.3; Qin25 p.78), 10 m (RTMA, FSJ104651), unstated for Hamada | 10 m open wind for Hamada; explicit reduction for embers | §3 |
+| C13 | WU-E coefficients PROCI24 does not print | α_c, absorptivity and FTP are not in PROCI24; Qin25 (p.227) attributes defaults to it | IJWF24 baseline (α_c 0.95, absorptivity 0.89, FTP 10,500); α_c 0.5 scenario | Values printed in a peer-reviewed source |
+| C14 | Structure firebrand generation | 5.68 → 10 pcs/(MW·s) (Qin25 p.147; FSJ104686 p.4) | **10 [T]**, 5.68 scenario | The tuned value is the one the authors carry forward; both are labelled |
+
+California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500
+kJ/m² (IJWF24, "qualitative" combustibility scale); structure GR' 10 pcs/(MW·s); FSJ104651's 10
+embers per step with P = 1 (chosen partly so the ember share came out near 30 %, p.13); the
+250 kW/m² vegetation fix; the road-firebreak choice (calibrated with the ember rate, FSJ104651
+p.13); the design-fire peak (PROCI24 p.6 sensitivity). The Hamada coefficients are empirical
+(Japanese post-earthquake urban fires), not tuned to California, but also not measured for
+Canadian construction.
+
+## 8. Validation plan (Jasper 2024)
+
+Published evidence is weak for this purpose:
+- PROCI24's "about 70 %" is **recall** only: the share of CAL FIRE DINS damaged/destroyed
+  structures inside the simulated burned area (Tubbs 4011/6022 = 67 %, Thomas 774/1009 = 77 %;
+  PROCI24 p.4). False positives are not reported.
+- FSJ104651 Table 3 (p.12) gives full counts for the Hamada runs: recall 92 / 78 / 97 %,
+  **precision 59 / 9 / 77 %** (Tubbs / Thomas / Camp; FireSim's arithmetic from the table).
+- The "ember-ignited" share is not validated (FSJ104651 p.7: "this data are currently
+  unavailable").
+
+FireSim's plan:
+1. **Data**: Jasper 2024 destroyed-structure list and map (Municipality of Jasper, public) and
+   timing from CFS NOR-X-433; request the structure-level survey table (about 1,153 homes,
+   FPInnovations / Parks Canada; known from news reports only). Fort McMurray 2016: Westhaver
+   2017 sample only; RMWB would hold building-level data.
+2. **Unit of scoring**: each footprint in the run area is a unit; observed = destroyed (and,
+   separately, damaged); modelled = involved by the end of the scored period.
+3. **Report all of**: confusion counts (TP, FP, FN, TN), **precision**, **recall**, F1 and
+   **Cohen's κ** at the structure level; perimeter κ for the wildland part. Never report recall
+   alone, and report false positives prominently.
+4. **Baselines**: the same counts for (a) building exposure bands alone (e.g. "within 30 m of
+   the front") and (b) no structure spread. Structure spread must beat both on κ to be worth
+   showing.
+5. **No tuning on the test fire**: any parameter changed (cutoff, f_b, design fire) is chosen on
+   a different fire or stated in advance; report the sensitivity runs (cutoff 20 / 30 / 45 m;
+   150 / 400 kW/m²).
+
+## 9. Limits
+
+- Not validated in Canada. The only validations are on three Californian fires with Rothermel,
+  LANDFIRE and RTMA inputs, and they are recall-heavy (§8).
+- Hamada is a homogeneous-community model applied here pair by pair (§4.3 [H]); a₀ and d are
+  per pair, not area averages as Hamada intended (HT08 p.25).
+- Hamada has no construction, no topography (FSJ104651 p.17), no suppression, no burnout.
+- The neighbour cutoff (30 m) and the front-contact distance (10 m) are FireSim choices, not
+  published; results depend on them.
+- Wind is the run's 10 m open wind, uniform over the run area; no street canyon or sheltering.
+- Ember ignition, the main WUI loss mechanism, is not in the Hamada stage except implicitly
+  through Hamada's empirical rate; yard fuels, sheds, fences and vehicles are not modelled.
+- Microsoft footprints: detached garages and sheds may be separate footprints or missing;
+  attached buildings may merge into one footprint. Accuracy of the footprints in Edmonton has
+  not been assessed.
+- Outputs are counts and times of **modelled involvement**. They are not predictions of which
+  buildings burn and must not be used for evacuation tiers or per-building loss.
+
+## 10. Build order
+
+1. This specification (docs only).
+2. Building-unit layer: `engine/src/firesim/structures/units.py` (§2).
+3. Hamada option (§4): `engine/src/firesim/structures/hamada.py`, `spread.py`; API flag
+   `structure_spread` (default false), labelled "illustrative — not validated in Canada".
+4. WU-E option (§5) with verification gates.
+5. FBP coupling refinements: residence, building → wildland, road firebreaks.
+6. Firebrand generation and transport (§6).
+7. Ember ignition (§6).
+8. Verification suite: Qin25 1-D tests, FSJ104686 benchmark (SSD × wind × GR maps, Fig. 6).
+9. Canadian validation (§8).
