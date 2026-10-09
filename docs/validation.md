@@ -21,6 +21,14 @@ puts FireSim's operational set-up level with W.I.S.E. defaults (0.26 nationally;
 nine shared Alberta days), still well short of tuned W.I.S.E. (0.54). See "Skill
 improvements and held-out results".
 
+**Third round (2026-10-08): ensemble.** The ensemble's perturbation sizes are now set from an
+Alberta forecast-error climatology and one inflation factor chosen on the calibration fires.
+On held-out fires the observed one-day area falls inside the members' 10-90 % range on 49 %
+of days (was 20 %; ideal about 80 %) and the CRPS of burned area beats the single run by 24 %
+(was 11 %). The range is still too narrow, burn probability is over-confident, and the P10
+footprint is **not** a worst case (it held at least 90 % of the observed growth on 29 % of
+days). See "Ensemble calibration".
+
 ## Skill improvements and held-out results (second round, 2026-10-07)
 
 Three changes were tested on the same 143 fire-days, each separately and combined, after
@@ -116,8 +124,176 @@ is cleaner than a real thermal flight in some ways (whole perimeter, no smoke or
 occlusion) and coarser in others (MODIS/VIIRS timing, 90 m); real RPAS edges should be
 validated separately. The burning period is a fixed clock window, so it cannot represent
 overnight runs or days that burn late; it is opt-in in the engine and the API (`burning_period`, `ffmc_spin_up`), and on by default in the UI (Run options, 10-20 h), where it can be turned off.
-The deterministic skill above is reported alone; ensemble and RPAS-corrected (mid-day
-re-start) skill are not yet measured.
+The deterministic skill above is reported alone; ensemble skill is in "Ensemble
+calibration" below; RPAS-corrected (mid-day re-start) skill is not yet measured.
+
+## Ensemble calibration (third round, 2026-10-08)
+
+**In short:** the ensemble's perturbation sizes are now set from an Alberta input-error
+climatology and one inflation factor chosen on the calibration fires. On the held-out fires
+this roughly halves the gap to a calibrated range: the observed one-day burned area falls
+inside the members' 10-90 % range on 49 % of fire-days (was 20 %; calibrated would be about
+80 %), and the CRPS of burned area improves by 24 % on the deterministic run (was 11 %). The
+ensemble is **still too narrow and over-confident**, mainly because the model over-predicts
+growth (all members share that bias). **The P10 footprint is not a worst case:** it held at
+least 90 % of the observed growth on only 29 % of held-out fire-days. The UI and API now call
+P10 the early end of the modelled range ("reached by 1 in 10 members"), not "worst-credible".
+
+### Set-up
+
+The second round's chosen set-up (active edges from the previous 2 days, FFMC spin-up,
+burning period 10-20 h), scored at the end of the burn day (17 h window). Each fire-day runs
+the deterministic case plus **20 members** perturbed exactly as the API ensemble does
+(`firesim.spread.ensemble.perturb_config`, seed 1, so every setting uses the same random
+draws: common random numbers; `harness.simulate_ensemble`). The fire split is the second
+round's (`report.split_fires`, fixed before any result). To keep 21 runs per fire-day
+affordable on a shared machine, fire-days were selected **by the deterministic run time
+only**, never by outcome: calibration fire-days whose deterministic run took <= 20 s (61 of
+64; the three dropped are the Horse River fire's 4-6 May runs) and test fire-days <= 40 s (65
+of 79; all 16 fires kept). The **14 excluded test fire-days** are the slowest runs on the
+largest grids (fires 2014_350, 2015_452, 2019_177, 2019_255, 2023_365; observed growth 41 to
+13,130 ha, including the two biggest test days of 9,416 and 13,130 ha), so the held-out
+numbers describe small and medium days better than the largest runs.
+
+### Perturbation sizes and sources
+
+Input errors were measured (`scripts/validation/input_errors.py`) at 14 ECCC hourly stations
+in Alberta's boreal and foothills forest (Rocky Mountain House, Sundre, Jasper, Whitecourt,
+Edson, Fort McMurray, Slave Lake, Fort Chipewyan, Grande Prairie, High Level, Peace River,
+Red Earth, Cold Lake, Stony Plain), May-September 2024 and 2025, against (a) the GEM day-1
+forecast (Open-Meteo previous-runs API, the value forecast the day before: what an
+operational run would use) and (b) ERA5 (what this harness uses), following Fox-Hughes et
+al.'s (2024) forecast "error climatology". Station data: ECCC MSC GeoMet `climate-hourly`.
+The ensemble applies one wind-direction offset per member to every hour, so the relevant
+error is the day's systematic error: the error of the 10:00-20:00 vector-mean wind.
+FWI codes were computed with FireSim's FWI calculator from noon-LST weather and noon-to-noon
+rain from a 1 May start-up, once from station and once from gridded weather, and compared
+June-September.
+
+| Error (forecast or reanalysis minus station) | GEM day-1: sd (central-80 % equivalent) | ERA5 sd | n |
+|---|---|---|---|
+| 10-20 h mean wind direction, days forecast >= 10 km/h | 24° (16°) | 18° | 1,676 days |
+| Hourly wind direction, observed >= 10 km/h | 42° | 36° | 28,270 h |
+| log 10-20 h mean wind speed, days forecast >= 10 km/h | 0.28 (0.27); bias -0.15 | 0.24 | 1,676 days |
+| FFMC, days with station FFMC >= 85 | 7.2 (4.8); bias -3.1 | 5.1 | 801 days |
+| log DMC / log DC | 0.48 / 0.41 (0.44 / 0.35) | 0.37 / 0.21 | 1,332 days |
+
+The errors are heavy-tailed (rain timing for the codes; light and shifting winds for
+direction), so the "physical" Gaussian sizes match each error's 10th-90th percentile range
+(the range the P10-P90 band is meant to cover): sd = (p90 - p10) / 2.563. The final defaults
+are those sizes times **one inflation factor, 1.5**, chosen on the calibration fires (below):
+
+- `wind_dir_sd_deg` = 24: 16° x 1.5 (equal to GEM day-1's full sd, 24°).
+- `wind_speed_log_sd` = 0.405: 0.27 x 1.5.
+- `ffmc_sd` = 7.2: 4.8 x 1.5 (equal to the full sd on fire-weather days).
+- `dmc_dc_log_sd` = 0.6: 0.4 x 1.5 (DMC and DC drawn independently).
+- `curing_sd` = 13.5: the RMSE (13.5 percentage points) of the best field method, the Levy
+  rod, against destructive sampling (Anderson et al. 2011); visual estimates are worse. **Not
+  inflated and not validated:** grass is about 3 % of the observed growth here. Near 58.8 %
+  curing the FBP curing factor changes slope, so grass ensembles there are wide (curing 45-72
+  % changes ROS by about x0.4 to x2). The calibration runs used 20.25 (13.5 x 1.5); grass
+  makes no measurable difference on these fires.
+- `fmc_sd` = 15: 10 % x 1.5. The 10 % is a judgement (about a third of the ST-X-3 seasonal
+  range, 85-120 %); no published error statistic was found. FMC affects crown fire initiation.
+- `ros_log_sd` = 0.825: 0.55 x 1.5. A log-normal multiplier with sd 0.55 has a mean absolute
+  error of 49 %, the lower end of the typical 51-75 % of Cruz & Alexander (2013) (lower end
+  because input errors are perturbed separately); 0.825 gives about 80 %. The median stays 1:
+  no bias correction, although the model over-predicts area on most days.
+
+### Choosing the inflation factor (calibration fires only, 61 fire-days)
+
+| Setting | Days with obs. area in P10-P90 | Below P10 / above P90 | CRPS log10 area (det. 0.579) | Spread / skill | Obs. growth at p >= 0.1 | Cells at p ~ 0.95: share burned |
+|---|---|---|---|---|---|---|
+| Former placeholders (20°, 0.2, 1.5, 0.1, 10, 5, 0.3) | 21 % | 52 / 26 % | 0.503 | 4.20 | 58 % | 28 % |
+| Measured sizes (x 1) | 43 % | 41 / 16 % | 0.465 | 2.28 | 65 % | 30 % |
+| **x 1.5 (chosen)** | **54 %** | 33 / 13 % | **0.440** | 1.57 | 74 % | 33 % |
+
+Wind direction sd 30° instead of 16° (x 1, the 35 calibration days both runs completed)
+changed nothing (CRPS 0.482 vs 0.483, coverage 49 % for both, spread / skill 2.32 for both):
+with active-edge starts, wind direction is not the binding error, so it was not tuned
+separately.
+A factor of 2 was abandoned: its members burn so much more that one small fire-day took more
+than 50 minutes, too slow for an operational 30-member run, and x 2 means a ROS log-sd of 1.1
+(a factor of 3 for one sd), which is not physically defensible. x 1.5 was the best of the
+tested settings on every probabilistic score; a finer search was not done.
+
+### Held-out results (16 test fires, 65 fire-days)
+
+| Score (end of burn day) | Former placeholders | **New defaults** | Calibrated / ideal |
+|---|---|---|---|
+| Fire-days with observed area inside the members' P10-P90 | 20 % | **49 %** | ~80 % |
+| Observed area below P10 / above P90 of members | 58 / 22 % | 34 / 17 % | 10 / 10 % |
+| CRPS of log10 burned area (deterministic run 0.616) | 0.546 | **0.471** | lower is better |
+| CRPS skill vs the deterministic run | +0.11 | **+0.24** | > 0 |
+| Spread / skill (RMSE of ensemble mean / spread x sqrt((N+1)/N)) | 4.70 | 1.58 | 1 |
+| Brier score, burn probability (whole working areas) | 0.0068 | 0.0062 | lower is better |
+| Brier skill vs the deterministic run (0/1) | +0.18 | **+0.25** | > 0 |
+| Observed growth at burn probability >= 0.1 / 0.5 / 0.9 | 51 / 37 / 26 % | 68 / 35 / 16 % | |
+| F1: deterministic / P50 / P10 footprint | 0.195 / 0.198 / 0.183 | 0.195 / 0.201 / 0.152 | |
+| P10 footprint recall (pooled) / precision (pooled) | 0.51 / 0.21 | 0.68 / 0.14 | |
+| Fire-days the P10 footprint holds >= 90 % of observed growth | 17 % | **29 %** | ~90 % for a worst case |
+| P90 footprint precision (pooled) | 0.30 | 0.36 | |
+
+Reliability of burn probability on the held-out fires (mean forecast probability → share of
+cells that burned):
+
+| Probability bin | 0 | 0-0.2 | 0.2-0.4 | 0.4-0.6 | 0.6-0.8 | 0.8-1.0 |
+|---|---|---|---|---|---|---|
+| Former placeholders | 0 → 0.002 | 0.06 → 0.06 | 0.27 → 0.13 | 0.47 → 0.20 | 0.67 → 0.22 | 0.97 → 0.29 |
+| New defaults | 0 → 0.001 | 0.05 → 0.01 | 0.26 → 0.11 | 0.47 → 0.19 | 0.67 → 0.27 | 0.94 → 0.33 |
+
+**What the numbers say.**
+
+- **The ensemble was far too narrow, not too wide.** With the placeholders the observed area
+  fell outside the members' range on 80 % of days (spread / skill 4.7). The calibrated sizes
+  more than double the coverage and cut the CRPS by 14 %, on fires that played no part in
+  choosing them, but the range is still about 1.6 times too narrow.
+- **Burn probability is strongly over-confident.** Cells that 80-100 % of members burn
+  burned 33 % of the time; cells at 47 % burned 19 % of the time. All members share the model's
+  over-prediction (ensemble-mean log10 area bias +0.26, a factor of 1.8), which a symmetric
+  perturbation cannot remove. Both the ensemble and the deterministic run score worse than a
+  constant "base rate" forecast on the Brier score (that reference knows the overall burned
+  fraction in advance, which no forecast does), but the ensemble beats the deterministic run by
+  25 %.
+- **The P50 footprint is as good as the deterministic run** (F1 0.201 vs 0.195), so showing
+  the median does not lose skill.
+- **P10 is not a worst case.** Its footprint contains 68 % of the observed growth (pooled)
+  and at least 90 % of it on only 29 % of fire-days; a third of the observed growth sits in
+  cells fewer than 1 in 10 members reach. Growth the model does not produce at all (fuel-map
+  errors, spotting, active edges missed, wind shifts) is not covered by perturbing inputs.
+  "Worst-credible" was therefore removed from the API, docs and UI; P10 is described as "the
+  early end of the modelled range: reached by 1 in 10 members".
+- **Wider P10 costs precision.** The P10 footprint's F1 falls (0.183 → 0.152) because it
+  grows; that is the price of coverage, not a loss of skill of the ensemble as a whole.
+
+**Run time.** The 20-member ensemble took a median 150-170 s of model time per fire-day (21
+runs, about 7-8 s per member) for every setting, on a shared machine whose load varied from
+10 to 50 over the runs, so the settings cannot be compared on speed with confidence. Across
+all calibration and test fire-days the inflated members took 3.5 times the deterministic
+run's time each (placeholders 1.9 times), against deterministic times measured on a quieter
+machine; inflated members burn more area and the level-set cost grows with it. The API
+default of 30 members after a 4 h Edmonton run stays at roughly 1 s per member; long or large
+runs scale accordingly.
+
+**Caveats.** 16 held-out fires; fire-days are not independent within a fire and no
+confidence intervals were computed for the probabilistic scores. The largest 14 test
+fire-days were excluded by run time. Reliability is pooled over cells, so big fire-days
+weigh more. Inputs here are ERA5, whose errors are smaller than a day-1 forecast's (table
+above), so an operational ensemble driven by forecasts should be at least as wide as these
+defaults. Curing and FMC sizes are not validated. Only one inflation factor and one
+wind-direction alternative were tested, as fixed before the runs.
+
+```bash
+# ensemble calibration (third round): 20 members, calibration then held-out test fires
+D=$FIRESIM_VALIDATION_DATA/skill/runs/active2_spin_bp1020.jsonl
+E="--runs-dir $FIRESIM_VALIDATION_DATA/enscal/runs run --ignition active --active-days 2 \
+   --ffmc-spinup --burning-period 10 20 --windows 8 17 --ensemble 20"
+A15='{"wind_dir_sd_deg":24,"wind_speed_log_sd":0.405,"ffmc_sd":7.2,"dmc_dc_log_sd":0.6,"curing_sd":20.25,"fmc_sd":15,"ros_log_sd":0.825}'
+python scripts/validate.py $E --name phys_a1.5 --split calibration --ens-params "$A15" --max-det-run-s 20 --det-run $D
+python scripts/validate.py $E --name phys_a1.5 --split test --ens-params "$A15" --max-det-run-s 40 --det-run $D
+python scripts/validate.py --runs-dir $FIRESIM_VALIDATION_DATA/enscal/runs ens-compare placeholder_n20 phys_a1.5
+python scripts/validation/input_errors.py   # the input-error climatology (network; cached)
+```
 
 ## Results (first run, 2026-10-07)
 
@@ -205,8 +381,12 @@ with 4 cores.
   and burning 10:00-20:00 roughly halves the area over-prediction and raises one-day F1 to
   about 0.21 on held-out fires (second round). The biggest wind-driven runs are then
   under-predicted further, so keep a full 06-23 h run as the upper envelope alongside it.
-- **What would improve it next:** run wind-direction and wind-speed ensembles and present burn
-  probability rather than one perimeter, use the current fuel grid with per-cell percent
+- **Read the ensemble as a range, not a bound.** The calibrated ensemble's P10-P90 band
+  contains the observed one-day area on about half of held-out days, and the P10 (early)
+  footprint misses part of the observed growth on most days. Use P10 as a planning margin
+  together with the single run, not as the worst case.
+- **What would improve it next:** remove the shared over-prediction bias before widening the
+  ensemble further (e.g. a per-fuel ROS adjustment estimated from RPAS-observed growth), use the current fuel grid with per-cell percent
   conifer and burn scars, calibrate per fuel type (D-2 and small days remain poor), and
   measure RPAS-corrected mid-day restarts. Each change can be measured with
   `scripts/validate.py` against the same fire-days.
@@ -354,6 +534,19 @@ spin-up and the burning period are opt-in.
   doi:10.1071/WF26072.
 - Beaudoin, A., et al. (2014). Mapping attributes of Canada's forests at moderate resolution
   through kNN and MODIS imagery. *Can. J. For. Res.* 44, 521-532.
+- Anderson, S.A.J., Anderson, W.R., Hollis, J.J., Botha, E.J. (2011). A simple method for
+  field-based grassland curing assessment. *Int. J. Wildland Fire* 20, 804-814.
+- Brier, G.W. (1950). Verification of forecasts expressed in terms of probability. *Monthly
+  Weather Review* 78, 1-3.
+- Fortin, V., Abaza, M., Anctil, F., Turcotte, R. (2014). Why should ensemble spread match the
+  RMSE of the ensemble mean? *J. Hydrometeorology* 15, 1708-1713.
+- Gneiting, T., Raftery, A.E. (2007). Strictly proper scoring rules, prediction, and
+  estimation. *J. Am. Stat. Assoc.* 102, 359-378.
+- Hersbach, H. (2000). Decomposition of the continuous ranked probability score for ensemble
+  prediction systems. *Weather and Forecasting* 15, 559-570.
+- Input-error data: ECCC MSC GeoMet `climate-hourly` station observations (Open Government
+  Licence - Canada); GEM forecasts via the Open-Meteo previous-runs API and ERA5 via the
+  Open-Meteo archive (CC BY 4.0).
 - Cruz, M.G., Alexander, M.E. (2013). Uncertainty associated with model predictions of surface
   and crown fire rates of spread. *Environmental Modelling & Software* 47, 16-28.
 - Fox-Hughes, P., et al. (2024). *Int. J. Wildland Fire*, doi:10.1071/WF23028 (four
