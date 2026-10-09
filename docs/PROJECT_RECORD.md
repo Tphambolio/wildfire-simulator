@@ -10,7 +10,7 @@ git history and the owner's recorded decisions.
 - **Repo:** https://github.com/Tphambolio/wildfire-simulator (local: `~/dev/wildfire/wildfire-simulator-v3`), branch `master`
 - **Owner:** Travis Kennedy, P.Ag (City of Edmonton)
 - **Tracked in Claude for Science project** `proj_4c36553a0c0c` (snapshots of this record are attached there; this file stays the source of truth)
-- **Status at this revision:** branch `feat/structure-hamada` (PR #39) merged with `master` `c264e27` (PRs #35-#38 merged 2026-10-09); tests 2026-10-09 on the merged branch: engine 923 passed / 1 xfailed (strict: Hamada rate vs Qin 2025, §6), API 108, Vitest 272 (§5).
+- **Status at this revision:** branch `analysis/structure-sensitivity` on `master` `8fa6500` (PR #39 merged 2026-10-09): structure-spread owner decisions D1-D6 recorded [R6], sensitivity of the Hamada option measured [R7], no engine behaviour changed; tests 2026-10-09: engine 923 passed / 1 xfailed (strict: Hamada rate vs Qin 2025, §6), API 108, Vitest 272, Playwright 28 (§5).
 
 ---
 
@@ -58,6 +58,7 @@ Frontend → HTTP/WebSocket → API → engine; frames are streamed back over We
 | `frontend/src/` | React 19 + TypeScript + Vite + MapLibre GL: `MapView`, Setup sections, Situation panel (`FireMetrics`, `EvacStatusPanel`, `CriticalAssetsPanel`, `EOCSummary`), `TimeSlider`, `EOCConsole` (ICS forms, ICS Canada 209-WF); shared tables `utils/fireClasses.ts`, `utils/fwiClass.ts`, `utils/time.ts` |
 | `scripts/build_edmonton_assets.py` | Builds `frontend/public/edmonton/assets.geojson` (critical assets) from open sources |
 | `scripts/build_edmonton_roads.py` | Builds `frontend/public/edmonton/roads.geojson` (motorway to secondary + ramps) from Overpass |
+| `scripts/structure_sensitivity.py` | Structure-spread sensitivity (cutoff, contact distance, footprint size) on Edmonton footprints; aggregate outputs written outside the repo [R7] |
 | `scripts/validate.py`, `scripts/validation/` | Validation runs (prepare / run / report / compare), CFSDS fetch, optional WISE fire-day runs |
 
 **External data the code calls at run time:** Open-Meteo forecast API (`frontend/src/services/api.ts`,
@@ -106,7 +107,13 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | 2026-10-09 | Ensemble perturbation sizes = Alberta input-error climatology x one inflation factor (1.5) chosen on the calibration fires (wind dir 24°, ws log 0.405, FFMC 7.2, DMC/DC log 0.6, ROS log 0.825, FMC 15; curing 13.5 not inflated). "Worst-credible" dropped for P10 everywhere (API, docs, UI): P10 = reached by 1 in 10 members, the early end of the modelled range | Held-out ensemble calibration: coverage 20 → 49 %, CRPS skill vs single run +0.11 → +0.24, P10 held ≥ 90 % of observed growth on only 29 % of days (`docs/validation.md` "Ensemble calibration"; PR feat/ensemble-calibration) |
 | 2026-10-09 | Rebuild the Berkeley/UMD WUI structure-spread model (Purnomo, Qin, Trouvé, Gollner et al.; the ELMFIRE WUI extensions) **from the published literature only**, as an opt-in, illustrative layer: specification first, then a per-building unit layer, then the Hamada option; WU-E, embers and validation later | Owner decision 2026-10-09 after the structure-ignition paper check [R4]. Licence: ELMFIRE is AGPL v3 + Commons Clause, so its source is never opened, read, quoted or translated; every equation and constant is cited to a paper, section, equation and page (`docs/structure-spread-spec.md`) |
 | 2026-10-09 | Buildings are single units (graph nodes from the Microsoft footprints) coupled to the FBP grid front, not cells of the fuel grid | Qin et al. (2026) FSJ 104686 pp.7-9 [37]: structure spread converges only with cells ≤ half the structure size and separation; Edmonton side yards would need 1-3 m cells (`docs/structure-spread-spec.md` §2) |
-| 2026-10-09 | Structure-spread defaults where the papers conflict (spec §7): design fire 150 kW/m² (PROCI) with 400 kW/m² as a scenario (**owner to confirm**); radiant fraction 0.3; PROCI SI flame-reach ellipse behind a verification gate; ember delay τ = 42 s; Hamada c₃ on V²; IJWF a = downwind; Hamada T in minutes; neighbour cutoff 30 m (heuristic, **owner to confirm**) | `docs/structure-spread-spec.md` §4.4, §7 |
+| 2026-10-09 | Structure-spread defaults where the papers conflict (spec §7): design fire 150 kW/m² (PROCI) with 400 kW/m² as a scenario (~~owner to confirm~~ confirmed, D1 below); radiant fraction 0.3; PROCI SI flame-reach ellipse behind a verification gate; ember delay τ = 42 s; Hamada c₃ on V²; IJWF a = downwind; Hamada T in minutes; neighbour cutoff 30 m (heuristic, ~~owner to confirm~~ confirmed, D2 below) | `docs/structure-spread-spec.md` §4.4, §7 |
+| 2026-10-09 | **D1** House design fire: 150 kW/m² default (5 min growth, 1 min full, 60 min decay; PROCI24 after NIST TN 1600), 400 kW/m² as a named "heavier fuel load" scenario; spec C1 stands. No current output changes (used only by the unbuilt WU-E stage) | Owner delegated the six structure-spread questions on 2026-10-09 ("trust your judgement… documented with reasoning"); decisions report [R6]. 150 is the only value used in a run compared with building-loss data (PROCI24, FSJ104651); a training tool should not default to the more severe value without evidence |
+| 2026-10-09 | **D2** Keep `neighbour_cutoff_m` 30 m and `wildland_contact_m` 10 m; measure the sensitivity (cutoff 20 / 30 / 45 m, contact 5 / 10 / 20 m) and change a default only if a result is unstable or unphysical | [R6]. Evidence anchors: IJWF24 Fig. 7a and NRC (2021) p.27 for 30 m; Cohen (2000) flame-contact band for 10 m; no Canadian loss data to choose on. Sensitivity [R7]: cutoff −48 % to +220 %, contact −71 % to +557 % (involved buildings at 6 h); defaults kept; contact found grid-dependent (open item, §6) |
+| 2026-10-09 | **D3** Structure-spread output stays aggregate (per-frame counts; later by neighbourhood or distance band). Per-building involvement times are not returned in UI, API or exports; revisit only after a Canadian validation | [R6]. 2026-10-07 avoid-list [R1] rules out per-building loss outputs; building-level precision in FSJ104651 was 9-77 %; a per-house map would read as a loss forecast |
+| 2026-10-09 | **D4** Keep all 346,238 Microsoft footprints (garages and sheds) by default; test a < 40 m² size filter [H] instead of a City parcel cross-check (parcel join deferred) | [R6]. Outbuildings burn; removing them widens gaps and slows spread (less cautious). Result [R7]: the filter changes involved buildings by −8 % to 0 %, and the city-wide median nearest separation stays 2.6 m without footprints < 40 m² (short gaps are mostly not small sheds) |
+| 2026-10-09 | **D5** Jasper 2024 building-level data: search the public record first (Parks Canada, Municipality of Jasper, provincial/federal after-action reviews, published damage inspections); only if nothing usable is public does the owner ask through the EM network. Validation (spec §8) stays unexecuted until then | [R6]. Jasper is the only recent, well-documented Canadian WUI loss event close to FireSim's setting; public data are reproducible and citable |
+| 2026-10-09 | **D6** Hamada rate: keep the published equations (0.197 m/s at a₀ = d = 10 m, f_b = 1, 17.8 m/s) against Qin (2025)'s 0.34 m/s; keep the strict xfail and the open item; **no contact with the authors** (owner instruction) | [R6]; spec §4.5, C11. Wind height, units and the Hazus blend above 10 m/s were checked and do not explain 0.34; matching it would add an unsourced factor of ~1.7 |
 | standing | Ask the owner before each merge (auto-merge is enabled but still ask) | `CLAUDE.md` (CI/CD); owner notes |
 | standing | Run the full verification stack, including browser E2E, before calling work done | Owner feedback note (2026-06-16) |
 | standing | No Claude/Anthropic references in code committed to City of Edmonton systems (`git.edmonton.ca`); this GitHub repo is separate | `CLAUDE.md` |
@@ -206,6 +213,8 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 - [R5] *Grass diagonal spread fix validation* (2026-10-09), `~/dev/wildfire/reports/Grass diagonal spread fix validation 2026-10-09.md`: CFSDS held-out comparison before/after the grid-model diagonal-spread fix (PR #35), set-up, fire-days, F1 tables, commands; raw runs in `$FIRESIM_VALIDATION_DATA/diagfix/`. (R3/R4 are reserved for the structure-ignition reports on another branch.)
 - [R3] *Structure ignition in the WUI: a literature review for FireSim* (2026-10-06), `~/dev/wildfire/references/structure-ignition/structure_ignition_review.md`: repo audit of building outputs, structure-ignition literature, the Berkeley/UMD model and its code-only items.
 - [R4] *Structure ignition paper check: can FireSim rebuild the Berkeley/UMD WUI model from the literature alone?* (2026-10-09, revised the same day), `~/dev/wildfire/reports/Structure ignition paper check.md`: component-by-component check, conflicting published values, recall-only validation (precision 9-77 %), grid-convergence finding, build order. Basis of `docs/structure-spread-spec.md`.
+- [R6] *Structure spread: owner decisions and reasoning* (2026-10-09), `~/dev/wildfire/reports/Structure spread owner decisions 2026-10-09.md`: decisions D1-D6 made under the owner's delegation (design fire, distance limits, aggregate-only output, footprints, Jasper data, Qin 0.34 m/s), each with its reasoning.
+- [R7] *Structure spread: sensitivity to the cutoff, contact distance and footprint filter* (2026-10-09), `~/dev/wildfire/reports/Structure spread sensitivity 2026-10-09.md`: decisions D2/D4 follow-up on Edmonton footprints, 3 sites × 2 weather days, Hamada option, aggregate counts only; script `scripts/structure_sensitivity.py`, outputs `~/dev/wildfire/reports/data/structure-sensitivity-2026-10-09/`.
 - Reference PDFs: `~/dev/wildfire/references/spotting/` (Albini, Chase, Morris originals + `spotting_equations.md`), `structure-ignition/` (Cohen 2000/2004, NRC 2021, Westhaver 2017, others + `structure_ignition_review.md`), `hfi-classes/` (Cole & Alexander 1995 poster, CWFIS legend notes).
 
 ### 4.3 Data sources
@@ -241,6 +250,7 @@ Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/de
 - **Held-out (second round):** fires split by seeded hash (16 calibration / 16 test fires, 79 test fire-days), settings chosen on calibration only. Active edges (previous 2 days) + FFMC spin-up + burning period 10-20 h: test F1 **0.118 → 0.208** (ΔF1 +0.091, 95 % CI +0.056 to +0.125, bootstrap by fire); area difference +0.72 → +0.27; spread within ±35 % on 24 % of days. Oracle start 0.245. Largest wind-driven runs (Horse River 4-5 May 2016) under-predicted further.
 - **Grid diagonal-spread fix (2026-10-09, PR #35):** re-run of the chosen set-up and the Bennett start, all 143 fire-days, before (`a8f8f35`) and after (`4bcfb1d`); "before" reproduced the numbers above exactly. Held-out 17 h F1: active edges + spin-up + 10-20 h **0.208 → 0.212** (ΔF1 +0.004, 95 % CI −0.001 to +0.009); Bennett start + spin-up 0.245 → 0.250 (+0.005, +0.000 to +0.011). Earlier windows dip slightly (8 h −0.003 / −0.008; best hour −0.004 / −0.007, CIs exclude zero but tiny). Skill effectively unchanged; the fix is a correctness fix (grid-orientation independence), not a skill change [R5].
 - **Ensemble (third round, held-out; measured before the grid fix):** 20 members on the chosen set-up, 65 test fire-days (14 largest excluded by run time only). Calibrated sizes vs former placeholders: observed area inside members' P10-P90 **20 % → 49 %** (ideal ~80 %); CRPS of log10 area 0.546 → **0.471** (single run 0.616); Brier skill vs single run +0.18 → +0.25; spread/skill 4.7 → 1.6 (still too narrow); cells at ~95 % burn probability burned 33 % of the time; P50 F1 0.201 vs single run 0.195; **P10 footprint held ≥ 90 % of observed growth on 29 % of days**, so P10 is not a worst case.
+- **Structure-spread sensitivity (2026-10-09; model sensitivity, not a validation)** [R7]: Hamada option, Edmonton footprints (334,192 units), 3 WUI sites (mature ravine edge with garages; lower-density ravine edge; newer suburb beside grass) × 2 days (FWI 15 and 72), 6 h, deterministic FBP run shared by all variants. Involved buildings at 6 h vs the defaults (30 m cutoff, 10 m contact, all footprints), over the 5 runs with a non-zero default: cutoff 20 m **−48 % to 0 %**, 45 m **+5 % to +220 %** (between 30 and 45 m the unit graph joins blocks across streets: largest component 2.5 % → 7.5 % of units); contact 5 m **−71 % to 0 %**, 20 m **+1 % to +557 %** (and 0 → 148 on one moderate run); dropping footprints < 40 m² **−8 % to 0 %**. The contact result is grid-dependent: on the 50 m engine grid with the all-touched building mask the nearest burnable cell lies 0-50 m from a footprint depending on where it sits in its cell. Defaults unchanged; a change to how contact is measured is recommended (§6). City-wide graph at 30 m: median nearest separation 2.56 m (2.58 m without < 40 m²), median degree 8, 1.6 % with no neighbour. Run time: whole city units 3-6 s, spread < 0.3 s per variant; the script's default reproduces the engine's own counts exactly and repeats identically.
 - **Not yet measured:** RPAS-corrected mid-day restarts, real thermal-flight active edges, ensemble skill on the largest runs.
 
 ## 5. Testing
@@ -264,7 +274,9 @@ Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/de
 
 **Structure-spread branches (2026-10-09, local workstation, Python 3.13 venv; frontend Node 22, Playwright Chromium/SwiftShader):** `docs/structure-spread-spec` (docs only): engine 873 passed / 1 xfailed, API 103; `feat/structure-units`: engine **886 passed / 1 xfailed**, API **103**, `tsc` 0, build OK, Vitest **272**, Playwright **28**; `feat/structure-hamada` (stacked on units): engine **912 passed / 2 xfailed** (new strict xfail: Qin 2025's 0.34 m/s Hamada rate not reproduced, spec §4.5), API **107**, `tsc` 0, build OK, Vitest **272**, Playwright **28**.
 
-**Latest results (2026-10-09, branch `feat/structure-hamada` merged with `master` `c264e27`, local workstation):** engine pytest (`PYTHONPATH=engine/src`, `--import-mode=importlib`) **923 passed, 1 xfailed** (strict xfail: Hamada rate 0.197 vs Qin's 0.34 m/s), 57 s; API pytest **108 passed**, 21 s; `tsc` exit 0; Vitest **272 passed**; Playwright + axe in CI `frontend-e2e`.
+**Latest results (2026-10-09, branch `analysis/structure-sensitivity` on `master` `8fa6500`, local workstation, Python 3.13, Node 22):** engine pytest (`PYTHONPATH=engine/src`, `--import-mode=importlib`) **923 passed, 1 xfailed** (strict xfail: Hamada rate 0.197 vs Qin's 0.34 m/s), 56 s; API pytest (`--asyncio-mode=auto`) **108 passed**, 20 s; `npx tsc --noEmit -p tsconfig.app.json` exit 0; Vitest **272 passed** in 16 files; Playwright + axe (`E2E_PORT=4397`, with production build) **28 passed**, first attempt, 3.1 min. The change adds `scripts/structure_sensitivity.py` and docs only (no tests added; the script checks its default against the engine's own counts). Sensitivity results: §4.4 and [R7].
+
+**Previous results (2026-10-09, branch `feat/structure-hamada` merged with `master` `c264e27`, local workstation):** engine pytest (`PYTHONPATH=engine/src`, `--import-mode=importlib`) **923 passed, 1 xfailed** (strict xfail: Hamada rate 0.197 vs Qin's 0.34 m/s), 57 s; API pytest **108 passed**, 21 s; `tsc` exit 0; Vitest **272 passed**; Playwright + axe in CI `frontend-e2e`.
 
 **Earlier results (2026-10-09, branch `feat/ensemble-calibration` merged with `master` `615d132` (PR #35), local workstation):**
 
@@ -334,9 +346,10 @@ against the live site.
 - [ ] Heterogeneous fuel, real terrain, barriers and spotting not compared with WISE, Burn-P3 or Cell2Fire.
 - [ ] Unverified citations: Alexander (2010) full reference; Fox-Hughes et al. (2024) title; Byram (1959), Thomas (1963), Tran et al. (1992) originals; Class 1/6 meanings and an Alexander & De Groot (1988) citation flagged for the owner's check in the redesign notes.
 - [ ] Roadmap after ensemble: time-available vs time-needed per zone, trigger buffers / ember reach (river is not a barrier), exercise/replay mode.
-- [ ] **Structure-to-structure spread (spec 2026-10-09):** owner to confirm the design-fire default (150 vs 400 kW/m²) and the 30 m neighbour cutoff; Qin (2025) reports a Hamada rate of 0.34 m/s for a = d = 10 m at 17.8 m/s where the published equations give 0.197 m/s (unexplained); PROCI SI flame-reach intercepts (≈ 120 m reach at 10 m/s) to be checked against IJWF/Hamada before the WU-E stage; no Canadian validation: request the Jasper 2024 structure-level table (Parks Canada / FPInnovations) and score precision, recall and κ (`docs/structure-spread-spec.md` §8).
-- [ ] **Edmonton footprints for structure spread (measured 2026-10-09, `build_units` on all 346,238):** median nearest edge-to-edge separation 2.6 m; 79 % of footprints have a neighbour within 5 m, 94 % within 10 m; 5,916 have none within 30 m; median square-equivalent size 11.6 m. The very short separations suggest garages and sheds mapped as separate footprints: check a sample against the City's building or parcel data before structure-spread results are shown. Full-city build 17 s on the workstation (pair search + distances).
-- [ ] **Structure spread (Hamada, API only):** no UI yet; outputs are per-frame counts only — per-building involvement times are computed but deliberately not returned (the 2026-10-07 "avoid" list rules out per-building loss outputs); owner to decide whether any per-building output is wanted for exercises. Building mask on the fuel grid still covers only the 4 nearest neighbourhoods, while structure units cover the whole run area.
+- [ ] **Structure-to-structure spread (spec 2026-10-09):** design fire (D1) and 30 m cutoff (D2) **confirmed** under the owner's delegation 2026-10-09 [R6]; Qin (2025) reports a Hamada rate of 0.34 m/s for a = d = 10 m at 17.8 m/s where the published equations give 0.197 m/s (unexplained; stays open, strict xfail kept, **no author contact**, D6); PROCI SI flame-reach intercepts (≈ 120 m reach at 10 m/s) to be checked against IJWF/Hamada before the WU-E stage; no Canadian validation (`docs/structure-spread-spec.md` §8).
+- [ ] **Jasper 2024 building-level data (D5):** search the public record first (Parks Canada, Municipality of Jasper, provincial and federal after-action reviews, published damage-inspection data); only if nothing usable is public, the owner asks through the EM network (owner action). Then score precision, recall and κ (spec §8).
+- [ ] **Structure front contact depends on the 50 m grid** (found by the sensitivity run [R7]): the building mask marks every cell a footprint touches as non-fuel, so the nearest burnable cell edge is 0-50 m from a footprint depending on its position in the cell, and the 10 m contact test flips with it (one ravine site: 0 vs 148 buildings at 10 vs 20 m). Owner decision needed on a method change (measure contact from the building's masked cells; or coverage-fraction masking; or a finer grid near buildings), then re-run [R7]. The 10 m value itself stays (D2).
+- [ ] **Structure spread (Hamada, API only):** no UI yet; outputs are per-frame counts only — per-building involvement times are computed but deliberately not returned (the 2026-10-07 "avoid" list rules out per-building loss outputs); per-building output stays off (D3, 2026-10-09 [R6]): counts only, later perhaps by neighbourhood or distance band. Building mask on the fuel grid still covers only the 4 nearest neighbourhoods, while structure units cover the whole run area.
 - [ ] Minor UI: "Click map to set ignition point" hint lingers after a typed ignition (owner note 2026-10-08; status not re-checked).
 - [ ] Critical assets (after PR #31): 2 Alberta and 2 ODHF care sites could not be positioned; group homes and sites under 10 units excluded by design; OSM-only care sites flagged "verify".
 
@@ -350,19 +363,44 @@ Closed 2026-10-09: grid-model point ignitions with off-axis wind (found 2026-10-
 starting ellipse plus cross-wind numerical diffusion of axis-by-axis upwinding; fixed in `4bcfb1d`
 (PR #35). See the decisions log (§3) and `docs/verification.md` §2.
 
+Closed or adjusted 2026-10-09 (owner delegation, decisions D1-D6 [R6]): structure design-fire
+default (150 kW/m², 400 kW/m² scenario) and 30 m neighbour cutoff confirmed; per-building
+structure output stays off (aggregate counts only); the footprint check against City
+building/parcel data is replaced by the < 40 m² size-filter sensitivity [R7] (−8 % to 0 %
+involved buildings; city-wide median nearest separation 2.6 m with or without footprints
+< 40 m², so the short gaps are mostly not small sheds; a parcel join stays a possible later
+refinement, needed only if per-building output is ever introduced; the earlier measurement on
+all 346,238 footprints stands: median nearest separation 2.6 m, 79 % with a neighbour within
+5 m, 94 % within 10 m, 5,916 with none within 30 m, median square-equivalent size 11.6 m). Still open: Jasper public-data
+search (D5), Qin 0.34 m/s (D6, no author contact), and the grid-dependent front contact found by
+[R7].
+
 ## 7. Work log
 
 Generated from git: `git log --since=2026-10-01 --format="| %ad | \`%h\` | %s |" --date=short`.
 No bot commits in this range. Branch-sync merges ("Merge branch 'master' into …", "Merge
 (origin/)master into …") are omitted; PR merges are kept. 119 earlier commits (2026-02-12 to
-2026-09-30, incl. `TRA-XXX` task history) are not listed.
+2026-09-30, incl. `TRA-XXX` task history) are not listed. Regenerated 2026-10-09 on branch
+`analysis/structure-sensitivity` (this PR's own documentation commit is not listed).
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-09 | `cba9868` | feat(scripts): structure-spread sensitivity to cutoff, contact distance and footprint size |
+| 2026-10-09 | `8fa6500` | Merge pull request #39 from Tphambolio/feat/structure-hamada |
+| 2026-10-09 | `c264e27` | Merge pull request #38 from Tphambolio/feat/structure-units |
+| 2026-10-09 | `0f68244` | Merge pull request #37 from Tphambolio/docs/structure-spread-spec |
+| 2026-10-09 | `5a91105` | Merge pull request #36 from Tphambolio/feat/ensemble-calibration |
+| 2026-10-09 | `615d132` | Merge pull request #35 from Tphambolio/fix/grass-diagonal-spread |
+| 2026-10-09 | `0850a65` | docs: record the grid diagonal-spread fix, its root cause and validation effect |
+| 2026-10-09 | `78d6a6c` | docs: record structure-spread test results |
+| 2026-10-09 | `b26c730` | feat(engine+api): opt-in Hamada structure-to-structure spread (illustrative) |
+| 2026-10-09 | `968c747` | docs: ensemble calibration on observed Alberta fires |
 | 2026-10-09 | `9ef2655` | feat(frontend): P10 is the early end of the ensemble range, not worst-credible |
 | 2026-10-09 | `3dc62a7` | feat(engine+api): calibrated ensemble perturbation defaults |
 | 2026-10-09 | `57313eb` | feat(engine): probabilistic ensemble validation on observed fires |
+| 2026-10-09 | `1fe964b` | feat(engine): building units for structure-to-structure spread |
 | 2026-10-09 | `4bcfb1d` | fix(engine): point ignitions spread the same with the wind on a grid diagonal |
+| 2026-10-09 | `b3b58a9` | docs: structure-to-structure spread specification from the published literature |
 | 2026-10-08 | `a8f8f35` | Merge pull request #34 from Tphambolio/docs/record-after-33 |
 | 2026-10-08 | `33736fc` | docs: record PRs #32 and #33 as merged; refresh work log |
 | 2026-10-08 | `dd523f6` | Merge pull request #33 from Tphambolio/fix/drop-eoc-point |

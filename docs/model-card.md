@@ -121,7 +121,10 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   opt-in, illustrative Hamada layer (API `structure_spread`): Japanese empirical coefficients,
   California-only published tests (recall 78-97 %, precision 9-77 %), FireSim's own 10 m
   contact and 30 m cutoff choices, no embers, no construction classes, no suppression; not
-  validated in Canada.
+  validated in Canada. Sensitivity on Edmonton footprints (2026-10-09,
+  `scripts/structure_sensitivity.py`): involved buildings at 6 h change by −48 % to +220 % for a
+  20 / 45 m cutoff and by −71 % to +557 % for a 5 / 20 m contact (the contact result depends on
+  the 50 m grid and its building mask); dropping footprints under 40 m² changes them by −8 % to 0 %.
 - Building exposure uses worst-case radiant assumptions and ignores embers, burning buildings
   and yard fuels (usually the main causes of loss).
 - WUI zone modifiers in the repository have no source and are off by default.
