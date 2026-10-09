@@ -235,6 +235,8 @@ Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/de
 - **CFSDS validation:** Barber et al. (2024) DOB rasters; metrics unit-tested on shapes with known answers; W.I.S.E. comparison numbers from Bennett et al. (2026) Table 1 plus nine local W.I.S.E. runs.
 - **Frontend fixture:** recorded from the real engine by `npm run fixture:record` (`frontend/tests/fixtures/record_fixture.py`).
 
+**Structure-spread branches (2026-10-09, local workstation, Python 3.13 venv; frontend Node 22, Playwright Chromium/SwiftShader):** `docs/structure-spread-spec` (docs only): engine 873 passed / 1 xfailed, API 103; `feat/structure-units`: engine **886 passed / 1 xfailed**, API **103**, `tsc` 0, build OK, Vitest **272**, Playwright **28**; `feat/structure-hamada` (stacked on units): engine **912 passed / 2 xfailed** (new strict xfail: Qin 2025's 0.34 m/s Hamada rate not reproduced, spec §4.5), API **107**, `tsc` 0, build OK, Vitest **272**, Playwright **28**.
+
 **Latest results (2026-10-08, branch `fix/record-open-items` rebased on `03997fd`, local workstation, machine loaded):**
 
 | Suite | Result | Wall time |
