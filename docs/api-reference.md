@@ -62,6 +62,15 @@ Start a new fire spread simulation.
   `enable_spotting`). Omitted, it is derived from the other inputs, so identical requests give
   identical results; set it to rerun the same inputs with different draws
   (docs/verification.md, "Spotting is repeatable").
+- `structure_spread` (optional, default `false`): **illustrative — not validated in Canada.**
+  Grid runs with building footprints (`buildings_path` or `FIRESIM_BUILDINGS_PATH`, and
+  `FIRESIM_NEIGHBOURHOODS_PATH`): every footprint in the run area becomes a building unit,
+  units within 10 m of a burned cell are involved when the front gets there, and fire passes
+  between units up to 30 m apart in the Hamada crossing time under the run's 10 m wind
+  (`docs/structure-spread-spec.md` §3-4). Frames then carry `structure_spread`. Counts of
+  modelled involvement, not a prediction of which buildings burn; building exposure is
+  unchanged. Ignored by uniform-fuel (Huygens) runs, multi-day, perimeter-override and
+  ensemble members.
 - `cells_mode` (grid runs): `"cumulative"` (default) repeats every burned cell in each frame;
   `"incremental"` sends only the cells burned since the previous frame (a 24 h run: about
   1.6 MB instead of 35 MB). Multi-day runs are always cumulative.
@@ -116,6 +125,7 @@ Status values: `running`, `completed`, `failed`
 | `head_ros_m_min` | the head fire's front speed: the fastest head cell reached since the previous frame |
 | `head` | that cell: `{lat, lng, ros, raz (deg, direction of spread), hfi, cfb, fuel, t, max_spot_distance_m}`; the spotting distance is Albini's maximum (surface-fire or torching-tree model) with the 10 m wind at that time; `null` when no head cell was reached |
 | `building_exposure`, `building_exposure_detail` | see `docs/building-exposure.md` |
+| `structure_spread` | only with the request flag `structure_spread`, else `null`: counts by this frame `{model: "hamada", label: "illustrative — not validated in Canada", units_in_run, units_front_contact, units_structure_to_structure, units_involved, combustible_fraction, neighbour_cutoff_m, wildland_contact_m}`. `units_front_contact`: units reached by the wildland front (a burned cell within `wildland_contact_m` of the footprint); `units_structure_to_structure`: units reached from another unit (Hamada). Any display must carry `label` (`docs/structure-spread-spec.md`) |
 
 ### GET /api/v1/simulations/{id}/arrival
 

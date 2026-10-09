@@ -395,6 +395,7 @@ class SimulationRunner:
             masked_fuel_grid = fuel_grid
             building_centroids = None
             building_geoms = None
+            structure_geoms = None
             buildings_path = getattr(params, "buildings_path", None) or settings.buildings_path
             if buildings_path and fuel_grid is not None and settings.neighbourhoods_path:
                 import dataclasses
@@ -410,6 +411,13 @@ class SimulationRunner:
                 building_centroids = bidx.building_centroids_for(nearest)
                 logger.info("Building mask: %d geometries from %d neighbourhoods",
                             len(building_geoms), len(nearest))
+                if getattr(params, "structure_spread", False):
+                    # Structure spread needs every building in the run area, not only the
+                    # neighbourhoods nearest the ignition (docs/structure-spread-spec.md §2)
+                    structure_geoms = bidx.building_geoms_in_bbox(
+                        fuel_grid.lat_min, fuel_grid.lat_max, fuel_grid.lng_min, fuel_grid.lng_max)
+                    logger.info("Structure spread: %d footprints in the run area",
+                                len(structure_geoms))
 
                 if building_geoms:
                     bldg_mask = load_environment_mask(
@@ -440,6 +448,8 @@ class SimulationRunner:
                 spotting_intensity=getattr(params, "spotting_intensity", 1.0),
                 building_centroids=building_centroids,
                 building_footprints=building_geoms or None,
+                structure_spread=getattr(params, "structure_spread", False),
+                structure_footprints=structure_geoms or None,
             )
 
             for frame in simulator.run():

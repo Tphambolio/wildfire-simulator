@@ -83,11 +83,31 @@ Not conservative (lower the numbers):
 Other: cell intensity uses the fire's final weather period (as in the burned-cell display);
 distances are from cell edges on the fuel grid, so they are resolved to about half a cell.
 
+## Structure-to-structure spread (opt-in, separate from exposure)
+
+`structure_spread: true` on a grid run (API; no UI yet) adds a **separate**, opt-in layer:
+the empirical Hamada urban-fire model run between building units (`engine/src/firesim/structures/`,
+specification `docs/structure-spread-spec.md`). It is labelled **"illustrative — not validated
+in Canada"** wherever it appears and reports only counts of *modelled involvement* per frame
+(`structure_spread`). It does not change any exposure number above, and it is not an ignition
+or loss prediction.
+
+- Every footprint in the run area is one unit (not rasterised: Qin et al. 2026, FSJ 104686,
+  shows grid results converge only with cells at most half the building size and spacing).
+- A unit is involved when a burned cell comes within 10 m of its footprint (the flame-contact
+  band above; a FireSim choice).
+- From there fire passes to units up to 30 m away (edge to edge; a FireSim cutoff) in Hamada's
+  crossing time for the pair's size, separation, bearing and the run's 10 m wind (Purnomo et al.
+  2026, FSJ 104651 and supplement; Qin 2025 eqs 2.66-2.80; Himoto & Tanaka 2008 eqs 42-43).
+- What it still leaves out: ember ignition (the main cause of loss), yard fuels, sheds, fences,
+  vehicles, construction differences, suppression, burnout. A building the model does not
+  reach is **not safe**.
+
 ## Not included yet
 
 - Ember exposure (a geometric index of crown fire upwind within 100 / 500 m is the next step);
-- structure-to-structure separation classes and clusters (needs all footprints, not only those
-  near the fire);
+- separation classes and clusters as an exposure output (the unit graph of
+  `structures/units.py` now holds every footprint's separations; not yet reported);
 - per-building map layer and export.
 
 ## Sources
@@ -99,5 +119,13 @@ distances are from cell edges on the fuel grid, so they are resolved to about ha
 - National Research Council Canada (2021). *National Guide for Wildland-Urban Interface Fires.*
 - Alexander, M.E., Cruz, M.G. (2012). Interdependencies between flame length and fireline
   intensity in predicting crown fire initiation and crown scorch height. *IJWF* 21: 95-113.
+- Purnomo, D.M.J. et al. (2026). Sensitivity of ELMFIRE to real-world input datasets for WUI
+  fire modeling. *Fire Safety J.* 161: 104651 (Hamada coupling and supplement).
+- Qin, Y. (2025). *A physics-based Eulerian framework for modeling firebrand showering in
+  regional-scale wildland and WUI fire simulations.* PhD, University of Maryland.
+- Qin, Y. et al. (2026). Simulations of firebrand-driven fire spread in landscape-scale WUI and
+  urban conflagration models. *Fire Safety J.* 162: 104686.
+- Himoto, K., Tanaka, T. (2008). Development and validation of a physics-based urban fire
+  spread model. *Fire Safety J.* 43(7): 477-494.
 - Tran, H.C. et al. (1992). Wood ignition with radiant heat. In *Fire and Flammability of
   Furnishings and Contents of Buildings*, ASTM STP 1233. (Via Cohen 2004; not checked here.)

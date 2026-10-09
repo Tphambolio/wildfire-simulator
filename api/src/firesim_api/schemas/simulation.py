@@ -275,6 +275,16 @@ class SimulationCreate(BaseModel):
             "to rerun the same inputs with different random draws."
         ),
     )
+    structure_spread: bool = Field(
+        default=False,
+        description=(
+            "Opt-in, illustrative — not validated in Canada. Grid runs with building "
+            "footprints: Hamada building-to-building spread between building units, started "
+            "from the units the wildland front reaches (docs/structure-spread-spec.md). "
+            "Frames then carry `structure_spread` counts of modelled involvement. Not a "
+            "prediction of which buildings burn."
+        ),
+    )
 
 
     @field_validator("start_time")
@@ -350,6 +360,10 @@ class SimulationFrame(BaseModel):
     head: dict | None = None
     # Incremental cells: number of earlier cells not repeated in burned_cells (0 = all cells)
     cells_offset: int = 0
+    # Opt-in structure-to-structure spread (request `structure_spread`): counts of building
+    # units with modelled involvement by this frame, with "label": "illustrative — not
+    # validated in Canada". Not a prediction of which buildings burn.
+    structure_spread: dict | None = None
 
 
 class SimulationResponse(BaseModel):
