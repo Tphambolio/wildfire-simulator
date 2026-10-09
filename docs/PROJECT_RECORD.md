@@ -51,6 +51,7 @@ Frontend → HTTP/WebSocket → API → engine; frames are streamed back over We
 | `engine/src/firesim/spread/albini.py`, `spotting.py` | Albini/Chase/Morris maximum spotting distance; heuristic emission/landing |
 | `engine/src/firesim/spread/simulator.py` | `Simulator` orchestrator; picks grid model whenever a fuel grid exists |
 | `engine/src/firesim/exposure.py` | Building exposure: distance bands, Cohen (2004) radiant flux, flux-time index |
+| `engine/src/firesim/structures/` | Structure-to-structure spread (opt-in, illustrative): `units.py` builds one unit per building footprint (centroid, footprint in local metres, area, square-equivalent size, neighbour graph with edge-to-edge separations within a cutoff, default 30 m); specification `docs/structure-spread-spec.md` |
 | `engine/src/firesim/data/` | Fuel loader (code schemes incl. Edmonton canopy LiDAR, drone pipeline, CFS national), DEM loader, reprojection (`raster_grid.py`), WUI/water/building masks, synthetic demo grid |
 | `engine/src/firesim/validation/` | CFSDS validation harness (`cfsds.py`, `harness.py`, `metrics.py`, `report.py`, `weather.py`) |
 | `api/src/firesim_api/` | FastAPI: `routers/` (simulations, fwi, weather, health), `services/runner.py` (background runs, grid cache), `schemas/`, `ws/` |
@@ -128,6 +129,7 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | Building exposure | `exposure.py`: distance bands (≤10, 10-30, 30-100, 100-500 m); solid-flame radiant flux (1200 K, 117.6 kW/m² and 200 kW/m² scenarios); flux-time criterion FTP = ∫(q − 13.1)^1.828 dt ≥ 11,501 | Cohen (2004) [18] (SIAM, eqs 2-4 after Tran et al. 1992, not checked); Cohen (2000) [18b]; NRC (2021) [19] p.27 bands and flux ranges. Exposure, **not** ignition probability |
 | HFI classes 1-6 | `frontend/src/utils/fireClasses.ts` | Cole & Alexander (1995) [21] meanings (C-2, level ground; class 6 = their "explosive" upper class 5); limits from CWFIS GeoServer `public:hfi` legend (read 2026-10-06) |
 | FWI classes | `fwi/classes.py`, `frontend/src/utils/fwiClass.ts` | CWFIS national FWI map intervals (GeoServer `public:fwi` legend) |
+| Building units for structure spread | `structures/units.py`: one node per Microsoft footprint clipped to the run area (`BuildingIndex.building_geoms_in_bbox`); envelope candidates + exact shapely distances; not rasterised onto the fuel grid | Single-unit treatment: Qin et al. (2026) FSJ 104686 §3.4, §4, §6, pp.4, 7-9 (grid convergence needs Δx ≤ half the building size and spacing); square-equivalent size after Hamada's square plans (Himoto & Tanaka 2008, p.25) — applying it to irregular footprints is a FireSim heuristic |
 | Validation metrics | `validation/metrics.py`: precision, recall, F1 (Dice), IoU, normalised area difference, Hausdorff, forward spread distance and bearing; ±35 % band | Bennett et al. (2026) [20] protocol; Fox-Hughes et al. (2024) [23]; Cruz & Alexander (2013) [22] |
 | Observed fire data | CFSDS day-of-burning rasters + daily summaries | Barber et al. (2024) [24] |
 
@@ -277,6 +279,7 @@ against the live site.
 - [ ] Heterogeneous fuel, real terrain, barriers and spotting not compared with WISE, Burn-P3 or Cell2Fire.
 - [ ] Unverified citations: Alexander (2010) full reference; Fox-Hughes et al. (2024) title; Byram (1959), Thomas (1963), Tran et al. (1992) originals; Class 1/6 meanings and an Alexander & De Groot (1988) citation flagged for the owner's check in the redesign notes.
 - [ ] Roadmap after ensemble: time-available vs time-needed per zone, trigger buffers / ember reach (river is not a barrier), exercise/replay mode.
+- [ ] **Edmonton footprints for structure spread (measured 2026-10-09, `build_units` on all 346,238):** median nearest edge-to-edge separation 2.6 m; 79 % of footprints have a neighbour within 5 m, 94 % within 10 m; 5,916 have none within 30 m; median square-equivalent size 11.6 m. The very short separations suggest garages and sheds mapped as separate footprints: check a sample against the City's building or parcel data before structure-spread results are shown. Full-city build 17 s on the workstation (pair search + distances).
 - [ ] Minor UI: "Click map to set ignition point" hint lingers after a typed ignition (owner note 2026-10-08; status not re-checked).
 - [ ] Critical assets (after PR #31): 2 Alberta and 2 ODHF care sites could not be positioned; group homes and sites under 10 units excluded by design; OSM-only care sites flagged "verify".
 

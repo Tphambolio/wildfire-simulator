@@ -194,3 +194,39 @@ class BuildingIndex:
         for key in nbhd_keys:
             result.extend(self._centroids_by_nbhd.get(key, []))
         return result
+
+    def building_geoms_in_bbox(
+        self, lat_min: float, lat_max: float, lng_min: float, lng_max: float
+    ) -> list:
+        """Shapely geometries of the buildings whose centroid lies in the box.
+
+        For structure-to-structure spread, which needs every building in the run area rather
+        than only the neighbourhoods nearest the ignition. Builds flat centroid arrays once.
+        """
+        import numpy as np
+
+        if not hasattr(self, "_flat_geoms"):
+            raw: list[dict] = []
+            lat: list[float] = []
+            lng: list[float] = []
+            for key, geoms in self._raw_by_nbhd.items():  # each key once
+                raw.extend(geoms)
+                for clat, clng in self._centroids_by_nbhd.get(key, []):
+                    lat.append(clat)
+                    lng.append(clng)
+            self._flat_geoms = raw
+            self._flat_lat = np.asarray(lat, dtype=float)
+            self._flat_lng = np.asarray(lng, dtype=float)
+        sel = np.nonzero(
+            (self._flat_lat >= lat_min) & (self._flat_lat <= lat_max)
+            & (self._flat_lng >= lng_min) & (self._flat_lng <= lng_max)
+        )[0]
+        result = []
+        for i in sel:
+            try:
+                geom = shape(self._flat_geoms[i])
+                if not geom.is_empty:
+                    result.append(geom)
+            except Exception:
+                continue
+        return result
