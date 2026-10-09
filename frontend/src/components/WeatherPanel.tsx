@@ -1306,7 +1306,7 @@ function WeatherPanel({
             )}
             <p className="hint-sm">
               {useEdmontonGrid
-                ? `Re-runs the fire ${ensembleMembers} times with varied wind, moisture and spread rate after the single run: about 1 s per member on the server, longer for large fires. The spread of outcomes is uncalibrated: the variations are defaults, not fitted to observed fires.`
+                ? `Re-runs the fire ${ensembleMembers} times with varied wind, moisture and spread rate after the single run: about 1 s per member on the server, longer for large fires. The variations are sized from Alberta forecast errors and observed fires, but the spread of outcomes is still narrower than the real uncertainty (about half of observed days fall inside the 10-90 % range).`
                 : "Needs the Edmonton fuel grid (grid runs only)."}
             </p>
           </div>

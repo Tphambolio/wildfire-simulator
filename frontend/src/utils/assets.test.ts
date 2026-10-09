@@ -241,7 +241,7 @@ describe("asset arrival on the recorded run", () => {
   });
 });
 
-describe("worst-credible (ensemble P10) arrival", () => {
+describe("ensemble P10 (early) arrival", () => {
   const single = fireFromFrames(frames)!;
   const worst = fireFromEnsemble(ensemble, "p10")!;
   const median = fireFromEnsemble(ensemble, "p50")!;
@@ -256,12 +256,12 @@ describe("worst-credible (ensemble P10) arrival", () => {
     }
   });
 
-  it("rows lead with the worst-credible time, the single run beside it, in clock time", () => {
+  it("rows lead with the P10 (early) time, the single run beside it, in clock time", () => {
     const rows = assetRows(assets, assetReach(single, assets), assetReach(worst, assets));
     expect(rows.length).toBeGreaterThan(0);
     for (let i = 1; i < rows.length; i++) expect(rows[i].first).toBeGreaterThanOrEqual(rows[i - 1].first);
     const phrases = assetReachPhrases(rows[0], start, true);
-    expect(phrases[0]).toMatch(/^Fire within 500 m by (\d{2}:\d{2}|not reached) \(worst-credible\) · (\d{2}:\d{2}|not reached) \(single run\)$/);
+    expect(phrases[0]).toMatch(/^Fire within 500 m by (\d{2}:\d{2}|not reached) \(P10\) · (\d{2}:\d{2}|not reached) \(single run\)$/);
     // Never phrased as an instruction
     const text = criticalReachLines({ assets: rows, roads: [], hasEnsemble: true, start, bufferM: 500 }).join("\n");
     expect(text).toContain("not an instruction");
@@ -271,7 +271,7 @@ describe("worst-credible (ensemble P10) arrival", () => {
   it("single-run only: one time, and 'nothing' when not reached", () => {
     expect(timePair(null, 1.5, start, false)).toBe("15:30");
     expect(timePair(null, null, start, false)).toBeNull();
-    expect(timePair(1, null, start, true)).toBe("15:00 (worst-credible) · not reached (single run)");
+    expect(timePair(1, null, start, true)).toBe("15:00 (P10) · not reached (single run)");
   });
 });
 
@@ -311,7 +311,7 @@ describe("major roads", () => {
     expect(edmontonRoads.features.map((f) => f.properties?.name)).toEqual(expect.arrayContaining(["Anthony Henday Drive NW", "Whitemud Drive NW"]));
   });
 
-  it("road first-reach stays fast with the full roads file (recorded run, single + worst-credible)", () => {
+  it("road first-reach stays fast with the full roads file (recorded run, single + P10)", () => {
     const single = fireFromFrames(frames)!;
     const worst = fireFromEnsemble(ensemble, "p10")!;
     roadReach(single, edmontonRoads); // warm-up (JIT)
@@ -328,7 +328,7 @@ describe("major roads", () => {
     };
     const a = time(single);
     const b = time(worst);
-    console.log(`[perf] roadReach on ${edmontonRoads.features.length} road features (median of 5): single run ${a.ms.toFixed(1)} ms (${a.roads} roads), worst-credible ${b.ms.toFixed(1)} ms (${b.roads} roads)`);
+    console.log(`[perf] roadReach on ${edmontonRoads.features.length} road features (median of 5): single run ${a.ms.toFixed(1)} ms (${a.roads} roads), P10 ${b.ms.toFixed(1)} ms (${b.roads} roads)`);
     // Budget: well under a frame-blocking second, with headroom for slow CI runners
     expect(a.ms).toBeLessThan(500);
     expect(b.ms).toBeLessThan(500);

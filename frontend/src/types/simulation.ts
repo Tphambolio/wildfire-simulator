@@ -74,7 +74,8 @@ export interface SimulationCreate {
 
 /**
  * Ensemble request (API EnsembleParams). Only n_members is set by the UI; the perturbation
- * sizes stay at the API defaults, which are not yet calibrated on observed fires.
+ * sizes stay at the API defaults, calibrated on observed Alberta fires (docs/validation.md
+ * "Ensemble calibration"; the range is still narrower than the real uncertainty).
  */
 export interface EnsembleParams {
   n_members: number;

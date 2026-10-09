@@ -22,7 +22,7 @@ import { formatClock } from "../utils/time";
 interface EvacStatusPanelProps {
   /** Single (deterministic) run */
   arrivals: NeighbourhoodArrival[];
-  /** Ensemble worst-credible (P10) arrivals; when present they lead and the single run is secondary */
+  /** Ensemble P10 (early, 1 in 10 members) arrivals; when present they lead and the single run is secondary */
   worstArrivals?: NeighbourhoodArrival[] | null;
   scenarioStart: Date | null;
   hasRun: boolean;
@@ -107,7 +107,7 @@ function EvacStatusPanel({
     <section className="evac-status" aria-labelledby={`${id}-h`}>
       <h3 id={`${id}-h`} className="evac-status-h">Neighbourhoods</h3>
       <p className="hint-sm">
-        Fire arrival is modelled for this run{worstArrivals ? ": worst-credible (P10 of the ensemble) first, the single run beside it" : ""}.
+        Fire arrival is modelled for this run{worstArrivals ? ": the ensemble's P10 (early end of the range, 1 in 10 members) first, the single run beside it" : ""}.
         Evacuation status is set by Planning: FireSim does not recommend evacuation tiers.
       </p>
 
@@ -125,7 +125,7 @@ function EvacStatusPanel({
               <th scope="col">Neighbourhood</th>
               {worstArrivals ? (
                 <>
-                  <th scope="col">Fire within {ARRIVAL_BUFFER_M} m by, worst-credible</th>
+                  <th scope="col">Fire within {ARRIVAL_BUFFER_M} m by, P10 (early)</th>
                   <th scope="col">Single run</th>
                 </>
               ) : (
