@@ -154,18 +154,19 @@ SPIN_UP_DOC = (
 
 
 class EnsembleParams(BaseModel):
-    """Ensemble run after the deterministic one (grid runs). Perturbation sizes are defaults
-    until calibrated on observed fires; see firesim/spread/ensemble.py."""
+    """Ensemble run after the deterministic one (grid runs). Default perturbation sizes are
+    the calibrated ones of firesim/spread/ensemble.py (DEFAULT_SIGMAS; sources and held-out
+    scores in docs/validation.md "Ensemble calibration")."""
 
     n_members: int = Field(default=30, ge=5, le=200)
     seed: int = 1
-    wind_dir_sd_deg: float = Field(default=20.0, ge=0, le=90)
-    wind_speed_log_sd: float = Field(default=0.2, ge=0, le=1)
-    ffmc_sd: float = Field(default=1.5, ge=0, le=10)
-    dmc_dc_log_sd: float = Field(default=0.1, ge=0, le=1)
-    curing_sd: float = Field(default=10.0, ge=0, le=50)
-    fmc_sd: float = Field(default=5.0, ge=0, le=30)
-    ros_log_sd: float = Field(default=0.3, ge=0, le=1)
+    wind_dir_sd_deg: float = Field(default=24.0, ge=0, le=90)
+    wind_speed_log_sd: float = Field(default=0.405, ge=0, le=1)
+    ffmc_sd: float = Field(default=7.2, ge=0, le=10)
+    dmc_dc_log_sd: float = Field(default=0.6, ge=0, le=1)
+    curing_sd: float = Field(default=13.5, ge=0, le=50)
+    fmc_sd: float = Field(default=15.0, ge=0, le=30)
+    ros_log_sd: float = Field(default=0.825, ge=0, le=1)
     ignition_jitter_m: float = Field(default=0.0, ge=0, le=2000)
 
 

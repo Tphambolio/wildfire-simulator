@@ -173,15 +173,22 @@ Runs only when the POST included `"ensemble": {"n_members": 30, ...}` (grid runs
 ensemble starts after the deterministic frames complete (about 1 s per member for a 4 h run
 on the Edmonton grid). While running: `{"status": "running", "done": 12, "total": 30}`.
 When complete: grid bounds, `arrival` with `p10` / `p50` / `p90` rasters (base64 little-endian
-int16 minutes, -1 = fewer than that share of members reached the cell; P10 is the
-worst-credible early arrival), `burn_probability` (base64 uint8 percent), member area range
-and each member's perturbations.
+int16 minutes, -1 = fewer than that share of members reached the cell; P10 = the time by
+which 1 in 10 members reached the cell, the early end of the modelled range),
+`burn_probability` (base64 uint8 percent), member area range and each member's
+perturbations.
 
-Perturbations (defaults, **not yet calibrated** on observed fires): wind direction sd 20°
-applied to every hourly record, wind speed log-sd 0.2, FFMC sd 1.5, DMC/DC log-sd 0.1, grass
-curing sd 10 points, foliar moisture sd 5 %, rate-of-spread multiplier log-sd 0.3. Grass
-runs near 58.8 % curing are very sensitive to the curing perturbation (the FBP curing factor
-changes slope there).
+Default perturbations (`EnsembleParams`; calibrated on observed Alberta fires, see
+`docs/validation.md` "Ensemble calibration" for sources and held-out scores): `wind_dir_sd_deg`
+24 (degrees, one offset per member applied to every hourly record), `wind_speed_log_sd`
+0.405 (log-normal multiplier), `ffmc_sd` 7.2, `dmc_dc_log_sd` 0.6 (log-normal, DMC and DC
+independently), `curing_sd` 13.5 (percentage points), `fmc_sd` 15 (%), `ros_log_sd` 0.825
+(log-normal rate-of-spread multiplier, median 1), `ignition_jitter_m` 0. On held-out fires
+the observed one-day area fell inside the members' P10-P90 range on about half the days, so
+the range is narrower than the real uncertainty, and **P10 is not a worst case**: its
+footprint held at least 90 % of the observed growth on only 29 % of fire-days. Grass runs
+near 58.8 % curing are very sensitive to the curing perturbation (the FBP curing factor
+changes slope there); the curing and foliar-moisture sizes are not validated.
 
 ### POST /api/v1/simulations/multiday
 

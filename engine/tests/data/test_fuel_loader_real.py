@@ -128,9 +128,9 @@ class TestRealGridSimulation:
     (one row either side, 2 cells upwind, 10 cells downwind), so a west wind can carry the
     fire about 1 km before it meets other fuel. ``test_ignitions_are_on_fuel`` guards that
     choice; if the raster or the loader changes, re-pick the points rather than skip.
-    The wind is due west because point ignitions in narrow (grass) ellipses are badly
-    under-spread when the wind is off the grid axes (see
-    ``engine/tests/spread/test_cellular.py::test_point_ignition_grass_diagonal_wind``).
+    The wind is due west, chosen (2026-10-08) while point ignitions in narrow (grass)
+    ellipses were badly under-spread with the wind off the grid axes; fixed 2026-10-09 (see
+    ``engine/tests/spread/test_cellular.py::TestRotationalInvariance``).
     """
 
     IGNITIONS = _IGNITIONS

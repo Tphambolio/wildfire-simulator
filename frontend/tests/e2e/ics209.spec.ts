@@ -25,7 +25,7 @@ test("ICS 209-WF: ICS Canada layout, run stamp, ensemble projections, observed b
   expect(text).not.toMatch(/NIMS/);
   expect(text).toContain(fixture.simulation_id);
   expect(text).toContain("e2e0sha");
-  expect(text).toContain("Area P10 (worst-credible)");
+  expect(text).toContain("Area P10 (1 in 10 members)");
   expect(text).toMatch(/12 hours\s+\S.*\d{2}:\d{2}/);
   // A 4 h run: the end of the modelled period is reported, the 12-72 h horizons are not projected
   expect(text).toContain("End of modelled period (T+4:00)");

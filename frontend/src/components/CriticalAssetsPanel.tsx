@@ -1,6 +1,6 @@
 /**
  * Critical assets card (Situation panel): when the modelled fire reaches each asset and major
- * road, in clock time, like the Neighbourhoods card. With an ensemble, the worst-credible (P10)
+ * road, in clock time, like the Neighbourhoods card. With an ensemble, the P10 (early)
  * time leads and the single run is beside it. Model output only: no recommendation is drawn
  * from it (Travis, 2026-10-08).
  */
@@ -78,7 +78,7 @@ function CriticalAssetsPanel({
       <h3 id={`${id}-h`} className="assets-card-h">Critical assets</h3>
       <p className="hint-sm">
         When the modelled fire comes within {ARRIVAL_BUFFER_M} m of each asset, and inside it, for this run
-        {hasEnsemble ? ": worst-credible (P10 of the ensemble) first, the single run beside it" : ""}. Model output, not
+        {hasEnsemble ? ": the ensemble's P10 (early end of the range, 1 in 10 members) first, the single run beside it" : ""}. Model output, not
         an instruction.
       </p>
 

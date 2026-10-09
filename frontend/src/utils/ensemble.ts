@@ -4,7 +4,7 @@
  * GET /api/v1/simulations/{id}/ensemble returns, once complete, P10/P50/P90 arrival rasters
  * (base64 little-endian int16, whole minutes after ignition, -1 = fewer than that share of
  * members reached the cell; row-major from the north-west corner) and burn probability
- * (base64 uint8 percent). P10 is the worst-credible (early) arrival: one member in ten
+ * (base64 uint8 percent). P10 is the early arrival: one member in ten
  * reaches the cell this early or earlier.
  *
  * Arrival lines are contoured with marching squares on the cell-centre lattice, so any
@@ -400,7 +400,7 @@ export function earliestCell(g: EnsembleGrids, which: "p10" | "p50" | "p90" = "p
 }
 
 /**
- * P10 (worst-credible) arrival lines at `levels`, labelled in clock time. Labels sit where
+ * P10 (early) arrival lines at `levels`, labelled in clock time. Labels sit where
  * each line is farthest from `origin` (default: the earliest cell, i.e. the ignition), so
  * they line up along the head.
  */

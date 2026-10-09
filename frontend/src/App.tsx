@@ -479,7 +479,7 @@ export default function App() {
   );
 
   // Neighbourhoods: modelled earliest fire arrival within 500 m (a model fact, whole run).
-  // With an ensemble, the worst-credible (P10) arrival leads and the single run is secondary.
+  // With an ensemble, the P10 (early) arrival leads and the single run is secondary.
   const arrivals = useMemo(() => neighbourhoodArrivals(frames, communities), [frames, communities]);
   const worstArrivals = useMemo(
     () => (ensGrids ? neighbourhoodArrivalsFromPoints(arrivalPoints(ensGrids, "p10"), communities) : null),
@@ -533,7 +533,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   }, [evacZones, incident]);
 
-  // ── Critical assets and major roads: modelled arrival (single run, worst-credible P10) ──
+  // ── Critical assets and major roads: modelled arrival (single run, ensemble P10) ──
   const assets = useMemo<Asset[]>(
     () => [
       ...assetsFromGeoJSON(edmontonAssets, { idPrefix: "edm:" }),

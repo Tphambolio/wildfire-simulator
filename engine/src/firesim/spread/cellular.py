@@ -630,10 +630,17 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceler
     # Only fuel that carries fire under the current conditions can be inside the starting
     # ellipse (e.g. D-2 below BUI 80 has zero spread and must not be painted burned)
     carries = params.fuel & (params.head > 1e-5)  # FBP floors ROS at 1e-6 m/min (cffdrs)
-    inside = (tg <= t0) & carries
-    labels, _ = ndimage.label(inside)
-    burned = labels == labels[r0, c0]
+    in_ellipse = tg <= t0
+    inside = in_ellipse & carries
+    burned = _connected_to(inside, carries, r0, c0)
+    # phi starts as the signed distance to the ellipse. (head * (tg - t0) has the same zero
+    # contour, but its level sets are ever narrower copies of the ellipse, LB times steeper
+    # across it than along it, so on a diagonal the upwind differences see a kink across
+    # the head axis and the narrow front stalls.)
     phi = head * (tg - t0)
+    win = _window(in_ellipse, BAND_CELLS + 2)
+    phi[win] = _ellipse_signed_distance(u[win], v[win], a * t0, b * t0, c * t0, in_ellipse[win],
+                                        min(dx, dy))
     # cells inside the ellipse but cut off from the ignition by non-fuel start unburned
     phi[inside & ~burned] = 0.5 * min(dx, dy)
     phi[~carries] = np.maximum(phi[~carries], 0.5 * min(dx, dy))
@@ -645,6 +652,35 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceler
     cross_ros[burned] = wavelet_normal_speed(a, b, c, nh, nk)[burned]
     cross_ros[r0, c0] = head
     return phi, t0
+
+
+def _connected_to(inside, carries, r0, c0):
+    """Cells of ``inside`` connected to (r0, c0), through fuel that carries fire.
+
+    Cells joined only at a corner count as connected when a carrying cell beside both
+    links them (so a narrow ellipse lying along a grid diagonal stays one piece), but not
+    across a diagonal line of non-fuel.
+    """
+    pad = np.pad(inside, 1)
+    ns = pad[:-2, 1:-1] | pad[2:, 1:-1]
+    ew = pad[1:-1, :-2] | pad[1:-1, 2:]
+    bridge = carries & ~inside & ns & ew
+    labels, _ = ndimage.label(inside | bridge)
+    return (labels == labels[r0, c0]) & inside
+
+
+def _ellipse_signed_distance(u, v, semi_major, semi_minor, centre, in_ellipse, h):
+    """Signed distance (m) from points (u along the head, v across) to the ellipse with the
+    given semi-axes and centre ``centre`` along the head axis: negative inside."""
+    from scipy.spatial import cKDTree
+
+    perimeter = 2.0 * math.pi * max(semi_major, semi_minor)
+    n = int(min(max(256, perimeter / (0.02 * h)), 200_000))
+    s = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False)
+    boundary = np.column_stack((centre + semi_major * np.cos(s), semi_minor * np.sin(s)))
+    dist, _ = cKDTree(boundary).query(np.column_stack((u.ravel(), v.ravel())))
+    dist = dist.reshape(u.shape)
+    return np.where(in_ellipse, -dist, dist)
 
 
 def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acceleration=True,
@@ -694,7 +730,7 @@ def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acc
     uk = b * b * nk / root
     ux = uh * hx - uk * hy
     uy = uh * hy + uk * hx
-    rate = np.where(ux > 0, ux * dxm, ux * dxp) + np.where(uy > 0, uy * dym, uy * dyp)
+    rate = _rotated_upwind_rate(pad, fpad, C, eno, mm, ux, uy, dxm, dxp, dym, dyp, dx, dy)
     new = np.where(fuel, C - step * rate, np.maximum(C, 0.5 * min(dx, dy)))
 
     crossed = fuel & (C >= 0) & (new < 0)
@@ -705,6 +741,47 @@ def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acc
         arr_win[crossed] = t + frac * step
         ros_win[crossed] = (c * nh + root)[crossed]
     phi[win] = new
+
+
+def _rotated_upwind_rate(pad, fpad, C, eno, mm, ux, uy, dxm, dxp, dym, dyp, dx, dy):
+    """U . grad(phi) from upwind differences along the grid axis and the grid diagonal that
+    bracket U.
+
+    U is split into non-negative parts along those two directions (U = A (dx, 0) + B (dx, dy)
+    in the quadrant of U), and each part uses the one-sided (ENO2) difference along its own
+    direction. Along a grid axis this is the axis-by-axis upwind scheme; off the axes it
+    avoids the cross-wind numerical diffusion of axis-by-axis upwinding, which smooths away
+    the valley of phi across a narrow front (a grass fire's ellipse) and makes it stall
+    when the wind is on a diagonal. The scheme stays monotone (A, B >= 0).
+    """
+    rows, cols = C.shape
+
+    def at(dr, dc):  # phi at (row + dr, col + dc); row + 1 is south
+        return pad[2 + dr:2 + dr + rows, 2 + dc:2 + dc + cols]
+
+    def fuel_at(dr, dc):
+        return fpad[1 + dr:1 + dr + rows, 1 + dc:1 + dc + cols]
+
+    def open_corner(dr, dc):
+        # a diagonal neighbour is linked when it is fuel and so is a cell beside both
+        return fuel_at(dr, dc) & (fuel_at(dr, 0) | fuel_at(0, dc))
+
+    sr = np.where(uy > 0, 1, -1)  # upwind row offset (south when U points north)
+    sc = np.where(ux > 0, -1, 1)  # upwind column offset (west when U points east)
+    diag = np.zeros_like(C)
+    for dr in (-1, 1):
+        for dc in (-1, 1):
+            sel = (sr == dr) & (sc == dc)
+            if not sel.any():
+                continue
+            p1 = np.where(open_corner(dr, dc), at(dr, dc), C)
+            f1 = np.where(open_corner(-dr, -dc), at(-dr, -dc), C)
+            d = (C - p1) + eno * 0.5 * mm(C - 2 * p1 + at(2 * dr, 2 * dc), f1 - 2 * C + p1)
+            diag = np.where(sel, d, diag)
+    along_x = np.where(ux > 0, dxm, -dxp) * dx  # one-sided differences against U, per cell
+    along_y = np.where(uy > 0, dym, -dyp) * dy
+    qx, qy = np.abs(ux) / dx, np.abs(uy) / dy
+    return np.where(qx >= qy, (qx - qy) * along_x + qy * diag, (qy - qx) * along_y + qx * diag)
 
 
 def _frames(arrival, cross_ros, p, fuel_grid, center, duration, snapshot_interval, cell_area_m2,

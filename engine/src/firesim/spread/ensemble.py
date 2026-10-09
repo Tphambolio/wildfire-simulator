@@ -3,28 +3,43 @@
 Runs the grid (level-set) model N times with perturbed inputs and summarises, for every
 cell, when the fire arrives across the members:
 
-- P10 arrival: the time by which 10 % of members have reached the cell. This is the
-  "worst-credible" early arrival used for warning-time margins.
+- P10 arrival: the time by which 10 % of members have reached the cell (the early end of
+  the ensemble's range). On observed Alberta fires the P10 footprint did NOT contain the
+  observed growth reliably (docs/validation.md "Ensemble calibration"), so it is the early
+  end of the modelled range, not a demonstrated worst case.
 - P50 arrival: the median member.
 - P90 arrival: a late arrival; cells that fewer than 90 % of members reach have none.
 - Burn probability: the fraction of members that reach the cell within the run.
 
-Perturbations (independent, per member; defaults are placeholders until calibrated):
-- wind direction: normal, sd ``wind_dir_sd_deg``. Every evaluation of fire growth models
-  finds wind direction the dominant error source (Fox-Hughes et al. 2024; Bennett et al.
-  2026), and the member's offset is applied to every hourly record (a systematic forecast
-  error, not hour-to-hour noise).
-- wind speed: log-normal multiplier, sd ``wind_speed_log_sd``.
-- FFMC: normal, sd ``ffmc_sd`` (hourly FFMC starts from the perturbed value).
-- DMC and DC: log-normal multipliers, sd ``dmc_dc_log_sd`` (so BUI varies).
-- grass curing: normal, sd ``curing_sd`` (percentage points).
-- foliar moisture: normal, sd ``fmc_sd``.
-- rate of spread: log-normal multiplier, sd ``ros_log_sd``, median 1. Cruz & Alexander
-  (2013) put typical FBP-type ROS errors at +-35-75 %, with under-prediction more common.
-- ignition: optional jitter radius ``ignition_jitter_m`` (0 = the ignition is known).
+Perturbations (independent, per member). The default sizes (``DEFAULT_SIGMAS``) come from
+an input-error climatology for Alberta's forested regions, inflated by one factor (1.5)
+chosen on the calibration half of the observed-fire validation set; sources and held-out
+scores are in docs/validation.md "Ensemble calibration":
 
-The defaults should be replaced by values calibrated on observed fires (the validation
-harness) and Environment and Climate Change Canada forecast-error statistics.
+- wind direction: normal, sd ``wind_dir_sd_deg`` = 24 deg. One offset per member applied
+  to every hourly record (a systematic forecast error, not hour-to-hour noise). The error
+  of the GEM day-1 forecast's 10-20 h vector-mean wind direction at 14 ECCC stations
+  (May-Sep 2024-25, days forecast >= 10 km/h) has sd 24 deg; its central-80 % equivalent
+  is 16 deg, x 1.5 = 24. A larger sd (30 deg) made no difference on the calibration fires.
+- wind speed: log-normal multiplier, sd ``wind_speed_log_sd`` = 0.405 (same climatology:
+  log error 0.27 x 1.5).
+- FFMC: normal, sd ``ffmc_sd`` = 7.2 (FFMC from GEM day-1 weather vs from station weather,
+  days with station FFMC >= 85: central-80 % equivalent 4.8 x 1.5; also the full sd).
+  The hourly FFMC starts from the perturbed value.
+- DMC and DC: log-normal multipliers, sd ``dmc_dc_log_sd`` = 0.6 (same comparison: log
+  error 0.44 / 0.35 for DMC / DC, 0.4 x 1.5), so BUI varies.
+- grass curing: normal, sd ``curing_sd`` = 13.5 percentage points: the RMSE of the best
+  field method (Levy rod) against destructive sampling (Anderson et al. 2011, IJWF 20:
+  804-814); visual estimates are worse. NOT inflated and NOT validated (grass is ~3 % of
+  the validation growth). Near 58.8 % curing the FBP curing factor changes slope, so grass
+  runs there have a wide ensemble.
+- foliar moisture: normal, sd ``fmc_sd`` = 15 % (10 %: a judgement, about a third of the
+  ST-X-3 seasonal range of 85-120 %; no published error statistic found; x 1.5).
+- rate of spread: log-normal multiplier, sd ``ros_log_sd`` = 0.825, median 1 (0.55 x 1.5).
+  0.55 gives a mean absolute error of 49 %, the lower end of the typical 51-75 % of Cruz &
+  Alexander (2013); 0.825 about 80 %. No bias is applied, although the deterministic model
+  over-predicts the area on most validation days.
+- ignition: optional jitter radius ``ignition_jitter_m`` (0 = the ignition is known).
 """
 
 from __future__ import annotations
@@ -46,17 +61,29 @@ logger = logging.getLogger(__name__)
 _UNBURNED = np.uint16(65535)
 
 
+# Calibrated defaults (docs/validation.md "Ensemble calibration"; API EnsembleParams).
+DEFAULT_SIGMAS = {
+    "wind_dir_sd_deg": 24.0,
+    "wind_speed_log_sd": 0.405,
+    "ffmc_sd": 7.2,
+    "dmc_dc_log_sd": 0.6,
+    "curing_sd": 13.5,
+    "fmc_sd": 15.0,
+    "ros_log_sd": 0.825,
+}
+
+
 @dataclass
 class EnsembleConfig:
     n_members: int = 50
     seed: int = 1
-    wind_dir_sd_deg: float = 20.0
-    wind_speed_log_sd: float = 0.2
-    ffmc_sd: float = 1.5
-    dmc_dc_log_sd: float = 0.1
-    curing_sd: float = 10.0
-    fmc_sd: float = 5.0
-    ros_log_sd: float = 0.3
+    wind_dir_sd_deg: float = DEFAULT_SIGMAS["wind_dir_sd_deg"]
+    wind_speed_log_sd: float = DEFAULT_SIGMAS["wind_speed_log_sd"]
+    ffmc_sd: float = DEFAULT_SIGMAS["ffmc_sd"]
+    dmc_dc_log_sd: float = DEFAULT_SIGMAS["dmc_dc_log_sd"]
+    curing_sd: float = DEFAULT_SIGMAS["curing_sd"]
+    fmc_sd: float = DEFAULT_SIGMAS["fmc_sd"]
+    ros_log_sd: float = DEFAULT_SIGMAS["ros_log_sd"]
     ignition_jitter_m: float = 0.0
     quantiles: tuple[int, ...] = (10, 50, 90)
 
