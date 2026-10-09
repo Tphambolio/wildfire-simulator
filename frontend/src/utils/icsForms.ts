@@ -865,7 +865,7 @@ export function reachedItems(opts: Pick<ICSFormOptions, "criticalReach">): strin
   const when = (worst: number | null | undefined, single: number | null | undefined) =>
     r.hasEnsemble ? `${t(worst)} / ${t(single)}` : t(single);
   const items: string[] = [];
-  const label = r.hasEnsemble ? "worst-credible / single run" : "single run";
+  const label = r.hasEnsemble ? "ensemble P10 / single run" : "single run";
   if (r.assets.length > 0) {
     const list = r.assets
       .slice(0, 12)

@@ -420,7 +420,7 @@ export function arrivalsToGeoJSON(
         neighbourhood: a.name,
         arrival_hours: +a.arrivalHours.toFixed(3),
         arrival_label: worstCredible
-          ? `Worst-credible: fire within ${ARRIVAL_BUFFER_M} m by ${arrivalTime(a.arrivalHours, start)}`
+          ? `P10 (early): fire within ${ARRIVAL_BUFFER_M} m by ${arrivalTime(a.arrivalHours, start)}`
           : arrivalLabel(a.arrivalHours, start),
       },
     })),

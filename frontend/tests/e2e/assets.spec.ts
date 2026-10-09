@@ -2,7 +2,7 @@
  * Critical assets and major roads (Travis, 2026-10-08):
  * - automatic: the Edmonton layers load with the Edmonton fuel grid, no upload;
  * - after a run, the Critical assets card lists reached assets, grouped by category, with
- *   "Fire within 500 m by HH:MM" (and the worst-credible time first with an ensemble), and the
+ *   "Fire within 500 m by HH:MM" (and the P10 (early) time first with an ensemble), and the
  *   major roads reached; the map labels reached assets; nothing says "at risk" or "≥ 50 %";
  * - category filter, show on the map; sources in the card footer and the map attribution;
  * - axe clean, no text below 12 px; screenshots to $SHOT_DIR (assets_*.png) when set.
@@ -102,18 +102,18 @@ test.describe("critical assets", () => {
     expect(await seriousAxe(page)).toEqual([]);
   });
 
-  test("worst-credible first with the ensemble; EOC summary lists reached assets as model output", async ({ page }) => {
+  test("ensemble P10 first with the ensemble; EOC summary lists reached assets as model output", async ({ page }) => {
     await mockApi(page, { ensemble: true });
     await openApp(page);
     await setIgnitionAtMapCentre(page);
     await runToCompletion(page);
     const card = page.getByTestId("critical-assets");
-    await expect(card).toContainText("worst-credible (P10 of the ensemble) first", { timeout: 30_000 });
-    await expect(card.locator(".asset-row").first()).toContainText(/Fire within 500 m by (\d{2}:\d{2}|not reached) \(worst-credible\) · (\d{2}:\d{2}|not reached) \(single run\)/);
+    await expect(card).toContainText("the ensemble's P10 (early end of the range, 1 in 10 members) first", { timeout: 30_000 });
+    await expect(card.locator(".asset-row").first()).toContainText(/Fire within 500 m by (\d{2}:\d{2}|not reached) \(P10\) · (\d{2}:\d{2}|not reached) \(single run\)/);
     const summary = page.locator(".eoc-reached-section");
     await expect(summary).toContainText("Assets reached by the modelled fire");
     await expect(summary).toContainText("not an instruction");
-    await expect(summary).toContainText("worst-credible / single run");
+    await expect(summary).toContainText("ensemble P10 / single run");
     await card.scrollIntoViewIfNeeded();
     await waitForMapQuiet(page);
     await shot(page, "ensemble");

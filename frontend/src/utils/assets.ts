@@ -3,7 +3,7 @@
  *
  * For each asset (hospital, school, substation, ...) the modelled fire's first arrival within
  * 500 m and inside it (0 m: the asset lies in a burned cell), for the single run and, when an
- * ensemble is in, its worst-credible (P10) arrival raster. Major roads: the first time the
+ * ensemble is in, its P10 (early) arrival raster. Major roads: the first time the
  * modelled fire reaches each named road, and the reached stretches for the map. These are model
  * outputs in clock time, consistent with the Neighbourhoods card (utils/evacZones.ts); FireSim
  * makes no recommendation from them (Travis, 2026-10-08).
@@ -176,7 +176,7 @@ export function fireFromFrames(frames: SimulationFrame[]): FireSource | null {
   return { pts, cellM, perimeterFrames: null };
 }
 
-/** The ensemble's arrival raster at a percentile (P10 = worst-credible) as a fire source. */
+/** The ensemble's arrival raster at a percentile (P10 = reached by 1 in 10 members) as a fire source. */
 export function fireFromEnsemble(g: EnsembleGrids, which: "p10" | "p50" | "p90" = "p10"): FireSource | null {
   const pts = arrivalPoints(g, which);
   if (pts.length === 0) return null;
@@ -450,7 +450,7 @@ export function roadReach(
 
 export interface AssetRow {
   asset: Asset;
-  /** Ensemble worst-credible (P10); null without an ensemble or when not reached */
+  /** Ensemble P10 (early, 1 in 10 members); null without an ensemble or when not reached */
   worst: Reach | null;
   /** Single run; null when not reached */
   single: Reach | null;
@@ -503,13 +503,13 @@ export function clock(hours: number, start: Date | null): string {
 }
 
 /**
- * "14:45 (worst-credible) · 15:20 (single run)" with an ensemble, else "15:20".
+ * "14:45 (P10) · 15:20 (single run)" with an ensemble, else "15:20".
  * Null when neither run reaches it.
  */
 export function timePair(worst: number | null, single: number | null, start: Date | null, hasEnsemble: boolean): string | null {
   if (!hasEnsemble) return single !== null ? clock(single, start) : null;
   if (worst === null && single === null) return null;
-  const w = worst !== null ? `${clock(worst, start)} (worst-credible)` : "not reached (worst-credible)";
+  const w = worst !== null ? `${clock(worst, start)} (P10)` : "not reached (P10)";
   const s = single !== null ? `${clock(single, start)} (single run)` : "not reached (single run)";
   return `${w} · ${s}`;
 }
@@ -532,7 +532,7 @@ export function roadReachPhrase(row: RoadRow, start: Date | null, hasEnsemble: b
 export interface CriticalReach {
   assets: AssetRow[];
   roads: RoadRow[];
-  /** An ensemble is in: worst-credible times lead */
+  /** An ensemble is in: P10 (early) times lead */
   hasEnsemble: boolean;
   start: Date | null;
   bufferM: number;
@@ -560,7 +560,7 @@ export function assetLabel(a: Asset): string {
 export function criticalReachLines(r: CriticalReach): string[] {
   const lines: string[] = [];
   lines.push(
-    `  Model output for this run${r.hasEnsemble ? " (worst-credible = ensemble P10; single run beside it)" : ""}; not an instruction.`,
+    `  Model output for this run${r.hasEnsemble ? " (P10 = ensemble early arrival, 1 in 10 members, not a worst case; single run beside it)" : ""}; not an instruction.`,
   );
   if (r.assets.length === 0) lines.push(`  Assets: none within ${r.bufferM} m of the modelled fire.`);
   for (const g of groupRows(r.assets)) {
@@ -596,10 +596,10 @@ export function criticalReachFeatures(r: CriticalReach): GeoJSON.Feature[] {
       near_clock_single: c(row.single?.near),
       inside_hours_single: t(row.single?.inside),
       inside_clock_single: c(row.single?.inside),
-      near_hours_worst_credible: t(row.worst?.near),
-      near_clock_worst_credible: c(row.worst?.near),
-      inside_hours_worst_credible: t(row.worst?.inside),
-      inside_clock_worst_credible: c(row.worst?.inside),
+      near_hours_p10: t(row.worst?.near),
+      near_clock_p10: c(row.worst?.near),
+      inside_hours_p10: t(row.worst?.inside),
+      inside_clock_p10: c(row.worst?.inside),
       note: "Model output (FireSim), not an instruction",
     },
   }));
@@ -638,7 +638,7 @@ export function assetsToMapGeoJSON(
             verify: a.verify,
             reached: row ? 1 : 0,
             icon: `asset-${a.category}${row ? "-reached" : ""}`,
-            label: row && first !== null ? `${a.name} · ${ARRIVAL_BUFFER_M} m by ${clock(first, start)}${hasEnsemble && row.worst ? " (worst-credible)" : ""}` : null,
+            label: row && first !== null ? `${a.name} · ${ARRIVAL_BUFFER_M} m by ${clock(first, start)}${hasEnsemble && row.worst ? " (P10)" : ""}` : null,
           },
         } as GeoJSON.Feature;
       }),

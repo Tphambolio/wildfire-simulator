@@ -257,7 +257,7 @@ describe("recorded ensemble", () => {
     expect(defined).toBeGreaterThan(100);
   });
 
-  it("the worst-credible area is at least the median at every level, within the member range", () => {
+  it("the P10 area is at least the median at every level, within the member range", () => {
     for (const m of arrivalLevels(g.durationMinutes)) {
       expect(areaByMinutes(g, "p10", m)).toBeGreaterThanOrEqual(areaByMinutes(g, "p50", m));
       expect(areaByMinutes(g, "p50", m)).toBeGreaterThanOrEqual(areaByMinutes(g, "p90", m));
@@ -296,7 +296,7 @@ describe("recorded ensemble", () => {
     }
   });
 
-  it("worst-credible (P10) neighbourhood arrivals are no later than the median's and cover them", () => {
+  it("P10 (early) neighbourhood arrivals are no later than the median's and cover them", () => {
     const edmonton = JSON.parse(readFileSync(resolve(__dirname, "../../public/edmonton/neighbourhoods.geojson"), "utf8"));
     const p10 = neighbourhoodArrivalsFromPoints(arrivalPoints(g, "p10"), edmonton);
     const p50 = neighbourhoodArrivalsFromPoints(arrivalPoints(g, "p50"), edmonton);
@@ -307,9 +307,9 @@ describe("recorded ensemble", () => {
       expect(worst.has(a.name)).toBe(true);
       expect(worst.get(a.name)!).toBeLessThanOrEqual(a.arrivalHours + 1e-9);
     }
-    // Labelled as worst-credible on the map
+    // Labelled as P10 on the map
     const fc = arrivalsToGeoJSON(p10, new Date("2026-07-15T14:00:00-06:00"), true);
-    expect(String(fc.features[0].properties?.arrival_label)).toMatch(/^Worst-credible: fire within 500 m by \d{2}:\d{2}$/);
+    expect(String(fc.features[0].properties?.arrival_label)).toMatch(/^P10 \(early\): fire within 500 m by \d{2}:\d{2}$/);
   });
 
   it("gives arrival points and a probability image of the window", () => {

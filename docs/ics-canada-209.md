@@ -40,7 +40,7 @@ before printing).
 | 29 | FBP fuel types in the modelled burned area (shares) | Model output |
 | 30B | Structures threatened (72 h): building footprints within 100 m of a burned cell by 72 h or the end of the run, single run (exposure, not damage; `docs/building-exposure.md`). FireSim does not classify structures, so rows E-H and columns C/D are left to the user | Model output |
 | 35 | Weather and FWI inputs of the run (not a forecast) | Scenario input |
-| 36 | Area at 12/24/48/72 h in clock time: ensemble P50 and P10 (worst-credible) where available, and the single run; horizons beyond the run say "not projected"; runs shorter than a horizon also report the end of the modelled period | Model output |
+| 36 | Area at 12/24/48/72 h in clock time: ensemble P50 and P10 (reached by 1 in 10 members; not a worst case) where available, and the single run; horizons beyond the run say "not projected"; runs shorter than a horizon also report the end of the modelled period | Model output |
 | 38 | Threats at the same horizons: structures within 100 m, critical assets within 500 m and major roads reached (P10 · single run) | Model output |
 | 42 | Area at the end of the modelled period (ensemble P50 and member range, single run), stated as *not* a final size | Model output |
 | All others | 1-5, 8, 10, 12-21, 24, 25, 31-34, 37, 39-41, 43-53 | User |
