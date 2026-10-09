@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 
 M_PER_DEG_LAT = 111320.0
-DEFAULT_NEIGHBOUR_CUTOFF_M = 30.0  # spec §4.4: FireSim heuristic, owner to confirm
+DEFAULT_NEIGHBOUR_CUTOFF_M = 30.0  # spec §4.4: FireSim heuristic, confirmed 2026-10-09 (D2)
 
 
 @dataclass(frozen=True)
