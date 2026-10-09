@@ -664,17 +664,13 @@ class TestSpottingRepeatability:
         assert run() == first
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Known defect (2026-10-08, open item in docs/PROJECT_RECORD.md): a point ignition in a "
-    "narrow ellipse (grass, LB ~5) spreads far too slowly when the wind is off the grid axes; "
-    "established fronts are not affected."))
 def test_point_ignition_grass_diagonal_wind():
     """Burned area of a point ignition should not depend on the wind's angle to the grid.
 
-    Observed 2026-10-08 (O-1a, 25 km/h, 50 m cells, 2 h, no acceleration): 43 cells with
-    the wind from 180 deg, 3 with it from 225 deg; cells on the downwind diagonal are
-    skipped and burn late. Starting from an observed perimeter instead, 225 and 270 deg
-    give the same downwind extent (601 vs 575 m).
+    Regression (found 2026-10-08, fixed 2026-10-09): O-1a, 25 km/h, 50 m cells, 2 h, no
+    acceleration gave 43 cells with the wind from 180 deg and 3 with it from 225 deg. The
+    starting ellipse was labelled 4-connected, so its cells on the diagonal were cut off
+    from the ignition, and axis-by-axis upwinding then thinned the narrow front.
     """
     fuel, cell_m, n = FuelType.O1a, 50.0, 60
     dlat = cell_m / 111320.0
@@ -692,6 +688,76 @@ def test_point_ignition_grass_diagonal_wind():
         return frames[-1].total_burned
 
     assert cells(225.0) >= 0.5 * cells(180.0)
+
+
+class TestRotationalInvariance:
+    """A point ignition in uniform fuel burns about the same area whatever the wind's angle to
+    the grid, and its head runs downwind.
+
+    Tolerances: burned cells for each wind direction within 12 % (grass) or 5 % (C-2) of the
+    mean over the six directions. The burned area is a count of cell centres inside the
+    front, so turning the ellipse moves cells in and out along its staircase edge: for the
+    grass fire (about 45 cells, about 25 of them on the edge) that is several cells either
+    way, for C-2 (about 800 cells) under 2 %. Before the fix the grass case burned 3 cells
+    at 225 deg against 43 at 180 deg; measured after it: 42-43 cells (grass) and 818-830
+    (C-2) at every angle. The head direction must be within 10 deg of downwind (the bearing
+    of the burned area's centroid from the ignition cell; a 45-deg grid bias would fail it).
+    """
+
+    WINDS = (0.0, 45.0, 90.0, 135.0, 180.0, 225.0)
+
+    @staticmethod
+    def _run(fuel, wind_from, wind_kmh, ffmc, hours, n, acceleration):
+        grid = metre_grid(n, 50.0, fuel)
+        cond = SpreadConditions(wind_speed=wind_kmh, wind_direction=wind_from, ffmc=ffmc,
+                                dmc=60.0, dc=300.0)
+        frames = run_cellular_simulation(
+            {"ignition_lat": 53.5, "ignition_lng": -113.5, "duration_hours": hours}, grid, cond,
+            acceleration=acceleration, snapshot_interval_minutes=hours * 60.0,
+            compute_perimeter=False,
+        )
+        return frames[-1].burned_cells
+
+    @staticmethod
+    def _bearing(cells):
+        """Bearing (deg, clockwise from north) of the burned centroid from the ignition."""
+        m_lng = 111320.0 * math.cos(math.radians(53.5))
+        east = np.mean([(c.lng + 113.5) * m_lng for c in cells])
+        north = np.mean([(c.lat - 53.5) * 111320.0 for c in cells])
+        return math.degrees(math.atan2(east, north)) % 360.0
+
+    def _check(self, fuel, wind_kmh, ffmc, hours, n, acceleration, tol):
+        runs = {w: self._run(fuel, w, wind_kmh, ffmc, hours, n, acceleration) for w in self.WINDS}
+        counts = {w: len(c) for w, c in runs.items()}
+        mean = sum(counts.values()) / len(counts)
+        for w, k in counts.items():
+            assert abs(k - mean) <= tol * mean, (w, counts)
+        for w, cells in runs.items():
+            downwind = (w + 180.0) % 360.0
+            err = (self._bearing(cells) - downwind + 180.0) % 360.0 - 180.0
+            assert abs(err) <= 10.0, (w, self._bearing(cells))
+
+    def test_grass_o1a(self):
+        self._check(FuelType.O1a, 25.0, 88.0, 2.0, 60, acceleration=False, tol=0.12)
+
+    def test_grass_o1a_with_acceleration(self):
+        self._check(FuelType.O1a, 25.0, 88.0, 2.0, 60, acceleration=True, tol=0.12)
+
+    def test_forest_c2(self):
+        self._check(FuelType.C2, 20.0, 91.0, 2.0, 140, acceleration=False, tol=0.05)
+
+
+def test_starting_ellipse_connects_through_corners_but_not_diagonal_walls():
+    """The starting ellipse's cells joined at a corner belong to the ignition's fire when a
+    carrying cell sits beside both, never across a diagonal line of non-fuel."""
+    from firesim.spread.cellular import _connected_to
+
+    inside = np.eye(5, dtype=bool)  # a one-cell-wide needle along the diagonal
+    carries = np.ones((5, 5), dtype=bool)
+    assert _connected_to(inside, carries, 0, 0).sum() == 5
+    wall = carries.copy()
+    wall[2, 1] = wall[1, 2] = False  # non-fuel on both sides of the corner (1,1)-(2,2)
+    assert _connected_to(inside, wall, 0, 0).sum() == 2
 
 
 class TestHeadSpeed:

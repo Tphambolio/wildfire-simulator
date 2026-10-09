@@ -85,7 +85,7 @@ EOC summary and ICS-209) is labelled as Monte Carlo/ensemble model output.
 | Evidence | Result | Reference |
 |---|---|---|
 | Verification of FBP and FWI equations | Matches CFS `cffdrs` to floating-point precision (12,960 FBP cases; hourly FFMC 5,760 cases) | docs/verification.md §1 |
-| Spread models vs the FBP ellipse | Burned area 0.90-1.07 x the FBP ellipse on uniform fuel | docs/verification.md §2 |
+| Spread models vs the FBP ellipse | Burned area 0.91-1.07 x the FBP ellipse on uniform fuel, for any wind direction relative to the grid (since 2026-10-09; before, grid-model point ignitions with the wind on a grid diagonal were 10-13 % small in C-2/M-1 and in grass as much as 93 % small: 3 cells instead of 43) | docs/verification.md §2 |
 | Comparison with WISE (independent Canadian model) | Uniform fuel, flat and sloped: area ratio 0.955-1.09, head distance ratio 0.98-1.05 | docs/verification.md §3 |
 | Head / flank / back | Fastest head cell = FBP ROS; rearmost back cell = BROS; head direction within 2° of RAZ incl. slope | engine/tests/spread/test_deployment_data.py |
 | Spotting maximum distance | Reproduces published worked examples | engine/tests/spread/test_albini.py |
