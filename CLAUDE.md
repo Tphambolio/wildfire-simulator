@@ -64,7 +64,7 @@ docker compose up --build
 | `spread/slope.py` | ST-X-3 eq 39 slope factor (slope itself is applied via net effective wind in the FBP calculator) |
 | `spread/spotting.py`, `spread/albini.py` | Ember spotting (opt-in): Albini/Chase/Morris maximum distance (surface-fire or torching-tree model); emission, probability and landing are heuristic (illustrative) |
 | `exposure.py` | Building exposure: distance bands, Cohen (2004) radiant flux and flux-time index from the grid run's flame panels (exposure, not ignition; `docs/building-exposure.md`) |
-| `structures/units.py` | Structure spread (opt-in, illustrative): one unit per building footprint (centroid, area, size, neighbour graph within a cutoff); `docs/structure-spread-spec.md` |
+| `structures/` | Structure spread (opt-in, API `structure_spread`, labelled "illustrative — not validated in Canada"): `units.py` one unit per building footprint (centroid, area, size, neighbour graph within a cutoff); `hamada.py` Hamada rates; `spread.py` front contact + building-to-building spread; `docs/structure-spread-spec.md` |
 | `spread/diurnal.py` | Opt-in burning period (`SimulationConfig.burning_period` + `start_hour`; grid and Huygens; a point ignition outside it waits for it); hourly FFMC spin-up = hourly records with negative `hours_from_start`, from 17:00 local (`hourly_for_run`) |
 | `spread/simulator.py` | `Simulator` class — main orchestrator, yields `SimulationFrame` per snapshot |
 | `spread/montecarlo.py` | Burn probability (jitter ignition, wind speed, RH over N iterations) |
@@ -127,7 +127,8 @@ WebSocket events are `{"type": "simulation.frame", "simulation_id": ..., "frame"
 Pydantic schema and `frontend/src/types/simulation.ts` in step. Requests can set `start_time`,
 `hourly_weather` and `cells_mode: "incremental"` (the frontend uses incremental), and the
 spread-skill options `burning_period` / `ffmc_spin_up` (API default off, UI default on; hours
-on `start_time`'s own clock) and, on perimeter-override, `active_edges`.
+on `start_time`'s own clock), on perimeter-override, `active_edges`, and the opt-in
+`structure_spread` (Hamada building-to-building counts, frame `structure_spread`; illustrative).
 
 ### Environment Variables
 ```

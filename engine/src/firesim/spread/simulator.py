@@ -74,6 +74,8 @@ class Simulator:
         building_footprints: list | None = None,
         active_edges: dict | None = None,
         active_edge_buffer_m: float | None = None,
+        structure_spread: bool = False,
+        structure_footprints: list | None = None,
     ):
         """Initialize simulator.
 
@@ -104,6 +106,12 @@ class Simulator:
                 ``active_edge_buffer_m`` (default one cell) are burning; the rest of the
                 starting fire is burned out and does not spread. See
                 ``run_cellular_simulation``. Ignored by the Huygens model.
+            structure_spread: Grid model only, opt-in: Hamada building-to-building spread
+                from the units reached by the front (``firesim.structures``; illustrative, not
+                validated in Canada; docs/structure-spread-spec.md). Frames then carry
+                ``structure_spread`` counts.
+            structure_footprints: shapely footprints (lng, lat) of every building in the run
+                area for structure spread; defaults to ``building_footprints``.
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -123,6 +131,8 @@ class Simulator:
         self.acceleration = acceleration
         self.active_edges = active_edges
         self.active_edge_buffer_m = active_edge_buffer_m
+        self.structure_spread = structure_spread
+        self.structure_footprints = structure_footprints
         # Seed for ember spotting (config.seed, else a hash of the config): repeatable runs
         self.seed = config.resolved_seed()
         if active_edges is not None and fuel_grid is None:
@@ -309,6 +319,8 @@ class Simulator:
 
         exposure = self._building_exposure(ca_frames[-1].emitters if ca_frames else None,
                                            config.duration_hours * 60.0)
+        structures = self._structure_spread(ca_frames[-1].emitters if ca_frames else None,
+                                            config.duration_hours * 60.0)
 
         # Each frame's cells are a prefix of the final frame's (ordered by arrival), so the
         # cell dicts are built once and each frame takes a slice
@@ -384,6 +396,9 @@ class Simulator:
                 ),
                 head=self._head_summary(cf.head),
                 arrival_raster=arrival_raster if is_last else None,
+                structure_spread=(
+                    structures.counts_at(cf.time_hours * 60.0 + 1e-9) if structures else None
+                ),
             )
 
     def _head_summary(self, head: dict | None) -> dict | None:
@@ -439,6 +454,19 @@ class Simulator:
             use_footprints = False
         return building_exposure(targets, emitters, duration_min=duration_min,
                                  use_footprints=use_footprints)
+
+    def _structure_spread(self, emitters, duration_min: float):
+        """Opt-in Hamada structure spread over the run area's building units, or None."""
+        footprints = self.structure_footprints or self.building_footprints
+        if not self.structure_spread or emitters is None or not footprints:
+            return None
+        from firesim.structures.spread import structure_spread_for_grid_run
+
+        g = self.fuel_grid
+        return structure_spread_for_grid_run(
+            footprints, emitters, self._schedule, duration_min,
+            bbox=(g.lat_min, g.lat_max, g.lng_min, g.lng_max),
+        )
 
     def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:
         """Number of building centroids inside a (lat, lng) perimeter polygon."""

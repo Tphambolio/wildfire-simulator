@@ -151,3 +151,7 @@ class SimulationFrame:
     head: dict | None = None
     # Grid model, final frame only: arrival minutes per cell (-1 = not burned) and grid bounds
     arrival_raster: dict | None = None
+    # Opt-in structure-to-structure spread (Hamada; illustrative, not validated in Canada):
+    # counts of building units with modelled involvement by this frame. Not a prediction of
+    # which buildings burn. See docs/structure-spread-spec.md.
+    structure_spread: dict | None = None

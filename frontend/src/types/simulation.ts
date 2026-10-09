@@ -70,6 +70,11 @@ export interface SimulationCreate {
   burning_period?: BurningPeriod | null;
   /** Hourly FFMC from 17:00 local before the start (needs hourly_weather back to then). API default: off */
   ffmc_spin_up?: boolean;
+  /**
+   * Opt-in structure-to-structure spread (Hamada; illustrative — not validated in Canada).
+   * Grid runs with building footprints. API default: off. Not used by the UI yet.
+   */
+  structure_spread?: boolean;
 }
 
 /**
@@ -111,6 +116,25 @@ export interface SimulationFrame {
   // Exposure (not ignition probability), grid model with building footprints
   building_exposure?: BuildingExposureSummary | null;
   building_exposure_detail?: BuildingExposureDetail[] | null; // final frame only
+  // Opt-in structure spread (request structure_spread): modelled involvement counts
+  structure_spread?: StructureSpreadSummary | null;
+}
+
+/**
+ * Structure-to-structure spread counts by this frame (docs/structure-spread-spec.md).
+ * Illustrative — not validated in Canada; not a prediction of which buildings burn. Any
+ * display must show `label`.
+ */
+export interface StructureSpreadSummary {
+  model: "hamada";
+  label: string; // "illustrative — not validated in Canada"
+  units_in_run: number; // building units (footprints) in the run area
+  units_front_contact: number; // reached by the wildland front (within the contact distance)
+  units_structure_to_structure: number; // reached building to building (Hamada)
+  units_involved: number;
+  combustible_fraction: number;
+  neighbour_cutoff_m: number;
+  wildland_contact_m: number;
 }
 
 export interface BuildingExposureSummary {
