@@ -1,14 +1,14 @@
 /**
  * Range of outcomes (ensemble) view, against the recorded 30-member ensemble
  * (tests/fixtures/ensemble.json.gz, mockApi `ensemble: true`):
- * - the Run options ask for a 30-member ensemble by default (grid runs) and say it is uncalibrated;
+ * - the Run options ask for a 30-member ensemble by default (grid runs) and say the range is narrower than the real uncertainty;
  * - after the single run, the Situation panel shows "Ensemble n/30" progress, then the
- *   worst-credible (P10) extent, the member area range and the uncalibrated caveat, with the
+ *   P10 extent, the member area range and the narrow-range caveat, with the
  *   single run captioned "Single run (P50-like)";
  * - the map draws P10 arrival lines labelled in clock time ("14:30"); scrubbing the timeline
  *   moves lines between drawn (up to the selected time) and projected;
  * - burn probability toggles on with its legend; the Neighbourhoods card leads with the
- *   worst-credible time;
+ *   P10 (early) time;
  * - no text below 12 px; screenshots go to $SHOT_DIR when set.
  */
 import { mkdirSync } from "node:fs";
@@ -53,7 +53,7 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
   const option = page.getByLabel("Range of outcomes (ensemble)");
   await expect(option).toBeChecked();
   await expect(page.locator(".ensemble-option")).toContainText("about 1 s per member");
-  await expect(page.locator(".ensemble-option")).toContainText("uncalibrated");
+  await expect(page.locator(".ensemble-option")).toContainText("narrower than the real uncertainty");
 
   await setIgnitionAtMapCentre(page);
   await runToCompletion(page);
@@ -65,14 +65,14 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
   await expect(card.getByRole("progressbar")).toBeVisible();
   await shot(page, "progress");
 
-  // Complete: worst-credible extent, area range across members and the caveat
+  // Complete: P10 extent, area range across members and the caveat
   await expect(page.getByTestId("ensemble-p10-area")).toBeVisible({ timeout: 20_000 });
-  await expect(card).toContainText("Worst-credible extent by");
+  await expect(card).toContainText("P10 extent (1 in 10 members) by");
   const range = page.getByTestId("ensemble-area-range");
   await expect(range).toContainText(fmt(ensembleFixture.area_ha.min));
   await expect(range).toContainText(fmt(ensembleFixture.area_ha.p50));
   await expect(range).toContainText(`${fmt(ensembleFixture.area_ha.max)} ha`);
-  await expect(page.getByTestId("ensemble-caveat")).toContainText("Uncalibrated range");
+  await expect(page.getByTestId("ensemble-caveat")).toContainText("Range narrower than the real uncertainty");
   await expect(page.getByTestId("ensemble-caveat")).toContainText("over-predicts");
   await expect(page.locator(".situation-kpi-caption")).toHaveText("Single run (P50-like)");
 
@@ -83,10 +83,10 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
   const drawn = async () => JSON.parse((await page.locator(".map-view-canvas").getAttribute("data-ens-lines")) ?? "[]") as Array<[string, string, number]>;
   expect((await drawn()).length).toBe(8);
   expect((await drawn()).every(([, phase]) => phase === "past")).toBe(true);
-  await expect(page.getByTestId("ensemble-legend")).toContainText("Worst-credible arrival (P10)");
+  await expect(page.getByTestId("ensemble-legend")).toContainText("Early arrival (P10, 1 in 10 members)");
 
-  // Neighbourhoods: worst-credible time first, single run beside it
-  await expect(page.locator(".evac-arrival-table thead")).toContainText("worst-credible");
+  // Neighbourhoods: P10 time first, single run beside it
+  await expect(page.locator(".evac-arrival-table thead")).toContainText("P10 (early)");
   await expect(page.locator(".evac-arrival-table thead")).toContainText("Single run");
   await expect(page.locator(".evac-arrival-worst").first()).toHaveText(/^\d{2}:\d{2}$/);
   await page.waitForTimeout(500);

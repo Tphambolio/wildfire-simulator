@@ -104,8 +104,9 @@ This replaced a stochastic cellular automaton in 2026-10; see `docs/verification
 - Ensemble (`spread/ensemble.py`): N grid-model members with perturbed wind direction
   (one offset per member across all hourly records), wind speed, FFMC, DMC/DC, curing,
   foliar moisture and a rate-of-spread error multiplier; summarised as P10/P50/P90 arrival
-  rasters (P10 = worst-credible early arrival) and burn probability. Perturbation sizes are
-  placeholders until calibrated on observed fires.
+  rasters (P10 = reached by 1 in 10 members, the early end of the range, not a worst case)
+  and burn probability. Perturbation sizes are calibrated on observed Alberta fires
+  (`DEFAULT_SIGMAS`; docs/validation.md "Ensemble calibration").
 - Burn probability (`spread/montecarlo.py`) runs the grid model N times with jittered ignition
   point (±100 m), wind speed (±10 %) and RH (±5 %); with the deterministic engine the map
   reflects only that input uncertainty.

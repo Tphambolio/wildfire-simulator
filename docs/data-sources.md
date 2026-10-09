@@ -156,8 +156,8 @@ python3 scripts/build_edmonton_roads.py --cache-dir /tmp/roads-cache --offline  
 ```
 
 Road first-reach with the larger file (Vitest `assets.test.ts`, recorded Terwillegar fixture,
-median of 5, this workstation): single run 23–25 ms (5 named roads reached), worst-credible
-ensemble P10 24–27 ms (8 roads); the old file took 12 / 3 ms (1 road). Both run once per
+median of 5, this workstation): single run 23–25 ms (5 named roads reached), ensemble
+P10 24–27 ms (8 roads); the old file took 12 / 3 ms (1 road). Both run once per
 result (memoised in `App.tsx`), so the map and card stay responsive; the test fails above
 500 ms.
 
@@ -174,7 +174,7 @@ names.
 The Edmonton layers load automatically when the Edmonton fuel grid is on (no upload). After a
 run, the Critical assets card reports, per asset, the first time the modelled fire is within
 500 m and inside it (a burned cell on the asset: within half a cell diagonal of its centre),
-for the single run and, with an ensemble, its worst-credible (P10) arrival raster; for major
+for the single run and, with an ensemble, its P10 (early) arrival raster; for major
 roads, the first time a burned cell lies on each named road. These are model outputs in clock
 time (`frontend/src/utils/assets.ts`), never recommendations. Other jurisdictions add their
 own GeoJSON under Setup, "Add your own layer" (points and polygons are assets, lines roads).

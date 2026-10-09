@@ -65,7 +65,7 @@ used, active edges when marked; the API defaults are off. Outputs: perimeters,
 burned cells with arrival time, speed and head/flank/back, head summary, arrival-time grid,
 intensity and fire type, spot fires, building exposure, burn probability, and the first
 time the modelled fire is within 500 m of (and inside) each neighbourhood and critical asset
-and on each major road (single run and ensemble worst-credible P10; clock time, model output
+and on each major road (single run and ensemble P10; clock time, model output
 only).
 
 Bundled reference layers (Edmonton; loaded with the Edmonton fuel grid): critical assets (624)
@@ -85,13 +85,14 @@ EOC summary and ICS-209) is labelled as Monte Carlo/ensemble model output.
 | Evidence | Result | Reference |
 |---|---|---|
 | Verification of FBP and FWI equations | Matches CFS `cffdrs` to floating-point precision (12,960 FBP cases; hourly FFMC 5,760 cases) | docs/verification.md §1 |
-| Spread models vs the FBP ellipse | Burned area 0.90-1.07 x the FBP ellipse on uniform fuel | docs/verification.md §2 |
+| Spread models vs the FBP ellipse | Burned area 0.91-1.07 x the FBP ellipse on uniform fuel, for any wind direction relative to the grid (since 2026-10-09; before, grid-model point ignitions with the wind on a grid diagonal were 10-13 % small in C-2/M-1 and in grass as much as 93 % small: 3 cells instead of 43) | docs/verification.md §2 |
 | Comparison with WISE (independent Canadian model) | Uniform fuel, flat and sloped: area ratio 0.955-1.09, head distance ratio 0.98-1.05 | docs/verification.md §3 |
 | Head / flank / back | Fastest head cell = FBP ROS; rearmost back cell = BROS; head direction within 2° of RAZ incl. slope | engine/tests/spread/test_deployment_data.py |
 | Spotting maximum distance | Reproduces published worked examples | engine/tests/spread/test_albini.py |
 | Radiant exposure | Reproduces Cohen (2004) worked values within 3.5 % | engine/tests/test_exposure.py |
 | **Observed fires (first results)** | 143 fire-days, 32 Alberta fires 2014-2024 (CFSDS), one burn day from the observed perimeter, Bennett et al. (2026) protocol. F1 at the default 06-23 h window: 0.15 started from the whole perimeter (operational), 0.24 with Bennett's ignition (WISE: 0.26); best burn hour 0.22 / 0.38 (WISE 0.50). Growth over-predicted on 73-93 % of days (normalised area difference +0.29 to +0.67); head direction error median about 50°; spread distance within ±35 % on about 20 % of days. Head runs on the largest Horse River days under-predicted. | docs/validation.md |
-| **Observed fires, held-out test (second round)** | Fires split in half by fire; settings chosen on 16 calibration fires, scored on 16 unseen fires (79 fire-days). Marking active edges (previous days' growth, as an RPAS thermal flight would), FFMC spin-up from the previous afternoon and a 10-20 h burning period: one-day F1 0.118 -> 0.208 (+0.091, 95 % CI +0.056 to +0.125, bootstrap by fire); area difference +0.72 -> +0.27; spread distance within ±35 % on 24 % of days. Oracle start (Bennett ignition): 0.245. The biggest wind-driven runs are under-predicted further. Deterministic skill only; ensemble and RPAS mid-day restarts not yet measured. | docs/validation.md |
+| **Observed fires, held-out test (second round)** | Fires split in half by fire; settings chosen on 16 calibration fires, scored on 16 unseen fires (79 fire-days). Marking active edges (previous days' growth, as an RPAS thermal flight would), FFMC spin-up from the previous afternoon and a 10-20 h burning period: one-day F1 0.118 -> 0.208 (+0.091, 95 % CI +0.056 to +0.125, bootstrap by fire); area difference +0.72 -> +0.27; spread distance within ±35 % on 24 % of days. Oracle start (Bennett ignition): 0.245. The biggest wind-driven runs are under-predicted further. Deterministic skill; RPAS mid-day restarts not yet measured. | docs/validation.md |
+| **Ensemble calibration (third round)** | Perturbation sizes from an Alberta input-error climatology (GEM day-1 and ERA5 vs 14 ECCC stations, 2024-25; curing from Anderson et al. 2011; ROS from Cruz & Alexander 2013) x one inflation factor (1.5) chosen on the calibration fires; 20 members, scored on 65 held-out fire-days (14 largest excluded by run time). Observed one-day area inside the members' P10-P90: 20 % -> 49 % (ideal ~80 %); CRPS of log area vs the single run: +11 % -> +24 % better; Brier skill vs single run +0.18 -> +0.25; spread/skill 4.7 -> 1.6 (still too narrow); cells at ~95 % burn probability burned 33 % of the time (over-confident: shared over-prediction). P50 F1 0.201 vs single run 0.195. **P10 is not a worst case:** its footprint held >= 90 % of observed growth on 29 % of days. | docs/validation.md |
 
 For context, published single-day skill of operational FBP growth models on observed fires
 is modest (WISE: F1 about 0.26 with default settings, about 0.54 tuned; Bennett et al. 2026),

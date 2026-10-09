@@ -274,8 +274,9 @@ async def get_ensemble(sim_id: str) -> dict:
 
     ``arrival`` holds P10/P50/P90 rasters: base64 little-endian int16, row-major from the
     north-west corner, whole minutes after ignition, -1 where fewer than that share of
-    members reached the cell. P10 is the worst-credible (early) arrival. ``burn_probability``
-    is base64 uint8 percent (0-100).
+    members reached the cell. P10 is the early end of the modelled range (reached by 1 in 10
+    members), not a worst case (docs/validation.md "Ensemble calibration").
+    ``burn_probability`` is base64 uint8 percent (0-100).
     """
     import base64
 

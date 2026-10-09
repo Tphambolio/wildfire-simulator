@@ -210,11 +210,30 @@ def _run_task(task: dict) -> dict:
                           ffmc_spinup=task["ffmc_spinup"],
                           burning_period=tuple(task["burning_period"]) if task["burning_period"]
                           else None)
-        members = wind_direction_members() if task["wind_members"] else DETERMINISTIC
-        out = run_fire_day(case, opts, members)
+        if task.get("ensemble"):
+            out = _run_ensemble_day(case, opts, task["ensemble"])
+        else:
+            members = wind_direction_members() if task["wind_members"] else DETERMINISTIC
+            out = run_fire_day(case, opts, members)
     except Exception as exc:  # recorded, not fatal: one bad fire-day must not stop the batch
         out = {"fire_id": task["fire_id"], "day": task["day"], "error": repr(exc)}
     out["wall_s"] = time.time() - t
+    return out
+
+
+def _run_ensemble_day(case, opts, ens_kw: dict) -> dict:
+    """Deterministic run + ensemble members of one fire-day, scored probabilistically."""
+    from firesim.spread.ensemble import EnsembleConfig
+    from firesim.validation.ensemble_scores import score_ensemble_day
+    from firesim.validation.harness import simulate_ensemble
+
+    ens = EnsembleConfig(**ens_kw)
+    res = simulate_ensemble(case, opts, ens)
+    dom = case.domain
+    out = {"fire_id": case.fire_id, "year": dom.year, "day": case.day,
+           "ensemble_config": ens_kw, "run_s": res["run_s"], "members_perturbation": res["records"],
+           "ens": {f"{w:g}h": score_ensemble_day(dom.dob, case.day, res["members"], res["det"],
+                                                 dom.cell_area_m2, w) for w in opts.windows_h}}
     return out
 
 
@@ -232,10 +251,27 @@ def run_name(args) -> str:
 def cmd_run(args) -> None:
     manifest = json.loads(manifest_path().read_text())
     tasks = [{"fire_id": m["fire_id"], "day": d} for m in manifest for d in m["days"]]
+    if args.split:
+        from firesim.validation.report import split_fires
+
+        split = split_fires({m["fire_id"] for m in manifest})
+        tasks = [t for t in tasks if split[t["fire_id"]] == args.split]
+    if args.max_det_run_s:
+        # Fire-days whose deterministic run (in --det-run) took at most this long: an
+        # outcome-blind way to keep N-member ensembles affordable
+        ref = {(r["fire_id"], r["day"]): r["members"]["det"]["run_s"]
+               for r in map(json.loads, Path(args.det_run).read_text().splitlines())
+               if "error" not in r}
+        tasks = [t for t in tasks if ref.get((t["fire_id"], t["day"]), math.inf)
+                 <= args.max_det_run_s]
     if args.max_cases:
         tasks = random.Random(args.seed).sample(tasks, min(args.max_cases, len(tasks)))
+    ensemble = None
+    if args.ensemble:
+        ensemble = {"n_members": args.ensemble, "seed": args.ens_seed,
+                    **json.loads(args.ens_params or "{}")}
     out = runs_dir(args) / f"{run_name(args)}.jsonl"
-    out.parent.mkdir(exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
     done = set()
     if out.exists():
         for line in out.read_text().splitlines():
@@ -245,7 +281,8 @@ def cmd_run(args) -> None:
     tasks = [dict(t, ignition=args.ignition, spotting=args.spotting, start_hour=args.start_hour,
                   windows=args.windows, margin_m=args.margin_m, wind_members=args.wind_members,
                   active_days=args.active_days, active_buffer_m=args.active_buffer_m,
-                  ffmc_spinup=args.ffmc_spinup, burning_period=args.burning_period)
+                  ffmc_spinup=args.ffmc_spinup, burning_period=args.burning_period,
+                  ensemble=ensemble)
              for t in tasks if (t["fire_id"], t["day"]) not in done]
     # Group by fire so each worker's cached domain is reused
     tasks.sort(key=lambda t: (t["fire_id"], t["day"]))
@@ -256,6 +293,9 @@ def cmd_run(args) -> None:
             fh.write(json.dumps(r, default=_json_default) + "\n")
             fh.flush()
             det = r.get("members", {}).get("det") or next(iter(r.get("members", {}).values()), {})
+            if "ens" in r:
+                det = r["ens"].get("17h", {}).get("det", {})
+                det = {"17h": det}
             log.info("[%d/%d] %s day %s: %s F1(17h)=%s %.0fs", k, len(tasks), r["fire_id"],
                      r["day"], r.get("error", ""),
                      _f(det.get("17h", {}).get("f1")) if det else "-", r["wall_s"])
@@ -287,6 +327,8 @@ def _read_runs(args) -> dict[str, list[dict]]:
     runs = {}
     for p in sorted(runs_dir(args).glob("*.jsonl")):
         recs = [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
+        if any("ens" in r for r in recs) != getattr(args, "ensemble_runs", False):
+            continue  # ensemble runs are summarised by ens-compare, deterministic by the rest
         runs[p.stem] = recs
     return runs
 
@@ -535,6 +577,65 @@ def cmd_compare(args) -> None:
         Path(args.out).write_text(text + "\n")
 
 
+def cmd_ens_compare(args) -> None:
+    """Probabilistic scores of ensemble runs on the calibration and held-out test fires."""
+    from firesim.validation.ensemble_scores import summarize_ensemble
+    from firesim.validation.report import split_fires
+
+    args.ensemble_runs = True
+    runs = _read_runs(args)
+    names = args.runs or sorted(runs)
+    manifest = json.loads(manifest_path().read_text())
+    split = split_fires({m["fire_id"] for m in manifest})
+    common = None
+    for n in names:  # score every run on the fire-days all of them completed
+        keys = {(r["fire_id"], r["day"]) for r in runs[n] if "error" not in r}
+        common = keys if common is None else common & keys
+    out: dict = {}
+    hdr = ["run", "set", "n", "BS", "BS det", "BSS vs det", "obs at p≥0.1 / 0.5 / 0.9",
+           "P10-P90 area cover", "below P10 / above P90", "CRPS log10 A", "MAE det",
+           "CRPSS", "spread/skill", "F1 det / P50 / P10", "P10 recall (pooled)",
+           "P10 recall ≥ 0.9 days", "P90 precision (pooled)", "member CPU s/day"]
+    rows = []
+    for n in names:
+        ok = [r for r in runs[n] if "error" not in r and (r["fire_id"], r["day"]) in common]
+        for side in ("calibration", "test", "all"):
+            rs = [r for r in ok if side == "all" or split[r["fire_id"]] == side]
+            s = summarize_ensemble(rs, args.window)
+            if not s:
+                continue
+            out.setdefault(n, {})[side] = s
+            fp = s["footprints"]
+            fo = s["frac_obs_at_p_ge"]
+            rows.append([
+                n, side, str(s["n_fire_days"]), f"{s['brier']:.3f}", f"{s['brier_det']:.3f}",
+                f"{s['bss_vs_det']:+.2f}", f"{fo['0.1']:.2f} / {fo['0.5']:.2f} / {fo['0.9']:.2f}",
+                f"{100 * s['coverage_p10_p90']:.0f} %",
+                f"{100 * s['below_p10']:.0f} / {100 * s['above_p90']:.0f} %",
+                f"{s['crps_log10_area']:.3f}", f"{s['mae_log10_area_det']:.3f}",
+                f"{s['crpss_vs_det']:+.2f}", f"{s['spread_skill_ratio']:.2f}",
+                f"{fp['det']['f1']:.3f} / {fp['p50']['f1']:.3f} / {fp['p10']['f1']:.3f}",
+                f"{fp['p10']['pooled']['recall']:.2f}", f"{100 * fp['p10']['recall_ge_0.9']:.0f} %",
+                f"{fp['p90']['pooled']['precision']:.2f}",
+                f"{np.median([r['run_s'] for r in rs]):.0f}"])
+    text = _table(hdr, rows)
+    rel = []
+    for n in names:
+        for side in ("calibration", "test"):
+            s = out.get(n, {}).get(side)
+            if s:
+                rel.append([n, side] + [f"{b['mean_p']:.2f} → {b['obs_freq']:.2f} ({b['n_cells']:,})"
+                                        for b in s["reliability"]])
+    if rel:
+        text += "\n\nReliability (mean forecast probability → observed frequency (cells)):\n\n" + \
+            _table(["run", "set"] + [b["bin"] for b in out[names[0]]["calibration"]["reliability"]],
+                   rel)
+    print(text)
+    if args.out:
+        Path(args.out).write_text(text + "\n")
+        Path(args.out).with_suffix(".json").write_text(json.dumps(out, indent=1, default=_json_default))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--runs-dir", default="",
@@ -568,16 +669,30 @@ def main() -> None:
     r.add_argument("--max-cases", type=int, default=0)
     r.add_argument("--seed", type=int, default=2026)
     r.add_argument("--name", default="")
+    r.add_argument("--split", choices=("calibration", "test"), default=None,
+                   help="only the calibration or held-out test fires (report.split_fires)")
+    r.add_argument("--max-det-run-s", type=float, default=0.0,
+                   help="only fire-days whose deterministic run in --det-run took <= this (s)")
+    r.add_argument("--det-run", default="", help="deterministic run file for --max-det-run-s")
+    r.add_argument("--ensemble", type=int, default=0, metavar="N",
+                   help="run N perturbed members (firesim.spread.ensemble) per fire-day")
+    r.add_argument("--ens-seed", type=int, default=1)
+    r.add_argument("--ens-params", default="",
+                   help='JSON EnsembleConfig overrides, e.g. \'{"wind_dir_sd_deg": 30}\'')
     sub.add_parser("report")
     c = sub.add_parser("compare", help="calibration vs held-out test skill of several runs")
     c.add_argument("runs", nargs="*", help="run names (default: all in --runs-dir)")
     c.add_argument("--windows", nargs="+", default=["8h", "17h", "oracle"])
     c.add_argument("--ref", default="", help="reference run for paired F1 differences")
     c.add_argument("--out", default="", help="also write the markdown here")
+    e = sub.add_parser("ens-compare", help="probabilistic scores of ensemble runs")
+    e.add_argument("runs", nargs="*")
+    e.add_argument("--window", default="17h")
+    e.add_argument("--out", default="")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", stream=sys.stdout)
     {"prepare": cmd_prepare, "run": cmd_run, "report": cmd_report,
-     "compare": cmd_compare}[args.cmd](args)
+     "compare": cmd_compare, "ens-compare": cmd_ens_compare}[args.cmd](args)
 
 
 if __name__ == "__main__":

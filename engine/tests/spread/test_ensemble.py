@@ -54,7 +54,7 @@ def test_percentiles_are_ordered_and_probability_matches_reach():
     assert np.all(res.burn_probability[np.isfinite(p90)] >= 0.9 - 1e-6)
     assert np.all(res.burn_probability[np.isfinite(p10)] >= 0.1 - 1e-6)
     assert np.all(~np.isfinite(p10)[res.burn_probability < 0.1 - 1e-6])
-    # the worst-credible (P10) footprint is larger than the median one
+    # the P10 (early) footprint is larger than the median one
     assert np.isfinite(p10).sum() > np.isfinite(p50).sum()
     assert len({round(m["wind_dir_offset_deg"], 3) for m in res.members}) == 20
 
@@ -89,3 +89,29 @@ def test_wind_direction_offset_applies_to_every_hourly_record():
     offs = {round((h.wind_direction - 270.0) % 360.0, 6) for h in member.hourly_weather}
     assert len(offs) == 1 and offs.pop() == pytest.approx(rec["wind_dir_offset_deg"] % 360.0, abs=0.01)
     assert member.weather.wind_direction == pytest.approx((270.0 + rec["wind_dir_offset_deg"]) % 360.0, abs=0.01)
+
+
+# The calibrated perturbation sizes as documented in docs/validation.md ("Ensemble
+# calibration") and docs/api-reference.md; change code and docs together.
+DOCUMENTED_SIGMAS = {
+    "wind_dir_sd_deg": 24.0, "wind_speed_log_sd": 0.405, "ffmc_sd": 7.2, "dmc_dc_log_sd": 0.6,
+    "curing_sd": 13.5, "fmc_sd": 15.0, "ros_log_sd": 0.825,
+}
+
+
+def test_defaults_match_documented_calibration():
+    from pathlib import Path
+
+    from firesim.spread.ensemble import DEFAULT_SIGMAS
+
+    cfg = EnsembleConfig()
+    assert DEFAULT_SIGMAS == DOCUMENTED_SIGMAS
+    for k, v in DOCUMENTED_SIGMAS.items():
+        assert getattr(cfg, k) == v
+    docs = Path(__file__).resolve().parents[3] / "docs"
+    val = " ".join((docs / "validation.md").read_text().split())  # line breaks -> spaces
+    section = val[val.index("## Ensemble calibration"):]
+    api = " ".join((docs / "api-reference.md").read_text().split())
+    for k, v in DOCUMENTED_SIGMAS.items():
+        assert f"`{k}` = {v:g}" in section, k
+        assert f"`{k}` {v:g}" in api, k

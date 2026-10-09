@@ -18,7 +18,7 @@
  * - Observed fields are never filled by the model: block 9 (status) and block 28 (observed fire
  *   behaviour) are user-entered only.
  * - Projections (blocks 36, 38, 42) use the ensemble where one is available (P50 median and P10
- *   worst-credible), else the single run, at clock times from the run's start time.
+ *   1 in 10 members), else the single run, at clock times from the run's start time.
  * - Every report is stamped with the run ID and the model version (/api/v1/version git_sha).
  */
 
@@ -427,10 +427,10 @@ export function buildICS209HTML(opts: ICS209Options): string {
     ? `<tr><td>End of modelled period (${esc(formatElapsed(runEndH))})</td><td>${esc(whenLabel(start, runEndH))}</td><td>${hasEns ? fmtHa(endProj.p50Ha) : "—"}</td><td>${hasEns ? fmtHa(endProj.p10Ha) : "—"}</td><td>${fmtHa(endProj.singleHa)}</td></tr>`
     : "";
   const proj36 = `<table class="inner">
-      <thead><tr><th>Horizon</th><th>Clock time</th><th>Area P50 (median)</th><th>Area P10 (worst-credible)</th><th>Area, single run</th></tr></thead>
+      <thead><tr><th>Horizon</th><th>Clock time</th><th>Area P50 (median)</th><th>Area P10 (1 in 10 members)</th><th>Area, single run</th></tr></thead>
       <tbody>${endRow36}${projRows}<tr><td>Anticipated after 72 hrs</td><td colspan="4">${runEndH > 72 ? `Modelled to ${esc(timeTo)}: ${fmtHa(final?.area_ha ?? null)} (single run)` : "Not modelled"}</td></tr></tbody>
     </table>
-    <div class="note">Model output: modelled area burned since the start of the period, no suppression. ${hasEns ? "P50 and P10 from the ensemble's arrival rasters (P10 = reached by 1 in 10 members this early: worst-credible)." : "No ensemble for this run: single run only."} Head direction and rates: Attachment A. Influencing factors: enter.</div>`;
+    <div class="note">Model output: modelled area burned since the start of the period, no suppression. ${hasEns ? "P50 and P10 from the ensemble's arrival rasters (P10 = reached by 1 in 10 members this early; the early end of the modelled range, not a worst case)." : "No ensemble for this run: single run only."} Head direction and rates: Attachment A. Influencing factors: enter.</div>`;
 
   const page2 = [
     sectionHeader("ADDITIONAL INCIDENT DECISION SUPPORT INFORMATION"),
@@ -464,7 +464,7 @@ export function buildICS209HTML(opts: ICS209Options): string {
   const threatRows = (endProj ? threatRow(`End of modelled period (${esc(formatElapsed(runEndH))})`, runEndH, true) : "")
     + projections.map((p) => threatRow(`${p.hours} hours`, p.hours, p.modelled)).join("");
   const threats38 = `<table class="inner">
-      <thead><tr><th>Horizon</th><th>Clock time</th><th>Structures (single run)</th><th>Critical assets and major roads reached${criticalReach?.hasEnsemble ? " (worst-credible P10 · single run)" : ""}</th></tr></thead>
+      <thead><tr><th>Horizon</th><th>Clock time</th><th>Structures (single run)</th><th>Critical assets and major roads reached${criticalReach?.hasEnsemble ? " (ensemble P10 · single run)" : ""}</th></tr></thead>
       <tbody>${threatRows}<tr><td>Anticipated after 72 hours</td><td colspan="3">${runEndH > 72 ? "See the asset list in Attachment A" : "Not modelled"}</td></tr></tbody>
     </table>
     <div class="note">Model output for this run, not an instruction: modelled fire within ${criticalReach?.bufferM ?? 500} m of an asset, and inside it. Risk to people, health and economic or cascading impacts: enter.</div>`;

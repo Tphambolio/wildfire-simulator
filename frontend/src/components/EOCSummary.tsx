@@ -222,7 +222,7 @@ function buildICSText(
   const hasAtRisk = !!criticalReach && (criticalReach.assets.length + criticalReach.roads.length) > 0;
   if (hasAtRisk && criticalReach) {
     const n = sectionBase + (spread ? 1 : 0) + (burnArea ? 1 : 0);
-    lines.push(`${n}. ASSETS REACHED BY THE MODELLED FIRE (${criticalReach.hasEnsemble ? "worst-credible / single run" : "single run"})`);
+    lines.push(`${n}. ASSETS REACHED BY THE MODELLED FIRE (${criticalReach.hasEnsemble ? "ensemble P10 / single run" : "single run"})`);
     lines.push(...criticalReachLines(criticalReach));
     lines.push("");
   }
@@ -553,7 +553,7 @@ export default function EOCSummary({
         <section className="eoc-section eoc-reached-section">
           <h4>Assets reached by the modelled fire</h4>
           <div className="eoc-sublabel">
-            Model output for this run ({criticalReach.hasEnsemble ? "worst-credible / single run" : "single run"}), not an instruction.
+            Model output for this run ({criticalReach.hasEnsemble ? "ensemble P10 / single run" : "single run"}), not an instruction.
           </div>
           {groupRows(criticalReach.assets).map((g) => (
             <div key={g.category} className="eoc-reached-group">

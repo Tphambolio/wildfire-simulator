@@ -2,9 +2,10 @@
  * "Range of outcomes" card, the headline of the Situation panel when a run has an ensemble
  * (EOC best-practice review, rank 2: ensemble first, the single deterministic run secondary).
  *
- * Shows ensemble progress, then the worst-credible (P10) and median (P50) extent at the
- * selected time, the area range across members at the end of the run, the map layer toggles,
- * and the caveat that the perturbation sizes are uncalibrated.
+ * Shows ensemble progress, then the P10 (reached by 1 in 10 members) and median (P50) extent
+ * at the selected time, the area range across members at the end of the run, the map layer
+ * toggles, and the caveat that the range is narrower than the real uncertainty (held-out
+ * Alberta fires, docs/validation.md "Ensemble calibration").
  */
 
 import { memo, useId, useMemo } from "react";
@@ -78,7 +79,7 @@ function EnsemblePanel({ state, selectedMinutes, scenarioStart, toggles, onToggl
       {state.phase === "completed" && g && areas && (
         <>
           <div className="ens-headline">
-            <div className="ens-kicker">Worst-credible extent by {timeWithZone(at, scenarioStart)}</div>
+            <div className="ens-kicker">P10 extent (1 in 10 members) by {timeWithZone(at, scenarioStart)}</div>
             <div className="ens-big" data-testid="ensemble-p10-area">
               {fmtHa(areas.p10)}<small> ha</small>
             </div>
@@ -95,14 +96,16 @@ function EnsemblePanel({ state, selectedMinutes, scenarioStart, toggles, onToggl
             </dd>
           </dl>
           <p className="hint-sm ens-def">
-            Worst-credible arrival (P10): one member in ten brings the fire to a place this early or
-            earlier. Lines on the map are P10 arrival times in clock time.
+            P10 arrival: at least one member in ten brings the fire to a place this early. It is the
+            early end of the modelled range, not a worst case: on held-out Alberta fires part of the
+            observed growth fell outside the P10 footprint on most days. Lines on the map are P10
+            arrival times in clock time.
           </p>
           <fieldset className="ens-toggles">
             <legend>On the map</legend>
             <label>
               <input type="checkbox" checked={toggles.lines} onChange={(e) => onToggle("lines", e.target.checked)} />
-              Worst-credible arrival lines (P10)
+              P10 arrival lines (early end of the range)
             </label>
             <label>
               <input type="checkbox" checked={toggles.p50} onChange={(e) => onToggle("p50", e.target.checked)} />
@@ -121,10 +124,11 @@ function EnsemblePanel({ state, selectedMinutes, scenarioStart, toggles, onToggl
       )}
 
       <p className="ens-caveat" data-testid="ensemble-caveat">
-        <strong>Uncalibrated range.</strong> Members vary wind, fuel moisture, curing and spread rate
-        by default amounts not yet fitted to observed fires, so the real range may be wider or
-        narrower. On Alberta fires FireSim usually over-predicts one-day growth. Use the
-        worst-credible line as a planning margin, not a forecast.
+        <strong>Range narrower than the real uncertainty.</strong> Members vary wind, fuel moisture,
+        curing and spread rate by amounts set from Alberta forecast errors and observed fires, but on
+        held-out fires the observed one-day area fell inside the members' 10-90 % range on only about
+        half the days, and FireSim usually over-predicts one-day growth. Use the P10 line as a
+        planning margin, not a forecast or a worst case.
       </p>
     </section>
   );

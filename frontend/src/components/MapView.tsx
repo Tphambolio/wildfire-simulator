@@ -714,7 +714,7 @@ export default function MapView({
     });
 
     // ── Major roads reached by the modelled fire: --watched-line on a white casing ──
-    // Single run solid; worst-credible (ensemble P10) dashed, drawn under it
+    // Single run solid; ensemble P10 (early) dashed, drawn under it
     for (const id of ["roads-reached-casing", "roads-reached-worst", "roads-reached-line"]) if (m.getLayer(id)) m.removeLayer(id);
     if (m.getSource("roads-reached")) m.removeSource("roads-reached");
     m.addSource("roads-reached", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -1908,7 +1908,7 @@ export default function MapView({
   }, [ensProb, mapReady, fireLayersVersion]);
 
   // When an ensemble arrives, widen the view to its last P10 line if that is not in view
-  // (the worst-credible extent is usually larger than the single run the map was fitted to)
+  // (the P10 extent is usually larger than the single run the map was fitted to)
   const ensFittedRef = useRef<unknown>(null);
   useEffect(() => {
     const m = map.current;
@@ -2017,8 +2017,8 @@ export default function MapView({
           <div className="burn-prob-legend-scale">
             {ensemble.show.lines && (
               <>
-                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-line" aria-hidden="true" /> Worst-credible arrival (P10), clock time</div>
-                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-now" aria-hidden="true" /> Worst-credible extent now</div>
+                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-line" aria-hidden="true" /> Early arrival (P10, 1 in 10 members), clock time</div>
+                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-now" aria-hidden="true" /> P10 extent now</div>
                 {ensemble.show.p50 && (
                   <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-p50" aria-hidden="true" /> Median extent now (P50)</div>
                 )}
