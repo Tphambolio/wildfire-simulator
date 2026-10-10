@@ -365,10 +365,20 @@ Published evidence is weak for this purpose:
   unavailable").
 
 FireSim's plan:
-1. **Data**: Jasper 2024 destroyed-structure list and map (Municipality of Jasper, public) and
-   timing from CFS NOR-X-433; request the structure-level survey table (about 1,153 homes,
-   FPInnovations / Parks Canada; known from news reports only). Fort McMurray 2016: Westhaver
-   2017 sample only; RMWB would hold building-level data.
+1. **Data** (public-data search 2026-10-09, [R9] in `docs/PROJECT_RECORD.md`):
+   - Observed losses: the Municipality of Jasper "Damage Assessment Structures" layer (ArcGIS
+     Online, owner MOJ_GIS). It holds one footprint polygon per structure with a rapid-assessment
+     `Status`. The townsite subset is 1,119 polygons: 370 Destroyed, 16 Visible Damage and
+     733 No Visible Damage. The official figure is 358 destroyed of 1,113 structures (municipal
+     after-action review); the difference is not reconciled. **No licence is stated**, so the
+     layer is used locally only and never committed.
+   - Timing and weather: CFS NOR-X-433 (OGL-Canada 2.0), the municipal after-action review and
+     FPInnovations WF TR 2025 n.04.
+   - The earlier statement here, "about 1,153 homes" in a structure-level survey, was **not
+     confirmed** and is withdrawn. FPInnovations assessed paired and neighbourhood-block samples
+     and publishes only figures and summaries. Its per-structure table (roof, spacing, exposure
+     mode) would have to be requested.
+   - Fort McMurray 2016: the Westhaver 2017 sample only; RMWB would hold building-level data.
 2. **Unit of scoring**: each footprint in the run area is a unit; observed = destroyed (and,
    separately, damaged); modelled = involved by the end of the scored period.
 3. **Report all of**: confusion counts (TP, FP, FN, TN), **precision**, **recall**, F1 and
@@ -381,13 +391,45 @@ FireSim's plan:
    a different fire or stated in advance; report the sensitivity runs (cutoff 20 / 30 / 45 m;
    contact 5 / 10 / 20 m; 150 / 400 kW/m²). The cutoff, contact and footprint-size runs were
    made on Edmonton footprints on 2026-10-09 without observed data (`scripts/structure_sensitivity.py`,
-   reports [R7] and, after the front-contact change, [R8] in `docs/PROJECT_RECORD.md`); they must
-   be repeated on the validation fire.
+   reports [R7] and, after the front-contact change, [R8] in `docs/PROJECT_RECORD.md`). The cutoff
+   runs were repeated on Jasper (item 6).
+6. **First result, Jasper 2024 (2026-10-10, [R10]; `scripts/jasper_structure_validation.py`)**.
+   - **Test type:** end-state, structure-only. There is no Jasper fuel grid, so no wildland run
+     and no front contact.
+   - **Set-up, pre-registered in the script before any status was read:**
+     - 15 ember-entry seeds: the 5 units nearest each of the three first-impact areas the
+       municipal after-action review names for 18:00 on 24 July 2024;
+     - engine defaults: 30 m cutoff, f_b = 1;
+     - wind 15 km/h from the SW (NOR-X-433 pp.33-36);
+     - window 18:00-24:00;
+     - 1,119 townsite footprints as units; Destroyed = positive.
+   - **Result:** 396 involved against 370 destroyed. Precision 63 %, recall 68 %, F1 65 %,
+     **κ 0.47**.
+   - **Baselines:**
+     - The count-matched distance band (baseline a: the same number of buildings nearest the
+       seeds) scores **κ 0.52**. FireSim − (a) = −0.04, with a 95 % block-bootstrap interval of
+       −0.16 to +0.05.
+     - No spread (seeds only, baseline b): κ 0.01.
+     - The FPInnovations "< 5 m" separation rule, as a percolation from the seeds: κ 0.10.
+     - Random at the observed rate: κ ≈ 0.
+   - **Item 4's rule is not met.** Given where the embers started fires, Hamada's pattern does
+     no better than distance from those points.
+   - **Pre-specified sensitivity:**
+     - cutoff 20 / 45 m gives 124 / 593 involved buildings (κ 0.19 / 0.51);
+     - wind ±25 %, wind from SSW, a 4 h or 12 h window and four alternative seed sets give
+       κ 0.34-0.50;
+     - FireSim − (a) runs from −0.04 to +0.07, and every interval includes zero.
+   - **Not modelled:** ember ignitions after 18:00 and suppression. The latter includes the
+     unrecorded demolitions in the business district at 21:30 (a likely source of false
+     positives).
 
 ## 9. Limits
 
 - Not validated in Canada. The only validations are on three Californian fires with Rothermel,
   LANDFIRE and RTMA inputs, and they are recall-heavy (§8).
+- The first Canadian check (Jasper 2024, structure-only, ember entry imposed) did not beat a
+  distance-from-ignition baseline. Building-level precision was 55-84 % across the
+  pre-specified runs (§8 item 6, [R10]).
 - Hamada is a homogeneous-community model applied here pair by pair (§4.3 [H]); a₀ and d are
   per pair, not area averages as Hamada intended (HT08 p.25).
 - Hamada has no construction, no topography (FSJ104651 p.17), no suppression, no burnout.

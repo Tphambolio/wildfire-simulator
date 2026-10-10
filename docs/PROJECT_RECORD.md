@@ -10,7 +10,7 @@ git history and the owner's recorded decisions.
 - **Repo:** https://github.com/Tphambolio/wildfire-simulator (local: `~/dev/wildfire/wildfire-simulator-v3`), branch `master`
 - **Owner:** Travis Kennedy, P.Ag (City of Edmonton)
 - **Tracked in Claude for Science project** `proj_4c36553a0c0c` (snapshots of this record are attached there; this file stays the source of truth)
-- **Status at this revision:** branch `fix/structure-front-contact` on `master` `9ef70c9` (PR #40 merged 2026-10-09): structure-spread front contact now measured from each building's own grid cells (`11c1230`), removing the grid artefact found by [R7]; sensitivity rerun [R8]; tests 2026-10-09: engine 931 passed / 1 xfailed (strict: Hamada rate vs Qin 2025, §6), API 108, Vitest 272, Playwright 28 (§5).
+- **Status at this revision:** branch `analysis/jasper-structure-validation` on `master` `022032d` (PR #41 merged 2026-10-10). First check of the structure-spread (Hamada) option against observed Canadian losses: Jasper 2024, pre-registered, structure-only, ember entry imposed. κ 0.47 against 0.52 for a distance-from-ignition baseline, so the pre-registered rule was not met ([R10], §4.4). Script `scripts/jasper_structure_validation.py`; data stay outside the repo. Tests 2026-10-10 (§5).
 
 ---
 
@@ -59,6 +59,7 @@ Frontend → HTTP/WebSocket → API → engine; frames are streamed back over We
 | `scripts/build_edmonton_assets.py` | Builds `frontend/public/edmonton/assets.geojson` (critical assets) from open sources |
 | `scripts/build_edmonton_roads.py` | Builds `frontend/public/edmonton/roads.geojson` (motorway to secondary + ramps) from Overpass |
 | `scripts/structure_sensitivity.py` | Structure-spread sensitivity (cutoff, contact distance, footprint size, front-contact rule) on Edmonton footprints; aggregate outputs written outside the repo [R7], [R8] |
+| `scripts/jasper_structure_validation.py` | Pre-registered end-state check of the Hamada option on the Jasper 2024 townsite losses (structure-only, ember entry imposed). Downloads the Municipality of Jasper damage layer with `OBJECTID` and `Status` only; the cache and outputs live outside the repo (`~/dev/wildfire/validation-data/jasper2024/`) and are never committed [R10] |
 | `scripts/validate.py`, `scripts/validation/` | Validation runs (prepare / run / report / compare), CFSDS fetch, optional WISE fire-day runs |
 
 **External data the code calls at run time:** Open-Meteo forecast API (`frontend/src/services/api.ts`,
@@ -115,6 +116,7 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | 2026-10-09 | **D5** Jasper 2024 building-level data: search the public record first (Parks Canada, Municipality of Jasper, provincial/federal after-action reviews, published damage inspections); only if nothing usable is public does the owner ask through the EM network. Validation (spec §8) stays unexecuted until then | [R6]. Jasper is the only recent, well-documented Canadian WUI loss event close to FireSim's setting; public data are reproducible and citable |
 | 2026-10-09 | **D6** Hamada rate: keep the published equations (0.197 m/s at a₀ = d = 10 m, f_b = 1, 17.8 m/s) against Qin (2025)'s 0.34 m/s; keep the strict xfail and the open item; **no contact with the authors** (owner instruction) | [R6]; spec §4.5, C11. Wind height, units and the Hazus blend above 10 m/s were checked and do not explain 0.34; matching it would add an unsourced factor of ~1.7 |
 | 2026-10-09 | **D2 follow-up: front contact measured from the building's own grid cells.** A unit is reached when a burned cell lies within `wildland_contact_m` (10 m, kept) of a grid cell its footprint touches (the all-touched mask cells), not of the footprint itself; below one cell this is the 8-neighbourhood of the building cells, so the outcome no longer depends on where a footprint sits inside its cell [H] | Owner decision under delegation ([R6] addendum) after [R7] showed the first rule was a grid artefact (contact 5 / 20 m: −71 % to +557 %). Smallest fix; formulated as a cell-to-cell distance so the parameter keeps a meaning on finer grids; no contact across non-fuel one cell wide or more that the footprint does not touch. `11c1230`; spec §3. Effect [R8]: contact 5 / 20 m now 0 %; involved buildings at 6 h +38 % to +751 % vs the first rule (contact at cell resolution, median 22-42 m from the footprint) |
+| 2026-10-10 | **Jasper 2024 structure check, pre-registered.** All choices were fixed in `scripts/jasper_structure_validation.py` (`PREREG`, commit `ae33a21`) before any damage status was read:<br>• **Run:** structure-only (no Jasper fuel grid). Units are the 1,119 MOJ townsite footprints; Destroyed = positive (Destroyed + Visible Damage as a sensitivity).<br>• **Ember entry:** 15 seed buildings (the 5 nearest each of the three after-action-review first-impact areas) ignited at 18:00 on 24 July 2024.<br>• **Hamada:** engine defaults, 30 m cutoff and f_b = 1; 10 m wind 15 km/h from 225° (NOR-X-433 pp.33-36); window 18:00-24:00.<br>• **Sensitivity:** cutoff 20 / 45 m; wind × 0.75 / × 1.25; wind from 202.5°; window 4 h / 12 h; four alternative seed sets.<br>• **Baselines:** count-matched distance band; FPI < 5 m one-step and percolation rules; random at the observed rate; seeds only.<br>• **Decision rule:** structure spread is worth showing only if its κ beats the distance band and seeds only (spec §8 item 4) | Spec §8 item 5: no tuning on the test fire. The wildland front cannot be run for Jasper, and FPInnovations reports ember entry followed by structure-to-structure spread, so a structure-only run with imposed ember ignitions tests exactly the Hamada stage. Everything seen beforehand is disclosed in [R10] §1 |
 | standing | Ask the owner before each merge (auto-merge is enabled but still ask) | `CLAUDE.md` (CI/CD); owner notes |
 | standing | Run the full verification stack, including browser E2E, before calling work done | Owner feedback note (2026-06-16) |
 | standing | No Claude/Anthropic references in code committed to City of Edmonton systems (`git.edmonton.ca`); this GitHub repo is separate | `CLAUDE.md` |
@@ -217,6 +219,8 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 - [R6] *Structure spread: owner decisions and reasoning* (2026-10-09), `~/dev/wildfire/reports/Structure spread owner decisions 2026-10-09.md`: decisions D1-D6 made under the owner's delegation (design fire, distance limits, aggregate-only output, footprints, Jasper data, Qin 0.34 m/s), each with its reasoning.
 - [R7] *Structure spread: sensitivity to the cutoff, contact distance and footprint filter* (2026-10-09), `~/dev/wildfire/reports/Structure spread sensitivity 2026-10-09.md`: decisions D2/D4 follow-up on Edmonton footprints, 3 sites × 2 weather days, Hamada option, aggregate counts only; script `scripts/structure_sensitivity.py`, outputs `~/dev/wildfire/reports/data/structure-sensitivity-2026-10-09/`.
 - [R8] *Structure spread: front contact measured from the building's own cells* (2026-10-09), `~/dev/wildfire/reports/Structure front contact fix 2026-10-09.md`: the building-cell contact rule and why, rerun of the [R7] sensitivity before/after (same settings, seed 20261009), aggregate counts only; outputs `~/dev/wildfire/reports/data/structure-front-contact-2026-10-09/`.
+- [R9] *Jasper 2024 building data search* (2026-10-09), `~/dev/wildfire/reports/Jasper 2024 building data search 2026-10-09.md`: public sources for building-level damage, timing and weather of the Jasper Wildfire Complex (decision D5). The MOJ "Damage Assessment Structures" layer is the observed set (townsite 370 / 16 / 733), with CFS NOR-X-433 and the municipal after-action review for timing. It records the gaps: progression GIS, the FPI per-structure table, station data for 16:00-22:00, and suppression locations. No one was contacted.
+- [R10] *Jasper 2024: building-by-building check of FireSim structure spread* (2026-10-10), `~/dev/wildfire/reports/Jasper 2024 structure validation 2026-10-10.md`: the pre-registered set-up, data provenance and licence status, results against the baselines, the pre-specified sensitivity, interpretation, limits and the data to request. Script `scripts/jasper_structure_validation.py`; outputs (local only) `~/dev/wildfire/validation-data/jasper2024/results-2026-10-10/`.
 - Reference PDFs: `~/dev/wildfire/references/spotting/` (Albini, Chase, Morris originals + `spotting_equations.md`), `structure-ignition/` (Cohen 2000/2004, NRC 2021, Westhaver 2017, others + `structure_ignition_review.md`), `hfi-classes/` (Cole & Alexander 1995 poster, CWFIS legend notes).
 
 ### 4.3 Data sources
@@ -240,6 +244,11 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 | CFS National FBP fuel types 2014b (250 m) | Validation fuel (`cfs_national_2014` scheme) | NRCan end-user agreement: internal use, not redistributed |
 | CFS national FBP grids, current (2024/2026, 30/100 m; `cfs_national` scheme) | Code scheme supported; not yet integrated as a national fuel path | Open Government Licence – Canada [R2] |
 | Canadian MRDEM 30 m DTM | Validation terrain | Open Government Licence – Canada |
+| Municipality of Jasper "Damage Assessment Structures" (ArcGIS Online, owner MOJ_GIS, layer 0) | Observed per-building losses for the Jasper 2024 check: townsite footprints with `Status`, retrieved 2026-10-10 with `OBJECTID` and `Status` only (no street or address field) [R9], [R10] | **No stated licence: local use only, not redistributed.** Cached outside the repo (`~/dev/wildfire/validation-data/jasper2024/`), never committed or attached. Written permission and metadata to be requested from MOJ (§6) |
+| CFS NOR-X-433, *Jasper Wildfire Complex 2024* (Northern Forestry Centre) | Townsite timing (18:00 first structure ignitions), wind for the Jasper check | Open Government Licence – Canada 2.0 |
+| Municipality of Jasper, *Jasper Wildfire Complex Municipal After-Action Review* | First-impact areas and townsite timeline (pp.21-22, 56); demolitions at 21:30 | Public PDF, no licence stated; cited only |
+| FPInnovations WF TR 2025 n.04, *Jasper wildfire: community impact research* | Spread mechanism, first rooftop ignitions (p.14), the < 5 m spacing finding (pp.2, 26) | No open licence stated; cited only (OCR'd locally for reading) |
+| OpenStreetMap via the Overpass API (read-only) | Locating the named first-impact areas; only centres rounded to 0.001° are kept in the script | ODbL 1.0 |
 | ECCC MSC GeoMet `climate-hourly` (14 Alberta stations, May-Sep 2024-25) | Ensemble input-error climatology (station truth) | Open Government Licence – Canada |
 | GEM forecasts via Open-Meteo previous-runs API (day-1 values); ERA5 via Open-Meteo archive | Ensemble input-error climatology (forecast / reanalysis) | CC BY 4.0 (Open-Meteo); ECCC / Copernicus source licences |
 
@@ -254,6 +263,32 @@ Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/de
 - **Ensemble (third round, held-out; measured before the grid fix):** 20 members on the chosen set-up, 65 test fire-days (14 largest excluded by run time only). Calibrated sizes vs former placeholders: observed area inside members' P10-P90 **20 % → 49 %** (ideal ~80 %); CRPS of log10 area 0.546 → **0.471** (single run 0.616); Brier skill vs single run +0.18 → +0.25; spread/skill 4.7 → 1.6 (still too narrow); cells at ~95 % burn probability burned 33 % of the time; P50 F1 0.201 vs single run 0.195; **P10 footprint held ≥ 90 % of observed growth on 29 % of days**, so P10 is not a worst case.
 - **Structure-spread sensitivity (2026-10-09; model sensitivity, not a validation)** [R7]: Hamada option, Edmonton footprints (334,192 units), 3 WUI sites (mature ravine edge with garages; lower-density ravine edge; newer suburb beside grass) × 2 days (FWI 15 and 72), 6 h, deterministic FBP run shared by all variants. Involved buildings at 6 h vs the defaults (30 m cutoff, 10 m contact, all footprints), over the 5 runs with a non-zero default: cutoff 20 m **−48 % to 0 %**, 45 m **+5 % to +220 %** (between 30 and 45 m the unit graph joins blocks across streets: largest component 2.5 % → 7.5 % of units); contact 5 m **−71 % to 0 %**, 20 m **+1 % to +557 %** (and 0 → 148 on one moderate run); dropping footprints < 40 m² **−8 % to 0 %**. The contact result is grid-dependent: on the 50 m engine grid with the all-touched building mask the nearest burnable cell lies 0-50 m from a footprint depending on where it sits in its cell. Defaults unchanged; a change to how contact is measured is recommended (§6). City-wide graph at 30 m: median nearest separation 2.56 m (2.58 m without < 40 m²), median degree 8, 1.6 % with no neighbour. Run time: whole city units 3-6 s, spread < 0.3 s per variant; the script's default reproduces the engine's own counts exactly and repeats identically.
 - **Structure front contact from the building cells (2026-10-09; model sensitivity, not a validation)** [R8]: same sites, days, seed and FBP runs as [R7] (a rerun of the unchanged script reproduced [R7] exactly). With contact measured from each building's grid cells (`11c1230`): contact 5 / 20 m **0 %** in all six runs (the contact distance is below the 50 m grid's resolution); involved buildings at 6 h vs the first rule **+38 % to +751 %** (site A moderate 0 → 199; front contacts 2-6×; front-contacted footprints a median 22-42 m, at most ~70 m, from the nearest burned cell edge); cutoff 20 m **−58 % to −27 %**, 45 m **+4 % to +170 %**; dropping footprints < 40 m² **−12 % to 0 %**. The cutoff is now the main structural sensitivity; defaults unchanged. The script's default again matches the engine in all runs; the contact rule costs ~2 s per variant over the whole city.
+- **Jasper 2024 structure check (2026-10-10; first test against observed Canadian losses)** [R10]: end-state, structure-only, ember entry imposed, pre-registered (§3).
+  - **Primary run:** 15 seeds at 18:00, cutoff 30 m, wind 15 km/h SW, 18:00-24:00. 396 involved against 370 destroyed (358 official). TP 250 / FP 146 / FN 120 / TN 603; precision **63.1 %**, recall **67.6 %**, F1 65.3 %, **κ 0.472**.
+  - **Baselines (κ):**
+
+    | Baseline | κ |
+    |---|---|
+    | Count-matched distance band from the seeds | **0.516** |
+    | Distance band with N = observed | 0.499 |
+    | FPI < 5 m, one step | 0.025 |
+    | FPI ≤ 5 m percolation | 0.095 |
+    | Random at the observed rate | ≈ 0 |
+    | Seeds only (no spread) | 0.011 |
+
+  - **κ differences (250 m block bootstrap):** FireSim − band −0.044 (95 % −0.157 to +0.045); FireSim − seeds only +0.461 (+0.238 to +0.649).
+  - **Pre-registered rule not met:** given the ember-entry locations, Hamada does no better than distance from them.
+  - **Sensitivity (12 pre-specified runs):**
+    - κ 0.19-0.51, precision 55-84 %, recall 22-92 %, involved count 124-593;
+    - the cutoff dominates: 20 m gives 124 (κ 0.19), 45 m gives 593 (κ 0.51);
+    - wind ±25 % and wind from SSW change little, because below 10 m/s Hamada is nearly isotropic (Hazus blend);
+    - FireSim − band runs from −0.044 to +0.068, and every interval includes zero.
+  - **Seeds and outcome:** scoring without the seeds, or with Destroyed + Visible Damage, changes κ by ≤ 0.03.
+  - **Errors** sit at 250-500 m from the seeds:
+    - FN: separate ember-ignited groups (not modelled);
+    - FP: at the north-east front towards the commercial core, where the after-action review records demolitions at 21:30 (not recorded, so not testable).
+  - **Graph:** at 5 / 20 / 30 m the largest component holds 1.6 / 8.6 / 49.7 % of units.
+  - **Context only:** precision is in the range of FSJ104651 (59 / 9 / 77 %).
 - **Not yet measured:** RPAS-corrected mid-day restarts, real thermal-flight active edges, ensemble skill on the largest runs.
 
 ## 5. Testing
@@ -277,7 +312,16 @@ Validation data live outside the repo (`$FIRESIM_VALIDATION_DATA`, default `~/de
 
 **Structure-spread branches (2026-10-09, local workstation, Python 3.13 venv; frontend Node 22, Playwright Chromium/SwiftShader):** `docs/structure-spread-spec` (docs only): engine 873 passed / 1 xfailed, API 103; `feat/structure-units`: engine **886 passed / 1 xfailed**, API **103**, `tsc` 0, build OK, Vitest **272**, Playwright **28**; `feat/structure-hamada` (stacked on units): engine **912 passed / 2 xfailed** (new strict xfail: Qin 2025's 0.34 m/s Hamada rate not reproduced, spec §4.5), API **107**, `tsc` 0, build OK, Vitest **272**, Playwright **28**.
 
-**Latest results (2026-10-09, branch `fix/structure-front-contact` on `master` `9ef70c9`, local workstation, Python 3.13, Node 22):** engine pytest (`PYTHONPATH=engine/src`, `--import-mode=importlib`) **931 passed, 1 xfailed** (strict xfail: Hamada rate 0.197 vs Qin's 0.34 m/s), 57 s; API pytest (`--asyncio-mode=auto`) **108 passed**, 21 s; `npx tsc --noEmit -p tsconfig.app.json` exit 0; Vitest **272 passed** in 16 files; Playwright + axe (`E2E_PORT=4411`, with production build) **28 passed**, first attempt, 3.2 min. +8 engine tests for the building-cell front contact: grid-offset invariance (one house at five sub-cell offsets, same time; the first rule differed), contact 0-20 m one outcome, no contact two cells away or across a 1-cell road / 2-cell river, multi-cell footprints use only the cells their outline touches, an unmasked building cell that burns, a contact of one cell reaches one more ring. Sensitivity rerun: §4.4 and [R8].
+**Latest results (2026-10-10, branch `analysis/jasper-structure-validation` on `master` `022032d`, local workstation, Python 3.13, Node 22):**
+- Engine pytest (`PYTHONPATH=engine/src`, `--import-mode=importlib`): **931 passed, 1 xfailed** (strict xfail: Hamada rate 0.197 vs Qin's 0.34 m/s), 63 s.
+- API pytest (`--asyncio-mode=auto`): **108 passed**, 25 s.
+- Vitest: **272 passed** in 16 files.
+- The frontend is not touched, so `tsc`, the build and Playwright were not rerun.
+- The change adds `scripts/jasper_structure_validation.py` and docs only; no engine code changed and no tests were added.
+- **Reproducibility:** a second full run of the script reproduced every scored number exactly. The script asserts that no footprint is dropped and that only `OBJECTID` and `Status` are in the cache, and it refuses to write inside the repo.
+- Validation results: §4.4 and [R10].
+
+**Previous results (2026-10-09, branch `fix/structure-front-contact` on `master` `9ef70c9`, local workstation, Python 3.13, Node 22):** engine pytest (`PYTHONPATH=engine/src`, `--import-mode=importlib`) **931 passed, 1 xfailed** (strict xfail: Hamada rate 0.197 vs Qin's 0.34 m/s), 57 s; API pytest (`--asyncio-mode=auto`) **108 passed**, 21 s; `npx tsc --noEmit -p tsconfig.app.json` exit 0; Vitest **272 passed** in 16 files; Playwright + axe (`E2E_PORT=4411`, with production build) **28 passed**, first attempt, 3.2 min. +8 engine tests for the building-cell front contact: grid-offset invariance (one house at five sub-cell offsets, same time; the first rule differed), contact 0-20 m one outcome, no contact two cells away or across a 1-cell road / 2-cell river, multi-cell footprints use only the cells their outline touches, an unmasked building cell that burns, a contact of one cell reaches one more ring. Sensitivity rerun: §4.4 and [R8].
 
 **Previous results (2026-10-09, branch `analysis/structure-sensitivity` on `master` `8fa6500`, local workstation, Python 3.13, Node 22):** engine pytest (`PYTHONPATH=engine/src`, `--import-mode=importlib`) **923 passed, 1 xfailed** (strict xfail: Hamada rate 0.197 vs Qin's 0.34 m/s), 56 s; API pytest (`--asyncio-mode=auto`) **108 passed**, 20 s; `npx tsc --noEmit -p tsconfig.app.json` exit 0; Vitest **272 passed** in 16 files; Playwright + axe (`E2E_PORT=4397`, with production build) **28 passed**, first attempt, 3.1 min. The change adds `scripts/structure_sensitivity.py` and docs only (no tests added; the script checks its default against the engine's own counts). Sensitivity results: §4.4 and [R7].
 
@@ -352,7 +396,13 @@ against the live site.
 - [ ] Unverified citations: Alexander (2010) full reference; Fox-Hughes et al. (2024) title; Byram (1959), Thomas (1963), Tran et al. (1992) originals; Class 1/6 meanings and an Alexander & De Groot (1988) citation flagged for the owner's check in the redesign notes.
 - [ ] Roadmap after ensemble: time-available vs time-needed per zone, trigger buffers / ember reach (river is not a barrier), exercise/replay mode.
 - [ ] **Structure-to-structure spread (spec 2026-10-09):** design fire (D1) and 30 m cutoff (D2) **confirmed** under the owner's delegation 2026-10-09 [R6]; Qin (2025) reports a Hamada rate of 0.34 m/s for a = d = 10 m at 17.8 m/s where the published equations give 0.197 m/s (unexplained; stays open, strict xfail kept, **no author contact**, D6); PROCI SI flame-reach intercepts (≈ 120 m reach at 10 m/s) to be checked against IJWF/Hamada before the WU-E stage; no Canadian validation (`docs/structure-spread-spec.md` §8).
-- [ ] **Jasper 2024 building-level data (D5):** search the public record first (Parks Canada, Municipality of Jasper, provincial and federal after-action reviews, published damage-inspection data); only if nothing usable is public, the owner asks through the EM network (owner action). Then score precision, recall and κ (spec §8).
+- [ ] **Jasper 2024 (D5): public data found [R9]; first pre-registered check done [R10]; it did not beat the distance baseline.** Still open (owner action, through the EM network; de-identified, no addresses):
+  - **MOJ:** written permission and metadata for the damage layer (no licence stated; assessment method and date, 370 vs 358, post-2024 edits); locations of the 21:30 demolitions and heavy-equipment breaks.
+  - **CFS / Parks Canada:** NOR-X-433 progression polygons and ETA points as GIS; Ranger Creek, Dorothy and Paradise hourly records for 22-24 July.
+  - **FPInnovations / CFS:** the per-structure table (roof class, spacing, exposure or ignition mode) and the block layer.
+  - **Then:** a coupled run on a Jasper fuel grid (CFS national FBP 30 m), with its own front contact.
+  - **Calibration:** choose any cutoff or f_b change on a different fire (e.g. Fort McMurray 2016) before re-testing on Jasper.
+- [ ] **Structure-spread display vs the Jasper result.** The owner reinstated per-building display on 2026-10-10 (D3 reversed; [R6] addendum). The Jasper check found building-level precision of 63 % (55-84 %) and no gain over a distance band [R10], so keep the "illustrative — not validated" legend caveat and state the 30 m cutoff dependence (count 124-593 over cutoffs of 20-45 m on Jasper).
 - [ ] **Structure front contact is made at grid resolution** (after `11c1230`, [R8]): contact no longer depends on a footprint's position in its cell, but on the 50 m grid a building is reached when the front reaches a cell next to its cells (median 22-42 m, up to ~70 m, from the footprint), and `wildland_contact_m` has no effect below one cell. Finer options for later, each with its own re-run: coverage-fraction masking, or a finer fuel grid near buildings.
 - [ ] **Structure spread (Hamada, API only):** no UI yet; outputs are per-frame counts only — per-building involvement times are computed but deliberately not returned (the 2026-10-07 "avoid" list rules out per-building loss outputs); per-building output stays off (D3, 2026-10-09 [R6]): counts only, later perhaps by neighbourhood or distance band. Building mask on the fuel grid still covers only the 4 nearest neighbourhoods, while structure units cover the whole run area (the building-cell contact rule needs no special case for it: outside the mask a building's own cells can burn; a mask over every building would change the wildland run itself, so it is not done here). 12,025 of the 346,238 footprints are not joined to a neighbourhood by the building index and never become units (the API behaves the same way).
 - [ ] Minor UI: "Click map to set ignition point" hint lingers after a typed ignition (owner note 2026-10-08; status not re-checked).
@@ -392,11 +442,15 @@ remaining grid dependence (contact at cell resolution) stays open above [R8].
 Generated from git: `git log --since=2026-10-01 --format="| %ad | \`%h\` | %s |" --date=short`.
 No bot commits in this range. Branch-sync merges ("Merge branch 'master' into …", "Merge
 (origin/)master into …") are omitted; PR merges are kept. 119 earlier commits (2026-02-12 to
-2026-09-30, incl. `TRA-XXX` task history) are not listed. Regenerated 2026-10-09 on branch
-`fix/structure-front-contact` (this PR's own documentation commit is not listed).
+2026-09-30, incl. `TRA-XXX` task history) are not listed. Regenerated 2026-10-10 on branch
+`analysis/jasper-structure-validation` (this PR's own documentation commit is not listed).
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-10 | `4e37d41` | fix(scripts): correct after-action review and FPI page citations in the Jasper pre-registration |
+| 2026-10-09 | `ae33a21` | feat(scripts): pre-registered Jasper 2024 structure validation (Hamada, structure-only) |
+| 2026-10-10 | `022032d` | Merge pull request #41 from Tphambolio/fix/structure-front-contact |
+| 2026-10-09 | `97ebb69` | docs: record the building-cell front contact rule and its sensitivity rerun |
 | 2026-10-09 | `11c1230` | fix(engine): measure structure front contact from the building's own grid cells |
 | 2026-10-10 | `9ef70c9` | Merge pull request #40 from Tphambolio/analysis/structure-sensitivity |
 | 2026-10-09 | `ff2c224` | docs: record structure-spread decisions D1-D6 and the sensitivity results |
