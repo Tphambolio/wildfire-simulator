@@ -274,8 +274,68 @@ fire danger rating.
 
 ### GET /api/v1/weather/current?lat=&lng=
 
+Current fire weather and starting FWI codes for a point, for use as `fwi_overrides`. Tiers, in
+order (`source_tier`):
+
+1. **`pyra`** (Alberta, from 2026-10-10): the codes Pyra's station page shows today for the
+   nearest station in Pyra's Alberta list ([Pyra](https://tphambolio.github.io/FWI/), the team's
+   fire-weather app). See "Pyra tier" below.
+2. **`cwfis`** / **`cwfis_archive`**: the nearest CWFIS station's published codes (below).
+3. **`gem_estimate`**: a one-day cold-start estimate (below).
+
+User-entered codes in the app always win over any tier.
+
+#### Pyra tier
+
+FireSim reproduces Pyra's Alberta station page (`initFWI`, Pyra commit in `pyra.pyra_commit`)
+with its own FWI calculator (same equations, FFMC coefficient 147.2):
+
+- **Station:** nearest in Pyra's `ALBERTA_STATIONS` (198 stations, exported to
+  `services/pyra_stations.py`; first of equally near ones). Only points in Pyra's Alberta box
+  (48.8-60.5° N, 120.5-109.5° W) use this tier.
+- **Carry-over:** CWFIS `firewx_stns_current` within ±2° of the Pyra station, nearest station
+  with FFMC/DC unless a weather-only station is > 200 km nearer (Pyra's holding cache), and the
+  station's entry in Pyra's published `data/cwfis_prev.json` (by name, else nearest within
+  10 km); the newer one, CWFIS first on a tie; at most 2 days old. Spring (March-June) DC ≤ 60 is
+  raised to Pyra's regional floor.
+- **Before noon LST (MST, 19 UTC):** the carry-over is stepped one day with the GEM noon-LST
+  forecast for today (Open-Meteo `models=gem_seamless`, the URL Pyra requests: noon temperature,
+  RH, 10 m wind, 24 h rain to noon). `codes_status` = `forecast`.
+- **After noon LST:** a CWFIS station with codes → its codes as published (`today`, or
+  `yesterday` until CWFIS publishes today's, as Pyra shows them); CWFIS with weather-only
+  stations → carry-over stepped with that station's observation; CWFIS empty → carry-over
+  stepped with GEM's noon-LST value (Pyra tries MSC SWOB first; FireSim does not). `codes_status`
+  = `stepped` when stepped.
+- ISI/BUI/FWI are the daily values (noon wind), as in Pyra's components strip. Pyra's
+  "peak burn" ISI/FWI (same codes, 16:00 MDT wind) are in `pyra.peak_*`.
+- `source` reads "Pyra · <station> · as of noon LST [forecast] <date> (chain <CWFIS station>
+  <date>)"; `station_name` / `distance_km` are the Pyra station and its distance from the point.
+- The carry-over file is cached for 15 min; on a failed refresh the last copy is used while it
+  is ≤ 48 h old (Pyra's limit); the GitHub Pages copy is tried when raw.githubusercontent.com
+  fails.
+- If the tier has no value (outside Alberta, no carry-over ≤ 2 days, GEM unavailable) the next
+  tier answers and its `message` ends with "Pyra chain not used: <reason>".
+- `FIRESIM_PYRA_SOURCE=0` turns the tier off.
+
+`pyra` object (only when `source_tier` is `pyra`):
+
+| Field | Meaning |
+|---|---|
+| `station_name`, `station_lat`, `station_lng`, `station_distance_km` | Pyra station and its distance from the point |
+| `page_url` | Pyra's station page for it (shows the same numbers) |
+| `chain_source` | `cwfis_live` (CWFIS current layer) or `pyra_cwfis_prev` (Pyra's `cwfis_prev.json`) |
+| `chain_station_name`, `chain_station_id`, `chain_distance_km`, `chain_date` | Station whose codes were carried, CWFIS feature id (live only), distance from the Pyra station, noon-LST date of the carried codes |
+| `step` | `none` (codes used as published), `gem_noon_forecast`, `gem_noon` or `cwfis_obs` |
+| `rain_24h` | 24 h rain to noon LST used for the step (mm) |
+| `peak_wind_speed`, `peak_isi`, `peak_fwi` | Pyra's peak-burn values (16:00 MDT wind); `null` when the weather has no 16:00 hour |
+| `carry_over_generated`, `carry_over_url` | `generated` time and URL of the carry-over file read |
+| `pyra_commit` | Pyra commit the port was checked against |
+| `notes` | Known differences for this answer (e.g. SWOB not queried; 2-day-old carry-over stepped once, as Pyra does) |
+
+#### CWFIS tiers
+
 Current fire weather and FWI codes from the nearest CWFIS station **that reports FFMC, DMC and
-DC** (GeoServer WFS `public:firewx_stns_current`, within 2°), for use as `fwi_overrides`.
+DC** (GeoServer WFS `public:firewx_stns_current`, within 2°).
 Stations without codes are skipped (the message says how many nearer ones were); `distance_km`
 is the distance of the station actually used.
 
@@ -292,9 +352,11 @@ Fields added 2026-10-10 (all optional, `null` when not applicable):
 | Field | Meaning |
 |---|---|
 | `codes_date` | Date (YYYY-MM-DD) whose noon-LST codes are returned (CWFIS `rep_date`, or the estimate's noon) |
-| `codes_status` | `today`, `yesterday`, `older` (station codes) or `estimate` (cold-start estimate) |
+| `codes_status` | `today`, `yesterday`, `older` (station codes), `estimate` (cold-start estimate); Pyra tier also `forecast` (before noon LST, stepped with the noon forecast) and `stepped` (after noon LST, carried and stepped) |
 | `codes_label` | The same in words, e.g. "Yesterday's codes (as of noon LST 2026-10-09; today's are computed after noon LST)"; also appended to `message` |
 | `weather_model` | Open-Meteo model used for any value (`gem_seamless`), `null` for station data only |
+| `source_tier` | `pyra`, `cwfis`, `cwfis_archive` or `gem_estimate` (`null` when unavailable); added with the Pyra tier |
+| `pyra` | Pyra tier details (above) |
 
 Noon LST uses the province's standard-time offset (AB UTC-7, BC UTC-8, …), else the zone's
 standard offset, else longitude / 15.

@@ -123,9 +123,14 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
 - No suppression is modelled.
 - Weather: constant or hourly; DMC and DC fixed within a run; the hourly forecast is
   Open-Meteo GEM (`gem_seamless`, pinned 2026-10-10, the model the ensemble's error climatology
-  was measured on). Current codes come from the nearest CWFIS station with codes, labelled with
-  their date (before noon LST they are yesterday's); off-season codes are a labelled one-day
-  cold-start estimate whose DMC, DC and BUI are far too low. Wind direction is the dominant source of error in fire growth models.
+  was measured on). In Alberta the starting codes are the ones Pyra (the team's fire-weather app)
+  shows for the nearest Pyra station: CWFIS carry-over stepped one day with the GEM noon-LST
+  weather (before noon LST a forecast), the same numbers as Pyra's station page (checked against
+  Pyra's engine and live page, 2026-10-10). They are only as good as that one-station chain: a
+  station tens of km away, model noon weather, no overwinter DC. Elsewhere, or when Pyra's chain
+  has no value, codes come from the nearest CWFIS station with codes, labelled with their date
+  (before noon LST they are yesterday's); off-season codes are a labelled one-day cold-start
+  estimate whose DMC, DC and BUI are far too low. Codes typed by the user always win. Wind direction is the dominant source of error in fire growth models.
 - Grass curing is not observed: in spring FireSim assumes 95 % (an early or late green-up moves
   the real window by weeks); outside the window it is whatever the user enters. Grass is about
   3 % of the observed growth in the validation fires, so the CFSDS harness hardly tests it
