@@ -401,6 +401,7 @@ def flame_emitters(arrival, cross_ros, p, duration, dx, dy,
     return Emitters(
         x=(c + 0.5) * dx, y=-(r + 0.5) * dy, start_min=t[r, c], end_min=end,
         flame_m=flame_length_m(intensity, cfb >= 0.1), normal_x=nx, normal_y=ny, cell_size=size,
+        intensity_kw_m=intensity,
     )
 
 

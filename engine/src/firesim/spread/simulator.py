@@ -76,6 +76,8 @@ class Simulator:
         active_edge_buffer_m: float | None = None,
         structure_spread: bool = False,
         structure_footprints=None,
+        structure_embers: bool = False,
+        structure_design_fire_kw_m2: int = 150,
     ):
         """Initialize simulator.
 
@@ -114,6 +116,11 @@ class Simulator:
                 (``BuildingIndex``: shapely geometries are built only for the area the spread
                 can reach) or a list of shapely footprints (lng, lat); defaults to
                 ``building_footprints``.
+            structure_embers: with ``structure_spread``, opt-in: also ember ignition of
+                buildings (design fire, Himoto transport between buildings, Sardoy from the
+                burning grid cells, ψ criterion; docs/structure-spread-spec.md §6).
+            structure_design_fire_kw_m2: building design fire for the ember stage, 150
+                (default, PROCI24) or 400 (scenario, FSJ104686).
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -135,6 +142,8 @@ class Simulator:
         self.active_edge_buffer_m = active_edge_buffer_m
         self.structure_spread = structure_spread
         self.structure_footprints = structure_footprints
+        self.structure_embers = structure_embers
+        self.structure_design_fire_kw_m2 = int(structure_design_fire_kw_m2)
         # Seed for ember spotting (config.seed, else a hash of the config): repeatable runs
         self.seed = config.resolved_seed()
         if active_edges is not None and fuel_grid is None:
@@ -475,11 +484,17 @@ class Simulator:
             return None
         from firesim.structures import spread as structure_spread
 
+        embers = None
+        if self.structure_embers:
+            from firesim.structures.embers import EmberOptions
+
+            embers = EmberOptions(design_fire_kw_m2=self.structure_design_fire_kw_m2)
         g = self.fuel_grid
         return structure_spread.structure_spread_for_grid_run(
             footprints, arrival, self._schedule, duration_min,
             bbox=(g.lat_min, g.lat_max, g.lng_min, g.lng_max),
             max_units=structure_spread.DEFAULT_MAX_UNITS,  # read at call time (OOM guard)
+            embers=embers, emitters=emitters,
         )
 
     def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:

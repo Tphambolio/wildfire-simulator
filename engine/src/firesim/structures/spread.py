@@ -16,6 +16,11 @@ Canada.** Outputs are modelled involvement times, not predictions of which build
 3. First involvement times over the graph by Dijkstra (non-negative, first-in-first-out
    crossings). No burnout: Hamada has none (Purnomo et al. 2026, Fire Safety J. 161: 104651,
    pp.3, 17).
+4. Opt-in ember ignition (spec §6, ``firesim.structures.embers``): every involved unit burns
+   a design fire, emits embers that are carried downwind (Himoto lognormal) and pooled on the
+   footprints they land on; a unit ignites when its pooled ember load passes the ψ criterion
+   (Qin et al. 2026, Fire Safety J. 162: 104686, eq 1, pp.3-5). Embers from the burning grid
+   cells (Sardoy) can also reach buildings. Mechanism "ember".
 """
 
 from __future__ import annotations
@@ -38,6 +43,8 @@ DETAIL_SIMPLIFY_M = 0.5  # map footprints: Douglas-Peucker tolerance, metres (di
 SOURCE_NONE = 0
 SOURCE_FRONT = 1  # reached by the wildland front
 SOURCE_STRUCTURE = 2  # building-to-building (Hamada)
+SOURCE_EMBER = 3  # ember ignition (spec §6)
+MECHANISM = {SOURCE_FRONT: "front", SOURCE_STRUCTURE: "b2b", SOURCE_EMBER: "ember"}
 
 
 @dataclass(frozen=True)
@@ -66,13 +73,14 @@ class StructureSpreadResult:
     units_in_run: int | None = None
     footprints: np.ndarray | None = None  # local-metre footprints of the built units
     frame: object = None  # LocalFrame of ``footprints``
+    ember_from_wildland: np.ndarray | None = None  # ember units lit by the grid cells' embers
 
     def counts_at(self, t_min: float) -> dict:
         """Counts of units involved by ``t_min`` (JSON-friendly, with the label)."""
         by = self.t_min <= t_min
         front = int(np.sum(by & (self.source == SOURCE_FRONT)))
         structure = int(np.sum(by & (self.source == SOURCE_STRUCTURE)))
-        return {
+        out = {
             "model": MODEL,
             "label": LABEL,
             "computed": True,
@@ -83,14 +91,23 @@ class StructureSpreadResult:
             "units_involved": front + structure,
             **self.params,
         }
+        if self.params.get("embers"):
+            ember = by & (self.source == SOURCE_EMBER)
+            wild = (self.ember_from_wildland if self.ember_from_wildland is not None
+                    else np.zeros(len(self.t_min), dtype=bool))
+            out["units_ember"] = int(np.sum(ember))
+            out["units_ember_from_wildland"] = int(np.sum(ember & wild))
+            out["units_involved"] = front + structure + out["units_ember"]
+        return out
 
     def involved_detail(self, simplify_m: float = DETAIL_SIMPLIFY_M) -> list[dict]:
         """The involved units for the map (spec §9; owner decision 2026-10-10, D3 reversed).
 
         One entry per involved unit, in involvement order: ``id`` (0.. in that order),
         ``t_h`` (hours from the start), ``mechanism`` ("front" = wildland front contact,
-        "b2b" = building to building), ``source_id`` (the ``id`` of the unit that passed the
-        fire on, b2b only) and ``polygon`` (footprint rings in (lng, lat), simplified by
+        "b2b" = building to building (Hamada), "ember" = ember ignition), ``source_id`` (the
+        ``id`` of the unit that passed the fire on: b2b, or ember when the main ember source
+        was a building; ``None`` for embers from the wildland front) and ``polygon`` (footprint rings in (lng, lat), simplified by
         ``simplify_m`` and rounded to 6 decimals, ~0.1 m). Only involved units; no attributes
         beyond these. Illustrative — not validated in Canada.
         """
@@ -114,13 +131,13 @@ class StructureSpreadResult:
         for k, (u, g) in enumerate(zip(inv, geoms)):
             if g.geom_type == "MultiPolygon":  # keep the largest part (map display only)
                 g = max(g.geoms, key=lambda p: p.area)
-            mech = "front" if self.source[u] == SOURCE_FRONT else "b2b"
+            mech = MECHANISM.get(int(self.source[u]), "b2b")
             parent = int(self.parent[u])
             out.append({
                 "id": k,
                 "t_h": round(float(self.t_min[u]) / 60.0, 3),
                 "mechanism": mech,
-                "source_id": new_id.get(parent) if mech == "b2b" and parent >= 0 else None,
+                "source_id": new_id.get(parent) if mech != "front" and parent >= 0 else None,
                 "polygon": [[[float(x), float(y)] for x, y in g.exterior.coords]],
             })
         return out
@@ -351,6 +368,39 @@ def _cross(t0, a0, sep, ux, uy, has_dir, starts, speed, sx, sy, fb, duration_min
     return arrive
 
 
+def spread_with_embers(
+    units: StructureUnits,
+    t_front_min: np.ndarray,
+    wind: list[WindPeriod],
+    *,
+    duration_min: float,
+    fb: float = DEFAULT_COMBUSTIBLE_FRACTION,
+    embers=None,
+    wildland=None,
+) -> StructureSpreadResult:
+    """Front contact, Hamada building to building and (opt-in) ember ignition.
+
+    ``embers=None`` is exactly ``hamada_spread``. With an ``EmberOptions`` the run adds ember
+    ignition (spec §6, ``firesim.structures.embers.coupled_spread``); ``wildland`` (a
+    ``WildlandSources``) adds embers from the burning grid cells when
+    ``embers.from_wildland``. Deterministic (expected-value pooling, no random draws).
+    """
+    if embers is None:
+        return hamada_spread(units, t_front_min, wind, duration_min=duration_min, fb=fb)
+    if not wind:
+        raise ValueError("wind needs at least one period")
+    from firesim.structures.embers import coupled_spread
+
+    r = coupled_spread(units, t_front_min, wind, duration_min=duration_min, fb=fb,
+                       options=embers, wildland=wildland if embers.from_wildland else None,
+                       cross=_cross)
+    params = {"combustible_fraction": fb, "neighbour_cutoff_m": units.neighbour_cutoff_m,
+              "hamada": bool(embers.hamada), **embers.params()}
+    return StructureSpreadResult(t_min=r.t_min, source=r.source, parent=r.parent,
+                                 t_front_min=np.asarray(t_front_min, dtype=float),
+                                 params=params, ember_from_wildland=r.ember_from_wildland)
+
+
 class ListFootprintSource:
     """Footprint source over an in-memory list of shapely footprints (lng, lat).
 
@@ -426,6 +476,8 @@ def structure_spread_for_grid_run(
     contact_m: float = DEFAULT_WILDLAND_CONTACT_M,
     fb: float = DEFAULT_COMBUSTIBLE_FRACTION,
     max_units: int = DEFAULT_MAX_UNITS,
+    embers=None,
+    emitters=None,
 ):
     """Hamada structure spread coupled to a finished grid run, built only where it can reach.
 
@@ -440,6 +492,15 @@ def structure_spread_for_grid_run(
     grid's edge need no check (units are only the footprints centred in the grid box). Every
     unit is in a fixed frame at the grid box centre, so results do not depend on R.
 
+    With ``embers`` (an ``EmberOptions``, spec §6) the margin also covers the ember reach:
+    the first margin adds the distance beyond which the wildland cells' embers cannot reach
+    the smallest ψ* even if every cell's whole emission landed at its peak density
+    (``WildlandSources.safe_reach_m``; Sardoy's own X_max reaches kilometres at crown-fire
+    intensities), and the exactness test grows each involved unit's footprint by the larger
+    of the cutoff and its own ember reach (Himoto X_max at its design-fire peak in the
+    strongest wind, plus crosswind). A footprint wholly outside R therefore cannot be
+    involved.
+
     If R would hold more than ``max_units`` footprints, nothing is built and the result is a
     ``StructureSpreadSkipped`` whose frames say ``NOT_COMPUTED_NOTE`` (OOM guard).
 
@@ -453,6 +514,9 @@ def structure_spread_for_grid_run(
         duration_min: run length.
         bbox: the fuel grid's bounds ``(lat_min, lat_max, lng_min, lng_max)``: the run area
             and the frame of ``arrival_min``.
+        embers: ``EmberOptions`` to add ember ignition (opt-in), or ``None`` (Hamada only).
+        emitters: the grid run's ``Emitters`` (burning cells with intensity), the wildland
+            ember sources when ``embers.from_wildland``.
     """
     from firesim.structures.units import (
         DEFAULT_NEIGHBOUR_CUTOFF_M,
@@ -472,6 +536,8 @@ def structure_spread_for_grid_run(
     frame = LocalFrame((lat_min + lat_max) / 2.0, (lng_min + lng_max) / 2.0)
     params = {"combustible_fraction": fb, "neighbour_cutoff_m": cutoff,
               "wildland_contact_m": contact_m, "front_contact_rule": FRONT_CONTACT_RULE}
+    if embers is not None:
+        params.update(embers.params())
     wind = [WindPeriod(float(s), float(c.wind_speed), float(c.wind_direction)) for s, c in schedule]
 
     arrival_min = np.asarray(arrival_min, dtype=float)
@@ -490,6 +556,15 @@ def structure_spread_for_grid_run(
     k = int(np.abs(contact_offsets(contact_m, cw, ch)).max())
     contact_reach_m = (k + 2) * max(cw, ch)
     margin_m = contact_reach_m + 2.0 * cutoff + 250.0  # first guess; grown until exact
+    wildland, u10_max = None, max((w.wind_speed_kmh for w in wind), default=0.0) / 3.6
+    if embers is not None:
+        from firesim.structures.embers import WildlandSources, structure_ember_reach, u10_to_u6
+
+        if embers.from_wildland and emitters is not None:
+            wildland = WildlandSources.from_emitters(emitters, frame)
+            if wildland is not None:
+                speeds = u10_to_u6(np.array([w.wind_speed_kmh for w in wind]) / 3.6)
+                margin_m += wildland.safe_reach_m(speeds, duration_min, embers.gr_vegetation)
 
     while True:
         mlat, mlng = margin_m / M_PER_DEG_LAT, margin_m / frame.m_per_deg_lng
@@ -502,8 +577,12 @@ def structure_spread_for_grid_run(
         units = build_units(source.footprints_intersecting(reach), neighbour_cutoff_m=cutoff,
                             bbox=bbox, frame=frame)
         t_front = building_cell_contact_times(units, arrival_min, bbox, contact_m)
-        result = hamada_spread(units, t_front, wind, duration_min=duration_min, fb=fb)
-        if whole_grid or _inside_reach(units, result, reach, frame, cutoff + 1.0, bbox):
+        result = spread_with_embers(units, t_front, wind, duration_min=duration_min, fb=fb,
+                                    embers=embers, wildland=wildland)
+        guard = cutoff + 1.0
+        if embers is not None:
+            guard = np.maximum(structure_ember_reach(units, embers, u10_max), cutoff) + 1.0
+        if whole_grid or _inside_reach(units, result, reach, frame, guard, bbox):
             break
         margin_m *= 2.0
     result.params.update(params)
@@ -523,6 +602,7 @@ def _inside_reach(units, result, reach, frame, guard_m, grid_bbox) -> bool:
     if not inv.any():
         return True
     b = shapely.bounds(units.footprints[inv])  # local metres
+    guard_m = np.broadcast_to(np.asarray(guard_m, dtype=float), (len(units),))[inv]
     r_lat0, r_lat1, r_lng0, r_lng1 = reach
     g_lat0, g_lat1, g_lng0, g_lng1 = grid_bbox
     x0, y0 = (float(v) for v in frame.to_local(r_lat0, r_lng0))

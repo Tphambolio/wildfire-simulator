@@ -112,6 +112,9 @@ class Emitters:
     lng0: float = 0.0
     m_per_deg_lat: float = 111320.0
     m_per_deg_lng: float = 111320.0
+    # Head fire intensity of each cell (kW/m), for ember generation from the wildland front
+    # (structure spread embers, docs/structure-spread-spec.md §6); None when not supplied
+    intensity_kw_m: np.ndarray | None = None
 
     def to_local(self, lat, lng):
         return (np.asarray(lng) - self.lng0) * self.m_per_deg_lng, (np.asarray(lat) - self.lat0) * self.m_per_deg_lat
