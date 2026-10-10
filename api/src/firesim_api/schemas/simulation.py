@@ -378,6 +378,11 @@ class SimulationResponse(BaseModel):
     config: SimulationCreate | None = None
     frames: list[SimulationFrame] = []
     error: str | None = None
+    #: Progress for display while running: "loading", "buildings", "spread", "structures",
+    #: "finishing" (None before the run starts or for multi-day runs)
+    phase: str | None = None
+    #: Fraction of the spread computed, 0-1 (None until the spread starts)
+    progress: float | None = None
 
 
 class DayWeatherParams(BaseModel):

@@ -6,6 +6,8 @@ import "./styles/ensemble.css";
 import "./styles/skill.css";
 import "./styles/assets.css";
 import "./styles/structures.css";
+import "./styles/infotip.css";
+import "./styles/about.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

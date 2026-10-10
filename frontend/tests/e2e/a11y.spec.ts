@@ -95,8 +95,8 @@ test.describe("accessibility (axe)", () => {
     await setIgnitionAtMapCentre(page);
     await runToCompletion(page);
     await expect(page.getByTestId("ensemble-p10-area")).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId("ensemble-card").getByLabel("Burn probability").check();
-    await page.getByTestId("ensemble-card").getByLabel(/P90/).check();
+    await page.getByTestId("ensemble-card").getByLabel("Burn probability", { exact: true }).check();
+    await page.getByTestId("ensemble-card").getByLabel("P90 footprint", { exact: true }).check();
     await check(page, "ensemble", testInfo);
   });
 });

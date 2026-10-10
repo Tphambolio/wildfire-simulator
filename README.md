@@ -48,6 +48,12 @@ preparedness and training in the wildland-urban interface.
   blue outlines with line styles and labels. The model never suggests a tier.
 - **Classes from published sources**: head fire intensity classes 1-6 (Cole & Alexander 1995;
   CWFIS map limits) and FWI classes (CWFIS national FWI map intervals).
+- **Uncluttered screen**: panels show labels, values and short badges ("Low one-day skill",
+  "Range too narrow", "Model output", "Status set by Planning", "Illustrative", "Unsourced"...);
+  explanations open as accessible tooltips (hover, keyboard focus or tap), and intended use,
+  limits, methods, references and data sources are in the **About & sources** tab
+  ([frontend/README.md](frontend/README.md#ui-text-badges-tooltips-about--sources)). A progress
+  bar follows the main run; "New ignition" re-runs at another spot without a reload.
 
 ## Stack
 

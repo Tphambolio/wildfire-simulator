@@ -136,6 +136,7 @@ def run_cellular_simulation(
     active_edges: dict | None = None,
     active_edge_buffer_m: float | None = None,
     seed: int | str | None = None,
+    progress=None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -164,6 +165,9 @@ def run_cellular_simulation(
             multi-day run). With either, the fire is treated as established (no
             acceleration) and spreads from that area instead of the ignition point.
         compute_perimeter: Build each frame's outline polygon (skip for ensembles).
+        progress: Optional callable(fraction) called as the front advances (0-1 of the run
+            duration, at most about every 1 %); for progress display only, no effect on the
+            result. An exception it raises (e.g. a cancel) propagates to the caller.
         weather_schedule: (start minute, conditions) periods, e.g. from an hourly weather
             stream; FBP rates are recomputed at each change. Default: ``conditions`` throughout.
         active_edges: Where an observed starting fire is still active (e.g. the hot edges or
@@ -268,7 +272,11 @@ def run_cellular_simulation(
         def next_change() -> float:
             return schedule[period + 1][0] if period + 1 < len(schedule) else math.inf
 
+        reported = -1.0
         while t < duration - 1e-9:
+            if progress is not None and duration > 0 and t / duration - reported >= 0.01:
+                reported = t / duration
+                progress(reported)
             if t >= next_change() - 1e-9:  # weather period changes: new FBP rates everywhere
                 while t >= next_change() - 1e-9:
                     period += 1

@@ -91,6 +91,23 @@ def _on_frame(sim_id: str, frame: SimulationFrame) -> None:
     ws_manager.broadcast_from_thread(sim_id, event)
 
 
+def _status_event(sim_id: str, phase: str, progress: float | None) -> dict:
+    """Small progress message (display only): phase in RUN_PHASES, progress 0-1 or None."""
+    return {
+        "type": "simulation.status",
+        "simulation_id": sim_id,
+        "phase": phase,
+        "progress": None if progress is None else round(progress, 3),
+    }
+
+
+def _on_status(sim_id: str, phase: str, progress: float | None) -> None:
+    """Callback from the simulation thread: broadcast the run's phase and progress."""
+    if ws_manager is None:
+        return
+    ws_manager.broadcast_from_thread(sim_id, _status_event(sim_id, phase, progress))
+
+
 def _on_multiday_frame(sim_id: str, frame: SimulationFrame, day: int) -> None:
     """Callback from multi-day simulation thread — broadcast frame with day tag."""
     if ws_manager is None:
@@ -109,7 +126,7 @@ async def create_simulation(params: SimulationCreate) -> SimulationResponse:
     if runner is None:
         raise HTTPException(status_code=500, detail="Runner not initialized")
 
-    sim_id = runner.create(params, on_frame=_on_frame)
+    sim_id = runner.create(params, on_frame=_on_frame, on_status=_on_status)
 
     return SimulationResponse(
         simulation_id=sim_id,
@@ -234,6 +251,8 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
         config=config_out,
         frames=frames,
         error=run.error,
+        phase=run.phase,
+        progress=run.progress,
     )
 
 
@@ -344,6 +363,10 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                 "frame": _frame_to_schema(frame, offset=offset).model_dump(),
             })
 
+        # A client joining a run still computing gets its current phase first
+        if run.status == SimulationStatus.RUNNING and run.phase is not None:
+            await websocket.send_json(_status_event(sim_id, run.phase, run.progress if run.phase == "spread" else None))
+
         # If already done, send completion
         if run.status == SimulationStatus.COMPLETED:
             await websocket.send_json({
@@ -450,7 +473,7 @@ async def create_perimeter_override(req: PerimeterOverrideRequest) -> Simulation
         raise HTTPException(status_code=500, detail="Runner not initialized")
 
     try:
-        new_sim_id = runner.create_perimeter_override(req, on_frame=_on_frame)
+        new_sim_id = runner.create_perimeter_override(req, on_frame=_on_frame, on_status=_on_status)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
