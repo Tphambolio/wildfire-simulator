@@ -324,3 +324,77 @@ def test_ensemble_params_defaults_are_the_engine_calibration():
     p = EnsembleParams()
     for k, v in DEFAULT_SIGMAS.items():
         assert getattr(p, k) == v, k
+
+
+async def _wait_ensemble(client, payload) -> dict:
+    sim_id = (await client.post("/api/v1/simulations", json=payload)).json()["simulation_id"]
+    for _ in range(480):
+        ens = (await client.get(f"/api/v1/simulations/{sim_id}/ensemble")).json()
+        if ens["status"] in ("completed", "failed"):
+            return ens
+        time.sleep(0.5)
+    raise AssertionError(f"ensemble did not finish: {ens}")
+
+
+def _d2_payload(n_members: int) -> dict:
+    # An ignition inside an Edmonton D-2 (green aspen) stand with BUI ~87: the deterministic
+    # run spreads (BUI >= 80), members perturbed below BUI 80 cannot (bug of 2026-10-10).
+    return {
+        "ignition_lat": 53.59645, "ignition_lng": -113.62886,
+        "weather": {"wind_speed": 25.0, "wind_direction": 270.0},
+        "fwi_overrides": {"ffmc": 90.0, "dmc": 60.0, "dc": 400.0},
+        "duration_hours": 1.0, "snapshot_interval_minutes": 30.0,
+        "fuel_grid_path": str(_EDMONTON_FUEL),
+        "ensemble": {"n_members": n_members, "seed": 1},
+        # the Edmonton grid has grass; send the former 60 % default explicitly (M1, PR #44)
+        "fuel_modifiers": {"grass_cure": 60.0},
+    }
+
+
+async def test_ensemble_with_zero_burn_members_completes(client):
+    """Regression for the production IndexError: members whose ignition cell cannot spread
+    finish with 0 ha and count in the statistics."""
+    if not _EDMONTON_FUEL.exists():
+        pytest.skip("Edmonton fuel grid not present")
+    ens = await _wait_ensemble(client, _d2_payload(10))
+    assert ens["status"] == "completed", ens
+    assert ens["members_ok"] == 10 and ens["members_failed"] == 0 and ens["failed"] == []
+    assert ens["area_ha"]["min"] == 0.0
+    assert any(m["area_ha"] == 0.0 for m in ens["members"])
+
+
+async def test_ensemble_partial_failure_is_reported(client, monkeypatch):
+    """One failing member: the ensemble completes over the others and reports the failure."""
+    if not _EDMONTON_FUEL.exists():
+        pytest.skip("Edmonton fuel grid not present")
+    from firesim.spread import ensemble as ens_mod
+
+    real = ens_mod._run_member
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise IndexError("index 0 is out of bounds for axis 0 with size 0")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ens_mod, "_run_member", flaky)
+    ens = await _wait_ensemble(client, _d2_payload(6))
+    assert ens["status"] == "completed", ens
+    assert ens["members_ok"] == 5 and ens["members_failed"] == 1 and len(ens["members"]) == 5
+    assert ens["failed"][0]["member"] == 1 and "IndexError" in ens["failed"][0]["error"]
+    assert ens["total"] == 6 and ens["error"] is None
+
+
+async def test_ensemble_fails_when_most_members_fail(client, monkeypatch):
+    if not _EDMONTON_FUEL.exists():
+        pytest.skip("Edmonton fuel grid not present")
+    from firesim.spread import ensemble as ens_mod
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("member broke")
+
+    monkeypatch.setattr(ens_mod, "_run_member", broken)
+    ens = await _wait_ensemble(client, _d2_payload(5))
+    assert ens["status"] == "failed"
+    assert "5 of 5 members failed" in ens["error"]

@@ -40,6 +40,15 @@ scores are in docs/validation.md "Ensemble calibration":
   Alexander (2013); 0.825 about 80 %. No bias is applied, although the deterministic model
   over-predicts the area on most validation days.
 - ignition: optional jitter radius ``ignition_jitter_m`` (0 = the ignition is known).
+
+Failed members. A member whose run raises is logged (member index, ensemble seed, its
+perturbation) and left out; the percentiles and burn probability are computed over the
+members that finished. The ensemble fails only when fewer than ``MIN_OK_FRACTION`` (half)
+of the members finish: below that the percentiles would rest on too few, and possibly
+unrepresentative, members (a failure is not independent of the perturbation that caused
+it). A member that burns nothing (e.g. its ignition cell cannot carry fire under its
+perturbed weather) is a finished member with 0 ha and counts in every statistic: it is
+part of the burn probability's denominator.
 """
 
 from __future__ import annotations
@@ -59,6 +68,13 @@ from firesim.types import SimulationConfig
 logger = logging.getLogger(__name__)
 
 _UNBURNED = np.uint16(65535)
+
+# Least share of members that must finish for the ensemble to be reported (see module doc)
+MIN_OK_FRACTION = 0.5
+
+
+class EnsembleFailedError(RuntimeError):
+    """Too few ensemble members finished to report percentiles."""
 
 
 # Calibrated defaults (docs/validation.md "Ensemble calibration"; API EnsembleParams).
@@ -94,7 +110,9 @@ class EnsembleResult:
 
     arrival: dict[int, np.ndarray]  # percentile -> int16 (rows, cols)
     burn_probability: np.ndarray  # float32 (rows, cols)
-    members: list[dict] = field(default_factory=list)  # perturbations and area per member
+    members: list[dict] = field(default_factory=list)  # perturbations and area, finished members
+    failed: list[dict] = field(default_factory=list)  # {"member", "error"} per failed member
+    n_requested: int = 0
     rows: int = 0
     cols: int = 0
     lat_min: float = 0.0
@@ -181,32 +199,40 @@ def run_ensemble(
         (fuel_grid.lng_max - fuel_grid.lng_min) / fuel_grid.cols
         * 111320.0 * math.cos(math.radians((fuel_grid.lat_max + fuel_grid.lat_min) / 2))
     ) / 1e4
+    ok = np.zeros(ens.n_members, dtype=bool)
+    failed: list[dict] = []
     for i in range(ens.n_members):
         member_cfg, k_ros, record = perturb_config(config, ens, rng, base_fmc)
-        sim = Simulator(member_cfg, fuel_grid=fuel_grid)
-        schedule = [(t, replace(c, ros_multiplier=c.ros_multiplier * k_ros)) for t, c in sim.weather_schedule()]
-        frames = run_cellular_simulation(
-            {"ignition_lat": member_cfg.ignition_lat, "ignition_lng": member_cfg.ignition_lng,
-             "duration_hours": member_cfg.duration_hours},
-            fuel_grid=fuel_grid, conditions=schedule[0][1],
-            spread_modifier_grid=spread_modifier_grid, terrain_grid=terrain_grid,
-            snapshot_interval_minutes=duration, weather_schedule=schedule,
-            acceleration=initial_perimeter is None and initial_burned is None,
-            initial_perimeter=initial_perimeter, initial_burned=initial_burned,
-            compute_perimeter=False,
-        )
-        arrival = frames[-1].arrival if frames and frames[-1].arrival is not None else None
-        if arrival is not None:
-            reached = np.isfinite(arrival)
-            stack[i][reached] = np.clip(np.rint(arrival[reached]), 0, 65534).astype(np.uint16)
-            record["area_ha"] = round(float(reached.sum()) * cell_area_ha, 2)
+        try:
+            arrival = _run_member(member_cfg, k_ros, fuel_grid, terrain_grid, spread_modifier_grid,
+                                  initial_perimeter, initial_burned, duration)
+        except Exception as exc:  # one failing member must not lose the others
+            logger.exception("Ensemble member %d (seed %s) failed; perturbation %s", i, ens.seed,
+                             record)
+            failed.append({"member": i, "error": f"{type(exc).__name__}: {exc}"})
         else:
-            record["area_ha"] = 0.0
-        members.append(record)
+            if arrival is not None:
+                reached = np.isfinite(arrival)
+                stack[i][reached] = np.clip(np.rint(arrival[reached]), 0, 65534).astype(np.uint16)
+                record["area_ha"] = round(float(reached.sum()) * cell_area_ha, 2)
+            else:
+                record["area_ha"] = 0.0
+            record["member"] = i
+            members.append(record)
+            ok[i] = True
         if progress:
             progress(i + 1, ens.n_members)
 
-    n = ens.n_members
+    n = int(ok.sum())
+    if n == 0 or n < MIN_OK_FRACTION * ens.n_members:
+        first = failed[0]["error"] if failed else "no members"
+        raise EnsembleFailedError(
+            f"{len(failed)} of {ens.n_members} members failed (first: {first})")
+    if failed:
+        logger.warning("Ensemble: %d of %d members failed and are left out", len(failed),
+                       ens.n_members)
+    if failed:
+        stack = stack[ok]  # finished members only (zero-burn members included)
     stack.sort(axis=0)
     arrival_q: dict[int, np.ndarray] = {}
     for q in ens.quantiles:
@@ -215,10 +241,32 @@ def run_ensemble(
         arrival_q[q] = np.where(v == _UNBURNED, -1, v.astype(np.int32)).astype(np.int16)
     burn_probability = (stack != _UNBURNED).sum(axis=0).astype(np.float32) / n
     logger.info("Ensemble: %d members, P50 area %.1f ha", n,
-                float(np.median([m["area_ha"] for m in members])) if members else 0.0)
+                float(np.median([m["area_ha"] for m in members])))
     return EnsembleResult(
-        arrival=arrival_q, burn_probability=burn_probability, members=members,
+        arrival=arrival_q, burn_probability=burn_probability, members=members, failed=failed,
+        n_requested=ens.n_members,
         rows=fuel_grid.rows, cols=fuel_grid.cols, lat_min=fuel_grid.lat_min,
         lat_max=fuel_grid.lat_max, lng_min=fuel_grid.lng_min, lng_max=fuel_grid.lng_max,
         duration_minutes=duration,
     )
+
+
+def _run_member(member_cfg: SimulationConfig, k_ros: float, fuel_grid: FuelGrid,
+                terrain_grid: TerrainGrid | None,
+                spread_modifier_grid: SpreadModifierGrid | None,
+                initial_perimeter, initial_burned, duration: float) -> np.ndarray | None:
+    """One member's grid run: arrival minutes per cell (inf = unburned), or None."""
+    sim = Simulator(member_cfg, fuel_grid=fuel_grid)
+    schedule = [(t, replace(c, ros_multiplier=c.ros_multiplier * k_ros))
+                for t, c in sim.weather_schedule()]
+    frames = run_cellular_simulation(
+        {"ignition_lat": member_cfg.ignition_lat, "ignition_lng": member_cfg.ignition_lng,
+         "duration_hours": member_cfg.duration_hours},
+        fuel_grid=fuel_grid, conditions=schedule[0][1],
+        spread_modifier_grid=spread_modifier_grid, terrain_grid=terrain_grid,
+        snapshot_interval_minutes=duration, weather_schedule=schedule,
+        acceleration=initial_perimeter is None and initial_burned is None,
+        initial_perimeter=initial_perimeter, initial_burned=initial_burned,
+        compute_perimeter=False,
+    )
+    return frames[-1].arrival if frames and frames[-1].arrival is not None else None
