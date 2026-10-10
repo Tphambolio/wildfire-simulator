@@ -18,6 +18,10 @@ Usage (from the repo root, with engine + api installed or on PYTHONPATH):
 
     PYTHONPATH=engine/src:api/src python frontend/tests/fixtures/record_fixture.py
 
+``--structure`` records only ``structure_spread_4h.json``: a 4 h run beside the Mill Creek
+ravine (Ritchie) with ``structure_spread: true`` (the request that OOM-killed the API on
+2026-10-10), for the house-to-house spread e2e test.
+
 or ``npm run fixture:record`` from frontend/ (uses ``python3`` on PATH; set PYTHON to override).
 """
 
@@ -89,6 +93,28 @@ REQUEST = {
 MAX_BYTES = 3_000_000
 SIM_ID = "fixture-terwillegar-4h"
 
+STRUCT_OUT = HERE / "structure_spread_4h.json"
+STRUCT_SIM_ID = "fixture-structure-4h"
+STRUCT_REQUEST = {
+    "ignition_lat": 53.5175,
+    "ignition_lng": -113.4755,
+    "cells_mode": "incremental",
+    "start_time": "2026-08-08T13:00:00-06:00",
+    "weather": {"wind_speed": 30, "wind_direction": 200, "temperature": 28,
+                "relative_humidity": 20, "precipitation_24h": 0},
+    "fwi_overrides": {"ffmc": 93, "dmc": 60, "dc": 400},
+    "fuel_modifiers": {"grass_cure": 80, "percent_conifer": 50, "day_of_year": 220},
+    "duration_hours": 4,
+    "snapshot_interval_minutes": 30,
+    "fuel_type": "C2",
+    "fuel_grid_path": str(DATA / "Edmonton_FBP_FuelLayer_20251105_10m.tif"),
+    "water_path": None,
+    "buildings_path": str(DATA / "edmonton_buildings.geojson.gz"),
+    "dem_path": str(DATA / "edmonton_dem.tif"),
+    "structure_spread": True,
+    "seed": 20261009,
+}
+
 
 def _thin(frames: list[dict], k: int) -> None:
     """Keep every k-th cell. Incremental frames keep every k-th new cell and get their
@@ -116,7 +142,53 @@ def _round_floats(obj, nd: int = 6):
     return obj
 
 
+def _deploy_paths(data: dict) -> None:
+    cfg = data.get("config") or {}
+    for key in ("fuel_grid_path", "water_path", "buildings_path", "wui_zones_path", "dem_path"):
+        v = cfg.get(key)
+        if isinstance(v, str):
+            for local, deployed in LOCAL_TO_DEPLOYED.items():
+                v = v.replace(local, deployed)
+            cfg[key] = v
+
+
+def record_structure() -> int:
+    """The house-to-house spread fixture (counts per frame, involved units on the last)."""
+    t0 = time.time()
+    with TestClient(app) as client:
+        r = client.post("/api/v1/simulations", json=STRUCT_REQUEST)
+        r.raise_for_status()
+        sim_id = r.json()["simulation_id"]
+        while True:
+            data = client.get(f"/api/v1/simulations/{sim_id}").json()
+            if data["status"] not in ("running", "pending", "paused"):
+                break
+            if time.time() - t0 > 900:
+                print("timed out waiting for the simulation", file=sys.stderr)
+                return 1
+            time.sleep(0.5)
+    if data["status"] != "completed":
+        print(f"simulation {data['status']}: {data.get('error')}", file=sys.stderr)
+        return 1
+    data["simulation_id"] = STRUCT_SIM_ID
+    _deploy_paths(data)
+    data = _round_floats(data)
+    data["_fixture"] = {
+        "description": "Ritchie / Mill Creek ravine, 4 h, 30 min snapshots, SSW 30 km/h, FFMC 93 "
+                       "DMC 60 DC 400, structure_spread on (illustrative)",
+        "regenerate": "PYTHONPATH=engine/src:api/src python frontend/tests/fixtures/record_fixture.py --structure",
+    }
+    STRUCT_OUT.write_text(json.dumps(data, separators=(",", ":")) + "\n")
+    last = data["frames"][-1]
+    print(f"wrote {STRUCT_OUT.relative_to(REPO)}: {len(data['frames'])} frames, area {last['area_ha']} ha, "
+          f"structure {last.get('structure_spread')}, detail {len(last.get('structure_spread_detail') or [])} units, "
+          f"{STRUCT_OUT.stat().st_size / 1e6:.2f} MB, {time.time() - t0:.0f} s")
+    return 0
+
+
 def main() -> int:
+    if "--structure" in sys.argv[1:]:
+        return record_structure()
     t0 = time.time()
     with TestClient(app) as client:
         r = client.post("/api/v1/simulations", json=REQUEST)
