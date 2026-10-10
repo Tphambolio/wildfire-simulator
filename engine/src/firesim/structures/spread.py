@@ -32,7 +32,8 @@ from firesim.structures.units import StructureUnits
 LABEL = "illustrative — not validated in Canada"
 MODEL = "hamada"
 DEFAULT_WILDLAND_CONTACT_M = 10.0  # spec §3: FireSim heuristic (flame-contact band)
-FRONT_CONTACT_RULE = "building_cells"  # spec §3 [H]: measured from the footprint's grid cells
+FRONT_CONTACT_RULE = "building_cells"
+DETAIL_SIMPLIFY_M = 0.5  # map footprints: Douglas-Peucker tolerance, metres (display only)  # spec §3 [H]: measured from the footprint's grid cells
 
 SOURCE_NONE = 0
 SOURCE_FRONT = 1  # reached by the wildland front
@@ -50,13 +51,21 @@ class WindPeriod:
 
 @dataclass
 class StructureSpreadResult:
-    """First modelled involvement time of each unit (minutes from the start; inf = not)."""
+    """First modelled involvement time of each unit (minutes from the start; inf = not).
+
+    ``units_in_run`` is the number of buildings in the run area (the fuel grid's box); the
+    units actually built (``len(t_min)``) can be fewer: only the area the spread can reach is
+    built (``structure_spread_for_grid_run``).
+    """
 
     t_min: np.ndarray
     source: np.ndarray  # SOURCE_* per unit
     parent: np.ndarray  # unit that passed the fire on (-1 for front or none)
     t_front_min: np.ndarray
     params: dict = field(default_factory=dict)
+    units_in_run: int | None = None
+    footprints: np.ndarray | None = None  # local-metre footprints of the built units
+    frame: object = None  # LocalFrame of ``footprints``
 
     def counts_at(self, t_min: float) -> dict:
         """Counts of units involved by ``t_min`` (JSON-friendly, with the label)."""
@@ -66,12 +75,55 @@ class StructureSpreadResult:
         return {
             "model": MODEL,
             "label": LABEL,
-            "units_in_run": int(len(self.t_min)),
+            "computed": True,
+            "units_in_run": int(len(self.t_min) if self.units_in_run is None else self.units_in_run),
+            "units_built": int(len(self.t_min)),
             "units_front_contact": front,
             "units_structure_to_structure": structure,
             "units_involved": front + structure,
             **self.params,
         }
+
+    def involved_detail(self, simplify_m: float = DETAIL_SIMPLIFY_M) -> list[dict]:
+        """The involved units for the map (spec §9; owner decision 2026-10-10, D3 reversed).
+
+        One entry per involved unit, in involvement order: ``id`` (0.. in that order),
+        ``t_h`` (hours from the start), ``mechanism`` ("front" = wildland front contact,
+        "b2b" = building to building), ``source_id`` (the ``id`` of the unit that passed the
+        fire on, b2b only) and ``polygon`` (footprint rings in (lng, lat), simplified by
+        ``simplify_m`` and rounded to 6 decimals, ~0.1 m). Only involved units; no attributes
+        beyond these. Illustrative — not validated in Canada.
+        """
+        import shapely
+
+        inv = np.nonzero(np.isfinite(self.t_min))[0]
+        if len(inv) == 0 or self.footprints is None or self.frame is None:
+            return []
+        inv = inv[np.lexsort((inv, self.t_min[inv]))]
+        new_id = {int(u): k for k, u in enumerate(inv)}
+        frame = self.frame
+        mlng = frame.m_per_deg_lng
+
+        def _to_ll(coords):
+            return np.column_stack([np.round(frame.lng0 + coords[:, 0] / mlng, 6),
+                                    np.round(frame.lat0 + coords[:, 1] / 111320.0, 6)])
+
+        geoms = shapely.simplify(self.footprints[inv], simplify_m, preserve_topology=True)
+        geoms = shapely.transform(geoms, _to_ll)
+        out = []
+        for k, (u, g) in enumerate(zip(inv, geoms)):
+            if g.geom_type == "MultiPolygon":  # keep the largest part (map display only)
+                g = max(g.geoms, key=lambda p: p.area)
+            mech = "front" if self.source[u] == SOURCE_FRONT else "b2b"
+            parent = int(self.parent[u])
+            out.append({
+                "id": k,
+                "t_h": round(float(self.t_min[u]) / 60.0, 3),
+                "mechanism": mech,
+                "source_id": new_id.get(parent) if mech == "b2b" and parent >= 0 else None,
+                "polygon": [[[float(x), float(y)] for x, y in g.exterior.coords]],
+            })
+        return out
 
 
 def contact_offsets(contact_m: float, cell_w_m: float, cell_h_m: float) -> np.ndarray:
@@ -299,6 +351,70 @@ def _cross(t0, a0, sep, ux, uy, has_dir, starts, speed, sx, sy, fb, duration_min
     return arrive
 
 
+class ListFootprintSource:
+    """Footprint source over an in-memory list of shapely footprints (lng, lat).
+
+    ``structure_spread_for_grid_run`` asks a source for the footprints that intersect a box;
+    ``firesim.data.building_index.BuildingIndex`` is the other implementation (it builds
+    shapely geometries only for the footprints asked for)."""
+
+    def __init__(self, footprints) -> None:
+        import shapely
+
+        self._geoms = np.asarray(list(footprints), dtype=object)
+        if len(self._geoms):
+            ok = ~(shapely.is_missing(self._geoms) | shapely.is_empty(self._geoms))
+            self._geoms = self._geoms[ok]
+        b = shapely.bounds(self._geoms) if len(self._geoms) else np.zeros((0, 4))
+        self._b = b  # lng_min, lat_min, lng_max, lat_max
+        c = shapely.centroid(self._geoms) if len(self._geoms) else np.zeros(0)
+        self._clng = shapely.get_x(c) if len(self._geoms) else np.zeros(0)
+        self._clat = shapely.get_y(c) if len(self._geoms) else np.zeros(0)
+
+    def _hit(self, bbox):
+        lat_min, lat_max, lng_min, lng_max = bbox
+        b = self._b
+        return (b[:, 0] <= lng_max) & (b[:, 2] >= lng_min) & (b[:, 1] <= lat_max) & (b[:, 3] >= lat_min)
+
+    def count_in_box(self, bbox) -> int:
+        """Footprints whose centroid is inside ``bbox`` (lat_min, lat_max, lng_min, lng_max)."""
+        lat_min, lat_max, lng_min, lng_max = bbox
+        return int(np.sum((self._clat >= lat_min) & (self._clat <= lat_max)
+                          & (self._clng >= lng_min) & (self._clng <= lng_max)))
+
+    def count_intersecting(self, bbox) -> int:
+        return int(self._hit(bbox).sum())
+
+    def footprints_intersecting(self, bbox) -> list:
+        """Footprints whose bounds intersect ``bbox``, in input order."""
+        return list(self._geoms[self._hit(bbox)])
+
+
+DEFAULT_MAX_UNITS = 60_000  # OOM guard (2 GB API machine; ~1.5 kB per unit, see report)
+NOT_COMPUTED_NOTE = "not computed: too many buildings in run area"
+
+
+def not_computed(units_in_run: int, units_needed: int, max_units: int, params: dict) -> dict:
+    """Frame payload when the guard stops the units build (labelled, no counts)."""
+    return {"model": MODEL, "label": LABEL, "computed": False, "note": NOT_COMPUTED_NOTE,
+            "units_in_run": int(units_in_run), "units_needed": int(units_needed),
+            "max_units": int(max_units), "units_front_contact": None,
+            "units_structure_to_structure": None, "units_involved": None, **params}
+
+
+@dataclass
+class StructureSpreadSkipped:
+    """The guard's outcome: structure spread was not computed (frame payload is constant)."""
+
+    payload: dict
+
+    def counts_at(self, t_min: float) -> dict:
+        return dict(self.payload)
+
+    def involved_detail(self, simplify_m: float = 0.0) -> list[dict]:
+        return []
+
+
 def structure_spread_for_grid_run(
     footprints,
     arrival_min: np.ndarray,
@@ -309,11 +425,28 @@ def structure_spread_for_grid_run(
     neighbour_cutoff_m: float | None = None,
     contact_m: float = DEFAULT_WILDLAND_CONTACT_M,
     fb: float = DEFAULT_COMBUSTIBLE_FRACTION,
-) -> StructureSpreadResult | None:
-    """Hamada structure spread coupled to a finished grid run.
+    max_units: int = DEFAULT_MAX_UNITS,
+):
+    """Hamada structure spread coupled to a finished grid run, built only where it can reach.
+
+    Units are built only for the footprints that intersect a *reachable box* R: the box of the
+    cells the front burned, grown by the front-contact reach (``contact_offsets`` radius + 2
+    cells) and by a spread margin. After the spread is run on those units, the result is
+    exact for the whole run area if no involved unit lies within ``neighbour_cutoff_m`` (plus
+    a 1 m guard) of R's edge: a footprint not built lies wholly outside R, so it is farther
+    than the cutoff from every involved unit (not a graph neighbour) and too far from the
+    burned cells for front contact, hence never involved, and cannot change any built unit's
+    time. Otherwise the margin is doubled and the build repeated. Sides of R on the fuel
+    grid's edge need no check (units are only the footprints centred in the grid box). Every
+    unit is in a fixed frame at the grid box centre, so results do not depend on R.
+
+    If R would hold more than ``max_units`` footprints, nothing is built and the result is a
+    ``StructureSpreadSkipped`` whose frames say ``NOT_COMPUTED_NOTE`` (OOM guard).
 
     Args:
-        footprints: shapely footprints (lng, lat) of the buildings in the run area.
+        footprints: a footprint source (``count_in_box`` / ``count_intersecting`` /
+            ``footprints_intersecting``, e.g. ``BuildingIndex``) or a list of shapely
+            footprints (lng, lat).
         arrival_min: the grid run's arrival minutes per cell, (rows, cols), row 0 = north,
             inf where unburned (``CAFrame.arrival``).
         schedule: the run's weather periods, ``[(start_min, SpreadConditions), ...]``.
@@ -321,19 +454,86 @@ def structure_spread_for_grid_run(
         bbox: the fuel grid's bounds ``(lat_min, lat_max, lng_min, lng_max)``: the run area
             and the frame of ``arrival_min``.
     """
-    from firesim.structures.units import DEFAULT_NEIGHBOUR_CUTOFF_M, build_units
-
-    if arrival_min is None or not footprints:
-        return None
-    units = build_units(
-        footprints, bbox=bbox,
-        neighbour_cutoff_m=DEFAULT_NEIGHBOUR_CUTOFF_M if neighbour_cutoff_m is None else neighbour_cutoff_m,
+    from firesim.structures.units import (
+        DEFAULT_NEIGHBOUR_CUTOFF_M,
+        M_PER_DEG_LAT,
+        LocalFrame,
+        build_units,
     )
-    if len(units) == 0:
+
+    if arrival_min is None or footprints is None:
         return None
-    t_front = building_cell_contact_times(units, arrival_min, bbox, contact_m)
+    source = footprints if hasattr(footprints, "footprints_intersecting") else ListFootprintSource(footprints)
+    lat_min, lat_max, lng_min, lng_max = bbox
+    units_in_run = source.count_in_box(bbox)
+    if units_in_run == 0:
+        return None
+    cutoff = DEFAULT_NEIGHBOUR_CUTOFF_M if neighbour_cutoff_m is None else float(neighbour_cutoff_m)
+    frame = LocalFrame((lat_min + lat_max) / 2.0, (lng_min + lng_max) / 2.0)
+    params = {"combustible_fraction": fb, "neighbour_cutoff_m": cutoff,
+              "wildland_contact_m": contact_m, "front_contact_rule": FRONT_CONTACT_RULE}
     wind = [WindPeriod(float(s), float(c.wind_speed), float(c.wind_direction)) for s, c in schedule]
-    result = hamada_spread(units, t_front, wind, duration_min=duration_min, fb=fb)
-    result.params["wildland_contact_m"] = contact_m
-    result.params["front_contact_rule"] = FRONT_CONTACT_RULE
+
+    arrival_min = np.asarray(arrival_min, dtype=float)
+    rows, cols = arrival_min.shape
+    burned = np.isfinite(arrival_min) & (arrival_min <= duration_min)
+    if not burned.any():
+        res = StructureSpreadResult(t_min=np.zeros(0), source=np.zeros(0, dtype=np.int8),
+                                    parent=np.zeros(0, dtype=np.int64), t_front_min=np.zeros(0),
+                                    params=params, units_in_run=units_in_run, frame=frame)
+        return res
+    dlat, dlng = (lat_max - lat_min) / rows, (lng_max - lng_min) / cols
+    r_idx, c_idx = np.nonzero(burned.any(axis=1))[0], np.nonzero(burned.any(axis=0))[0]
+    b_lat = (lat_max - (r_idx.max() + 1) * dlat, lat_max - r_idx.min() * dlat)
+    b_lng = (lng_min + c_idx.min() * dlng, lng_min + (c_idx.max() + 1) * dlng)
+    cw, ch = dlng * frame.m_per_deg_lng, dlat * M_PER_DEG_LAT
+    k = int(np.abs(contact_offsets(contact_m, cw, ch)).max())
+    contact_reach_m = (k + 2) * max(cw, ch)
+    margin_m = contact_reach_m + 2.0 * cutoff + 250.0  # first guess; grown until exact
+
+    while True:
+        mlat, mlng = margin_m / M_PER_DEG_LAT, margin_m / frame.m_per_deg_lng
+        reach = (max(lat_min, b_lat[0] - mlat), min(lat_max, b_lat[1] + mlat),
+                 max(lng_min, b_lng[0] - mlng), min(lng_max, b_lng[1] + mlng))
+        whole_grid = reach == (lat_min, lat_max, lng_min, lng_max)
+        needed = source.count_intersecting(reach)
+        if needed > max_units:
+            return StructureSpreadSkipped(not_computed(units_in_run, needed, max_units, params))
+        units = build_units(source.footprints_intersecting(reach), neighbour_cutoff_m=cutoff,
+                            bbox=bbox, frame=frame)
+        t_front = building_cell_contact_times(units, arrival_min, bbox, contact_m)
+        result = hamada_spread(units, t_front, wind, duration_min=duration_min, fb=fb)
+        if whole_grid or _inside_reach(units, result, reach, frame, cutoff + 1.0, bbox):
+            break
+        margin_m *= 2.0
+    result.params.update(params)
+    result.units_in_run = units_in_run
+    inv = np.isfinite(result.t_min)
+    result.footprints = np.where(inv, units.footprints, None)  # keep only involved geometry
+    result.frame = frame
     return result
+
+
+def _inside_reach(units, result, reach, frame, guard_m, grid_bbox) -> bool:
+    """True when every involved unit's footprint, grown by ``guard_m``, stays inside ``reach``
+    on every side of ``reach`` that is not on the grid box's edge."""
+    import shapely
+
+    inv = np.isfinite(result.t_min)
+    if not inv.any():
+        return True
+    b = shapely.bounds(units.footprints[inv])  # local metres
+    r_lat0, r_lat1, r_lng0, r_lng1 = reach
+    g_lat0, g_lat1, g_lng0, g_lng1 = grid_bbox
+    x0, y0 = (float(v) for v in frame.to_local(r_lat0, r_lng0))
+    x1, y1 = (float(v) for v in frame.to_local(r_lat1, r_lng1))
+    ok = True
+    if r_lng0 > g_lng0:
+        ok &= bool(np.all(b[:, 0] - guard_m > x0))
+    if r_lng1 < g_lng1:
+        ok &= bool(np.all(b[:, 2] + guard_m < x1))
+    if r_lat0 > g_lat0:
+        ok &= bool(np.all(b[:, 1] - guard_m > y0))
+    if r_lat1 < g_lat1:
+        ok &= bool(np.all(b[:, 3] + guard_m < y1))
+    return ok

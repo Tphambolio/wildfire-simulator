@@ -18,7 +18,9 @@ import { useScenarios } from "./hooks/useScenarios";
 import { computeBurnProbability, fetchFuelGridImage } from "./services/api";
 import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { useRecon } from "./hooks/useRecon";
-import { clockAt } from "./utils/time";
+import { clockAt, formatClock, zoneAbbrev } from "./utils/time";
+import StructureSpreadPanel from "./components/StructureSpreadPanel";
+import { structureCaveat, structureDetail, structureUnitsGeoJSON } from "./utils/structureSpread";
 import {
   ARRIVAL_BUFFER_M,
   arrivalsToGeoJSON,
@@ -273,6 +275,8 @@ export default function App() {
   // Active top-level tab
   const [activeTab, setActiveTab] = useState<"simulation" | "eoc">("simulation");
   const [isochronesVisible, setIsochronesVisible] = useState(false);
+  // House-to-house spread map layer: on by default when the run has it (opt-in run option)
+  const [structureVisible, setStructureVisible] = useState(true);
   const [isoTargetHours, setIsoTargetHours] = useState<number[]>(DEFAULT_ISO_HOURS);
   const [fuelGridImage, setFuelGridImage] = useState<{ image: string; bounds: [number, number, number, number]; legend?: Array<{ fuel: string; color: string }> } | null>(null);
   const [fuelGridVisible, setFuelGridVisible] = useState(true);
@@ -481,6 +485,20 @@ export default function App() {
   // Neighbourhoods: modelled earliest fire arrival within 500 m (a model fact, whole run).
   // With an ensemble, the P10 (early) arrival leads and the single run is secondary.
   const arrivals = useMemo(() => neighbourhoodArrivals(frames, communities), [frames, communities]);
+  // House-to-house spread (illustrative): involved footprints for the map, display only
+  const structureSummary = useMemo(() => frames.find((f) => f.structure_spread)?.structure_spread ?? null, [frames]);
+  const structureUnits = useMemo(() => {
+    const d = structureDetail(frames);
+    return d && d.length > 0 ? structureUnitsGeoJSON(d) : null;
+  }, [frames]);
+  const structureClock = useCallback(
+    (tH: number) => {
+      if (!scenarioStart) return "";
+      const t = clockAt(scenarioStart, tH);
+      return `${formatClock(t)} ${zoneAbbrev(t)}`;
+    },
+    [scenarioStart],
+  );
   const worstArrivals = useMemo(
     () => (ensGrids ? neighbourhoodArrivalsFromPoints(arrivalPoints(ensGrids, "p10"), communities) : null),
     [ensGrids, communities],
@@ -954,6 +972,11 @@ export default function App() {
             recon={recon.mapLayers}
             onReconDrawPoint={recon.addPoint}
             onReconDrawFinish={recon.finishDrawing}
+            structureUnits={structureUnits}
+            structureVisible={structureVisible}
+            structureLabel={structureSummary?.label}
+            structureCaveat={structureSummary ? structureCaveat(structureSummary.label, structureSummary.neighbour_cutoff_m) : ""}
+            structureClock={scenarioStart ? structureClock : undefined}
           />
         </MapErrorBoundary>
       </main>
@@ -984,6 +1007,15 @@ export default function App() {
             status={status}
             totalFrames={frames.length}
           />
+          {structureSummary && (
+            <StructureSpreadPanel
+              frames={frames}
+              frameIndex={currentFrameIndex}
+              mapVisible={structureVisible}
+              onMapVisible={setStructureVisible}
+              mapAvailable={structureUnits !== null}
+            />
+          )}
           <EvacStatusPanel
             arrivals={arrivals}
             worstArrivals={worstArrivals}

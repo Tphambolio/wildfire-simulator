@@ -365,6 +365,9 @@ class SimulationFrame(BaseModel):
     # units with modelled involvement by this frame, with "label": "illustrative — not
     # validated in Canada". Not a prediction of which buildings burn.
     structure_spread: dict | None = None
+    # Final frame only: involved units for the map (id, t_h, mechanism, source_id, polygon);
+    # illustrative, display only, never exported (docs/api-reference.md)
+    structure_spread_detail: list[dict] | None = None
 
 
 class SimulationResponse(BaseModel):

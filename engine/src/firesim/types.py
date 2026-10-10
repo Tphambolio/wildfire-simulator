@@ -155,3 +155,6 @@ class SimulationFrame:
     # counts of building units with modelled involvement by this frame. Not a prediction of
     # which buildings burn. See docs/structure-spread-spec.md.
     structure_spread: dict | None = None
+    # Final frame only, with structure_spread: the involved units (footprint, time, mechanism)
+    # for the map; illustrative, display only (docs/structure-spread-spec.md §9)
+    structure_spread_detail: list[dict] | None = None

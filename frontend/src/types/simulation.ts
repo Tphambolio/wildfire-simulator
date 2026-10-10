@@ -118,6 +118,7 @@ export interface SimulationFrame {
   building_exposure_detail?: BuildingExposureDetail[] | null; // final frame only
   // Opt-in structure spread (request structure_spread): modelled involvement counts
   structure_spread?: StructureSpreadSummary | null;
+  structure_spread_detail?: StructureUnitDetail[] | null; // final frame only
 }
 
 /**
@@ -128,14 +129,32 @@ export interface SimulationFrame {
 export interface StructureSpreadSummary {
   model: "hamada";
   label: string; // "illustrative — not validated in Canada"
-  units_in_run: number; // building units (footprints) in the run area
-  units_front_contact: number; // reached by the wildland front (next to the building's grid cells)
-  units_structure_to_structure: number; // reached building to building (Hamada)
-  units_involved: number;
+  /** false when the OOM guard stopped the build (`note` says why; counts are null) */
+  computed?: boolean;
+  note?: string;
+  units_in_run: number; // buildings in the run area (fuel grid box)
+  units_built?: number; // units built: only the area the spread can reach
+  units_front_contact: number | null; // reached by the wildland front (next to the building's grid cells)
+  units_structure_to_structure: number | null; // reached building to building (Hamada)
+  units_involved: number | null;
   combustible_fraction: number;
   neighbour_cutoff_m: number;
   wildland_contact_m: number;
   front_contact_rule?: string; // "building_cells": contact measured from the footprint's grid cells
+  units_needed?: number; // guard: units the reachable box would need
+  max_units?: number; // guard: the limit
+}
+
+/**
+ * One involved building unit (final frame only; map display only, never exported).
+ * Owner decision 2026-10-10 (D3 reversed): per-building display for exercises.
+ */
+export interface StructureUnitDetail {
+  id: number; // involvement order
+  t_h: number; // hours from the start
+  mechanism: "front" | "b2b"; // wildland front contact / building to building
+  source_id: number | null; // b2b: id of the unit that passed the fire on
+  polygon: number[][][]; // footprint ring(s), [lng, lat]
 }
 
 export interface BuildingExposureSummary {

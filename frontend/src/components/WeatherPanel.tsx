@@ -290,6 +290,9 @@ function WeatherPanel({
   // Edmonton LiDAR fuel grid already maps water as non-fuel (docs/verification.md).
   const [includeWater, setIncludeWater] = useState(false);
   const [includeBuildings, setIncludeBuildings] = useState(true);
+  // Opt-in, off by default: Hamada house-to-house spread (illustrative; needs the buildings)
+  const [structureSpread, setStructureSpread] = useState(false);
+  const structureAvailable = useEdmontonGrid && includeBuildings;
   // Off by default: the bundled WUI multipliers have no documented source (see docs/verification.md)
   const [includeWUI, setIncludeWUI] = useState(false);
   const [includeDEM, setIncludeDEM] = useState(true);
@@ -571,6 +574,7 @@ function WeatherPanel({
       ensemble: ensembleOn && useEdmontonGrid ? { n_members: ensembleMembers } : null,
       burning_period: skill.burning_period,
       ffmc_spin_up: skill.ffmc_spin_up,
+      structure_spread: structureAvailable && structureSpread,
     });
   };
 
@@ -1195,6 +1199,18 @@ function WeatherPanel({
                 onChange={(e) => setIncludeBuildings(e.target.checked)}
               />
               Buildings (341K footprints)
+            </label>
+            <label
+              className="check-row-indent struct-option"
+              title="Fire passing from building to building (Hamada model), from the buildings the modelled front reaches. Illustrative."
+            >
+              <input
+                type="checkbox"
+                checked={structureAvailable && structureSpread}
+                disabled={!structureAvailable}
+                onChange={(e) => setStructureSpread(e.target.checked)}
+              />
+              House-to-house spread
             </label>
             <label
               className="check-row-indent"

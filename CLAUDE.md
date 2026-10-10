@@ -64,7 +64,7 @@ docker compose up --build
 | `spread/slope.py` | ST-X-3 eq 39 slope factor (slope itself is applied via net effective wind in the FBP calculator) |
 | `spread/spotting.py`, `spread/albini.py` | Ember spotting (opt-in): Albini/Chase/Morris maximum distance (surface-fire or torching-tree model); emission, probability and landing are heuristic (illustrative) |
 | `exposure.py` | Building exposure: distance bands, Cohen (2004) radiant flux and flux-time index from the grid run's flame panels (exposure, not ignition; `docs/building-exposure.md`) |
-| `structures/` | Structure spread (opt-in, API `structure_spread`, labelled "illustrative — not validated in Canada"): `units.py` one unit per building footprint (centroid, area, size, neighbour graph within a cutoff); `hamada.py` Hamada rates; `spread.py` front contact + building-to-building spread; `docs/structure-spread-spec.md` |
+| `structures/` | Structure spread (opt-in, API `structure_spread`, labelled "illustrative — not validated in Canada"): `units.py` one unit per building footprint (centroid, area, size, neighbour graph within a cutoff); `hamada.py` Hamada rates; `spread.py` front contact + building-to-building spread, units built only where the spread can reach (memory guard 60,000 units → "not computed"), involved-unit detail on the final frame; `docs/structure-spread-spec.md` |
 | `spread/diurnal.py` | Opt-in burning period (`SimulationConfig.burning_period` + `start_hour`; grid and Huygens; a point ignition outside it waits for it); hourly FFMC spin-up = hourly records with negative `hours_from_start`, from 17:00 local (`hourly_for_run`) |
 | `spread/simulator.py` | `Simulator` class — main orchestrator, yields `SimulationFrame` per snapshot |
 | `spread/montecarlo.py` | Burn probability (jitter ignition, wind speed, RH over N iterations) |
@@ -128,7 +128,8 @@ Pydantic schema and `frontend/src/types/simulation.ts` in step. Requests can set
 `hourly_weather` and `cells_mode: "incremental"` (the frontend uses incremental), and the
 spread-skill options `burning_period` / `ffmc_spin_up` (API default off, UI default on; hours
 on `start_time`'s own clock), on perimeter-override, `active_edges`, and the opt-in
-`structure_spread` (Hamada building-to-building counts, frame `structure_spread`; illustrative).
+`structure_spread` (Hamada building-to-building counts, frame `structure_spread`; involved units on the final
+frame `structure_spread_detail`, map display only, never exported; illustrative).
 
 ### Environment Variables
 ```
@@ -163,6 +164,9 @@ Spread-skill options: Setup → Run options "Diurnal burning" (burning period, e
 spin-up; `utils/skillOptions.ts`), timeline shading outside the burning period; RPAS restart
 (`PerimeterOverridePanel.tsx`, state in `hooks/useRecon.ts`, `utils/activeEdges.ts`): observed
 perimeter, active edges drawn on the map or picked by side, drawn by MapView (`recon` prop).
+House-to-house spread (opt-in, Setup → Fuel & landscape): Situation card `StructureSpreadPanel.tsx`
+(counts, chart, map toggle), MapView `structureUnits` layer, caveat in `InfoTip.tsx`
+(`utils/structureSpread.ts`); minimal visible text, "Illustrative" badge.
 
 ### Services / Hooks
 - `src/services/api.ts` — All API calls + WebSocket URL builder

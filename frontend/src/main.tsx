@@ -5,6 +5,7 @@ import "./index.css";
 import "./styles/ensemble.css";
 import "./styles/skill.css";
 import "./styles/assets.css";
+import "./styles/structures.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
