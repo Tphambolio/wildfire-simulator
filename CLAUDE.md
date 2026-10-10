@@ -167,6 +167,10 @@ perimeter, active edges drawn on the map or picked by side, drawn by MapView (`r
 House-to-house spread (opt-in, Setup → Fuel & landscape): Situation card `StructureSpreadPanel.tsx`
 (counts, chart, map toggle), MapView `structureUnits` layer, caveat in `InfoTip.tsx`
 (`utils/structureSpread.ts`); minimal visible text, "Illustrative" badge.
+UI text (2026-10-10): panels carry labels, values and short badges only; explanations are
+accessible tooltips (`InfoTip.tsx`/`Badge.tsx`, text in `content/explanations.ts`), literature
+and limits in the "About & sources" tab (`AboutPanel.tsx`). Main-run progress `RunProgress.tsx`
+(WebSocket `simulation.status`). Keep new caveats short and put the explanation in a tip.
 
 ### Services / Hooks
 - `src/services/api.ts` — All API calls + WebSocket URL builder
