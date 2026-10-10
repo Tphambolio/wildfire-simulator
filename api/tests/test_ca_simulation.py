@@ -218,6 +218,8 @@ def _ca_payload(fixtures: dict) -> dict:
         "water_path": fixtures["water_path"],
         "buildings_path": fixtures["buildings_path"],
         "wui_zones_path": fixtures["wui_path"],
+        # explicit: grid runs have no curing default outside the spring window (M1)
+        "fuel_modifiers": {"grass_cure": 60.0},
     }
 
 
@@ -533,6 +535,7 @@ class TestSyntheticGridReproducible:
             "duration_hours": 0.5,
             "snapshot_interval_minutes": 30.0,
             "use_ca_mode": True,
+            "fuel_modifiers": {"grass_cure": 60.0},
         }
         areas = []
         with TestClient(create_app()) as tc:

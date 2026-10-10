@@ -169,6 +169,7 @@ async def _run_grid(client, cells_mode: str) -> dict:
         "fwi_overrides": {"ffmc": 92.0, "dmc": 40.0, "dc": 300.0},
         "duration_hours": 2.0, "snapshot_interval_minutes": 10.0,
         "fuel_grid_path": str(_EDMONTON_FUEL), "cells_mode": cells_mode,
+        "fuel_modifiers": {"grass_cure": 60.0},
     }
     resp = await client.post("/api/v1/simulations", json=payload)
     sim_id = resp.json()["simulation_id"]
@@ -286,6 +287,7 @@ async def test_ensemble_after_grid_run(client):
         "fwi_overrides": {"ffmc": 92.0, "dmc": 40.0, "dc": 300.0},
         "duration_hours": 1.0, "snapshot_interval_minutes": 30.0,
         "fuel_grid_path": str(_EDMONTON_FUEL),
+        "fuel_modifiers": {"grass_cure": 60.0},
         "ensemble": {"n_members": 6, "seed": 2},
     }
     sim_id = (await client.post("/api/v1/simulations", json=payload)).json()["simulation_id"]

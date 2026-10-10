@@ -16,7 +16,7 @@ export interface FWIOverrides {
 
 /** FBP fuel and foliage inputs (ST-X-3 / Wotton et al. 2009). */
 export interface FuelModifiers {
-  grass_cure?: number; // degree of curing (%) for O-1a/O-1b
+  grass_cure?: number; // degree of curing (%) for O-1a/O-1b; omitted: 95 % from 1 Mar to 29 May, else 422 if grass can burn (M1)
   grass_fuel_load?: number; // kg/m2
   percent_conifer?: number; // M-1/M-2
   percent_dead_fir?: number; // M-3/M-4
