@@ -106,6 +106,9 @@ class RunOptions:
     percent_dead_fir: float = 35.0
     grass_cure_green: float = 60.0  # O-1 curing between green-up and leaf-off
     grass_cure_dormant: float = 90.0  # O-1 curing in spring / fall
+    # O-1 curing in FireSim's pre-green-up window (firesim.fbp.curing.SPRING_WINDOW_DOY);
+    # None = use grass_cure_dormant there too (the harness's original rule)
+    grass_cure_spring: float | None = None
     use_terrain: bool = True
 
 
@@ -182,6 +185,18 @@ def _spinup_hours(records, start: datetime, from_hour: int) -> tuple[HourlyWeath
     except KeyError:
         return ()
     return tuple(replace(h, hours_from_start=h.hours_from_start - n) for h in hrs)
+
+
+def grass_cure_for(doy: int, opts: RunOptions) -> float:
+    """O-1 degree of curing (%) for a fire-day: green season, FireSim's pre-green-up window
+    (when ``opts.grass_cure_spring`` is set) or dormant."""
+    from firesim.fbp.curing import in_spring_curing_window
+
+    if opts.greenup_doy <= doy < opts.leafoff_doy:
+        return opts.grass_cure_green
+    if opts.grass_cure_spring is not None and in_spring_curing_window(doy):
+        return opts.grass_cure_spring
+    return opts.grass_cure_dormant
 
 
 def _seasonal(ft: FuelType | None, doy: int, opts: RunOptions) -> FuelType | None:
@@ -289,7 +304,6 @@ def _setup(case: FireDayCase, opts: RunOptions, member: Member) -> dict:
     terrain = terrain_grid_for(dom) if opts.use_terrain else None
     hourly = member.apply(case.hourly)[: int(math.ceil(duration_h))]
     spinup = member.apply(case.spinup) if opts.ffmc_spinup else ()
-    green = opts.greenup_doy <= case.day < opts.leafoff_doy
     clat = dom.lat_max - 0.5 * dom.rows * dom.cell_lat
     clng = dom.lng_min + 0.5 * dom.cols * dom.cell_lng
     elev = float(np.mean(dom.elevation)) if dom.elevation is not None else None
@@ -300,7 +314,7 @@ def _setup(case: FireDayCase, opts: RunOptions, member: Member) -> dict:
                              h0.wind_direction, 0.0),
         duration_hours=duration_h, snapshot_interval_minutes=duration_h * 60.0,
         ffmc=case.ffmc, dmc=case.dmc, dc=case.dc,
-        grass_cure=opts.grass_cure_green if green else opts.grass_cure_dormant,
+        grass_cure=grass_cure_for(case.day, opts),
         percent_conifer=opts.percent_conifer, percent_dead_fir=opts.percent_dead_fir,
         day_of_year=case.day, elevation_m=elev, hourly_weather=spinup + hourly,
         start_hour=case.start.hour + case.start.minute / 60.0,

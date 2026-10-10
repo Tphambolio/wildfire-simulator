@@ -35,6 +35,21 @@ Start a new fire spread simulation.
 
 - `fwi_overrides` is optional. If omitted, FWI components are computed from weather.
 - `fuel_type` must be one of the 18 FBP fuel type codes (C1-C7, D1-D2, M1-M4, O1a, O1b, S1-S3).
+- `fuel_modifiers.grass_cure` (degree of curing, %, O-1a/O-1b; changed 2026-10-10, decision M1):
+  an explicit value is always used as given. If omitted:
+  - **95 %** when the run's date is in the pre-green-up window, day of year 60-149 (about 1 March
+    to 29 May). The date is `fuel_modifiers.day_of_year`, else `start_time`'s local date.
+  - **No default** outside that window or with no date: the request is rejected with **422**
+    ("fuel_modifiers.grass_cure is required ...") when O-1 grass can burn, i.e. uniform
+    `O1a`/`O1b` fuel or any fuel-grid run (`fuel_grid_path`, `use_ca_mode`; burn-probability
+    requests always). Runs where no grass can burn need no value (`grass_cure` stays null).
+  - Before 2026-10-10 the default was a fixed 60 %, which gives an FBP curing factor of 0.20
+    (GLC-X-10 eq 35b, p.9), so grass spread at a fifth of its fully cured rate. Clients that
+    relied on it should send `"grass_cure": 60` to keep their results.
+  - The value used is echoed in the response `config.fuel_modifiers.grass_cure`. Same rule on
+    `/simulations/multiday` and `/simulations/burn-probability` (the latter has no
+    `start_time`: use `fuel_modifiers.day_of_year`). Sources: `engine/src/firesim/fbp/curing.py`,
+    `docs/model-card.md`.
 - `start_time` (optional): scenario start (ignition) time, ISO 8601 with a UTC offset, e.g.
   `"2026-04-28T13:40:00-06:00"` (a time without an offset is rejected with 422). Frame
   `time_hours` and `hourly_weather[].hours_from_start` count from it, and when
@@ -182,7 +197,14 @@ When complete: grid bounds, `arrival` with `p10` / `p50` / `p90` rasters (base64
 int16 minutes, -1 = fewer than that share of members reached the cell; P10 = the time by
 which 1 in 10 members reached the cell, the early end of the modelled range),
 `burn_probability` (base64 uint8 percent), member area range and each member's
-perturbations.
+perturbations (`members`, each with its index `member` and `area_ha`).
+
+Failed members: a member whose run raises is left out and listed in `failed`
+(`[{"member": 3, "error": "IndexError: ..."}]`); `members_ok` and `members_failed` count them,
+and the percentiles, burn probability and area range are over the `members_ok` members that
+finished. Members that burned nothing (their ignition cell cannot carry fire under their
+perturbed weather) are finished members with `area_ha` 0 and count in every statistic. The
+ensemble is `"status": "failed"` (with `error`) only when fewer than half the members finish.
 
 Default perturbations (`EnsembleParams`; calibrated on observed Alberta fires, see
 `docs/validation.md` "Ensemble calibration" for sources and held-out scores): `wind_dir_sd_deg`

@@ -51,7 +51,7 @@ head fire intensity and FWI codes mean.
 | Growth (spatial fuel) | Level set advected with the Huygens velocity of each cell's FBP ellipse | Richards (1990); Lautenberger (2013) |
 | Growth (uniform fuel) | Huygens wavelets (convex front) | Richards (1990) |
 | Crown fire | Van Wagner (1977) initiation; CFB eq 58; C-6 crown rate | ST-X-3 |
-| Flame length | Byram (surface), Thomas (CFB >= 0.1) | Alexander & Cruz (2012) |
+| Flame length | Byram (surface), Thomas (CFB >= 0.1; approximate for crown fires) | Byram's form: Alexander & Cruz (2012) Table 1, p.98; Thomas for crown fires suggested by Rothermel (1991), via Alexander & Cruz (2012) p.99 |
 | Spotting (opt-in) | Albini/Chase/Morris maximum distance; heuristic emission and landing | USDA FS INT reports 1979-1987 |
 | Building exposure | Distance bands; Cohen solid-flame radiant flux; flux-time index | Cohen (2004); NRC (2021) |
 | Structure-to-structure spread (opt-in, app option "House-to-house spread"; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); `docs/structure-spread-spec.md` |
@@ -63,7 +63,14 @@ along the perimeter or whole sides, from an RPAS thermal flight; the rest is tre
 out), start time, weather (constant or hourly, optionally from 17:00 the evening before for
 the FFMC spin-up), FWI codes, burning period (local hours), FBP
 fuel grid (Edmonton: City canopy-LiDAR product), optional DEM, water and building masks,
-grass curing, percent conifer / dead fir, foliar moisture or date. The UI defaults are the
+grass curing, percent conifer / dead fir, foliar moisture or date. Grass curing (decision M1,
+2026-10-10): 95 % by default from 1 March to 29 May (day of year 60-149, between snow-melt and
+green-up), a required entry outside that window whenever O-1 grass can burn (API 422; the UI
+shows the field as required and suggests the last value entered). Before, a fixed 60 % default
+ran grass at a fifth of its fully cured spread (curing factor 0.20, GLC-X-10 eq 35b, p.9);
+95 % gives 0.90. Why 95 %: GLC-X-26 (p.24) uses 90 % when curing is not observed, and grass
+before green-up is last season's fully cured growth (Pickell et al. 2017; Beverly & Schroeder
+2025, p.14). The window dates are FireSim's choice. The UI defaults are the
 held-out validated set-up: burning period 10-20 h, spin-up when hourly forecast weather is
 used, active edges when marked; the API defaults are off. Outputs: perimeters,
 burned cells with arrival time, speed and head/flank/back, head summary, arrival-time grid,
@@ -119,6 +126,13 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   was measured on). Current codes come from the nearest CWFIS station with codes, labelled with
   their date (before noon LST they are yesterday's); off-season codes are a labelled one-day
   cold-start estimate whose DMC, DC and BUI are far too low. Wind direction is the dominant source of error in fire growth models.
+- Grass curing is not observed: in spring FireSim assumes 95 % (an early or late green-up moves
+  the real window by weeks); outside the window it is whatever the user enters. Grass is about
+  3 % of the observed growth in the validation fires, so the CFSDS harness hardly tests it
+  (docs/validation.md, "Grass curing default").
+- Crown-fire flame length (Thomas 1963, suggested for crown fires by Rothermel 1991) is
+  approximate: no flame-length method matched experimental crown fires consistently (Alexander
+  & Cruz 2012, p.99).
 - Spotting is illustrative; active crown fire spotting is underestimated.
 - Burn probability varies only ignition, wind speed and RH (not a Burn-P3-style analysis).
 - Huygens perimeters are convex; use the grid model on heterogeneous fuel.

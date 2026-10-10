@@ -28,6 +28,8 @@ export interface EnsembleMember {
   fmc: number;
   ros_multiplier: number;
   area_ha: number;
+  /** Member index in the requested ensemble (failed members are not listed) */
+  member?: number;
 }
 
 export interface EnsembleResponse {
@@ -47,6 +49,11 @@ export interface EnsembleResponse {
   burn_probability?: string;
   area_ha?: { min: number; p50: number; max: number };
   members?: EnsembleMember[];
+  /** Members that finished (the statistics are over these, zero-burn members included) */
+  members_ok?: number;
+  /** Members that raised and are left out (the ensemble fails below half finishing) */
+  members_failed?: number;
+  failed?: Array<{ member: number; error: string }>;
   note?: string;
 }
 
@@ -70,6 +77,8 @@ export interface EnsembleGrids {
   cellAreaHa: number;
   areaHa: { min: number; p50: number; max: number };
   members: EnsembleMember[];
+  /** Members left out because their run failed (0 = none) */
+  membersFailed?: number;
   note: string;
 }
 
@@ -133,6 +142,7 @@ export function decodeEnsemble(resp: EnsembleResponse): EnsembleGrids | null {
     cellAreaHa,
     areaHa: resp.area_ha ?? { min: 0, p50: 0, max: 0 },
     members: resp.members ?? [],
+    membersFailed: resp.members_failed ?? 0,
     note: resp.note ?? "",
   };
 }
