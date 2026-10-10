@@ -38,7 +38,9 @@ GLC-X-10 revisions (M-4 `c` = 1.48). D-2 spreads at 0.2 x D-1 and not at all bel
 
 1. **ISI** from FFMC and wind (eqs 52-53). Above 40 km/h the wind function is
    `12 (1 - exp(-0.0818 (WS - 28)))` (eq 53a). FFMC moisture coefficient 147.2 (eq 46; cffdrs
-   uses the exact 147.27723, which moves ISI by at most 1e-3).
+   uses the exact 147.27723, which moves ISI by at most 0.1 % for a given FFMC; in the daily
+   FWI chain the FFMC itself shifts too, by up to 0.12 FFMC / 0.67 ISI / 0.52 FWI, see
+   `docs/PROJECT_RECORD.md` §4.1).
 2. **BUI** from DMC and DC; **buildup effect** `BE = exp(50 ln(q) (1/BUI - 1/BUI0))` (eq 54) for
    every fuel with q < 1, including D-1 and the M types.
 3. **Surface spread**: `RSI = a (1 - exp(-b ISI))^c` (eq 26) with the fuel-specific forms:
