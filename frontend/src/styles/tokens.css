@@ -68,6 +68,8 @@
   --isochrone: #1f2937;
   --active-edge: #ff4500;  /* RPAS active edges (MapView RECON_ACTIVE) and their panel swatch */
   --observed-perimeter: #6d28d9; /* observed (RPAS) perimeter (MapView RECON_PERIMETER) */
+  --struct-front: #e94ccf;  /* house-to-house spread: front contact (utils/structureSpread.ts) */
+  --struct-b2b: #2fd9c5;    /* house-to-house spread: building to building */
 
   /* ── Type (12 px minimum anywhere) ── */
   --font-ui: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif;

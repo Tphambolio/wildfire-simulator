@@ -129,7 +129,7 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
           ))}
           <div className="hint-sm">
             Exposure, not ignition probability. Radiant heat uses Cohen's worst-case flame model
-            (overestimates measured flux); embers and building-to-building fire are not modelled.
+            (overestimates measured flux); embers are not modelled; building-to-building fire only with House-to-house spread.
           </div>
         </div>
       )}

@@ -1,0 +1,137 @@
+/* ── House-to-house (structure) spread: situation card, chart, map legend, info tooltip ── */
+/* Loaded after index.css (main.tsx); colours from tokens.css (--struct-front / --struct-b2b). */
+
+.struct-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.struct-badge {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--warning-text);
+  background: var(--warning-soft);
+  border: 1px solid color-mix(in srgb, var(--warning-text) 45%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-1);
+  line-height: 18px;
+}
+
+.struct-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.struct-chart {
+  display: block;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+
+.struct-chart-axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.struct-chart-cursor {
+  stroke: var(--text);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+
+.struct-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  min-height: var(--target-min);
+}
+
+/* Map legend: right side, under the ensemble legend's spot when that is hidden */
+.burn-prob-legend.struct-legend {
+  top: 100px;
+  right: 10px;
+  bottom: auto;
+  left: auto;
+  max-width: 240px;
+}
+
+.burn-prob-legend.struct-legend.with-ens {
+  right: 270px;
+}
+
+.struct-legend .burn-prob-legend-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Info tooltip (components/InfoTip.tsx): shown on hover or keyboard focus */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+}
+
+.info-tip-btn {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: italic 600 11px/16px Georgia, serif;
+  text-transform: none;
+  cursor: help;
+}
+
+.info-tip-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.info-tip-text {
+  display: none;
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 240px;
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-overlay);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  font-style: normal;
+  line-height: var(--lh);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: normal;
+}
+
+.info-tip-right .info-tip-text {
+  left: auto;
+  right: 0;
+}
+
+.info-tip-text.open {
+  display: block;
+}
+
+/* Map popup for one involved unit */
+.struct-popup-label {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  margin-top: 2px;
+}

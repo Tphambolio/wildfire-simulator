@@ -16,6 +16,8 @@ import { isochronesToGeoJSON, isochroneLabelsGeoJSON } from "../utils/isochrones
 import { PROB_STOPS, probCss, ringsFeature, type EnsembleMapLayers } from "../utils/ensemble";
 import { ASSET_CATEGORIES, CATEGORY_ORDER, type AssetCategory } from "../utils/assets";
 import { symbolImage } from "../utils/assetSymbols";
+import { MECHANISM_LABEL, STRUCT_B2B, STRUCT_FRONT, describeUnit } from "../utils/structureSpread";
+import InfoTip from "./InfoTip";
 
 /** Ensemble line colour: ink, one colour for every arrival line (design spec §3.3, §6.2) */
 const ENS_INK = "#1f2937";
@@ -242,6 +244,15 @@ interface MapViewProps {
   onReconDrawPoint?: (lng: number, lat: number) => void;
   /** Drawing an active edge: double-click ends the line */
   onReconDrawFinish?: () => void;
+  /** House-to-house spread: involved footprints (utils/structureSpread structureUnitsGeoJSON),
+   * drawn up to the selected frame's time; illustrative, map display only */
+  structureUnits?: GeoJSON.FeatureCollection | null;
+  structureVisible?: boolean;
+  /** The API label and full caveat (legend badge tooltip, unit popup) */
+  structureLabel?: string;
+  structureCaveat?: string;
+  /** Clock label for hours from the start (popup), e.g. "15:32 MDT" */
+  structureClock?: (tH: number) => string;
 }
 
 /** What the RPAS perimeter panel shows on the map (GeoJSON [lng, lat]). */
@@ -288,6 +299,11 @@ export default function MapView({
   recon = null,
   onReconDrawPoint,
   onReconDrawFinish,
+  structureUnits = null,
+  structureVisible = false,
+  structureLabel = "illustrative — not validated in Canada",
+  structureCaveat = "",
+  structureClock,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -371,6 +387,12 @@ export default function MapView({
     }
     evacPopupDataRef.current = { records: evacTierRecords, arrivals, onSet: onSetEvacTier };
   }, [evacTierRecords, arrivalOutlines, onSetEvacTier]);
+
+  // House-to-house popup text, read by the layer's handlers (built in addFireLayers)
+  const structPopupRef = useRef<{ label: string; clock?: (tH: number) => string }>({ label: structureLabel });
+  useEffect(() => {
+    structPopupRef.current = { label: structureLabel, clock: structureClock };
+  }, [structureLabel, structureClock]);
 
   const addFireLayers = useCallback((m: maplibregl.Map) => {
     // Remove stale sources if they somehow survived (defensive)
@@ -841,6 +863,66 @@ export default function MapView({
         },
       });
     }
+
+    // ── House-to-house spread: involved footprints by mechanism (illustrative) ──
+    for (const id of ["struct-units-fill", "struct-units-line"]) if (m.getLayer(id)) m.removeLayer(id);
+    if (m.getSource("struct-units")) m.removeSource("struct-units");
+    m.addSource("struct-units", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    const structColor: maplibregl.ExpressionSpecification = [
+      "match", ["get", "mechanism"], "front", STRUCT_FRONT, STRUCT_B2B,
+    ];
+    m.addLayer({
+      id: "struct-units-fill",
+      type: "fill",
+      source: "struct-units",
+      layout: { visibility: "none" },
+      paint: { "fill-color": structColor, "fill-opacity": 0.85 },
+    });
+    m.addLayer({
+      id: "struct-units-line",
+      type: "line",
+      source: "struct-units",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#0e1217", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.4, 17, 1.2] },
+    });
+    const structPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: "240px" });
+    const structContent = (p: Record<string, unknown>) => {
+      const el = document.createElement("div");
+      el.className = "map-popup";
+      el.setAttribute("data-testid", "structure-popup");
+      const tH = Number(p.t_h);
+      const { label, clock } = structPopupRef.current;
+      const title = document.createElement("strong");
+      title.className = "map-popup-title";
+      title.textContent = MECHANISM_LABEL[p.mechanism as "front" | "b2b"] ?? String(p.mechanism);
+      el.appendChild(title);
+      const d = document.createElement("div");
+      d.className = "map-popup-muted";
+      d.textContent = describeUnit(tH, String(p.mechanism), clock?.(tH)).split(" · ")[1];
+      el.appendChild(d);
+      const l = document.createElement("div");
+      l.className = "struct-popup-label";
+      l.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+      el.appendChild(l);
+      return el;
+    };
+    m.on("mousemove", "struct-units-fill", (e) => {
+      const f = e.features?.[0];
+      if (!f) return;
+      m.getCanvas().style.cursor = "pointer";
+      structPopup.setLngLat(e.lngLat).setDOMContent(structContent(f.properties as Record<string, unknown>)).addTo(m);
+    });
+    m.on("mouseleave", "struct-units-fill", () => {
+      m.getCanvas().style.cursor = "";
+      structPopup.remove();
+    });
+    m.on("click", "struct-units-fill", (e) => {
+      if (e.originalEvent === ignitionClickRef.current || drawingRef.current) return;
+      const f = e.features?.[0];
+      if (!f) return;
+      new maplibregl.Popup({ closeButton: true, maxWidth: "240px" })
+        .setLngLat(e.lngLat).setDOMContent(structContent(f.properties as Record<string, unknown>)).addTo(m);
+    });
 
     // ── Fire arrival time isochrone layers ─────────────────────────────────
     // Line rings for each time threshold, colored by time urgency
@@ -1829,6 +1911,25 @@ export default function MapView({
     labelSrc.setData(isochroneLabelsGeoJSON(visible));
   }, [isochrones, mapReady, fireLayersVersion, frames, currentFrameIndex]);
 
+  // House-to-house spread: data, time filter (units appear when involved), visibility
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const src = map.current.getSource("struct-units") as maplibregl.GeoJSONSource | undefined;
+    src?.setData(structureUnits ?? { type: "FeatureCollection", features: [] });
+  }, [structureUnits, mapReady, fireLayersVersion]);
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const m = map.current;
+    const t = frames[currentFrameIndex]?.time_hours ?? 0;
+    const filter: maplibregl.FilterSpecification = ["<=", ["get", "t_h"], t + 1e-6];
+    for (const id of ["struct-units-fill", "struct-units-line"]) {
+      if (m.getLayer(id)) {
+        m.setFilter(id, filter);
+        m.setLayoutProperty(id, "visibility", structureVisible && structureUnits ? "visible" : "none");
+      }
+    }
+  }, [structureUnits, structureVisible, frames, currentFrameIndex, mapReady, fireLayersVersion]);
+
   // Isochrone layer visibility
   useEffect(() => {
     if (!map.current || !mapReady) return;
@@ -2038,6 +2139,28 @@ export default function MapView({
               <div className="ens-ramp-labels"><span>1%</span><span>50%</span><span>100%</span></div>
             </>
           )}
+        </div>
+      )}
+      {/* House-to-house spread legend: badge + caveat tooltip (minimal text) */}
+      {structureVisible && structureUnits && (
+        <div
+          className={`burn-prob-legend struct-legend${ensemble && (ensemble.show.lines || ensemble.show.p90 || ensemble.show.prob) ? " with-ens" : ""}`}
+          data-testid="structure-legend"
+        >
+          <div className="burn-prob-legend-title">
+            House-to-house <span className="struct-badge">Illustrative</span>
+            <InfoTip text={structureCaveat} label="About the house-to-house layer" alignRight />
+          </div>
+          <div className="burn-prob-legend-scale">
+            <div className="burn-prob-legend-row">
+              <div className="burn-prob-legend-swatch" style={{ background: STRUCT_FRONT }} />
+              <span>Front contact</span>
+            </div>
+            <div className="burn-prob-legend-row">
+              <div className="burn-prob-legend-swatch" style={{ background: STRUCT_B2B }} />
+              <span>Building to building</span>
+            </div>
+          </div>
         </div>
       )}
       {/* Grid-run legend: the per-cell crown-state circles are drawn only from zoom 14;

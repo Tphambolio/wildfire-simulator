@@ -27,6 +27,8 @@ export interface Fixture {
 }
 
 export const fixture: Fixture = JSON.parse(readFileSync(FIXTURES + "terwillegar_grass_4h.json", "utf8"));
+/** A run with structure_spread on (record_fixture.py --structure): counts per frame, involved units on the last */
+export const structureFixture: Fixture = JSON.parse(readFileSync(FIXTURES + "structure_spread_4h.json", "utf8"));
 const fuelGridImage = readFileSync(FIXTURES + "fuel_grid_image.json", "utf8");
 const arrival = readFileSync(FIXTURES + "arrival.json", "utf8");
 /** The completed 30-member ensemble of the same run (GET /simulations/{id}/ensemble) */
@@ -74,6 +76,8 @@ export interface MockOptions {
    */
   ensemble?: boolean;
   ensembleStep?: number;
+  /** Replay the house-to-house spread fixture instead of the Terwillegar one */
+  structure?: boolean;
 }
 
 export interface MockState {
@@ -90,6 +94,7 @@ const json = (route: Route, body: unknown, status = 200) =>
 
 export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockState> {
   const mode = opts.mode ?? "ws";
+  const fx = opts.structure ? structureFixture : fixture;
   const frameDelayMs = opts.frameDelayMs ?? 40;
   const state: MockState = { posts: [], overridePosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0 };
   const ensembleStep = opts.ensembleStep ?? 8;
@@ -115,15 +120,15 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === "/api/v1/simulations" && req.method() === "POST") {
       const body = req.postDataJSON() as Record<string, unknown>;
       state.posts.push(body);
-      return json(route, { simulation_id: fixture.simulation_id, status: "running", config: fixture.config, frames: [], error: null });
+      return json(route, { simulation_id: fx.simulation_id, status: "running", config: fx.config, frames: [], error: null });
     }
     if (path === "/api/v1/simulations/perimeter-override" && req.method() === "POST") {
       // The restart replays the same fixture frames
       state.overridePosts.push(req.postDataJSON() as Record<string, unknown>);
-      return json(route, { simulation_id: fixture.simulation_id, status: "running", config: fixture.config, frames: [], error: null });
+      return json(route, { simulation_id: fx.simulation_id, status: "running", config: fx.config, frames: [], error: null });
     }
-    if (path === `/api/v1/simulations/${fixture.simulation_id}/arrival`) return json(route, arrival);
-    if (path === `/api/v1/simulations/${fixture.simulation_id}/ensemble`) {
+    if (path === `/api/v1/simulations/${fx.simulation_id}/arrival`) return json(route, arrival);
+    if (path === `/api/v1/simulations/${fx.simulation_id}/ensemble`) {
       if (!opts.ensemble) return json(route, { detail: "No ensemble requested for this run" }, 404);
       const n = ++state.ensemblePolls;
       const total = ensembleFixture.total;
@@ -132,9 +137,9 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       if (done < total) return json(route, { status: "running", done, total, error: null });
       return json(route, ensembleBody);
     }
-    if (path === `/api/v1/simulations/${fixture.simulation_id}` && req.method() === "GET") {
+    if (path === `/api/v1/simulations/${fx.simulation_id}` && req.method() === "GET") {
       state.polls++;
-      return json(route, fixture);
+      return json(route, fx);
     }
     if (path === "/api/v1/health") return json(route, { status: "ok" });
     if (path === "/api/v1/version") return json(route, { version: "3.0.0", git_sha: "e2e0sha" });
@@ -151,8 +156,8 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     let i = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const next = () => {
-      if (i < fixture.frames.length) {
-        ws.send(JSON.stringify({ type: "simulation.frame", simulation_id: simId, frame: fixture.frames[i++] }));
+      if (i < fx.frames.length) {
+        ws.send(JSON.stringify({ type: "simulation.frame", simulation_id: simId, frame: fx.frames[i++] }));
         timer = setTimeout(next, frameDelayMs);
       } else {
         ws.send(JSON.stringify({ type: "simulation.completed", simulation_id: simId }));

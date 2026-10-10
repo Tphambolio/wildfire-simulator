@@ -32,7 +32,9 @@ head fire intensity and FWI codes mean.
   decision belongs to the Director of Emergency Management with the Incident Commander.
   FireSim does not suggest tiers.
 - Predicting which buildings will ignite or be lost. Exposure is not ignition probability,
-  and the opt-in structure-spread counts are illustrative modelled involvement, not losses.
+  and the opt-in house-to-house (structure) spread shows illustrative modelled involvement
+  (counts, and on the map the involved footprints by time and mechanism, for exercises), not
+  losses. Its per-building map is display only: it is not exported or put in an ICS 209.
 - Firefighter or aircraft safety distances. FireSim prints none (earlier unsourced RPAS and
   personnel stand-off rules were removed).
 - Replacing the lead agency's prediction (e.g. Alberta Wildfire, Parks Canada) where that
@@ -52,7 +54,7 @@ head fire intensity and FWI codes mean.
 | Flame length | Byram (surface), Thomas (CFB >= 0.1; approximate for crown fires) | Byram's form: Alexander & Cruz (2012) Table 1, p.98; Thomas for crown fires suggested by Rothermel (1991), via Alexander & Cruz (2012) p.99 |
 | Spotting (opt-in) | Albini/Chase/Morris maximum distance; heuristic emission and landing | USDA FS INT reports 1979-1987 |
 | Building exposure | Distance bands; Cohen solid-flame radiant flux; flux-time index | Cohen (2004); NRC (2021) |
-| Structure-to-structure spread (opt-in, API only; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); `docs/structure-spread-spec.md` |
+| Structure-to-structure spread (opt-in, app option "House-to-house spread"; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); `docs/structure-spread-spec.md` |
 | Burn probability | Monte Carlo over ignition point, wind speed and RH | (method, not a validated product) |
 | Classes | HFI classes 1-6; FWI classes | Cole & Alexander (1995) and CWFIS HFI map; CWFIS FWI map |
 
@@ -142,7 +144,9 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   +38 % to +751 % on the test sites. Sensitivity on Edmonton footprints (2026-10-09,
   `scripts/structure_sensitivity.py`): involved buildings at 6 h change by −58 % to +170 % for a
   20 / 45 m cutoff, 0 % for a 5 / 20 m contact (below the grid's resolution), and −12 % to 0 %
-  when footprints under 40 m² are dropped.
+  when footprints under 40 m² are dropped. Units are built only for the area the spread can
+  reach (identical counts; 2026-10-10 fix for an out-of-memory crash on the API), and a run
+  whose reachable area holds more than 60,000 buildings reports "not computed" instead.
 - Building exposure uses worst-case radiant assumptions and ignores embers, burning buildings
   and yard fuels (usually the main causes of loss).
 - WUI zone modifiers in the repository have no source and are off by default.

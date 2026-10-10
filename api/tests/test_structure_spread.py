@@ -122,3 +122,60 @@ async def test_structure_spread_on_reports_labelled_counts(client, files):
     assert last["units_in_run"] == 3
     assert last["units_involved"] >= 1
     assert data["frames"][0]["structure_spread"]["units_involved"] == 0
+
+
+async def test_involved_units_detail_on_the_final_frame_only(client, files):
+    """Map detail (owner decision 2026-10-10): only involved units, with time and mechanism."""
+    data = await _finish(client, _payload(files, structure_spread=True))
+    frames = data["frames"]
+    assert all(f.get("structure_spread_detail") is None for f in frames[:-1])
+    last = frames[-1]
+    detail = last["structure_spread_detail"]
+    counts = last["structure_spread"]
+    assert len(detail) == counts["units_involved"] >= 1
+    assert sum(u["mechanism"] == "front" for u in detail) == counts["units_front_contact"]
+    assert sum(u["mechanism"] == "b2b" for u in detail) == counts["units_structure_to_structure"]
+    for u in detail:
+        assert set(u) == {"id", "t_h", "mechanism", "source_id", "polygon"}
+        assert 0 <= u["t_h"] <= 1.5
+        ring = u["polygon"][0]
+        assert ring[0] == ring[-1] and len(ring) >= 4
+    # Units are built only around the fire, but units_in_run counts the whole run area
+    assert counts["computed"] is True and counts["units_built"] <= counts["units_in_run"] == 3
+
+
+async def test_too_many_buildings_returns_not_computed_instead_of_crashing(client, files, monkeypatch):
+    """OOM guard: over the unit limit the run completes and says why there are no counts."""
+    import firesim.structures.spread as sp
+
+    monkeypatch.setattr(sp, "DEFAULT_MAX_UNITS", 1)
+    data = await _finish(client, _payload(files, structure_spread=True))
+    assert data["status"] == "completed", data
+    last = data["frames"][-1]
+    s = last["structure_spread"]
+    assert s["computed"] is False and s["note"] == "not computed: too many buildings in run area"
+    assert s["label"] == LABEL and s["units_involved"] is None and s["max_units"] == 1
+    assert last["structure_spread_detail"] == []
+
+
+async def test_structure_spread_off_has_no_detail(client, files):
+    data = await _finish(client, _payload(files))
+    assert all(f.get("structure_spread_detail") is None for f in data["frames"])
+
+
+def test_building_index_footprint_source(files):
+    from firesim.data.building_index import BuildingIndex
+
+    bidx = BuildingIndex(files["buildings"], files["nbhd"])
+    world = (-90.0, 90.0, -180.0, 180.0)
+    assert bidx.count_in_box(world) == 3
+    assert bidx.count_intersecting(world) == 3
+    assert len(bidx.footprints_intersecting(world)) == 3
+    # A box west of the houses holds none; a box over the first house's west edge holds one
+    lat, lng = files["lat"], files["lng"]
+    m_lng = 1 / (111320.0 * np.cos(np.radians(lat)))
+    west = (lat - 0.001, lat + 0.001, lng, lng + 290 * m_lng)
+    assert bidx.count_intersecting(west) == 0 and bidx.footprints_intersecting(west) == []
+    first = (lat - 0.001, lat + 0.001, lng, lng + 301 * m_lng)
+    assert bidx.count_intersecting(first) == 1
+    assert bidx.count_in_box(first) == 0  # its centroid is further east
