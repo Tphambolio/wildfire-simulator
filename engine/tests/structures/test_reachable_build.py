@@ -14,6 +14,7 @@ from firesim.structures.spread import (
     StructureSpreadSkipped,
     WindPeriod,
     building_cell_contact_times,
+    burnout_minutes,
     hamada_spread,
     structure_spread_for_grid_run,
 )
@@ -52,11 +53,12 @@ def _arrival(rows=slice(36, 44), cols=slice(0, 8)):
     return a
 
 
-def _full(footprints, arrival, wind, duration, cutoff=30.0):
+def _full(footprints, arrival, wind, duration, cutoff=30.0, burnout=True):
     """Reference: units for every footprint in the grid box (the pre-fix build)."""
     units = build_units(footprints, neighbour_cutoff_m=cutoff, bbox=BBOX, frame=FRAME)
     t_front = building_cell_contact_times(units, arrival, BBOX, 10.0)
-    return units, hamada_spread(units, t_front, wind, duration_min=duration)
+    return units, hamada_spread(units, t_front, wind, duration_min=duration,
+                                burnout_min=burnout_minutes(150) if burnout else None)
 
 
 class _CountingSource(ListFootprintSource):
@@ -72,15 +74,16 @@ class _CountingSource(ListFootprintSource):
         return out
 
 
+@pytest.mark.parametrize("burnout", [True, False])
 @pytest.mark.parametrize("speed,duration", [(20.0, 60.0), (40.0, 240.0), (60.0, 600.0)])
-def test_reachable_build_matches_the_whole_area_build(speed, duration):
+def test_reachable_build_matches_the_whole_area_build(speed, duration, burnout):
     houses = _lattice()
     arrival = _arrival()
     sched = [(0.0, _Cond(speed, 270.0))]
     wind = [WindPeriod(0.0, speed, 270.0)]
-    _, ref = _full(houses, arrival, wind, duration)
+    _, ref = _full(houses, arrival, wind, duration, burnout=burnout)
     src = _CountingSource(houses)
-    res = structure_spread_for_grid_run(src, arrival, sched, duration, bbox=BBOX)
+    res = structure_spread_for_grid_run(src, arrival, sched, duration, bbox=BBOX, burnout=burnout)
     for t in (duration / 4, duration / 2, duration):
         assert res.counts_at(t)["units_involved"] == int(np.sum(ref.t_min <= t))
         assert res.counts_at(t)["units_structure_to_structure"] == int(
@@ -149,7 +152,8 @@ def test_involved_detail_only_involved_units_with_time_and_mechanism():
     times = [u["t_h"] for u in d]
     assert times == sorted(times) and times[-1] <= 2.0
     for u in d:
-        assert set(u) == {"id", "t_h", "mechanism", "source_id", "polygon"}
+        assert set(u) == {"id", "t_h", "t_out_h", "mechanism", "source_id", "polygon"}
+        assert u["t_out_h"] == pytest.approx(u["t_h"] + 66.0 / 60.0, abs=2e-3)  # 150 kW/m² fire
         ring = u["polygon"][0]
         assert ring[0] == ring[-1] and len(ring) >= 4
         lng, lat = ring[0]

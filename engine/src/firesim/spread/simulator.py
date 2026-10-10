@@ -78,6 +78,7 @@ class Simulator:
         structure_footprints=None,
         structure_embers: bool = False,
         structure_design_fire_kw_m2: int = 150,
+        structure_burnout: bool = True,
         progress=None,
     ):
         """Initialize simulator.
@@ -120,8 +121,11 @@ class Simulator:
             structure_embers: with ``structure_spread``, opt-in: also ember ignition of
                 buildings (design fire, Himoto transport between buildings, Sardoy from the
                 burning grid cells, ψ criterion; docs/structure-spread-spec.md §6).
-            structure_design_fire_kw_m2: building design fire for the ember stage, 150
-                (default, PROCI24) or 400 (scenario, FSJ104686).
+            structure_design_fire_kw_m2: building design fire, 150 (default, PROCI24) or 400
+                (scenario, FSJ104686): the ember stage's HRR curve and the burn-out time.
+            structure_burnout: with ``structure_spread`` (default on): a unit stops passing
+                fire when its design fire ends, 66 min (150) or 70 min after involvement
+                (docs/structure-spread-spec.md §4.3); off = published Hamada (no burnout).
             progress: Optional callable(phase, fraction) for progress display only (no
                 effect on results). Grid model: ("spread", 0-1) while the front advances,
                 then ("structures", None) before house-to-house spread when it is on, and
@@ -150,6 +154,7 @@ class Simulator:
         self.structure_footprints = structure_footprints
         self.structure_embers = structure_embers
         self.structure_design_fire_kw_m2 = int(structure_design_fire_kw_m2)
+        self.structure_burnout = bool(structure_burnout)
         self.progress = progress
         # Seed for ember spotting (config.seed, else a hash of the config): repeatable runs
         self.seed = config.resolved_seed()
@@ -507,6 +512,8 @@ class Simulator:
             bbox=(g.lat_min, g.lat_max, g.lng_min, g.lng_max),
             max_units=structure_spread.DEFAULT_MAX_UNITS,  # read at call time (OOM guard)
             embers=embers, emitters=emitters,
+            burnout=self.structure_burnout,
+            design_fire_kw_m2=self.structure_design_fire_kw_m2,
         )
 
     def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:

@@ -490,6 +490,7 @@ class SimulationRunner:
                 structure_footprints=structure_geoms,
                 structure_embers=getattr(params, "structure_embers", False),
                 structure_design_fire_kw_m2=getattr(params, "structure_design_fire_kw_m2", 150),
+                structure_burnout=getattr(params, "structure_burnout", True),
                 progress=run.set_phase,
             )
 

@@ -14,9 +14,18 @@ Canada.** Outputs are modelled involvement times, not predictions of which build
    crossing time (a0 + d) / rate(theta), the wind taken from the run's weather periods; a
    crossing that spans periods accumulates progress period by period (FireSim heuristic).
 3. First involvement times over the graph by Dijkstra (non-negative, first-in-first-out
-   crossings). No burnout: Hamada has none (Purnomo et al. 2026, Fire Safety J. 161: 104651,
-   pp.3, 17).
-4. Opt-in ember ignition (spec §6, ``firesim.structures.embers``): every involved unit burns
+   crossings).
+4. Burn-out (spec §4.3, §5; on by default since 2026-10-10): every involved unit burns the
+   building design fire from its involvement time and is burnt out when the design fire ends,
+   ``t_out = t + duration`` (66 min for the 150 kW/m² default: 5 / 1 / 60 min, PROCI24 p.3,
+   "decreases linearly to zero when all fuel is consumed", p.2; 70 min for the 400 kW/m²
+   scenario, FSJ104686 p.2; Qin25 eq 6.2, p.146: t_decay "denotes the end of combustion").
+   A burnt-out unit passes no more fire: a Hamada crossing that has not reached the neighbour
+   by ``t_out`` does not complete [H], and ember emission ends with the design fire (Qin25
+   p.67). Hamada itself has no burnout (Purnomo et al. 2026, Fire Safety J. 161: 104651, p.3:
+   "there is no mechanism of burn out incorporated into the ELMFIRE or Hamada models"), so
+   ``burnout_min=None`` reproduces the published model.
+5. Opt-in ember ignition (spec §6, ``firesim.structures.embers``): every involved unit burns
    a design fire, emits embers that are carried downwind (Himoto lognormal) and pooled on the
    footprints they land on; a unit ignites when its pooled ember load passes the ψ criterion
    (Qin et al. 2026, Fire Safety J. 162: 104686, eq 1, pp.3-5). Embers from the burning grid
@@ -31,6 +40,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from firesim.structures.embers import DESIGN_FIRES
 from firesim.structures.hamada import DEFAULT_COMBUSTIBLE_FRACTION, rate_toward
 from firesim.structures.units import StructureUnits
 
@@ -39,6 +49,19 @@ MODEL = "hamada"
 DEFAULT_WILDLAND_CONTACT_M = 10.0  # spec §3: FireSim heuristic (flame-contact band)
 FRONT_CONTACT_RULE = "building_cells"
 DETAIL_SIMPLIFY_M = 0.5  # map footprints: Douglas-Peucker tolerance, metres (display only)  # spec §3 [H]: measured from the footprint's grid cells
+
+DEFAULT_DESIGN_FIRE_KW_M2 = 150  # spec §5 C1, owner decision D1 (PROCI24 p.3)
+
+
+def burnout_minutes(design_fire_kw_m2: int = DEFAULT_DESIGN_FIRE_KW_M2) -> float:
+    """Minutes from involvement to burn-out: the design fire's growth + full + decay (spec §5):
+    66 min at 150 kW/m² (5 / 1 / 60 min, PROCI24 p.3), 70 min at 400 kW/m² (300 / 3600 / 300 s,
+    FSJ104686 p.2). The end of the design fire is the end of combustion (Qin25 eq 6.2, p.146)."""
+    try:
+        return DESIGN_FIRES[int(design_fire_kw_m2)].duration_s / 60.0
+    except KeyError as e:
+        raise ValueError(f"design fire must be one of {sorted(DESIGN_FIRES)} kW/m²") from e
+
 
 SOURCE_NONE = 0
 SOURCE_FRONT = 1  # reached by the wildland front
@@ -74,10 +97,23 @@ class StructureSpreadResult:
     footprints: np.ndarray | None = None  # local-metre footprints of the built units
     frame: object = None  # LocalFrame of ``footprints``
     ember_from_wildland: np.ndarray | None = None  # ember units lit by the grid cells' embers
+    burnout_min: float | None = None  # involvement -> burn-out, minutes (None: no burnout)
+
+    @property
+    def t_out_min(self) -> np.ndarray:
+        """Burn-out minute of each unit: involvement + design-fire duration (inf when not
+        involved, or when burnout is off)."""
+        if self.burnout_min is None:
+            return np.full(len(self.t_min), np.inf)
+        return self.t_min + self.burnout_min
 
     def counts_at(self, t_min: float) -> dict:
-        """Counts of units involved by ``t_min`` (JSON-friendly, with the label)."""
+        """Counts of units involved by ``t_min`` (JSON-friendly, with the label).
+
+        ``units_burning`` + ``units_burnt_out`` = ``units_involved``: a unit is burnt out once
+        its design fire has ended (spec §4.3); it is still counted as involved."""
         by = self.t_min <= t_min
+        out_by = self.t_out_min <= t_min
         front = int(np.sum(by & (self.source == SOURCE_FRONT)))
         structure = int(np.sum(by & (self.source == SOURCE_STRUCTURE)))
         out = {
@@ -90,6 +126,8 @@ class StructureSpreadResult:
             "units_structure_to_structure": structure,
             "units_involved": front + structure,
             **self.params,
+            "burnout": self.burnout_min is not None,
+            "burnout_min": self.burnout_min,
         }
         if self.params.get("embers"):
             ember = by & (self.source == SOURCE_EMBER)
@@ -98,13 +136,16 @@ class StructureSpreadResult:
             out["units_ember"] = int(np.sum(ember))
             out["units_ember_from_wildland"] = int(np.sum(ember & wild))
             out["units_involved"] = front + structure + out["units_ember"]
+        out["units_burnt_out"] = int(np.sum(by & out_by))
+        out["units_burning"] = out["units_involved"] - out["units_burnt_out"]
         return out
 
     def involved_detail(self, simplify_m: float = DETAIL_SIMPLIFY_M) -> list[dict]:
         """The involved units for the map (spec §9; owner decision 2026-10-10, D3 reversed).
 
         One entry per involved unit, in involvement order: ``id`` (0.. in that order),
-        ``t_h`` (hours from the start), ``mechanism`` ("front" = wildland front contact,
+        ``t_h`` (hours from the start), ``t_out_h`` (burn-out, hours from the start, when its
+        design fire ends; ``None`` when burnout is off), ``mechanism`` ("front" = wildland front contact,
         "b2b" = building to building (Hamada), "ember" = ember ignition), ``source_id`` (the
         ``id`` of the unit that passed the fire on: b2b, or ember when the main ember source
         was a building; ``None`` for embers from the wildland front) and ``polygon`` (footprint rings in (lng, lat), simplified by
@@ -133,9 +174,12 @@ class StructureSpreadResult:
                 g = max(g.geoms, key=lambda p: p.area)
             mech = MECHANISM.get(int(self.source[u]), "b2b")
             parent = int(self.parent[u])
+            t_out = (float(self.t_min[u]) + self.burnout_min
+                     if self.burnout_min is not None else None)
             out.append({
                 "id": k,
                 "t_h": round(float(self.t_min[u]) / 60.0, 3),
+                "t_out_h": round(t_out / 60.0, 3) if t_out is not None else None,
                 "mechanism": mech,
                 "source_id": new_id.get(parent) if mech != "front" and parent >= 0 else None,
                 "polygon": [[[float(x), float(y)] for x, y in g.exterior.coords]],
@@ -286,6 +330,7 @@ def hamada_spread(
     *,
     duration_min: float,
     fb: float = DEFAULT_COMBUSTIBLE_FRACTION,
+    burnout_min: float | None = None,
 ) -> StructureSpreadResult:
     """First involvement time of every unit: front contact, then Hamada building-to-building.
 
@@ -296,9 +341,13 @@ def hamada_spread(
             the last indefinitely.
         duration_min: end of the run; nothing is involved after it.
         fb: Hamada combustible fraction.
+        burnout_min: minutes from involvement to burn-out (``burnout_minutes``); a unit passes
+            fire only until then (spec §4.3 [H]). ``None``: no burnout (published Hamada).
     """
     if not wind:
         raise ValueError("wind needs at least one period")
+    if burnout_min is not None and not burnout_min > 0:
+        raise ValueError("burnout_min must be > 0 or None")
     n = len(units)
     t = np.asarray(t_front_min, dtype=float).copy()
     t[t > duration_min] = np.inf
@@ -329,7 +378,8 @@ def hamada_spread(
         dist = np.hypot(dx, dy)
         safe = np.where(dist > 0, dist, 1.0)
         arrive = _cross(ti, a0, sep, dx / safe, dy / safe, dist > 0, starts, speed, sx, sy, fb,
-                        duration_min)
+                        duration_min,
+                        burnout_at=math.inf if burnout_min is None else ti + burnout_min)
         better = arrive < t[nb]
         for j, tj in zip(nb[better], arrive[better]):
             t[j] = tj
@@ -339,12 +389,18 @@ def hamada_spread(
     return StructureSpreadResult(t_min=t, source=source, parent=parent,
                                  t_front_min=np.asarray(t_front_min, dtype=float),
                                  params={"combustible_fraction": fb,
-                                         "neighbour_cutoff_m": units.neighbour_cutoff_m})
+                                         "neighbour_cutoff_m": units.neighbour_cutoff_m},
+                                 burnout_min=burnout_min)
 
 
-def _cross(t0, a0, sep, ux, uy, has_dir, starts, speed, sx, sy, fb, duration_min):
+def _cross(t0, a0, sep, ux, uy, has_dir, starts, speed, sx, sy, fb, duration_min,
+           burnout_at=math.inf):
     """Arrival minutes of a crossing that starts at ``t0`` toward each neighbour, accumulating
-    progress (a0 + d) at the Hamada rate of each weather period in turn."""
+    progress (a0 + d) at the Hamada rate of each weather period in turn.
+
+    ``burnout_at``: minute the source burns out; a crossing not complete by then never
+    arrives (spec §4.3 [H]: a burnt-out building passes no fire)."""
+    duration_min = min(duration_min, burnout_at)
     length = a0 + sep
     remaining = np.ones(len(sep))
     arrive = np.full(len(sep), np.inf)
@@ -377,28 +433,35 @@ def spread_with_embers(
     fb: float = DEFAULT_COMBUSTIBLE_FRACTION,
     embers=None,
     wildland=None,
+    burnout_min: float | None = None,
 ) -> StructureSpreadResult:
     """Front contact, Hamada building to building and (opt-in) ember ignition.
 
-    ``embers=None`` is exactly ``hamada_spread``. With an ``EmberOptions`` the run adds ember
+    ``burnout_min`` as in ``hamada_spread``; with embers it must be the ember design fire's
+    duration (one design fire per run). ``embers=None`` is exactly ``hamada_spread``. With an ``EmberOptions`` the run adds ember
     ignition (spec §6, ``firesim.structures.embers.coupled_spread``); ``wildland`` (a
     ``WildlandSources``) adds embers from the burning grid cells when
     ``embers.from_wildland``. Deterministic (expected-value pooling, no random draws).
     """
     if embers is None:
-        return hamada_spread(units, t_front_min, wind, duration_min=duration_min, fb=fb)
+        return hamada_spread(units, t_front_min, wind, duration_min=duration_min, fb=fb,
+                             burnout_min=burnout_min)
     if not wind:
         raise ValueError("wind needs at least one period")
+    if burnout_min is not None and not math.isclose(burnout_min,
+                                                    embers.design_fire.duration_s / 60.0):
+        raise ValueError("burnout_min must equal the ember design fire's duration")
     from firesim.structures.embers import coupled_spread
 
     r = coupled_spread(units, t_front_min, wind, duration_min=duration_min, fb=fb,
                        options=embers, wildland=wildland if embers.from_wildland else None,
-                       cross=_cross)
+                       cross=_cross, burnout=burnout_min is not None)
     params = {"combustible_fraction": fb, "neighbour_cutoff_m": units.neighbour_cutoff_m,
               "hamada": bool(embers.hamada), **embers.params()}
     return StructureSpreadResult(t_min=r.t_min, source=r.source, parent=r.parent,
                                  t_front_min=np.asarray(t_front_min, dtype=float),
-                                 params=params, ember_from_wildland=r.ember_from_wildland)
+                                 params=params, ember_from_wildland=r.ember_from_wildland,
+                                 burnout_min=burnout_min)
 
 
 class ListFootprintSource:
@@ -449,7 +512,8 @@ def not_computed(units_in_run: int, units_needed: int, max_units: int, params: d
     return {"model": MODEL, "label": LABEL, "computed": False, "note": NOT_COMPUTED_NOTE,
             "units_in_run": int(units_in_run), "units_needed": int(units_needed),
             "max_units": int(max_units), "units_front_contact": None,
-            "units_structure_to_structure": None, "units_involved": None, **params}
+            "units_structure_to_structure": None, "units_involved": None,
+            "units_burning": None, "units_burnt_out": None, **params}
 
 
 @dataclass
@@ -478,6 +542,8 @@ def structure_spread_for_grid_run(
     max_units: int = DEFAULT_MAX_UNITS,
     embers=None,
     emitters=None,
+    burnout: bool = True,
+    design_fire_kw_m2: int | None = None,
 ):
     """Hamada structure spread coupled to a finished grid run, built only where it can reach.
 
@@ -517,6 +583,11 @@ def structure_spread_for_grid_run(
         embers: ``EmberOptions`` to add ember ignition (opt-in), or ``None`` (Hamada only).
         emitters: the grid run's ``Emitters`` (burning cells with intensity), the wildland
             ember sources when ``embers.from_wildland``.
+        burnout: units stop passing fire when their design fire ends (spec §4.3; default on).
+        design_fire_kw_m2: the building design fire (150 or 400) that sets the burn-out time;
+            ``None`` = the ember design fire with embers, else 150. Must match ``embers``.
+
+    Burn-out only removes crossings, so the exactness argument above is unchanged.
     """
     from firesim.structures.units import (
         DEFAULT_NEIGHBOUR_CUTOFF_M,
@@ -527,6 +598,12 @@ def structure_spread_for_grid_run(
 
     if arrival_min is None or footprints is None:
         return None
+    if design_fire_kw_m2 is None:
+        design_fire_kw_m2 = (embers.design_fire_kw_m2 if embers is not None
+                             else DEFAULT_DESIGN_FIRE_KW_M2)
+    if embers is not None and int(embers.design_fire_kw_m2) != int(design_fire_kw_m2):
+        raise ValueError("design_fire_kw_m2 must match the ember design fire")
+    burnout_min = burnout_minutes(design_fire_kw_m2) if burnout else None
     source = footprints if hasattr(footprints, "footprints_intersecting") else ListFootprintSource(footprints)
     lat_min, lat_max, lng_min, lng_max = bbox
     units_in_run = source.count_in_box(bbox)
@@ -535,7 +612,9 @@ def structure_spread_for_grid_run(
     cutoff = DEFAULT_NEIGHBOUR_CUTOFF_M if neighbour_cutoff_m is None else float(neighbour_cutoff_m)
     frame = LocalFrame((lat_min + lat_max) / 2.0, (lng_min + lng_max) / 2.0)
     params = {"combustible_fraction": fb, "neighbour_cutoff_m": cutoff,
-              "wildland_contact_m": contact_m, "front_contact_rule": FRONT_CONTACT_RULE}
+              "wildland_contact_m": contact_m, "front_contact_rule": FRONT_CONTACT_RULE,
+              "design_fire_kw_m2": int(design_fire_kw_m2), "burnout": bool(burnout),
+              "burnout_min": burnout_min}
     if embers is not None:
         params.update(embers.params())
     wind = [WindPeriod(float(s), float(c.wind_speed), float(c.wind_direction)) for s, c in schedule]
@@ -546,7 +625,8 @@ def structure_spread_for_grid_run(
     if not burned.any():
         res = StructureSpreadResult(t_min=np.zeros(0), source=np.zeros(0, dtype=np.int8),
                                     parent=np.zeros(0, dtype=np.int64), t_front_min=np.zeros(0),
-                                    params=params, units_in_run=units_in_run, frame=frame)
+                                    params=params, units_in_run=units_in_run, frame=frame,
+                                    burnout_min=burnout_min)
         return res
     dlat, dlng = (lat_max - lat_min) / rows, (lng_max - lng_min) / cols
     r_idx, c_idx = np.nonzero(burned.any(axis=1))[0], np.nonzero(burned.any(axis=0))[0]
@@ -578,7 +658,7 @@ def structure_spread_for_grid_run(
                             bbox=bbox, frame=frame)
         t_front = building_cell_contact_times(units, arrival_min, bbox, contact_m)
         result = spread_with_embers(units, t_front, wind, duration_min=duration_min, fb=fb,
-                                    embers=embers, wildland=wildland)
+                                    embers=embers, wildland=wildland, burnout_min=burnout_min)
         guard = cutoff + 1.0
         if embers is not None:
             guard = np.maximum(structure_ember_reach(units, embers, u10_max), cutoff) + 1.0
