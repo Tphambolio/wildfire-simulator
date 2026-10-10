@@ -320,7 +320,8 @@ class Simulator:
         exposure = self._building_exposure(ca_frames[-1].emitters if ca_frames else None,
                                            config.duration_hours * 60.0)
         structures = self._structure_spread(ca_frames[-1].emitters if ca_frames else None,
-                                            config.duration_hours * 60.0)
+                                            config.duration_hours * 60.0,
+                                            ca_frames[-1].arrival if ca_frames else None)
 
         # Each frame's cells are a prefix of the final frame's (ordered by arrival), so the
         # cell dicts are built once and each frame takes a slice
@@ -455,16 +456,19 @@ class Simulator:
         return building_exposure(targets, emitters, duration_min=duration_min,
                                  use_footprints=use_footprints)
 
-    def _structure_spread(self, emitters, duration_min: float):
-        """Opt-in Hamada structure spread over the run area's building units, or None."""
+    def _structure_spread(self, emitters, duration_min: float, arrival=None):
+        """Opt-in Hamada structure spread over the run area's building units, or None.
+
+        Front contact is measured on the grid run's arrival raster from each footprint's
+        grid cells (spec §3); ``emitters`` only signals a finished grid run."""
         footprints = self.structure_footprints or self.building_footprints
-        if not self.structure_spread or emitters is None or not footprints:
+        if not self.structure_spread or emitters is None or arrival is None or not footprints:
             return None
         from firesim.structures.spread import structure_spread_for_grid_run
 
         g = self.fuel_grid
         return structure_spread_for_grid_run(
-            footprints, emitters, self._schedule, duration_min,
+            footprints, arrival, self._schedule, duration_min,
             bbox=(g.lat_min, g.lat_max, g.lng_min, g.lng_max),
         )
 

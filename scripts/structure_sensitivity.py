@@ -13,6 +13,9 @@ reused for every structure-spread variant, so only the structure layer changes:
 
 - ``neighbour_cutoff_m`` 20 / 30 / 45 m (contact 10 m);
 - ``wildland_contact_m`` 5 / 10 / 20 m (cutoff 30 m);
+- the front-contact rule: from the footprint's own grid cells (the engine's rule since
+  2026-10-09, spec §3) vs the first rule, nearest burned cell edge within the contact distance
+  of the footprint (``default_old_rule``, kept to compare with report R7);
 - footprint filter: none vs drop footprints under 40 m^2 (a FireSim [H] size, roughly a
   single-car garage or small shed; sensitivity only, not a default).
 
@@ -56,7 +59,8 @@ from firesim.structures.spread import (  # noqa: E402
     SOURCE_FRONT,
     SOURCE_STRUCTURE,
     WindPeriod,
-    front_contact_times,
+    building_cell_contact_times,
+    footprint_contact_times,
     hamada_spread,
 )
 from firesim.structures.units import LocalFrame, build_units  # noqa: E402
@@ -111,15 +115,17 @@ DURATION_H = 6.0
 SEED = 20261009
 
 VARIANTS = [
-    # name, cutoff, contact, min footprint area (m^2)
-    ("default", 30.0, 10.0, 0.0),
-    ("cutoff_20", 20.0, 10.0, 0.0),
-    ("cutoff_45", 45.0, 10.0, 0.0),
-    ("contact_5", 30.0, 5.0, 0.0),
-    ("contact_20", 30.0, 20.0, 0.0),
-    ("drop_lt40m2", 30.0, 10.0, SMALL_FOOTPRINT_M2),
+    # name, cutoff, contact, min footprint area (m^2), front-contact rule
+    ("default", 30.0, 10.0, 0.0, "cells"),
+    ("cutoff_20", 20.0, 10.0, 0.0, "cells"),
+    ("cutoff_45", 45.0, 10.0, 0.0, "cells"),
+    ("contact_5", 30.0, 5.0, 0.0, "cells"),
+    ("contact_20", 30.0, 20.0, 0.0, "cells"),
+    ("drop_lt40m2", 30.0, 10.0, SMALL_FOOTPRINT_M2, "cells"),
     # Interaction check: the size filter where more buildings are reached (contact 20 m)
-    ("contact_20_drop_lt40m2", 30.0, 20.0, SMALL_FOOTPRINT_M2),
+    ("contact_20_drop_lt40m2", 30.0, 20.0, SMALL_FOOTPRINT_M2, "cells"),
+    # The first rule (nearest burned cell edge within 10 m of the footprint), for comparison
+    ("default_old_rule", 30.0, 10.0, 0.0, "footprint"),
 ]
 CONTACT_BANDS_M = (0.0, 5.0, 10.0, 20.0, 30.0, 50.0)
 
@@ -127,10 +133,26 @@ CONTACT_BANDS_M = (0.0, 5.0, 10.0, 20.0, 30.0, 50.0)
 class _CapturingSimulator(Simulator):
     """Simulator that keeps the grid run's flame panels and the engine's own structure result."""
 
-    def _structure_spread(self, emitters, duration_min):
+    def _structure_spread(self, emitters, duration_min, arrival=None):
         self.captured_emitters = emitters
-        self.captured_structures = super()._structure_spread(emitters, duration_min)
+        self.captured_arrival = arrival
+        self.captured_structures = super()._structure_spread(emitters, duration_min, arrival)
         return self.captured_structures
+
+
+def contact_gap_m(units, sel, cells_xy, half) -> np.ndarray:
+    """Distance (m) from each selected footprint to the nearest burned cell's edge."""
+    import shapely
+    from scipy.spatial import cKDTree
+
+    tree = cKDTree(cells_xy)
+    out = []
+    for i in np.nonzero(sel)[0]:
+        d, _ = tree.query([units.x[i], units.y[i]], k=min(16, len(cells_xy)))
+        idx = tree.query_ball_point([units.x[i], units.y[i]], float(np.max(d)) + 4 * half)
+        dist = shapely.distance(units.footprints[i], shapely.points(cells_xy[idx])) - half
+        out.append(max(float(dist.min()), 0.0))
+    return np.asarray(out)
 
 
 def fwi_codes(w: dict) -> dict:
@@ -247,7 +269,7 @@ def main() -> int:
 
     # Units per (cutoff, filter): built once, reused by every site and weather day
     units_by_key: dict = {}
-    for _, cutoff, _, min_area in VARIANTS:
+    for _, cutoff, _, min_area, _ in VARIANTS:
         key = (cutoff, min_area)
         if key in units_by_key:
             continue
@@ -272,8 +294,8 @@ def main() -> int:
             "duration_h": DURATION_H, "day_of_year": DAY_OF_YEAR, "grass_cure": GRASS_CURE,
             "seed": SEED, "spotting": False, "water_mask": False, "burning_period": None,
             "weather": {k: {**w, **fwi_codes(w)} for k, w in WEATHER.items()},
-            "variants": [{"name": n, "cutoff_m": c, "contact_m": k, "min_area_m2": m}
-                         for n, c, k, m in VARIANTS],
+            "variants": [{"name": n, "cutoff_m": c, "contact_m": k, "min_area_m2": m,
+                          "contact_rule": rule} for n, c, k, m, rule in VARIANTS],
         },
         "city_graph": city_graph,
         "runs": {},
@@ -343,7 +365,8 @@ def main() -> int:
             duration_min = DURATION_H * 60.0
             wind = [WindPeriod(float(st), float(c.wind_speed), float(c.wind_direction))
                     for st, c in sim._schedule]
-            for name, cutoff, contact, min_area in VARIANTS:
+            arrival = sim.captured_arrival
+            for name, cutoff, contact, min_area, rule in VARIANTS:
                 u = units_by_key[(cutoff, min_area)]
                 t2 = time.time()
                 if em is None or len(em.x) == 0:
@@ -352,7 +375,11 @@ def main() -> int:
                 lat = em.lat0 + np.asarray(em.y) / em.m_per_deg_lat
                 lng = em.lng0 + np.asarray(em.x) / em.m_per_deg_lng
                 cx, cy = u.frame.to_local(lat, lng)
-                t_front = front_contact_times(u, cx, cy, em.start_min, em.cell_size, contact)
+                if rule == "cells":
+                    t_front = building_cell_contact_times(u, arrival, bbox, contact)
+                else:
+                    t_front = footprint_contact_times(u, cx, cy, em.start_min, em.cell_size,
+                                                      contact)
                 res = hamada_spread(u, t_front, wind, duration_min=duration_min)
                 lx, ly = u.frame.to_local(s["lat"], s["lng"])
                 m = run_metrics(u, res, (float(lx), float(ly)), np.column_stack([cx, cy]),
@@ -362,6 +389,16 @@ def main() -> int:
                 lab = labels_by_key[(cutoff, min_area)]
                 touched = np.unique(lab[np.isfinite(t_front) & (t_front <= duration_min)])
                 m["units_in_front_touched_components"] = int(np.isin(lab, touched).sum())
+                if name in ("default", "default_old_rule"):
+                    # How far the burned cell that gives front contact is from the footprint
+                    hit = np.isfinite(t_front) & (t_front <= duration_min)
+                    if hit.any():
+                        gap = contact_gap_m(u, hit, np.column_stack([cx, cy]), em.cell_size / 2)
+                        m["front_contact_gap_m"] = {
+                            "median": round(float(np.median(gap)), 1),
+                            "p90": round(float(np.percentile(gap, 90)), 1),
+                            "max": round(float(gap.max()), 1),
+                            "share_over_10m": round(float(np.mean(gap > 10.0)), 3)}
                 run["variants"][name] = m
             if em is not None and len(em.x):
                 # How many units lie within each distance of a burned cell (end of run): shows
@@ -370,7 +407,7 @@ def main() -> int:
                 lng = em.lng0 + np.asarray(em.x) / em.m_per_deg_lng
                 cx, cy = u0.frame.to_local(lat, lng)
                 run["units_within_m_of_burned_cells"] = {
-                    f"{b:g}": int(np.isfinite(front_contact_times(
+                    f"{b:g}": int(np.isfinite(footprint_contact_times(
                         u0, cx, cy, em.start_min, em.cell_size, b)).sum())
                     for b in CONTACT_BANDS_M}
                 run["cell_size_m"] = round(float(em.cell_size), 1)
@@ -443,6 +480,12 @@ def tables(r: dict) -> str:
                 lines += ["", f"Units within X m of a burned cell by {DURATION_H:g} h (cell "
                               f"{run.get('cell_size_m')} m): "
                           + ", ".join(f"{k} m: {v}" for k, v in bands.items())]
+            for name in ("default", "default_old_rule"):
+                g = run["variants"].get(name, {}).get("front_contact_gap_m")
+                if g:
+                    lines += ["", f"Front-contact gap ({name}): footprint to the nearest burned "
+                                  f"cell edge, median {g['median']} / p90 {g['p90']} / max "
+                                  f"{g['max']} m; share over 10 m {100 * g['share_over_10m']:.0f} %"]
     lines += ["", f"Timings: {json.dumps(r.get('timings', {}))}", ""]
     return "\n".join(lines)
 

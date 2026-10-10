@@ -15,7 +15,9 @@ from firesim.structures.spread import (
     SOURCE_NONE,
     SOURCE_STRUCTURE,
     WindPeriod,
-    front_contact_times,
+    building_cell_contact_times,
+    contact_offsets,
+    footprint_contact_times,
     hamada_spread,
 )
 from firesim.structures.units import LocalFrame, build_units
@@ -125,21 +127,138 @@ def test_counts_over_time_and_label():
     assert c["neighbour_cutoff_m"] == 15.0 and c["combustible_fraction"] == 1.0
 
 
-def test_front_contact_times():
+def test_footprint_contact_times_diagnostic():
     units = row_units(n=3, gap=20.0)  # footprints x 0-10, 30-40, 60-70; y 0-10
     # 20 m cells; centres at x = 15 (edge at 5 m from unit 0, 5 m from unit 1), x = 95
     cx = np.array([15.0, 95.0, -500.0])
     cy = np.array([5.0, 5.0, 5.0])
     arr = np.array([12.0, 30.0, 1.0])
-    t = front_contact_times(units, cx, cy, arr, 20.0, contact_m=10.0)
+    t = footprint_contact_times(units, cx, cy, arr, 20.0, contact_m=10.0)
     # cell edge 15-10=5 m beyond... unit 0: distance 15-10 = 5, minus half cell 10 -> <= 10
     assert t[0] == 12.0 and t[1] == 12.0
     # unit 2 (60-70): cell at 95 is 25 m away, minus 10 = 15 > 10
     assert math.isinf(t[2])
-    t = front_contact_times(units, cx, cy, arr, 20.0, contact_m=20.0)
+    t = footprint_contact_times(units, cx, cy, arr, 20.0, contact_m=20.0)
     assert t[2] == 30.0
-    t = front_contact_times(units, cx, cy, np.full(3, np.inf), 20.0)
+    t = footprint_contact_times(units, cx, cy, np.full(3, np.inf), 20.0)
     assert np.all(np.isinf(t))
+
+
+# --- Front contact from the building's own grid cells (spec §3, 2026-10-09) -----------------
+
+CELL = 50.0  # engine grid cell, metres (in FRAME)
+
+
+def _grid(rows=10, cols=10):
+    """Bounds of a rows x cols grid of 50 m cells in FRAME, x 0..cols*50 east, y 0..rows*50
+    north; row 0 is the north row."""
+    lat, lng = FRAME.to_latlng(np.array([0.0, cols * CELL]), np.array([0.0, rows * CELL]))
+    return (float(lat[0]), float(lat[1]), float(lng[0]), float(lng[1]))
+
+
+def _cell_xy(r, c, rows=10):
+    """South-west corner (x, y) of cell (row r, col c)."""
+    return c * CELL, (rows - 1 - r) * CELL
+
+
+def _arrival_west_burned(rows=10, cols=10, burned_cols=4):
+    """Columns 0..burned_cols-1 burned at 10 * col + row minutes; the rest unburned."""
+    r, c = np.mgrid[0:rows, 0:cols]
+    return np.where(c < burned_cols, 10.0 * c + r, np.inf)
+
+
+def _units(*boxes):
+    return build_units([square(x, y, s) for x, y, s in boxes], frame=FRAME)
+
+
+def test_contact_offsets_are_the_8_neighbourhood_below_one_cell():
+    for contact in (0.0, 5.0, 10.0, 20.0, 49.9):
+        off = contact_offsets(contact, CELL, CELL)
+        assert len(off) == 9 and np.abs(off).max() == 1
+    off = {tuple(o) for o in contact_offsets(60.0, CELL, CELL)}
+    assert (0, 2) in off and (2, 1) in off and (2, 2) not in off  # gap 50 / 50 / 70.7 m
+
+
+def test_contact_is_independent_of_the_position_inside_the_cell():
+    # Building cell (row 5, col 4), masked (unburned); the front stops at col 3 (x <= 200 m)
+    bounds, arr = _grid(), _arrival_west_burned()
+    x0, y0 = _cell_xy(5, 4)
+    offsets = [(1.0, 1.0), (19.0, 20.0), (39.0, 39.0), (1.0, 39.0), (39.0, 1.0)]
+    units = _units(*[(x0 + dx, y0 + dy, 10.0) for dx, dy in offsets])
+    t = building_cell_contact_times(units, arr, bounds, contact_m=10.0)
+    # earliest burned neighbour: col 3, rows 4-6 -> 10 * 3 + 4 = 34 min, for every offset
+    np.testing.assert_array_equal(t, np.full(len(offsets), 34.0))
+    # The previous rule (nearest burned cell edge within 10 m of the footprint) depended on
+    # the offset: the house 1 m from the cell edge is reached, the one 39 m from it is not
+    r, c = np.nonzero(np.isfinite(arr))
+    cx, cy = (c + 0.5) * CELL, (9 - r + 0.5) * CELL
+    old = footprint_contact_times(units, cx, cy, arr[r, c], CELL, contact_m=10.0)
+    assert np.isfinite(old[0]) and np.isinf(old[2])
+
+
+def test_contact_distance_below_one_cell_gives_one_outcome():
+    bounds, arr = _grid(), _arrival_west_burned()
+    x0, y0 = _cell_xy(5, 4)
+    units = _units((x0 + 30.0, y0 + 30.0, 12.0))
+    out = [building_cell_contact_times(units, arr, bounds, contact_m=m)[0]
+           for m in (0.0, 5.0, 10.0, 20.0)]
+    assert out == [34.0] * 4
+
+
+def test_unit_far_from_burned_cells_is_not_reached():
+    bounds, arr = _grid(), _arrival_west_burned()
+    units = _units((*_cell_xy(5, 8), 10.0), (_cell_xy(5, 5)[0] + 2.0, _cell_xy(5, 5)[1] + 2.0, 10.0))
+    t = building_cell_contact_times(units, arr, bounds, contact_m=10.0)
+    assert np.all(np.isinf(t))  # col 8, and col 5 (one unburned cell between)
+    assert np.all(np.isinf(building_cell_contact_times(units, np.full((10, 10), np.inf), bounds)))
+
+
+def test_no_contact_across_non_fuel_one_or_more_cells_wide():
+    # Burned cols 0-3, non-fuel road (col 4) or river (cols 4-5); houses hug the far bank
+    bounds = _grid()
+    for width in (1, 2):
+        arr = _arrival_west_burned()
+        xb = (4 + width) * CELL + 0.5  # 0.5 m from the non-fuel strip
+        units = _units((xb, _cell_xy(5, 0)[1] + 20.0, 10.0))
+        assert np.isinf(building_cell_contact_times(units, arr, bounds, contact_m=10.0)[0])
+
+
+def test_footprint_over_several_cells_uses_only_the_cells_it_touches():
+    bounds, arr = _grid(), _arrival_west_burned()
+    # 20 m house straddling cols 4 / 5 in row 5: its col 4 cell neighbours the burned col 3
+    x0, y0 = _cell_xy(5, 4)
+    units = _units((x0 + 40.0, y0 + 10.0, 20.0))
+    assert building_cell_contact_times(units, arr, bounds)[0] == 34.0
+    # L-shaped house whose bounding box covers cells (5,5), (5,6), (6,5), (6,6) but whose
+    # outline does not touch (5,6); only cell (4,7) is burned, a neighbour of (5,6) alone
+    xs, ys = _cell_xy(6, 5)  # SW corner of cell (6, 5)
+    ell = shapely.Polygon([(xs + 40, ys + 40), (xs + 60, ys + 40), (xs + 60, ys + 45),
+                           (xs + 45, ys + 45), (xs + 45, ys + 60), (xs + 40, ys + 60)])
+    lat, lng = FRAME.to_latlng(*np.asarray(ell.exterior.coords).T)
+    units = build_units([shapely.Polygon(np.column_stack([lng, lat]))], frame=FRAME)
+    one = np.full((10, 10), np.inf)
+    one[4, 7] = 12.0
+    assert np.isinf(building_cell_contact_times(units, one, bounds)[0])
+    one[4, 6] = 15.0  # neighbour of (5, 5), which the L touches
+    assert building_cell_contact_times(units, one, bounds)[0] == 15.0
+
+
+def test_unmasked_building_cell_that_burns_reaches_the_unit():
+    # Outside the masked neighbourhoods a building cell can itself burn
+    bounds = _grid()
+    arr = np.full((10, 10), np.inf)
+    arr[5, 4] = 50.0
+    x0, y0 = _cell_xy(5, 4)
+    units = _units((x0 + 20.0, y0 + 20.0, 10.0))
+    assert building_cell_contact_times(units, arr, bounds)[0] == 50.0
+
+
+def test_contact_of_a_cell_or_more_reaches_further():
+    bounds, arr = _grid(), _arrival_west_burned()
+    x0, y0 = _cell_xy(5, 5)  # col 5: one unburned cell (col 4) from the front
+    units = _units((x0 + 20.0, y0 + 20.0, 10.0))
+    assert np.isinf(building_cell_contact_times(units, arr, bounds, contact_m=49.0)[0])
+    assert building_cell_contact_times(units, arr, bounds, contact_m=50.0)[0] == 34.0
 
 
 def test_empty_wind_rejected():
