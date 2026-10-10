@@ -273,7 +273,9 @@ run input).
 ## 8. Reproduce
 
 ```bash
-# from the repo root; ~15 min, ~4.5 GB in $FUELGRID_DATA (3.1 GB is the CFS comparison layer)
+# from the repo root; ~12 min once the ~3.8 GB of downloads are cached (3.1 GB of it is the CFS
+# comparison layer); 4.0 GB in $FUELGRID_DATA. A rerun from an empty folder with cached downloads
+# reproduced every grid and validation number bit for bit (2026-10-10).
 python -m scripts.fuelgrid.run all          # fetch -> labels -> build -> validate
 PYTHONPATH=engine/src python -m scripts.fuelgrid.run firesim   # optional engine check
 ```
