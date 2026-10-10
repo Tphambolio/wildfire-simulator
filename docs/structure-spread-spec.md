@@ -220,8 +220,9 @@ the downwind direction:
 | Parameter | Default | Source / reason |
 |---|---|---|
 | f_b (combustible fraction) | 1.0 | Qin25 p.224: f_b = 1 for the Thomas Fire Hamada run [P]. Not measured for Edmonton. f_b < 1 lowers the wind term (see C9) |
-| `neighbour_cutoff_m` (largest separation that can carry spread) | **30 m** | **[H]** Hamada alone never stops spreading: τ is finite at any d (at V = 17.8 m/s, a₀ = 10 m, d = 100 m gives τ_d ≈ 4.3 min). The published level-set coupling limits a burning cell's influence to its 8 neighbours (FSJ104651 p.17, at 30 m cells). 30 m: IJWF24 Fig. 7a (no spread beyond 30 m separation for 10 m buildings without embers; model output) and NRC21 p.27 ("a 30 m distance is often used as the limit for significant radiative heating"). **Owner question** (most Edmonton front-to-front distances across a local street are about 30-40 m) |
-| `wildland_contact_m` | 10 m | §3 [H] |
+| `neighbour_cutoff_m` (largest separation that can carry spread) | **30 m** | **[H]** Hamada alone never stops spreading: τ is finite at any d (at V = 17.8 m/s, a₀ = 10 m, d = 100 m gives τ_d ≈ 4.3 min). The published level-set coupling limits a burning cell's influence to its 8 neighbours (FSJ104651 p.17, at 30 m cells). 30 m: IJWF24 Fig. 7a (no spread beyond 30 m separation for 10 m buildings without embers; model output) and NRC21 p.27 ("a 30 m distance is often used as the limit for significant radiative heating"). **Confirmed 2026-10-09** under the owner's delegation (decision D2, `docs/PROJECT_RECORD.md` §3 [R6]). Most Edmonton front-to-front distances across a local street are about 30-40 m, so the cutoff decides whether a street stops spread. Sensitivity on Edmonton footprints [R7]: involved buildings at 6 h −48 % to 0 % at 20 m, +5 % to +220 % at 45 m |
+| `wildland_contact_m` | 10 m | §3 [H]. **Confirmed 2026-10-09** (D2). Sensitivity [R7]: −71 % to 0 % at 5 m, +1 % to +557 % at 20 m. On the 50 m engine grid with the all-touched building mask the test depends on where a footprint sits inside its masked cell; a change to how the distance is measured is an open item |
+| footprints | all (garages and sheds included) | **Decision D4** (2026-10-09). Dropping footprints < 40 m² [H] changes involved buildings by −8 % to 0 % [R7] |
 | wind | 10 m open wind of the period in force, km/h ÷ 3.6 | §3 [H] |
 
 ### 4.5 Check values (from the equations above; used as unit tests)
@@ -299,7 +300,7 @@ model.
 
 | # | Conflict | Values and sources | FireSim choice | Reason |
 |---|---|---|---|---|
-| C1 | Building design-fire peak HRR per unit area | **150 kW/m²**, 5 / 1 / 60 min (PROCI24 p.3); **400 kW/m²**, 300 / 3600 / 300 s (FSJ104686 p.2; Qin25 pp.146-147); **~500 kW/m²** with a plateau of about 10,000 s (Qin25 Fig. 8.6, p.228, read off the plot; Qin says it follows "the default setup in" PROCI24, which it does not match) | **150 kW/m² default; 400 kW/m² as a named scenario. Owner decision flagged.** | 150 is the value printed in the peer-reviewed paper whose WU-E runs were compared with structure losses; PROCI24 p.6 found 700 kW/m² over-predicts (Fig. S5c) and lower peaks "preferable" because heat is lost before reaching targets; plateau length has little effect (PROCI24 p.6; IJWF24 Fig. 6b). The ~500 value is read from a plot only. The evidence does not settle 150 vs 400, so both are run and labelled |
+| C1 | Building design-fire peak HRR per unit area | **150 kW/m²**, 5 / 1 / 60 min (PROCI24 p.3); **400 kW/m²**, 300 / 3600 / 300 s (FSJ104686 p.2; Qin25 pp.146-147); **~500 kW/m²** with a plateau of about 10,000 s (Qin25 Fig. 8.6, p.228, read off the plot; Qin says it follows "the default setup in" PROCI24, which it does not match) | **150 kW/m² default; 400 kW/m² as a named scenario. Confirmed 2026-10-09 under the owner's delegation (decision D1).** | 150 is the value printed in the peer-reviewed paper whose WU-E runs were compared with structure losses; PROCI24 p.6 found 700 kW/m² over-predicts (Fig. S5c) and lower peaks "preferable" because heat is lost before reaching targets; plateau length has little effect (PROCI24 p.6; IJWF24 Fig. 6b). The ~500 value is read from a plot only. The evidence does not settle 150 vs 400, so both are run and labelled |
 | C2 | Radiant fraction χ | 0.3 (PROCI24 eq 3, p.3; Qin25 eq 2.81, p.42); 0.35 (IJWF24 eq 5) | **0.3** | Two sources incl. the peer-reviewed 2-D paper; IJWF24 is the earlier 1-D study |
 | C3 | Flame-reach formulas | Linear Jiang-style (IJWF24 eqs 3-4: a = (3/5)v + 3 + d/2, b = −(1/15)v + 3 + d/2); three-regime regression (PROCI24 SI eqs S1-S21 = Qin25 Table 2.3) | **PROCI24 SI**, behind a verification gate | Later, peer-reviewed, used for the 2-D runs compared with losses. But its intercepts are large (e.g. α₂ = 78.63 + 1.54d − 0.57s gives a downwind reach of about 120 m at v = 10 m/s, d = s = 10 m, versus 14 m from IJWF24 eq 3) and the two regimes are discontinuous at 10 m/s. Before use, stage 4 must compare the reach with IJWF24 and Hamada; if the PROCI24 reach is implausible, fall back to IJWF24 and record it |
 | C3a | PROCI24 SI duplicate intercepts | At v < 10 m/s the downwind (S5, α₂) and upwind (S9, γ₂) intercepts are identical (78.63 + 1.54d − 0.57s); Qin25 Table 2.3 repeats it | Use as printed; flag | Cannot be resolved from the published text; may be a transcription error carried into both. With α₁ > 0 > γ₁ the downwind reach still exceeds the upwind reach for v > 0 |
@@ -350,7 +351,9 @@ FireSim's plan:
    showing.
 5. **No tuning on the test fire**: any parameter changed (cutoff, f_b, design fire) is chosen on
    a different fire or stated in advance; report the sensitivity runs (cutoff 20 / 30 / 45 m;
-   150 / 400 kW/m²).
+   contact 5 / 10 / 20 m; 150 / 400 kW/m²). The cutoff, contact and footprint-size runs were
+   made on Edmonton footprints on 2026-10-09 without observed data (`scripts/structure_sensitivity.py`,
+   report [R7] in `docs/PROJECT_RECORD.md`); they must be repeated on the validation fire.
 
 ## 9. Limits
 
@@ -360,13 +363,17 @@ FireSim's plan:
   per pair, not area averages as Hamada intended (HT08 p.25).
 - Hamada has no construction, no topography (FSJ104651 p.17), no suppression, no burnout.
 - The neighbour cutoff (30 m) and the front-contact distance (10 m) are FireSim choices, not
-  published; results depend on them.
+  published (confirmed by the owner's delegation 2026-10-09, D2); results depend on them. On
+  three Edmonton sites (2026-10-09, [R7]) involved buildings at 6 h changed by −48 % to +220 %
+  over cutoffs 20-45 m and by −71 % to +557 % over contact distances 5-20 m. The contact
+  result is driven by the 50 m engine grid and its all-touched building mask.
 - Wind is the run's 10 m open wind, uniform over the run area; no street canyon or sheltering.
 - Ember ignition, the main WUI loss mechanism, is not in the Hamada stage except implicitly
   through Hamada's empirical rate; yard fuels, sheds, fences and vehicles are not modelled.
 - Microsoft footprints: detached garages and sheds may be separate footprints or missing;
   attached buildings may merge into one footprint. Accuracy of the footprints in Edmonton has
-  not been assessed.
+  not been assessed. All footprints are kept (D4); dropping those under 40 m² changed involved
+  buildings by −8 % to 0 % and left the city-wide median nearest separation at 2.6 m [R7].
 - Outputs are counts and times of **modelled involvement**. They are not predictions of which
   buildings burn and must not be used for evacuation tiers or per-building loss.
 
