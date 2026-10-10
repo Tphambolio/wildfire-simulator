@@ -72,9 +72,13 @@ export interface SimulationCreate {
   ffmc_spin_up?: boolean;
   /**
    * Opt-in structure-to-structure spread (Hamada; illustrative — not validated in Canada).
-   * Grid runs with building footprints. API default: off. Not used by the UI yet.
+   * Grid runs with building footprints. API default: off.
    */
   structure_spread?: boolean;
+  /** With structure_spread: also ember ignition of buildings (spec §6). API default: off */
+  structure_embers?: boolean;
+  /** Design fire for the ember stage, kW/m² (150 default, 400 scenario) */
+  structure_design_fire_kw_m2?: 150 | 400;
 }
 
 /**
@@ -137,6 +141,13 @@ export interface StructureSpreadSummary {
   units_front_contact: number | null; // reached by the wildland front (next to the building's grid cells)
   units_structure_to_structure: number | null; // reached building to building (Hamada)
   units_involved: number | null;
+  /** Ember stage (request structure_embers); absent when off */
+  embers?: boolean;
+  units_ember?: number; // ignited by embers (from buildings or the wildland front)
+  units_ember_from_wildland?: number; // of which the main ember source was the wildland front
+  design_fire_kw_m2?: number;
+  ember_generation_pcs_per_mw_s?: number;
+  embers_from_wildland?: boolean;
   combustible_fraction: number;
   neighbour_cutoff_m: number;
   wildland_contact_m: number;
@@ -152,8 +163,8 @@ export interface StructureSpreadSummary {
 export interface StructureUnitDetail {
   id: number; // involvement order
   t_h: number; // hours from the start
-  mechanism: "front" | "b2b"; // wildland front contact / building to building
-  source_id: number | null; // b2b: id of the unit that passed the fire on
+  mechanism: "front" | "b2b" | "ember"; // wildland front contact / building to building / embers
+  source_id: number | null; // b2b or ember: id of the unit that passed the fire on (null: wildland embers)
   polygon: number[][][]; // footprint ring(s), [lng, lat]
 }
 

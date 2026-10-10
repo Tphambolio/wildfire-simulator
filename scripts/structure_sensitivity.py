@@ -17,7 +17,12 @@ reused for every structure-spread variant, so only the structure layer changes:
   2026-10-09, spec §3) vs the first rule, nearest burned cell edge within the contact distance
   of the footprint (``default_old_rule``, kept to compare with report R7);
 - footprint filter: none vs drop footprints under 40 m^2 (a FireSim [H] size, roughly a
-  single-car garage or small shed; sensitivity only, not a default).
+  single-car garage or small shed; sensitivity only, not a default);
+- ember ignition (``--embers``, 2026-10-10, spec §6): Hamada + embers with the specified
+  values (150 kW/m² design fire, GR' 10, embers from the burning grid cells too), and one at a
+  time GR' 5.68, 400 kW/m², cutoff 20 / 45 m, structures-only embers (no wildland source).
+  The default ember variant is also checked against ``structure_spread_for_grid_run`` (the
+  engine's reachable-box build).
 
 Structure units are built from every footprint in the fuel grid's box, as the API does
 (``BuildingIndex.building_geoms_in_bbox``). The default variant is checked against the counts
@@ -55,13 +60,17 @@ from firesim.data.fuel_loader import load_fuel_grid  # noqa: E402
 from firesim.fbp.constants import FuelType  # noqa: E402
 from firesim.fwi.calculator import FWICalculator  # noqa: E402
 from firesim.spread.simulator import Simulator  # noqa: E402
+from firesim.structures.embers import EmberOptions, WildlandSources  # noqa: E402
 from firesim.structures.spread import (  # noqa: E402
+    SOURCE_EMBER,
     SOURCE_FRONT,
     SOURCE_STRUCTURE,
     WindPeriod,
     building_cell_contact_times,
     footprint_contact_times,
     hamada_spread,
+    spread_with_embers,
+    structure_spread_for_grid_run,
 )
 from firesim.structures.units import LocalFrame, build_units  # noqa: E402
 from firesim.types import SimulationConfig, WeatherInput  # noqa: E402
@@ -128,6 +137,16 @@ VARIANTS = [
     ("default_old_rule", 30.0, 10.0, 0.0, "footprint"),
 ]
 CONTACT_BANDS_M = (0.0, 5.0, 10.0, 20.0, 30.0, 50.0)
+# Ember variants (--embers): name, cutoff, design fire, GR', embers from the grid cells
+EMBER_VARIANTS = [
+    ("embers", 30.0, 150, 10.0, True),
+    ("embers_gr5.68", 30.0, 150, 5.68, True),
+    ("embers_400", 30.0, 400, 10.0, True),
+    ("embers_cutoff_20", 20.0, 150, 10.0, True),
+    ("embers_cutoff_45", 45.0, 150, 10.0, True),
+    ("embers_structures_only", 30.0, 150, 10.0, False),
+    ("embers_400_structures_only", 30.0, 400, 10.0, False),
+]
 
 
 class _CapturingSimulator(Simulator):
@@ -215,12 +234,24 @@ def run_metrics(units, res, ign_xy, cells_xy, duration_min) -> dict:
             "hour": h,
             "front": int(np.sum(by & (src == SOURCE_FRONT))),
             "structure": int(np.sum(by & (src == SOURCE_STRUCTURE))),
+            "ember": int(np.sum(by & (src == SOURCE_EMBER))),
             "total": int(np.sum(by)),
         })
     inv = np.isfinite(t)
     out = {"hourly": hourly, "involved": int(inv.sum()),
            "front": int(np.sum(inv & (src == SOURCE_FRONT))),
-           "structure": int(np.sum(inv & (src == SOURCE_STRUCTURE)))}
+           "structure": int(np.sum(inv & (src == SOURCE_STRUCTURE))),
+           "ember": int(np.sum(inv & (src == SOURCE_EMBER)))}
+    wild = getattr(res, "ember_from_wildland", None)
+    if wild is not None:
+        out["ember_from_wildland"] = int(np.sum(inv & (src == SOURCE_EMBER) & wild))
+        em_u = inv & (src == SOURCE_EMBER)
+        if em_u.any() and len(cells_xy):
+            from scipy.spatial import cKDTree as _T
+
+            dist, _ = _T(cells_xy).query(np.column_stack([units.x[em_u], units.y[em_u]]))
+            out["ember_beyond_burned_cells_m"] = {"median": round(float(np.median(dist)), 0),
+                                                  "max": round(float(dist.max()), 0)}
     if inv.any():
         d_ign = np.hypot(units.x[inv] - ign_xy[0], units.y[inv] - ign_xy[1])
         out["max_dist_from_ignition_m"] = round(float(d_ign.max()), 0)
@@ -243,6 +274,7 @@ def main() -> int:
                     default=Path.home() / "dev/wildfire/reports/data/structure-sensitivity-2026-10-09")
     ap.add_argument("--sites", nargs="*", default=list(SITES))
     ap.add_argument("--weather", nargs="*", default=list(WEATHER))
+    ap.add_argument("--embers", action="store_true", help="add the ember-ignition variants")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     timings: dict = {}
@@ -269,7 +301,8 @@ def main() -> int:
 
     # Units per (cutoff, filter): built once, reused by every site and weather day
     units_by_key: dict = {}
-    for _, cutoff, _, min_area, _ in VARIANTS:
+    for _, cutoff, _, min_area, _ in VARIANTS + [(n, c, 10.0, 0.0, "cells")
+                                                 for n, c, *_ in (EMBER_VARIANTS if args.embers else [])]:
         key = (cutoff, min_area)
         if key in units_by_key:
             continue
@@ -400,6 +433,40 @@ def main() -> int:
                             "max": round(float(gap.max()), 1),
                             "share_over_10m": round(float(np.mean(gap > 10.0)), 3)}
                 run["variants"][name] = m
+            for name, cutoff, dfire, gr, wild in (EMBER_VARIANTS if args.embers else []):
+                u = units_by_key[(cutoff, 0.0)]
+                t2 = time.time()
+                if em is None or len(em.x) == 0:
+                    run["variants"][name] = {"involved": 0}
+                    continue
+                opts = EmberOptions(design_fire_kw_m2=dfire, gr_structure=gr, from_wildland=wild)
+                t_front = building_cell_contact_times(u, arrival, bbox, DEFAULT_CONTACT_M)
+                res = spread_with_embers(u, t_front, wind, duration_min=duration_min, embers=opts,
+                                         wildland=WildlandSources.from_emitters(em, u.frame))
+                lat = em.lat0 + np.asarray(em.y) / em.m_per_deg_lat
+                lng = em.lng0 + np.asarray(em.x) / em.m_per_deg_lng
+                cx, cy = u.frame.to_local(lat, lng)
+                lx, ly = u.frame.to_local(s["lat"], s["lng"])
+                m = run_metrics(u, res, (float(lx), float(ly)), np.column_stack([cx, cy]),
+                                duration_min)
+                m["runtime_s"] = round(time.time() - t2, 2)
+                if name == "embers":
+                    # The engine's reachable-box build must give the same counts
+                    t3 = time.time()
+                    eng = structure_spread_for_grid_run(
+                        footprints, arrival, sim._schedule, duration_min, bbox=bbox,
+                        embers=opts, emitters=em)
+                    c_eng = eng.counts_at(duration_min)
+                    m["engine_reachable_build"] = {
+                        k: c_eng.get(k) for k in ("units_built", "units_involved",
+                                                  "units_front_contact",
+                                                  "units_structure_to_structure", "units_ember",
+                                                  "units_ember_from_wildland")}
+                    m["engine_reachable_build"]["runtime_s"] = round(time.time() - t3, 1)
+                    m["engine_matches_whole_city"] = (
+                        c_eng.get("units_involved") == m["involved"]
+                        and c_eng.get("units_ember") == m["ember"])
+                run["variants"][name] = m
             if em is not None and len(em.x):
                 # How many units lie within each distance of a burned cell (end of run): shows
                 # how the contact distance interacts with the grid and the building mask
@@ -461,7 +528,7 @@ def tables(r: dict) -> str:
             lines += ["", f"### {wname}: FBP area {run['fbp_area_ha']} ha at {DURATION_H:g} h, "
                           f"max HFI {run['max_hfi_kw_m']:,.0f} kW/m; default matches engine: "
                           f"{run['default_matches_engine']}", "",
-                      "| Variant | Involved h1 / h2 / h3 / h4 / h5 / h6 | Front / bldg-to-bldg at 6 h | "
+                      "| Variant | Involved h1 / h2 / h3 / h4 / h5 / h6 | Front / bldg-to-bldg / ember at 6 h | "
                       "vs default | Max dist. from ignition (m) | Hull (ha) | Bldg-to-bldg beyond "
                       "burned cells, median / max (m) | Units in front-touched components | "
                       "Spread time (s) |",
@@ -470,11 +537,18 @@ def tables(r: dict) -> str:
                 hrs = " / ".join(str(h["total"]) for h in v.get("hourly", []))
                 b = v.get("s2s_beyond_burned_cells_m") or {}
                 lines.append(
-                    f"| {name} | {hrs} | {v.get('front', 0)} / {v.get('structure', 0)} | "
+                    f"| {name} | {hrs} | {v.get('front', 0)} / {v.get('structure', 0)} / {v.get('ember', 0)} | "
                     f"{_rel(v.get('involved'), d.get('involved')) if name != 'default' else '—'} | "
                     f"{v.get('max_dist_from_ignition_m', '—')} | {v.get('hull_area_ha', '—')} | "
                     f"{b.get('median', '—')} / {b.get('max', '—')} | "
                     f"{v.get('units_in_front_touched_components', '—')} | {v.get('runtime_s', '—')} |")
+            ev = run["variants"].get("embers")
+            if ev:
+                lines += ["", f"Embers (default ember variant): {ev.get('ember', 0)} ember-ignited "
+                              f"({ev.get('ember_from_wildland', 0)} from the wildland front), beyond "
+                              f"the burned cells {ev.get('ember_beyond_burned_cells_m')}; engine "
+                              f"reachable build {ev.get('engine_reachable_build')}, matches the "
+                              f"whole-city run: {ev.get('engine_matches_whole_city')}"]
             bands = run.get("units_within_m_of_burned_cells")
             if bands:
                 lines += ["", f"Units within X m of a burned cell by {DURATION_H:g} h (cell "

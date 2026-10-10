@@ -101,6 +101,9 @@ export const TIPS = {
   structureOption:
     "Fire passing from building to building (Hamada model), from the buildings the modelled front " +
     "reaches. Illustrative, not validated in Canada. Needs the Edmonton grid and buildings.",
+  structureEmbers:
+    "Buildings also ignited by short-range embers from burning buildings and the front (published " +
+    "Californian firebrand model, 150 kW/m² design fire). Illustrative. Needs house-to-house spread.",
   wui:
     "425 park-buffer zones with spread ×0.7, intensity ×1.2 and embers ×3.0. These values have no " +
     "documented source; leave off unless testing.",

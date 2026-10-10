@@ -16,7 +16,7 @@ import { isochronesToGeoJSON, isochroneLabelsGeoJSON } from "../utils/isochrones
 import { PROB_STOPS, probCss, ringsFeature, type EnsembleMapLayers } from "../utils/ensemble";
 import { ASSET_CATEGORIES, CATEGORY_ORDER, type AssetCategory } from "../utils/assets";
 import { symbolImage } from "../utils/assetSymbols";
-import { MECHANISM_LABEL, STRUCT_B2B, STRUCT_FRONT, describeUnit } from "../utils/structureSpread";
+import { MECHANISM_LABEL, STRUCT_B2B, STRUCT_EMBER, STRUCT_FRONT, describeUnit } from "../utils/structureSpread";
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
 import { BADGES, TIPS } from "../content/explanations";
@@ -880,7 +880,7 @@ export default function MapView({
     if (m.getSource("struct-units")) m.removeSource("struct-units");
     m.addSource("struct-units", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     const structColor: maplibregl.ExpressionSpecification = [
-      "match", ["get", "mechanism"], "front", STRUCT_FRONT, STRUCT_B2B,
+      "match", ["get", "mechanism"], "front", STRUCT_FRONT, "ember", STRUCT_EMBER, STRUCT_B2B,
     ];
     m.addLayer({
       id: "struct-units-fill",
@@ -905,7 +905,7 @@ export default function MapView({
       const { label, clock } = structPopupRef.current;
       const title = document.createElement("strong");
       title.className = "map-popup-title";
-      title.textContent = MECHANISM_LABEL[p.mechanism as "front" | "b2b"] ?? String(p.mechanism);
+      title.textContent = MECHANISM_LABEL[p.mechanism as "front" | "b2b" | "ember"] ?? String(p.mechanism);
       el.appendChild(title);
       const d = document.createElement("div");
       d.className = "map-popup-muted";
@@ -2186,6 +2186,12 @@ export default function MapView({
               <div className="burn-prob-legend-swatch" style={{ background: STRUCT_B2B }} />
               <span>Building to building</span>
             </div>
+            {structureUnits.features.some((f) => f.properties?.mechanism === "ember") && (
+              <div className="burn-prob-legend-row">
+                <div className="burn-prob-legend-swatch" style={{ background: STRUCT_EMBER }} />
+                <span>Ember ignition</span>
+              </div>
+            )}
           </div>
         </div>
       )}

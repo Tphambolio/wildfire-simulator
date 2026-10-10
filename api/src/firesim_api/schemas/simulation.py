@@ -320,7 +320,31 @@ class SimulationCreate(BaseModel):
             "prediction of which buildings burn."
         ),
     )
+    structure_embers: bool = Field(
+        default=False,
+        description=(
+            "Opt-in, illustrative — not validated in Canada; needs `structure_spread`. Adds "
+            "ember ignition of buildings: each involved building burns a design fire and "
+            "emits embers (Himoto lognormal transport), burning grid cells emit embers "
+            "(Sardoy), embers are pooled per building and ignite it past the ψ criterion of "
+            "Qin et al. (2026) (docs/structure-spread-spec.md §6). Counts gain `units_ember`; "
+            "detail mechanism `ember`. Deterministic (expected-value pooling)."
+        ),
+    )
+    structure_design_fire_kw_m2: Literal[150, 400] = Field(
+        default=150,
+        description=(
+            "Building design fire for the ember stage, peak heat release per footprint area "
+            "(kW/m²): 150 (default; 5/1/60 min, Purnomo et al. 2024) or 400 (scenario; "
+            "300/3600/300 s, Qin et al. 2026)."
+        ),
+    )
 
+    @model_validator(mode="after")
+    def _embers_need_structure_spread(self):
+        if self.structure_embers and not self.structure_spread:
+            raise ValueError("structure_embers needs structure_spread: true")
+        return self
 
     @field_validator("start_time")
     @classmethod

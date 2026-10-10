@@ -7,6 +7,7 @@ import { frame, square } from "../test/frames";
 import type { StructureSpreadSummary, StructureUnitDetail } from "../types/simulation";
 import {
   STRUCT_B2B,
+  STRUCT_EMBER,
   STRUCT_FRONT,
   describeUnit,
   structureCaveat,
@@ -44,9 +45,9 @@ describe("structureSpread utils", () => {
       structure_spread: summary(0, 0, { computed: false, units_involved: null, units_front_contact: null, units_structure_to_structure: null }),
     });
     expect(structureSeries([...FRAMES, skipped])).toEqual([
-      { t: 1, front: 1, b2b: 0 },
-      { t: 2, front: 1, b2b: 2 },
-      { t: 3, front: 3, b2b: 9 },
+      { t: 1, front: 1, b2b: 0, ember: 0 },
+      { t: 2, front: 1, b2b: 2, ember: 0 },
+      { t: 3, front: 3, b2b: 9, ember: 0 },
     ]);
   });
 
@@ -76,6 +77,17 @@ describe("structureSpread utils", () => {
     const css = readFileSync("src/styles/tokens.css", "utf8");
     expect(css).toContain(`--struct-front: ${STRUCT_FRONT};`);
     expect(css).toContain(`--struct-b2b: ${STRUCT_B2B};`);
+    expect(css).toContain(`--struct-ember: ${STRUCT_EMBER};`);
+  });
+
+  it("carries ember counts and describes ember units", () => {
+    const f = frame(1, square(0.01), { structure_spread: summary(2, 3, { embers: true, units_ember: 4, units_involved: 9 }) });
+    expect(structureSeries([f])).toEqual([{ t: 1, front: 2, b2b: 3, ember: 4 }]);
+    expect(describeUnit(2, "ember")).toBe("Ember ignition · involved at +2 h 00 min");
+    const c = structureCaveat(LABEL, 30, 50, 150);
+    expect(c).toContain("Ember ignition");
+    expect(c).toContain("150 kW/m²");
+    expect(structureCaveat(LABEL, 30)).not.toContain("Ember");
   });
 });
 
@@ -113,6 +125,28 @@ describe("StructureSpreadPanel", () => {
     expect(x2).toBeGreaterThan(x0);
     fireEvent.click(screen.getByLabelText("Show on map"));
     expect(onMap).toHaveBeenCalledWith(true);
+  });
+
+  it("adds an ember row and a third chart colour when the run had embers", () => {
+    const frames = [
+      frame(1, square(0.01), { structure_spread: summary(1, 0, { embers: true, units_ember: 0, design_fire_kw_m2: 150 }) }),
+      frame(2, square(0.01), {
+        structure_spread: summary(2, 3, { embers: true, units_ember: 4, units_involved: 9, design_fire_kw_m2: 150 }),
+      }),
+    ];
+    render(<StructureSpreadPanel frames={frames} frameIndex={1} mapVisible onMapVisible={() => {}} mapAvailable />);
+    const row = (label: string) => screen.getByText(label).closest(".metric-row")!;
+    expect(row("Ember ignition")).toHaveTextContent("4");
+    expect(row("Buildings involved")).toHaveTextContent("9");
+    const chart = screen.getByTestId("structure-chart");
+    expect(chart).toHaveAttribute("aria-label", expect.stringContaining("9 by 2.0 h (2 front contact, 3 building to building, 4 ember ignition)"));
+    expect(chart.querySelectorAll(`rect[fill="${STRUCT_EMBER}"]`)).toHaveLength(1);
+    expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("150 kW/m² design fire");
+  });
+
+  it("has no ember row without embers", () => {
+    render(<StructureSpreadPanel frames={FRAMES} frameIndex={2} mapVisible onMapVisible={() => {}} mapAvailable />);
+    expect(screen.queryByText("Ember ignition")).not.toBeInTheDocument();
   });
 
   it("says why there are no counts when the guard stopped the build", () => {

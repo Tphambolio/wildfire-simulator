@@ -986,7 +986,7 @@ export default function App() {
             structureUnits={structureUnits}
             structureVisible={structureVisible}
             structureLabel={structureSummary?.label}
-            structureCaveat={structureSummary ? structureCaveat(structureSummary.label, structureSummary.neighbour_cutoff_m) : ""}
+            structureCaveat={structureSummary ? structureCaveat(structureSummary.label, structureSummary.neighbour_cutoff_m, 50, structureSummary.embers ? structureSummary.design_fire_kw_m2 : undefined) : ""}
             structureClock={scenarioStart ? structureClock : undefined}
           />
         </MapErrorBoundary>
