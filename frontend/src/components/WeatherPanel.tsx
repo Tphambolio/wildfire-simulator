@@ -19,6 +19,18 @@ import {
   validateBurningHours,
 } from "../utils/skillOptions";
 import type { BurningPeriod } from "../types/simulation";
+import { SPRING_WINDOW_LABEL, curingFactor, defaultGrassCure } from "../utils/curing";
+
+/** Last curing the user entered (a suggestion outside the spring window; per browser). */
+const LAST_CURE_KEY = "firesim.lastGrassCure";
+function readLastCure(): number | null {
+  try {
+    const v = localStorage.getItem(LAST_CURE_KEY);
+    return v === null || !Number.isFinite(Number(v)) ? null : Number(v);
+  } catch {
+    return null;
+  }
+}
 
 /** Setup's skill options as they apply to a restart from an observed perimeter */
 export interface SkillOptionsState {
@@ -97,7 +109,8 @@ interface Preset {
   note: string;
   weather: WeatherParams;
   fwi: FWIOverrides;
-  grassCure: number;
+  /** null = the date-aware default (95 % from 1 Mar to 29 May, none outside) */
+  grassCure: number | null;
   percentConifer: number;
   durationHours: number;
   snapshotMinutes: number;
@@ -132,7 +145,7 @@ const PRESETS: Preset[] = [
     note: "The values FireSim opens with.",
     weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
     fwi: { ffmc: 90, dmc: 45, dc: 300 },
-    grassCure: 60,
+    grassCure: null,
     percentConifer: 50,
     durationHours: 4,
     snapshotMinutes: 30,
@@ -278,7 +291,9 @@ function WeatherPanel({
     dc: 300,
   });
   const [fuelType, setFuelType] = useState("C2");
-  const [grassCure, setGrassCure] = useState(60);
+  // Grass curing as entered (null = not entered: the date-aware default applies, decision M1)
+  const [grassCure, setGrassCure] = useState<number | null>(null);
+  const [lastCure, setLastCure] = useState<number | null>(readLastCure);
   const [percentConifer, setPercentConifer] = useState(50);
   const [useHourlyForecast, setUseHourlyForecast] = useState(false);
   const [useEdmontonGrid, setUseEdmontonGrid] = useState(true);
@@ -477,17 +492,46 @@ function WeatherPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Grass curing: the entry, else 95 % before green-up (1 Mar-29 May), else required when
+  // grass can burn (decision M1; utils/curing.ts, engine firesim/fbp/curing.py)
+  const cureDefault = defaultGrassCure(startMs !== null ? edmontonDayOfYear(startMs) : null);
+  const cure = grassCure ?? cureDefault;
+  const grassInPlay = useEdmontonGrid || useSyntheticCA || fuelType === "O1a" || fuelType === "O1b";
+  const curingRequired = grassInPlay && cureDefault === null;
+  const curingError = grassInPlay && cure === null
+    ? `Enter grass curing (no default outside ${SPRING_WINDOW_LABEL})`
+    : null;
+  const setCure = (raw: string) => {
+    if (raw.trim() === "") {
+      setGrassCure(null);
+      return;
+    }
+    const v = Math.min(100, Math.max(0, Number(raw)));
+    if (!Number.isFinite(v)) return;
+    setGrassCure(v);
+    setLastCure(v);
+    try {
+      localStorage.setItem(LAST_CURE_KEY, String(v));
+    } catch {
+      // storage unavailable: the suggestion is a convenience only
+    }
+  };
+
   // FBP fuel modifiers; foliar moisture is computed server-side from the scenario start's
   // Edmonton calendar date (ST-X-3 eqs 1-8)
-  const fuelModifiers = (atMs: number): FuelModifiers => ({
-    grass_cure: grassCure,
-    percent_conifer: percentConifer,
-    day_of_year: edmontonDayOfYear(atMs),
-  });
+  const fuelModifiers = (atMs: number): FuelModifiers => {
+    const doy = edmontonDayOfYear(atMs);
+    const c = grassCure ?? defaultGrassCure(doy);
+    return {
+      ...(c !== null ? { grass_cure: c } : {}),
+      percent_conifer: percentConifer,
+      day_of_year: doy,
+    };
+  };
 
   const handleMonteCarlo = () => {
     const atMs = runStartMs();
-    if (!ignitionPoint || !onComputeBurnProbability || hasErrors || atMs === null) return;
+    if (!ignitionPoint || !onComputeBurnProbability || hasErrors || curingError || atMs === null) return;
     onRunParams?.({
       weather,
       fwi,
@@ -516,7 +560,7 @@ function WeatherPanel({
 
   const handleSubmit = async () => {
     const atMs = runStartMs();
-    if (!ignitionPoint || hasErrors || atMs === null) return;
+    if (!ignitionPoint || hasErrors || curingError || atMs === null) return;
     let hourly = null;
     const spinWanted = spinUpOn && useHourlyForecast;
     if (useHourlyForecast) {
@@ -580,7 +624,7 @@ function WeatherPanel({
 
   const handleMultiDaySubmit = () => {
     const atMs = runStartMs();
-    if (!ignitionPoint || !onStartMultiDaySimulation || atMs === null) return;
+    if (!ignitionPoint || !onStartMultiDaySimulation || curingError || atMs === null) return;
     onStartMultiDaySimulation({
       ignition_lat: ignitionPoint.lat,
       ignition_lng: ignitionPoint.lng,
@@ -683,6 +727,8 @@ function WeatherPanel({
       ? "Set an ignition point: click the map or enter coordinates."
       : startError
         ? `Fix the start time: ${startError}`
+        : curingError
+          ? curingError
         : simMode === "single" && hasErrors
           ? `Fix the inputs: ${errorList.join("; ")}`
           : burningError
@@ -1087,9 +1133,10 @@ function WeatherPanel({
         title="Fuel & landscape"
         summary={
           useEdmontonGrid
-            ? `Edmonton grid (FBP 10 m) · curing ${grassCure}%${enableSpotting ? " · spotting on" : ""}`
-            : `${fuelType} uniform${useSyntheticCA ? " · synthetic mosaic" : ""} · curing ${grassCure}%`
+            ? `Edmonton grid (FBP 10 m) · curing ${cure !== null ? `${cure}%` : "required"}${enableSpotting ? " · spotting on" : ""}`
+            : `${fuelType} uniform${useSyntheticCA ? " · synthetic mosaic" : ""} · curing ${cure !== null ? `${cure}%` : "required"}`
         }
+        attention={curingError !== null}
       >
         <label>
           <input
@@ -1103,15 +1150,22 @@ function WeatherPanel({
           Use Edmonton Fuel Grid (FBP 10m)
         </label>
         <label>
-          Grass curing (%)
+          Grass curing (%){curingRequired ? " · required" : grassCure === null && cureDefault !== null ? " · spring default" : ""}
           <input
             type="number"
             min={0}
             max={100}
             step={5}
-            value={grassCure}
-            onChange={(e) => setGrassCure(Math.min(100, Math.max(0, Number(e.target.value))))}
-            title="Degree of curing for O-1a/O-1b grass (Wotton et al. 2009). 100 = fully cured."
+            value={cure ?? ""}
+            placeholder={lastCure !== null ? `last ${lastCure}` : undefined}
+            required={curingRequired}
+            aria-invalid={curingError !== null}
+            onChange={(e) => setCure(e.target.value)}
+            title={
+              `Degree of curing for O-1a/O-1b grass; 100 = fully cured. Curing factor ${cure !== null ? curingFactor(cure).toFixed(2) : "–"} ` +
+              `(Wotton et al. 2009, eq 35b). Default 95 % from ${SPRING_WINDOW_LABEL}, before green-up; ` +
+              `outside that window enter the observed value.`
+            }
           />
         </label>
         <label>
@@ -1433,10 +1487,10 @@ function WeatherPanel({
           <button
             className="btn-secondary"
             onClick={handleMonteCarlo}
-            disabled={!ignitionPoint || burnProbRunning || isRunning || (!useEdmontonGrid && !useSyntheticCA) || hasErrors}
+            disabled={!ignitionPoint || burnProbRunning || isRunning || (!useEdmontonGrid && !useSyntheticCA) || hasErrors || curingError !== null}
             title={
-              hasErrors
-                ? "Fix validation errors before running"
+              hasErrors || curingError
+                ? curingError ?? "Fix validation errors before running"
                 : !useEdmontonGrid && !useSyntheticCA
                   ? "Enable Edmonton Grid or Synthetic CA to run Monte Carlo"
                   : "Apply weather conditions & run Monte Carlo burn probability"

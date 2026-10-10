@@ -189,7 +189,7 @@ def calculate_fwi_multi_day(request: FWIMultiDayRequest) -> FWIMultiDayResponse:
     Typical use: paste a week of station readings from a fire weather station
     to compute the drought code buildup trajectory.
 
-    Source: Van Wagner & Pickett (1985) PS-X-58.
+    Source: Van Wagner & Pickett (1985), Forestry Technical Report 33.
     """
     ffmc_prev = request.ffmc_start
     dmc_prev = request.dmc_start
