@@ -7,7 +7,10 @@ the shape and orientation of fire spread wavelets.
 References:
     - Forestry Canada Fire Danger Group (1992). ST-X-3, eqs 79-89.
     - Wotton, B.M. et al. (2009). GLC-X-10 (grass LB, ROS at theta).
-    - Anderson, K. et al. (2009). Prometheus fire growth model.
+    - Unverified: an "Anderson, K. et al. (2009) Prometheus fire growth model" reference was
+      listed here; no such publication was identified. Prometheus is documented by Tymstra et
+      al. (2010), Information Report NOR-X-417 (not checked against this module). The
+      equations here are those of ST-X-3 and GLC-X-10.
 """
 
 from __future__ import annotations

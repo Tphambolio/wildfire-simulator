@@ -2,7 +2,7 @@
 
 Reference values: Van Wagner, C.E. & Pickett, T.L. (1985).
 Equations and FORTRAN program for the Canadian Forest Fire Weather Index System.
-Canadian Forestry Service, Petawawa National Forestry Institute. Info. Rep. PS-X-58.
+Canadian Forestry Service, Forestry Technical Report 33.
 
 The Day-1 test case in the original paper uses spring startup defaults
 (ffmc_prev=85, dmc_prev=6, dc_prev=15) with standard summer noon observations.

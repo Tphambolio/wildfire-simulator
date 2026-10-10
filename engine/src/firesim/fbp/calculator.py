@@ -497,11 +497,13 @@ def _calculate_flame_length(hfi: float, cfb: float = 0.0) -> float:
     """Flame length (m) from head fire intensity (kW/m).
 
     Surface fires (CFB < 0.1): Byram (1959), L = 0.0775 I^0.46.
-    Crowning fires (CFB >= 0.1): Thomas (1963), L = 0.0266 I^(2/3), the relation recommended
-    for crown fires in Alexander & Cruz (2012, Int. J. Wildland Fire 21: 95-113); Byram's
-    surface-fire fit gives about a third of the flame length at crown-fire intensities.
-    Both are taken from that review and not re-checked against the 1959/1963 originals.
-    FBP itself has no flame length output.
+    Crowning fires (CFB >= 0.1): Thomas (1963), L = 0.0266 I^(2/3). Using Thomas' relation for
+    crown fires was suggested by Rothermel (1991), as reported by Alexander & Cruz (2012, Int. J.
+    Wildland Fire 21: 95-113, p.99), who add that "none of these methods, however, seem to work
+    consistently well" against experimental crown fires: crown flame length is approximate.
+    Byram's surface-fire fit (their Table 1, p.98) gives about a third of the flame length at
+    crown-fire intensities. Both forms are taken from that review and not re-checked against
+    the 1959/1963 originals. FBP itself has no flame length output.
     """
     if hfi <= 0.0:
         return 0.0

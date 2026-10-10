@@ -10,7 +10,8 @@ the Canadian Fire Spread Dataset on rasterised burned areas:
 - Hausdorff distance: the largest distance from a point of one area to the nearest point of
   the other, in metres.
 
-plus head-fire bearing and forward-spread error (Fox-Hughes et al. 2024, IJWF WF23028) and the
+plus head-fire bearing and forward-spread error (Fox-Hughes et al. 2024, "An evaluation of wildland fire simulators used operationally in
+Australia", IJWF 33(4), WF23028) and the
 +/-35 % rate-of-spread band of Cruz & Alexander (2013, Env. Modelling & Software 47:16-28).
 
 Raster metrics take boolean masks on the same grid with cell size ``dx`` (east-west) by ``dy``
