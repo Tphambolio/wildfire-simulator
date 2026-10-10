@@ -182,7 +182,14 @@ When complete: grid bounds, `arrival` with `p10` / `p50` / `p90` rasters (base64
 int16 minutes, -1 = fewer than that share of members reached the cell; P10 = the time by
 which 1 in 10 members reached the cell, the early end of the modelled range),
 `burn_probability` (base64 uint8 percent), member area range and each member's
-perturbations.
+perturbations (`members`, each with its index `member` and `area_ha`).
+
+Failed members: a member whose run raises is left out and listed in `failed`
+(`[{"member": 3, "error": "IndexError: ..."}]`); `members_ok` and `members_failed` count them,
+and the percentiles, burn probability and area range are over the `members_ok` members that
+finished. Members that burned nothing (their ignition cell cannot carry fire under their
+perturbed weather) are finished members with `area_ha` 0 and count in every statistic. The
+ensemble is `"status": "failed"` (with `error`) only when fewer than half the members finish.
 
 Default perturbations (`EnsembleParams`; calibrated on observed Alberta fires, see
 `docs/validation.md` "Ensemble calibration" for sources and held-out scores): `wind_dir_sd_deg`
