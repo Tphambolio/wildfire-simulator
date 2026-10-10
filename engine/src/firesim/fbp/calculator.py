@@ -28,8 +28,10 @@ from firesim.fbp.crown_fire import (
 )
 from firesim.types import FBPResult
 
-# FFMC -> moisture coefficient, ST-X-3 eq 46. cffdrs uses the exact value
-# 250 * 59.5 / 101 = 147.27723; the difference moves ISI by at most 1e-3.
+# FFMC -> moisture coefficient, ST-X-3 eq 46 (same as firesim.fwi.calculator.FFMC_COEFFICIENT).
+# cffdrs uses the exact value 250 * 59.5 / 101 = 147.27723; for a given FFMC the difference moves
+# ISI by at most 0.1 % (relative). In the daily FWI chain it also shifts the FFMC itself (up to
+# 0.12 FFMC, 0.67 ISI, 0.52 FWI; see the FWI calculator).
 FFMC_COEF = 147.2
 
 # Low heat of combustion 18,000 kJ/kg over 60 s/min (ST-X-3 eq 69: HFI = 300 * TFC * ROS)

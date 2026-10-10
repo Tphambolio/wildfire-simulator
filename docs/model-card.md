@@ -121,8 +121,11 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   represented (no spread outside it), and a run started at night shows no growth until it
   opens. Turn it off in Run options to model an overnight run.
 - No suppression is modelled.
-- Weather: constant or hourly; DMC and DC fixed within a run; forecast quality is
-  Open-Meteo's. Wind direction is the dominant source of error in fire growth models.
+- Weather: constant or hourly; DMC and DC fixed within a run; the hourly forecast is
+  Open-Meteo GEM (`gem_seamless`, pinned 2026-10-10, the model the ensemble's error climatology
+  was measured on). Current codes come from the nearest CWFIS station with codes, labelled with
+  their date (before noon LST they are yesterday's); off-season codes are a labelled one-day
+  cold-start estimate whose DMC, DC and BUI are far too low. Wind direction is the dominant source of error in fire growth models.
 - Grass curing is not observed: in spring FireSim assumes 95 % (an early or late green-up moves
   the real window by weeks); outside the window it is whatever the user enters. Grass is about
   3 % of the observed growth in the validation fires, so the CFSDS harness hardly tests it

@@ -4,7 +4,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent,
 import { createPortal } from "react-dom";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
-import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast } from "../services/api";
+import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast, FORECAST_MODEL_LABEL } from "../services/api";
 import MultiDayPanel from "./MultiDayPanel";
 import SetupSection from "./SetupSection";
 import { edmontonDayOfYear, formatClock, formatDate, roundToMinute, toDateTimeInputs, toEdmontonIso, zonedWallTimeToMs, zoneAbbrev } from "../utils/time";
@@ -41,8 +41,10 @@ export interface SkillOptionsState {
 }
 
 // ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
+// FFMC coefficient 147.2 as printed (Van Wagner 1987 eq 2b; ST-X-3 eq 46), the same as the
+// engine (engine/src/firesim/fwi/calculator.py FFMC_COEFFICIENT); cffdrs uses 147.27723.
 function computeISI(ffmc: number, windSpeedKmh: number): number {
-  const m = 147.27723 * (101 - ffmc) / (59.5 + ffmc);
+  const m = 147.2 * (101 - ffmc) / (59.5 + ffmc);
   const fW = Math.exp(0.05039 * windSpeedKmh);
   const fF = 91.9 * Math.exp(-0.1386 * m) * (1 + Math.pow(m, 5.31) / 49300000);
   return 0.208 * fW * fF;
@@ -573,7 +575,7 @@ function WeatherPanel({
         );
         const at = new Date(atMs);
         const nRun = hourly.filter((r) => r.hours_from_start > -1).length;
-        setWeatherMessage(`Hourly forecast: ${nRun} h from Open-Meteo, from ${formatClock(at)} ${zoneAbbrev(at)}`);
+        setWeatherMessage(`Hourly forecast: ${nRun} h from ${FORECAST_MODEL_LABEL}, from ${formatClock(at)} ${zoneAbbrev(at)}`);
       } catch (err) {
         setWeatherMessage(`Hourly forecast unavailable (${(err as Error).message}); using constant weather`);
       }
@@ -1122,7 +1124,7 @@ function WeatherPanel({
               </span>
             )}
             {weatherSource && !stationName && <span>{weatherSource} · </span>}
-            {weatherTimestamp ?? ""}
+            {weatherTimestamp ? `as of noon LST ${weatherTimestamp.slice(0, 10)}` : ""}
           </div>
         )}
       </SetupSection>

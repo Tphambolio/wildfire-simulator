@@ -274,8 +274,30 @@ fire danger rating.
 
 ### GET /api/v1/weather/current?lat=&lng=
 
-Current fire weather and FWI codes from the nearest CWFIS station (GeoServer WFS, within 2°),
-for use as `fwi_overrides`.
+Current fire weather and FWI codes from the nearest CWFIS station **that reports FFMC, DMC and
+DC** (GeoServer WFS `public:firewx_stns_current`, within 2°), for use as `fwi_overrides`.
+Stations without codes are skipped (the message says how many nearer ones were); `distance_km`
+is the distance of the station actually used.
+
+- If the current layer is empty (it is refreshed around 19 UTC), the newest day of the archive
+  layer `public:firewx_stns` at most two days old is used (`source` ends in `[archive layer]`).
+- If no station has codes (off-season) or CWFIS has nothing, the codes are a **cold-start
+  estimate**: one day from 85 / 6 / 15 with the Open-Meteo GEM forecast (`models=gem_seamless`)
+  at the latest noon LST and the noon-to-noon 24 h rain. Station weather is kept when present.
+  If GEM has no value for a needed variable, the message says which.
+- `temperature` may be negative (before 2026-10-10 sub-zero values were dropped).
+
+Fields added 2026-10-10 (all optional, `null` when not applicable):
+
+| Field | Meaning |
+|---|---|
+| `codes_date` | Date (YYYY-MM-DD) whose noon-LST codes are returned (CWFIS `rep_date`, or the estimate's noon) |
+| `codes_status` | `today`, `yesterday`, `older` (station codes) or `estimate` (cold-start estimate) |
+| `codes_label` | The same in words, e.g. "Yesterday's codes (as of noon LST 2026-10-09; today's are computed after noon LST)"; also appended to `message` |
+| `weather_model` | Open-Meteo model used for any value (`gem_seamless`), `null` for station data only |
+
+Noon LST uses the province's standard-time offset (AB UTC-7, BC UTC-8, …), else the zone's
+standard offset, else longitude / 15.
 
 ### GET /api/v1/version
 

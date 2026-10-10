@@ -19,6 +19,22 @@ Reference: the CFS `cffdrs` package (Python port), run with the ST-X-3 FFMC coef
 
 Tests: `engine/tests/fbp/test_cffdrs_reference.py`, `engine/tests/fbp/test_calculator.py`.
 
+### 1b. Daily FWI System against cffdrs (2026-10-10)
+
+`engine/tests/fwi/test_cffdrs_fwi_reference.py`, fixture from
+`engine/tests/fwi/data/generate_cffdrs_fwi_reference.py`: the cffdrs 48-day test sequence
+(start 85 / 6 / 15) and 21 single-day edge cases (cold days, heavy and threshold rain, zero wind,
+RH 0 / 100, codes 0 / 101), each at the FFMC coefficient 147.2 and at cffdrs's 147.27723.
+
+| Quantity | Agreement with cffdrs at the same coefficient |
+|---|---|
+| FFMC, ISI, DC | float precision (≤ 1e-13) |
+| DMC | exact without DMC rain; ≤ 0.064 on rain days (FireSim uses Van Wagner 1987 eq 16 as printed, cffdrs the program form `20 + 280/exp(0.023 P)`); BUI ≤ 0.066, FWI ≤ 0.02 |
+| One-decimal CSV values (cffdrs R at 147.27723) | after rounding: FFMC/DMC/BUI ≤ 0.1, ISI ≤ 0.2, FWI ≤ 0.3, DC exact |
+
+The edge cases caught the cold-day Drought Code rule (15 failures before the fix); the 48-day
+sequence has no day at or below -2.8 °C.
+
 ## 2. Spread models: reproduce the FBP ellipse on uniform fuel
 
 Uniform fuel, 20 km/h wind, FFMC 92, BUI about 50. Burned area relative to FBP.
