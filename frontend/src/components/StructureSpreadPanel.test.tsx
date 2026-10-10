@@ -6,9 +6,12 @@ import InfoTip from "./InfoTip";
 import { frame, square } from "../test/frames";
 import type { StructureSpreadSummary, StructureUnitDetail } from "../types/simulation";
 import {
+  NEVER_H,
   STRUCT_B2B,
+  STRUCT_BURNT,
   STRUCT_EMBER,
   STRUCT_FRONT,
+  describeBurnout,
   describeUnit,
   structureCaveat,
   structureDetail,
@@ -45,9 +48,9 @@ describe("structureSpread utils", () => {
       structure_spread: summary(0, 0, { computed: false, units_involved: null, units_front_contact: null, units_structure_to_structure: null }),
     });
     expect(structureSeries([...FRAMES, skipped])).toEqual([
-      { t: 1, front: 1, b2b: 0, ember: 0 },
-      { t: 2, front: 1, b2b: 2, ember: 0 },
-      { t: 3, front: 3, b2b: 9, ember: 0 },
+      { t: 1, front: 1, b2b: 0, ember: 0, burntOut: 0 },
+      { t: 2, front: 1, b2b: 2, ember: 0, burntOut: 0 },
+      { t: 3, front: 3, b2b: 9, ember: 0, burntOut: 0 },
     ]);
   });
 
@@ -56,7 +59,7 @@ describe("structureSpread utils", () => {
     const fc = structureUnitsGeoJSON(DETAIL);
     expect(fc.features).toHaveLength(3);
     expect(fc.features[1].geometry.type).toBe("Polygon");
-    expect(fc.features[1].properties).toEqual({ id: 1, t_h: 1.2, mechanism: "b2b" });
+    expect(fc.features[1].properties).toEqual({ id: 1, t_h: 1.2, t_out_h: NEVER_H, mechanism: "b2b" });
     expect(structureUnitsGeoJSON(null).features).toEqual([]);
   });
 
@@ -78,11 +81,29 @@ describe("structureSpread utils", () => {
     expect(css).toContain(`--struct-front: ${STRUCT_FRONT};`);
     expect(css).toContain(`--struct-b2b: ${STRUCT_B2B};`);
     expect(css).toContain(`--struct-ember: ${STRUCT_EMBER};`);
+    expect(css).toContain(`--struct-burnt: ${STRUCT_BURNT};`);
+  });
+
+  it("carries burn-out times and counts", () => {
+    const fc = structureUnitsGeoJSON([{ ...DETAIL[0], t_out_h: 1.6 }]);
+    expect(fc.features[0].properties).toMatchObject({ t_h: 0.5, t_out_h: 1.6 });
+    const f = frame(2, square(0.01), { structure_spread: summary(2, 3, { burnout: true, burnout_min: 66, units_burning: 4, units_burnt_out: 1 }) });
+    expect(structureSeries([f])).toEqual([{ t: 2, front: 2, b2b: 3, ember: 0, burntOut: 1 }]);
+    expect(describeBurnout(1.6)).toBe("burnt out at +1 h 36 min");
+    expect(describeBurnout(1.6, "14:36 MDT")).toBe("burnt out at 14:36 MDT (+1 h 36 min)");
+    expect(describeBurnout(null)).toBeNull();
+    expect(describeBurnout(NEVER_H)).toBeNull();
+    expect(structureCaveat(LABEL, 30, 50, undefined, 66)).toContain("66 min after it is involved");
+    expect(structureCaveat(LABEL, 30)).not.toContain("burnt out");
+  });
+
+  it("rounds involvement times to whole minutes without a 60 min remainder", () => {
+    expect(describeUnit(1.9999, "b2b")).toBe("Building to building · involved at +2 h 00 min");
   });
 
   it("carries ember counts and describes ember units", () => {
     const f = frame(1, square(0.01), { structure_spread: summary(2, 3, { embers: true, units_ember: 4, units_involved: 9 }) });
-    expect(structureSeries([f])).toEqual([{ t: 1, front: 2, b2b: 3, ember: 4 }]);
+    expect(structureSeries([f])).toEqual([{ t: 1, front: 2, b2b: 3, ember: 4, burntOut: 0 }]);
     expect(describeUnit(2, "ember")).toBe("Ember ignition · involved at +2 h 00 min");
     const c = structureCaveat(LABEL, 30, 50, 150);
     expect(c).toContain("Ember ignition");
@@ -142,6 +163,29 @@ describe("StructureSpreadPanel", () => {
     expect(chart).toHaveAttribute("aria-label", expect.stringContaining("9 by 2.0 h (2 front contact, 3 building to building, 4 ember ignition)"));
     expect(chart.querySelectorAll(`rect[fill="${STRUCT_EMBER}"]`)).toHaveLength(1);
     expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("150 kW/m² design fire");
+  });
+
+  it("splits burning and burnt out when the run had burn-out, and darkens the chart base", () => {
+    const b = { burnout: true, burnout_min: 66 };
+    const frames = [
+      frame(1, square(0.01), { structure_spread: summary(2, 3, { ...b, units_burning: 5, units_burnt_out: 0 }) }),
+      frame(2, square(0.01), { structure_spread: summary(3, 9, { ...b, units_burning: 7, units_burnt_out: 5 }) }),
+    ];
+    render(<StructureSpreadPanel frames={frames} frameIndex={1} mapVisible onMapVisible={() => {}} mapAvailable />);
+    const row = (label: string) => screen.getByText(label).closest(".metric-row")!;
+    expect(row("Buildings involved")).toHaveTextContent("12");
+    expect(row("Still burning")).toHaveTextContent("7");
+    expect(row("Burnt out")).toHaveTextContent("5");
+    const chart = screen.getByTestId("structure-chart");
+    expect(chart).toHaveAttribute("aria-label", expect.stringContaining("; 5 burnt out"));
+    expect(screen.getAllByTestId("structure-chart-burnt")).toHaveLength(1); // only the frame with any
+    expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("66 min after it is involved");
+  });
+
+  it("has no burn-out rows when burn-out was off", () => {
+    render(<StructureSpreadPanel frames={FRAMES} frameIndex={2} mapVisible onMapVisible={() => {}} mapAvailable />);
+    expect(screen.queryByText("Burnt out")).not.toBeInTheDocument();
+    expect(screen.queryByText("Still burning")).not.toBeInTheDocument();
   });
 
   it("has no ember row without embers", () => {

@@ -77,8 +77,10 @@ export interface SimulationCreate {
   structure_spread?: boolean;
   /** With structure_spread: also ember ignition of buildings (spec §6). API default: off */
   structure_embers?: boolean;
-  /** Design fire for the ember stage, kW/m² (150 default, 400 scenario) */
+  /** Building design fire, kW/m² (150 default, 400 scenario): ember HRR curve and burn-out time */
   structure_design_fire_kw_m2?: 150 | 400;
+  /** Units stop passing fire when their design fire ends (spec §4.3). API default: on */
+  structure_burnout?: boolean;
 }
 
 /**
@@ -163,6 +165,11 @@ export interface StructureSpreadSummary {
   design_fire_kw_m2?: number;
   ember_generation_pcs_per_mw_s?: number;
   embers_from_wildland?: boolean;
+  /** Burn-out (spec §4.3): units stop passing fire when their design fire ends */
+  burnout?: boolean;
+  burnout_min?: number | null; // involvement -> burn-out, minutes (66 at 150 kW/m², 70 at 400)
+  units_burning?: number | null; // involved and still burning by this frame
+  units_burnt_out?: number | null; // involved and burnt out by this frame (still counted as involved)
   combustible_fraction: number;
   neighbour_cutoff_m: number;
   wildland_contact_m: number;
@@ -178,6 +185,7 @@ export interface StructureSpreadSummary {
 export interface StructureUnitDetail {
   id: number; // involvement order
   t_h: number; // hours from the start
+  t_out_h?: number | null; // burn-out, hours from the start (null when burn-out is off)
   mechanism: "front" | "b2b" | "ember"; // wildland front contact / building to building / embers
   source_id: number | null; // b2b or ember: id of the unit that passed the fire on (null: wildland embers)
   polygon: number[][][]; // footprint ring(s), [lng, lat]

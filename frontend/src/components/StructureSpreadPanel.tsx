@@ -1,11 +1,19 @@
 /**
  * Situation panel card for the opt-in house-to-house (structure) spread: counts at the selected
  * time, a stacked chart of involved buildings over the run (front contact / building to
- * building) with the timeline cursor, and the map-layer toggle. Minimal text: the caveat is in
+ * building; the burnt-out share darkened from the base) with the timeline cursor, and the
+ * map-layer toggle. Minimal text: the caveat is in
  * the info tooltip. Illustrative — not validated in Canada (docs/structure-spread-spec.md §9).
  */
 import type { SimulationFrame } from "../types/simulation";
-import { STRUCT_B2B, STRUCT_EMBER, STRUCT_FRONT, structureCaveat, structureSeries } from "../utils/structureSpread";
+import {
+  STRUCT_B2B,
+  STRUCT_BURNT,
+  STRUCT_EMBER,
+  STRUCT_FRONT,
+  structureCaveat,
+  structureSeries,
+} from "../utils/structureSpread";
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
 import { BADGES } from "../content/explanations";
@@ -39,7 +47,7 @@ export function StructureChart({ frames, frameIndex }: { frames: SimulationFrame
       width="100%"
       height={H}
       role="img"
-      aria-label={`Buildings involved over the run: ${last.front + last.b2b + last.ember} by ${last.t.toFixed(1)} h (${last.front} front contact, ${last.b2b} building to building${last.ember ? `, ${last.ember} ember ignition` : ""})`}
+      aria-label={`Buildings involved over the run: ${last.front + last.b2b + last.ember} by ${last.t.toFixed(1)} h (${last.front} front contact, ${last.b2b} building to building${last.ember ? `, ${last.ember} ember ignition` : ""})${last.burntOut ? `; ${last.burntOut} burnt out` : ""}`}
       data-testid="structure-chart"
     >
       <line x1={0} x2={W} y1={H - 2} y2={H - 2} className="struct-chart-axis" />
@@ -54,6 +62,17 @@ export function StructureChart({ frames, frameIndex }: { frames: SimulationFrame
               y={y(p.front + p.b2b + p.ember)}
               height={y(p.front + p.b2b) - y(p.front + p.b2b + p.ember)}
               fill={STRUCT_EMBER}
+            />
+          )}
+          {p.burntOut > 0 && (
+            <rect
+              x={x(p.t)}
+              width={bw}
+              y={y(p.burntOut)}
+              height={H - 2 - y(p.burntOut)}
+              fill={STRUCT_BURNT}
+              opacity={0.85}
+              data-testid="structure-chart-burnt"
             />
           )}
         </g>
@@ -74,7 +93,13 @@ export default function StructureSpreadPanel({ frames, frameIndex, mapVisible, o
   const frame = frames[frameIndex] ?? null;
   const s = frame?.structure_spread ?? frames.find((f) => f.structure_spread)?.structure_spread ?? null;
   if (!s) return null;
-  const caveat = structureCaveat(s.label, s.neighbour_cutoff_m ?? 30, 50, s.embers ? s.design_fire_kw_m2 : undefined);
+  const caveat = structureCaveat(
+    s.label,
+    s.neighbour_cutoff_m ?? 30,
+    50,
+    s.embers ? s.design_fire_kw_m2 : undefined,
+    s.burnout ? s.burnout_min : undefined,
+  );
   const computed = s.computed !== false && s.units_involved != null;
   const cur = frame?.structure_spread;
   return (
@@ -96,11 +121,23 @@ export default function StructureSpreadPanel({ frames, frameIndex, mapVisible, o
                 ["Front contact", cur?.units_front_contact, STRUCT_FRONT],
                 ["Building to building", cur?.units_structure_to_structure, STRUCT_B2B],
                 ...(s.embers ? ([["Ember ignition", cur?.units_ember, STRUCT_EMBER]] as const) : []),
+                ...(s.burnout
+                  ? ([
+                      ["Still burning", cur?.units_burning, null],
+                      ["Burnt out", cur?.units_burnt_out, STRUCT_BURNT],
+                    ] as const)
+                  : []),
               ] as const
             ).map(([label, n, color]) => (
               <div key={label} className="metric-row">
                 <span className="metric-label">
-                  {color && <span className="struct-swatch" style={{ background: color }} aria-hidden="true" />}
+                  {color && (
+                    <span
+                      className={`struct-swatch${color === STRUCT_BURNT ? " struct-swatch-burnt" : ""}`}
+                      style={{ background: color }}
+                      aria-hidden="true"
+                    />
+                  )}
                   {label}
                 </span>
                 <span className="metric-value">{n ?? "—"}</span>

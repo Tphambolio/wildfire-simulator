@@ -31,6 +31,13 @@ Usage (from the repo root):
     PYTHONPATH=engine/src python3 scripts/jasper_structure_validation.py \\
         --out ~/dev/wildfire/validation-data/jasper2024/results-2026-10-10
 
+Burn-out (``--burnout``, third pre-registration ``PREREG_BURNOUT``, 2026-10-10): the PREREG
+primary run and its 11 sensitivity runs repeated with building burn-out on (a unit passes fire
+only until its design fire ends, spec §4.3), each against its Hamada-only twin:
+
+    PYTHONPATH=engine/src python3 scripts/jasper_structure_validation.py --burnout \\
+        --out ~/dev/wildfire/validation-data/jasper2024/results-burnout-2026-10-10
+
 Ember ignition (``--embers``, second pre-registration ``PREREG_EMBERS``, 2026-10-10): the same
 units, seeds, wind, window and baselines, with ember ignition of buildings added to Hamada
 (``firesim.structures.embers``, spec §6), parameters fixed from the literature:
@@ -60,6 +67,7 @@ from firesim.structures.embers import EmberOptions  # noqa: E402
 from firesim.structures.spread import (  # noqa: E402
     SOURCE_EMBER,
     WindPeriod,
+    burnout_minutes,
     hamada_spread,
     spread_with_embers,
 )
@@ -212,6 +220,55 @@ PREREG_EMBERS = {
 }
 
 
+# --------------------------------------------------------------------------------------------
+# Third pre-registration: building burn-out (fixed 2026-10-10 and committed before any burn-out
+# run was scored; PREREG and PREREG_EMBERS are unchanged). The burn-out time is the end of the
+# building design fire, taken from the literature (docs/structure-spread-spec.md §4.3, §5);
+# nothing is chosen on Jasper.
+# --------------------------------------------------------------------------------------------
+PREREG_BURNOUT = {
+    "date_fixed": "2026-10-10",
+    "question": "Does stopping a building from passing fire once its design fire has ended "
+                "(burn-out) improve the building-level end state at Jasper over Hamada alone "
+                "(kappa 0.472) and the count-matched distance band (a) (kappa 0.516)?",
+    "burnout": {
+        "rule": "a unit involved at t passes fire (Hamada crossings, ember emission) only until "
+                "t + D; a Hamada crossing not complete by t + D never arrives [H]",
+        "D_primary_min": 66.0,  # 150 kW/m2 design fire: 5 + 1 + 60 min (PROCI24 p.3; D1)
+        "D_scenario_min": 70.0,  # 400 kW/m2: 300 + 3600 + 300 s (FSJ104686 p.2)
+        "sources": "PROCI24 p.2 (HRR decreases linearly to zero when all fuel is consumed), "
+                   "p.3 (5/1/60 min); Qin25 eq 6.2 p.146 (t_decay = end of combustion), p.67 "
+                   "(emission ceases when HRR returns to zero); FSJ104686 p.2 (design fire from "
+                   "ignition to burnout without suppression); FSJ104651 p.3 (no burnout in "
+                   "ELMFIRE or Hamada)",
+    },
+    "runs": {
+        "B0_primary": "PREREG primary (I0 seeds, 15 km/h from 225 deg, 360 min, cutoff 30 m, "
+                      "f_b 1) with burn-out D = 66 min; reference H0 = the same without burn-out",
+        "B_sensitivity": "the 11 PREREG sensitivity runs (cutoff 20 / 45 m; wind x0.75 / x1.25; "
+                         "wind from 202.5 deg; window 240 / 720 min; ignition sets I1-I4), each "
+                         "with burn-out D = 66 min against its own Hamada-only twin",
+        "B_D70": "B0 with D = 70 min (400 kW/m2 design fire)",
+        "BE0_embers": "B0 plus ember ignition (PREREG_EMBERS E0 values, 150 kW/m2, GR' 10) "
+                      "with burn-out; reference E0 without burn-out",
+    },
+    "metrics": "as PREREG (confusion counts, precision, recall, F1, kappa; outcome Destroyed); "
+               "kappa difference B - H (same configuration) and B - (a) with the 250 m block "
+               "bootstrap; units removed by burn-out, and how many of them were destroyed",
+    "decision_rule": "Burn-out helps on this test only if kappa(B0) - kappa(H0) > 0 with the "
+                     "95 % block-bootstrap interval excluding zero, AND kappa(B0) > kappa of "
+                     "the count-matched distance band (a). Otherwise reported as no improvement. "
+                     "The engine default (burn-out on) is set on physical grounds (one design "
+                     "fire for embers and Hamada) and is not changed by this result.",
+    "expectation_from_the_equations_only": "Before scoring (model quantities only, no status "
+        "read): at 15 km/h (4.17 m/s) Hamada crossing times for a0 = 12 m are 8-19 min "
+        "downwind and 15-58 min crosswind / upwind for d = 3-30 m, all below 66 min, so "
+        "burn-out can remove a crossing only for large footprints, long gaps near the 30 m "
+        "cutoff crosswind / upwind, or calm periods. Few changes are expected at cutoff 20 / "
+        "30 m; more at 45 m.",
+}
+
+
 def run_embers(units, seed, wind_kmh, wind_from, window, fb, opts):
     t_front = np.where(seed, PREREG["ignition_time_min"], np.inf)
     return spread_with_embers(units, t_front, [WindPeriod(0.0, wind_kmh, wind_from)],
@@ -304,10 +361,11 @@ def seeds_for(units, spec: dict, wind_from_deg: float) -> np.ndarray:
     return seed
 
 
-def run_hamada(units, seed, wind_kmh, wind_from, window, fb):
+def run_hamada(units, seed, wind_kmh, wind_from, window, fb, burnout_min=None):
+    """Hamada end state; ``burnout_min=None`` is the published model (PREREG, no burn-out)."""
     t_front = np.where(seed, PREREG["ignition_time_min"], np.inf)
     res = hamada_spread(units, t_front, [WindPeriod(0.0, wind_kmh, wind_from)],
-                        duration_min=window, fb=fb)
+                        duration_min=window, fb=fb, burnout_min=burnout_min)
     return res.t_min
 
 
@@ -438,9 +496,13 @@ def main() -> None:
     ap.add_argument("--features", type=Path, default=None,
                     help="use this GeoJSON instead of the cache (testing)")
     ap.add_argument("--no-maps", action="store_true")
+    ap.add_argument("--burnout", action="store_true",
+                    help="run the burn-out pre-registration (PREREG_BURNOUT)")
     ap.add_argument("--embers", action="store_true",
                     help="run the ember-ignition pre-registration (PREREG_EMBERS)")
     args = ap.parse_args()
+    if args.burnout:
+        return main_burnout(args)
     if args.embers:
         return main_embers(args)
     out_dir = args.out or (args.data_dir / "results")
@@ -750,6 +812,140 @@ def tables_embers_md(r: dict) -> str:
     for name, run in r["runs"].items():
         if "changed_vs_hamada" in run:
             L.append(f"- {name} vs {run['reference_hamada']}: {run['changed_vs_hamada']}")
+    return "\n".join(L) + "\n"
+
+
+# ---------------------------------------------------------------------------------- burn-out
+
+
+def sensitivity_configs() -> list[dict]:
+    """The PREREG primary run and its 11 sensitivity runs (same list as ``main``)."""
+    P, S = PREREG, PREREG["sensitivity"]
+
+    def config(name, **kw):
+        c = {"name": name, "ignition_set": "I0_primary", "cutoff": P["neighbour_cutoff_m"],
+             "wind_kmh": P["wind_speed_kmh"], "wind_from": P["wind_from_deg"],
+             "window": P["window_min"], "fb": P["combustible_fraction"]}
+        c.update(kw)
+        return c
+
+    out = [config("primary")]
+    out += [config(f"cutoff_{c:g}m", cutoff=c) for c in S["neighbour_cutoff_m"]]
+    out += [config(f"wind_x{f:g}", wind_kmh=P["wind_speed_kmh"] * f) for f in S["wind_factor"]]
+    out += [config(f"wind_from_{d:g}", wind_from=d) for d in S["wind_from_deg"]]
+    out += [config(f"window_{w:g}min", window=w) for w in S["window_min"]]
+    out += [config(f"ignition_{s}", ignition_set=s) for s in S["ignition_sets"]]
+    return out
+
+
+def main_burnout(args) -> None:
+    """PREREG_BURNOUT: Hamada with building burn-out against the same observed end state."""
+    out_dir = args.out or (args.data_dir / "results-burnout")
+    if REPO in out_dir.resolve().parents or REPO in args.data_dir.resolve().parents:
+        sys.exit("refusing to write Jasper data inside the repository")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = args.features or args.data_dir / CACHE_NAME
+    if args.features is None and (args.refresh or not path.exists()):
+        path = fetch_layer(args.data_dir)
+    geoms, status, _oid = load_features(path)
+    assessed = np.isin(status, ["Destroyed", "Visible Damage", "No Visible Damage"])
+    obs = status[assessed] == "Destroyed"
+    P, PB = PREREG, PREREG_BURNOUT
+    d66, d70 = burnout_minutes(150), burnout_minutes(400)
+    assert d66 == PB["burnout"]["D_primary_min"] and d70 == PB["burnout"]["D_scenario_min"]
+    cache = {}
+
+    def units_at(cutoff):
+        if cutoff not in cache:
+            u = build_units(geoms[assessed], neighbour_cutoff_m=cutoff)
+            assert len(u) == int(assessed.sum())
+            cache[cutoff] = u
+        return cache[cutoff]
+
+    def scored(u, seed, pred, ref_pred=None):
+        dist = edge_distance_to_seeds(u, seed)
+        bl = baselines(u, seed, obs, int(pred.sum()), dist)
+        run = {"seeds": int(seed.sum()), "predicted": int(pred.sum()),
+               "scores": {"firesim": score(pred, obs),
+                          **{k: score(v, obs) for k, v in bl.items()}},
+               "kappa_diff_vs_a": block_bootstrap_kappa_diff(
+                   u, pred, bl["a_distance_band_count_matched"], obs)}
+        if ref_pred is not None:
+            run["kappa_diff_vs_no_burnout"] = block_bootstrap_kappa_diff(u, pred, ref_pred, obs)
+            run["changed_vs_no_burnout"] = {
+                "removed": int(np.sum(ref_pred & ~pred)),
+                "removed_destroyed": int(np.sum(ref_pred & ~pred & obs)),
+                "added": int(np.sum(pred & ~ref_pred))}
+        return run
+
+    results = {"prereg": P, "prereg_burnout": PB, "units_scored": int(assessed.sum()),
+               "runs": {}}
+    first = {}
+    for c in sensitivity_configs():
+        u = units_at(c["cutoff"])
+        seed = seeds_for(u, P["ignition_sets"][c["ignition_set"]], c["wind_from"])
+        t_h = run_hamada(u, seed, c["wind_kmh"], c["wind_from"], c["window"], c["fb"])
+        t_b = run_hamada(u, seed, c["wind_kmh"], c["wind_from"], c["window"], c["fb"], d66)
+        ph, pb = t_h <= c["window"], t_b <= c["window"]
+        name = f"B_{c['name']}"
+        results["runs"][f"H_{c['name']}"] = {"config": c, **scored(u, seed, ph)}
+        results["runs"][name] = {"config": {**c, "burnout_min": d66}, **scored(u, seed, pb, ph)}
+        if c["name"] == "primary":
+            first = {"u": u, "seed": seed, "ph": ph, "pb": pb, "c": c}
+        r = results["runs"][name]
+        k_h = results["runs"]["H_" + c["name"]]["scores"]["firesim"]["kappa"]
+        print(f"{name:32s} H={int(ph.sum()):4d} B={int(pb.sum()):4d} "
+              f"kH={k_h:+.3f} "
+              f"kB={r['scores']['firesim']['kappa']:+.3f} "
+              f"k(a)={r['scores']['a_distance_band_count_matched']['kappa']:+.3f}", flush=True)
+    # B0 with the 400 kW/m2 design fire's duration
+    u, seed, ph, c = first["u"], first["seed"], first["ph"], first["c"]
+    t70 = run_hamada(u, seed, c["wind_kmh"], c["wind_from"], c["window"], c["fb"], d70)
+    results["runs"]["B_D70"] = {"config": {**c, "burnout_min": d70},
+                                **scored(u, seed, t70 <= c["window"], ph)}
+    # Embers (PREREG_EMBERS E0 values) with and without burn-out
+    opts = EmberOptions(design_fire_kw_m2=150, gr_structure=10.0, from_wildland=False)
+    t_front = np.where(seed, P["ignition_time_min"], np.inf)
+    wind = [WindPeriod(0.0, c["wind_kmh"], c["wind_from"])]
+    e0 = spread_with_embers(u, t_front, wind, duration_min=c["window"], fb=c["fb"], embers=opts)
+    be0 = spread_with_embers(u, t_front, wind, duration_min=c["window"], fb=c["fb"],
+                             embers=opts, burnout_min=d66)
+    pe0, pbe0 = e0.t_min <= c["window"], be0.t_min <= c["window"]
+    results["runs"]["E0_embers_no_burnout"] = {"config": {**c, "embers": True},
+                                               "ember_units": int(np.sum(pe0 & (e0.source == SOURCE_EMBER))),
+                                               **scored(u, seed, pe0)}
+    results["runs"]["BE0_embers"] = {"config": {**c, "embers": True, "burnout_min": d66},
+                                     "ember_units": int(np.sum(pbe0 & (be0.source == SOURCE_EMBER))),
+                                     **scored(u, seed, pbe0, pe0)}
+    for k in ("B_D70", "E0_embers_no_burnout", "BE0_embers"):
+        r = results["runs"][k]
+        print(f"{k:32s} pred={r['predicted']:4d} kappa={r['scores']['firesim']['kappa']:+.3f}",
+              flush=True)
+    (out_dir / "results_burnout.json").write_text(json.dumps(results, indent=2, default=float))
+    (out_dir / "tables_burnout.md").write_text(tables_burnout_md(results))
+    if not args.no_maps:
+        draw_map(u, seed, first["pb"], obs, out_dir / "map_burnout_primary.png", "Hamada + burn-out")
+    print(f"wrote {out_dir}")
+
+
+def tables_burnout_md(r: dict) -> str:
+    L = ["# Jasper 2024: building burn-out (PREREG_BURNOUT)", "",
+         "| Run | Burn-out (min) | Pred | TP | FP | FN | TN | Precision | Recall | F1 | κ | κ (a) |"
+         " κ − (a) [95 %] | κ − no burn-out [95 %] | Removed (destroyed) |",
+         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for name, run in r["runs"].items():
+        s = run["scores"]["firesim"]
+        a = run["scores"]["a_distance_band_count_matched"]
+        da = run["kappa_diff_vs_a"]
+        dh = run.get("kappa_diff_vs_no_burnout")
+        dh_txt = f"{dh['point']:+.3f} [{dh['p2.5']:+.3f}, {dh['p97.5']:+.3f}]" if dh else "—"
+        ch = run.get("changed_vs_no_burnout")
+        ch_txt = f"{ch['removed']} ({ch['removed_destroyed']})" if ch else "—"
+        bo = run["config"].get("burnout_min")
+        L.append(f"| {name} | {bo if bo else '—'} | {s['predicted']} | {s['TP']} | {s['FP']} | "
+                 f"{s['FN']} | {s['TN']} | {_f(s['precision'], True)} | {_f(s['recall'], True)} | "
+                 f"{_f(s['F1'], True)} | {_f(s['kappa'])} | {_f(a['kappa'])} | "
+                 f"{da['point']:+.3f} [{da['p2.5']:+.3f}, {da['p97.5']:+.3f}] | {dh_txt} | {ch_txt} |")
     return "\n".join(L) + "\n"
 
 

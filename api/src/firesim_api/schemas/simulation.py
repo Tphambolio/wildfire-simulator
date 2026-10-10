@@ -334,9 +334,20 @@ class SimulationCreate(BaseModel):
     structure_design_fire_kw_m2: Literal[150, 400] = Field(
         default=150,
         description=(
-            "Building design fire for the ember stage, peak heat release per footprint area "
-            "(kW/m²): 150 (default; 5/1/60 min, Purnomo et al. 2024) or 400 (scenario; "
-            "300/3600/300 s, Qin et al. 2026)."
+            "Building design fire, peak heat release per footprint area (kW/m²): 150 "
+            "(default; 5/1/60 min, Purnomo et al. 2024) or 400 (scenario; 300/3600/300 s, "
+            "Qin et al. 2026). Sets the ember stage's heat release curve and the burn-out "
+            "time (66 / 70 min after involvement)."
+        ),
+    )
+    structure_burnout: bool = Field(
+        default=True,
+        description=(
+            "With `structure_spread` (default on): a building stops passing fire to its "
+            "neighbours (building to building and embers) when its design fire ends, 66 min "
+            "(150 kW/m²) or 70 min (400) after involvement (docs/structure-spread-spec.md "
+            "§4.3). Counts gain `units_burning` / `units_burnt_out`, detail `t_out_h`. "
+            "false = the published Hamada model, which has no burnout."
         ),
     )
 

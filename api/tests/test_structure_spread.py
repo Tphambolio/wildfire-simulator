@@ -136,7 +136,7 @@ async def test_involved_units_detail_on_the_final_frame_only(client, files):
     assert sum(u["mechanism"] == "front" for u in detail) == counts["units_front_contact"]
     assert sum(u["mechanism"] == "b2b" for u in detail) == counts["units_structure_to_structure"]
     for u in detail:
-        assert set(u) == {"id", "t_h", "mechanism", "source_id", "polygon"}
+        assert set(u) == {"id", "t_h", "t_out_h", "mechanism", "source_id", "polygon"}
         assert 0 <= u["t_h"] <= 1.5
         ring = u["polygon"][0]
         assert ring[0] == ring[-1] and len(ring) >= 4
@@ -233,3 +233,47 @@ async def test_structure_spread_without_embers_has_no_ember_fields(client, files
     data = await _finish(client, _payload(files, structure_spread=True))
     c = data["frames"][-1]["structure_spread"]
     assert "units_ember" not in c and "embers" not in c
+
+
+# ------------------------------------------------------------------ burn-out (spec §4.3)
+
+
+def test_burnout_defaults_on():
+    from firesim_api.schemas.simulation import SimulationCreate
+
+    req = SimulationCreate(ignition_lat=53.5, ignition_lng=-113.5,
+                           weather={"wind_speed": 10.0, "wind_direction": 270.0},
+                           structure_spread=True)
+    assert req.structure_burnout is True and req.structure_design_fire_kw_m2 == 150
+
+
+@pytest.mark.parametrize("design_fire,burnout_min", [(150, 66.0), (400, 70.0)])
+async def test_burnout_counts_and_detail(client, files, design_fire, burnout_min):
+    data = await _finish(client, _payload(files, structure_spread=True, duration_hours=3.0,
+                                          structure_design_fire_kw_m2=design_fire))
+    assert data["status"] == "completed", data
+    assert data["config"]["structure_burnout"] is True
+    for f in data["frames"]:
+        c = f["structure_spread"]
+        assert c["burnout"] is True and c["burnout_min"] == pytest.approx(burnout_min)
+        assert c["design_fire_kw_m2"] == design_fire
+        assert c["units_burning"] + c["units_burnt_out"] == c["units_involved"]
+    last = data["frames"][-1]
+    detail = last["structure_spread_detail"]
+    for u in detail:
+        assert u["t_out_h"] == pytest.approx(u["t_h"] + burnout_min / 60.0, abs=2e-3)
+    t_end = last["time_hours"]
+    assert last["structure_spread"]["units_burnt_out"] == sum(u["t_out_h"] <= t_end + 1e-6
+                                                             for u in detail)
+    assert last["structure_spread"]["units_burnt_out"] >= 1  # 3 h run: early units burnt out
+
+
+async def test_burnout_off_is_the_published_hamada(client, files):
+    data = await _finish(client, _payload(files, structure_spread=True, duration_hours=3.0,
+                                          structure_burnout=False))
+    assert data["status"] == "completed", data
+    last = data["frames"][-1]
+    c = last["structure_spread"]
+    assert c["burnout"] is False and c["burnout_min"] is None
+    assert c["units_burnt_out"] == 0 and c["units_burning"] == c["units_involved"]
+    assert all(u["t_out_h"] is None for u in last["structure_spread_detail"])

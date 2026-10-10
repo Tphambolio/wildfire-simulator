@@ -308,7 +308,7 @@ could not catch the errors.
 - **Fuel grids**: the Edmonton grid is the City canopy-LiDAR product at 20 m, simulated at 50 m
   (majority class per cell since 2026-10-10) and, for fires near buildings that fit the guards, at
   its native 20 m in a window around the fire. Areas on six Edmonton runs were 0-410 % larger at
-  20 m (fuel detail; [R19] in the record); which resolution better matches observed fires is untested.
+  20 m (fuel detail; [R18] in the record); which resolution better matches observed fires is untested.
   Outside Edmonton only a uniform fuel type or a synthetic demo landscape is available.
 - Urban trees in the Edmonton grid are non-fuel; structure-to-structure spread is not modelled.
 - **Time zone**: times are America/Edmonton. Alberta moved to permanent UTC-6 on 2026-06-18
