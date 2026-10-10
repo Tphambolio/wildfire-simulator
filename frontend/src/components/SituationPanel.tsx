@@ -8,6 +8,9 @@ import type { BurningPeriod, SimulationFrame } from "../types/simulation";
 import { clockAt, formatClock, formatElapsed, zoneAbbrev } from "../utils/time";
 import { formatBurningPeriod, formatHour, inBurningPeriod } from "../utils/skillOptions";
 import HfiClassChip from "./HfiClassChip";
+import Badge from "./Badge";
+import InfoTip from "./InfoTip";
+import { TIPS } from "../content/explanations";
 
 interface SituationPanelProps {
   frame: SimulationFrame | null;
@@ -21,6 +24,10 @@ interface SituationPanelProps {
   kpiCaption?: string | null;
   /** Burning period of the run (null = fire spreads at any hour) */
   burningPeriod?: BurningPeriod | null;
+  /** Main-run progress bar while a run is going (RunProgress) */
+  progress?: ReactNode;
+  /** Actions after a run (New ignition, Clear results) */
+  actions?: ReactNode;
   children?: ReactNode;
 }
 
@@ -56,7 +63,7 @@ function statusLine(status: string | null, totalFrames: number, last: Simulation
 }
 
 const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function SituationPanel(
-  { frame, frameIndex, totalFrames, status, scenarioStart, headline, kpiCaption, burningPeriod = null, children },
+  { frame, frameIndex, totalFrames, status, scenarioStart, headline, kpiCaption, burningPeriod = null, progress = null, actions = null, children },
   ref,
 ) {
   // The "last" frame for progress is the newest one; the KPIs follow the timeline selection
@@ -84,21 +91,28 @@ const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function Sit
         <div className="situation-status" role="status" aria-live="polite">
           {statusLine(status, totalFrames, frame, scenarioStart)}
         </div>
+        {progress}
+        {actions}
       </header>
 
-      {frame && scenarioStart && burningPeriod && (
-        <div
-          className={`situation-burning${inBurningPeriod(scenarioStart.getTime(), frame.time_hours, burningPeriod) ? "" : " off"}`}
-        >
-          {inBurningPeriod(scenarioStart.getTime(), frame.time_hours, burningPeriod)
-            ? `Burning period ${formatBurningPeriod(burningPeriod)}: fire spreading.`
-            : `Outside the burning period (${formatBurningPeriod(burningPeriod)}): no spread modelled until ${formatHour(burningPeriod.start_hour)}.`}
+      {/* Only the outside-the-burning-period state needs a banner (operationally essential) */}
+      {frame && scenarioStart && burningPeriod && !inBurningPeriod(scenarioStart.getTime(), frame.time_hours, burningPeriod) && (
+        <div className="situation-burning off" data-testid="outside-burning">
+          <span>Outside burning period: no spread until {formatHour(burningPeriod.start_hour)}</span>
+          <InfoTip
+            label="About the burning period"
+            text={`${TIPS.outsideBurning(formatBurningPeriod(burningPeriod), formatHour(burningPeriod.start_hour))} ${TIPS.burningPeriod}`}
+          />
         </div>
       )}
 
       {headline}
 
-      {frame && kpiCaption && <div className="situation-kpi-caption">{kpiCaption}</div>}
+      {frame && kpiCaption && (
+        <div className="situation-kpi-caption">
+          <Badge tone="neutral" tip={TIPS.singleRun}>{kpiCaption}</Badge>
+        </div>
+      )}
       {frame && (
         <div className="situation-kpis">
           <div className="kpi">

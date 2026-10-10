@@ -78,62 +78,6 @@
   gap: var(--sp-2);
 }
 
-/* Info tooltip (components/InfoTip.tsx): shown on hover or keyboard focus */
-.info-tip {
-  position: relative;
-  display: inline-flex;
-}
-
-.info-tip-btn {
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2);
-  color: var(--text-2);
-  font: italic 600 11px/16px Georgia, serif;
-  text-transform: none;
-  cursor: help;
-}
-
-.info-tip-btn:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: var(--focus-offset);
-}
-
-.info-tip-text {
-  display: none;
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 6px);
-  left: 0;
-  width: 240px;
-  padding: var(--sp-2);
-  border-radius: var(--radius-sm);
-  background: var(--surface-3);
-  border: 1px solid var(--border-strong);
-  box-shadow: var(--shadow-overlay);
-  color: var(--text);
-  font-size: var(--fs-xs);
-  font-weight: 400;
-  font-style: normal;
-  line-height: var(--lh);
-  text-transform: none;
-  letter-spacing: 0;
-  white-space: normal;
-}
-
-.info-tip-right .info-tip-text {
-  left: auto;
-  right: 0;
-}
-
-.info-tip-text.open {
-  display: block;
-}
-
 /* Map popup for one involved unit */
 .struct-popup-label {
   color: var(--text-3);

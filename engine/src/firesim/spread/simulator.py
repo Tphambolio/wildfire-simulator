@@ -78,6 +78,7 @@ class Simulator:
         structure_footprints=None,
         structure_embers: bool = False,
         structure_design_fire_kw_m2: int = 150,
+        progress=None,
     ):
         """Initialize simulator.
 
@@ -121,6 +122,11 @@ class Simulator:
                 burning grid cells, ψ criterion; docs/structure-spread-spec.md §6).
             structure_design_fire_kw_m2: building design fire for the ember stage, 150
                 (default, PROCI24) or 400 (scenario, FSJ104686).
+            progress: Optional callable(phase, fraction) for progress display only (no
+                effect on results). Grid model: ("spread", 0-1) while the front advances,
+                then ("structures", None) before house-to-house spread when it is on, and
+                ("finishing", None) while frames are built. The Huygens model yields frames
+                as it goes, so callers can use the frame times instead.
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -144,6 +150,7 @@ class Simulator:
         self.structure_footprints = structure_footprints
         self.structure_embers = structure_embers
         self.structure_design_fire_kw_m2 = int(structure_design_fire_kw_m2)
+        self.progress = progress
         # Seed for ember spotting (config.seed, else a hash of the config): repeatable runs
         self.seed = config.resolved_seed()
         if active_edges is not None and fuel_grid is None:
@@ -326,13 +333,18 @@ class Simulator:
             active_edges=self.active_edges,
             seed=self.seed,
             active_edge_buffer_m=self.active_edge_buffer_m,
+            progress=(lambda f: self.progress("spread", f)) if self.progress else None,
         )
 
+        if self.progress and self.structure_spread:
+            self.progress("structures", None)
         exposure = self._building_exposure(ca_frames[-1].emitters if ca_frames else None,
                                            config.duration_hours * 60.0)
         structures = self._structure_spread(ca_frames[-1].emitters if ca_frames else None,
                                             config.duration_hours * 60.0,
                                             ca_frames[-1].arrival if ca_frames else None)
+        if self.progress:
+            self.progress("finishing", None)
 
         # Each frame's cells are a prefix of the final frame's (ordered by arrival), so the
         # cell dicts are built once and each frame takes a slice

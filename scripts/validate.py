@@ -209,7 +209,11 @@ def _run_task(task: dict) -> dict:
                           active_buffer_m=task["active_buffer_m"],
                           ffmc_spinup=task["ffmc_spinup"],
                           burning_period=tuple(task["burning_period"]) if task["burning_period"]
-                          else None)
+                          else None,
+                          **{k: task[t] for k, t in (("grass_cure_green", "cure_green"),
+                                                     ("grass_cure_dormant", "cure_dormant"),
+                                                     ("grass_cure_spring", "cure_spring"))
+                             if task.get(t) is not None})
         if task.get("ensemble"):
             out = _run_ensemble_day(case, opts, task["ensemble"])
         else:
@@ -282,7 +286,8 @@ def cmd_run(args) -> None:
                   windows=args.windows, margin_m=args.margin_m, wind_members=args.wind_members,
                   active_days=args.active_days, active_buffer_m=args.active_buffer_m,
                   ffmc_spinup=args.ffmc_spinup, burning_period=args.burning_period,
-                  ensemble=ensemble)
+                  ensemble=ensemble, cure_green=args.cure_green,
+                  cure_dormant=args.cure_dormant, cure_spring=args.cure_spring)
              for t in tasks if (t["fire_id"], t["day"]) not in done]
     # Group by fire so each worker's cached domain is reused
     tasks.sort(key=lambda t: (t["fire_id"], t["day"]))
@@ -660,6 +665,13 @@ def main() -> None:
     r.add_argument("--burning-period", type=float, nargs=2, default=None,
                    metavar=("START_H", "END_H"), help="spread only between these local hours")
     r.add_argument("--spotting", action="store_true")
+    r.add_argument("--cure-green", type=float, default=None,
+                   help="O-1 curing (%%) between green-up and leaf-off (default 60)")
+    r.add_argument("--cure-dormant", type=float, default=None,
+                   help="O-1 curing (%%) outside the green season (default 90)")
+    r.add_argument("--cure-spring", type=float, default=None,
+                   help="O-1 curing (%%) in FireSim's pre-green-up window (firesim.fbp.curing; "
+                        "default: the dormant value)")
     r.add_argument("--wind-members", action="store_true",
                    help="12 constant wind directions (Bennett scenario 3)")
     r.add_argument("--start-hour", type=int, default=6)

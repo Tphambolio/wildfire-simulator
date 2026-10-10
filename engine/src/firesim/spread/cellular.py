@@ -11,7 +11,13 @@ By Huygens' principle the front moves with velocity U = dH/dp, where
 H(p) = c (p.h) + sqrt(a^2 (p.h)^2 + b^2 (p.k)^2) is the support function of
 the elliptical wavelet (a = (ROS + BROS)/2, b = FROS, c = (ROS - BROS)/2, h the
 head direction, k across it). phi is advected along U with upwind differences
-(second-order ENO, first-order next to non-fuel), the approach of ELMFIRE.
+(second-order ENO, first-order next to non-fuel). The Eulerian level-set framework (phi on
+the raster, advection eq. 1, front at phi = 0) is that of ELMFIRE (Lautenberger 2013, Fire
+Safety J. 62: 289-298, Sec. 2.1, p. 290); the discretisation and the spread-rate rule are not:
+ELMFIRE uses a Superbee flux limiter (eqs 6-9), second-order Runge-Kutta in time (eqs 10a-b)
+and a cosine projection of the wind/slope spread rate on the front normal (eqs 13-14), where
+FireSim uses ENO2 with rotated upwinding, forward Euler and the FBP ellipse's Huygens
+velocity (docs/verification.md, "Level set vs Lautenberger 2013").
 Until the head has run a few cells the front is the exact FBP point-ignition
 ellipse of the ignition cell, restricted to cells connected to the ignition
 through fuel. On uniform fuel the burned area reproduces the FBP ellipse to
@@ -62,6 +68,13 @@ START_CELLS = 5.0
 CFL = 0.2
 # Cells of margin around the burned area in which phi is advanced each step
 BAND_CELLS = 6
+# A cell carries fire when its head ROS exceeds this (m/min). One threshold for the ignition
+# hold and the starting ellipse: with two (1e-6 and 1e-5) an ignition cell whose rate fell
+# between them was accepted by one and rejected by the other, leaving an empty starting
+# fire (ensemble IndexError of 2026-10-10, docs/PROJECT_RECORD.md).
+CARRY_ROS = 1e-5
+# cffdrs floors a zero ROS at 1e-6 m/min ("no spread"); see _CellParams.evaluate
+_FBP_ROS_FLOOR = 1e-6
 
 
 @dataclass
@@ -136,6 +149,7 @@ def run_cellular_simulation(
     active_edges: dict | None = None,
     active_edge_buffer_m: float | None = None,
     seed: int | str | None = None,
+    progress=None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -164,6 +178,9 @@ def run_cellular_simulation(
             multi-day run). With either, the fire is treated as established (no
             acceleration) and spreads from that area instead of the ignition point.
         compute_perimeter: Build each frame's outline polygon (skip for ensembles).
+        progress: Optional callable(fraction) called as the front advances (0-1 of the run
+            duration, at most about every 1 %); for progress display only, no effect on the
+            result. An exception it raises (e.g. a cancel) propagates to the caller.
         weather_schedule: (start minute, conditions) periods, e.g. from an hourly weather
             stream; FBP rates are recomputed at each change. Default: ``conditions`` throughout.
         active_edges: Where an observed starting fire is still active (e.g. the hot edges or
@@ -243,11 +260,11 @@ def run_cellular_simulation(
         # holds until the first period in which the ignition cell spreads; its growth and
         # acceleration start then.
         p0, k = params, period
-        while (ign_row is not None and p0.head[ign_row, ign_col] <= 1e-6
+        while (ign_row is not None and p0.head[ign_row, ign_col] <= CARRY_ROS
                and k + 1 < len(schedule) and schedule[k + 1][0] < duration - 1e-9):
             k += 1
             p0 = _CellParams.evaluate(cell_keys, schedule[k][1])
-        if ign_row is not None and p0.head[ign_row, ign_col] > 1e-6:
+        if ign_row is not None and p0.head[ign_row, ign_col] > CARRY_ROS:
             if k != period:
                 period, params, conditions = k, p0, schedule[k][1]
                 t_ign = schedule[k][0]
@@ -256,6 +273,15 @@ def run_cellular_simulation(
             if t_ign > 0.0:
                 arrival[np.isfinite(arrival)] += t_ign
                 t += t_ign
+        elif ign_row is not None:
+            logger.info("Ignition cell (%s) does not carry fire in any period of the run: "
+                        "nothing burns", fuel_grid.fuel_types[ign_row][ign_col].value)
+
+    if phi is not None and not np.isfinite(arrival).any():
+        # Defensive: a starting fire with no burned cell cannot spread (and has no window).
+        # A zero-burn run is a valid outcome, so return frames with no cells.
+        logger.warning("Starting fire has no burned cell: nothing spreads")
+        phi = None
 
     if phi is not None:
         near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
@@ -268,7 +294,11 @@ def run_cellular_simulation(
         def next_change() -> float:
             return schedule[period + 1][0] if period + 1 < len(schedule) else math.inf
 
+        reported = -1.0
         while t < duration - 1e-9:
+            if progress is not None and duration > 0 and t / duration - reported >= 0.01:
+                reported = t / duration
+                progress(reported)
             if t >= next_change() - 1e-9:  # weather period changes: new FBP rates everywhere
                 while t >= next_change() - 1e-9:
                     period += 1
@@ -406,10 +436,13 @@ def flame_emitters(arrival, cross_ros, p, duration, dx, dy,
 
 
 def _window(burned: np.ndarray, margin: int) -> tuple[slice, slice]:
-    """Bounding box of the burned cells plus ``margin`` cells on each side."""
+    """Bounding box of the burned cells plus ``margin`` cells on each side (empty slices
+    when nothing is burned)."""
     rows, cols = burned.shape
     r_idx = np.flatnonzero(burned.any(axis=1))
     c_idx = np.flatnonzero(burned.any(axis=0))
+    if r_idx.size == 0:
+        return slice(0, 0), slice(0, 0)
     return (slice(max(r_idx[0] - margin, 0), min(r_idx[-1] + margin + 1, rows)),
             slice(max(c_idx[0] - margin, 0), min(c_idx[-1] + margin + 1, cols)))
 
@@ -523,6 +556,13 @@ class _CellParams:
                 pdf=conditions.pdf, gfl=conditions.gfl, cbh=cbh, cfl=cfl,
             )
             m = rm * conditions.ros_multiplier
+            # cffdrs returns its 1e-6 floor where FBP gives no spread (e.g. D-2 below BUI 80).
+            # That is "no spread", not a rate: a multiplier (ensemble ROS error, WUI modifier)
+            # must not scale it into a small spread rate, so floored cells get zero rates.
+            spreads = np.asarray(f["ros"]) > _FBP_ROS_FLOOR
+            f = dict(f)
+            for key in ("ros", "bros", "fros"):
+                f[key] = np.where(spreads, f[key], 0.0)
             if ft in _OPEN_ACCELERATION:
                 alpha = np.full(len(rows), 0.115)
             else:
@@ -630,7 +670,7 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceler
     tg = ellipse_arrival_time(u, v, a, b, c)
     # Only fuel that carries fire under the current conditions can be inside the starting
     # ellipse (e.g. D-2 below BUI 80 has zero spread and must not be painted burned)
-    carries = params.fuel & (params.head > 1e-5)  # FBP floors ROS at 1e-6 m/min (cffdrs)
+    carries = params.fuel & (params.head > CARRY_ROS)  # FBP floors ROS at 1e-6 m/min (cffdrs)
     in_ellipse = tg <= t0
     inside = in_ellipse & carries
     burned = _connected_to(inside, carries, r0, c0)

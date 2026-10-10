@@ -19,6 +19,22 @@ Reference: the CFS `cffdrs` package (Python port), run with the ST-X-3 FFMC coef
 
 Tests: `engine/tests/fbp/test_cffdrs_reference.py`, `engine/tests/fbp/test_calculator.py`.
 
+### 1b. Daily FWI System against cffdrs (2026-10-10)
+
+`engine/tests/fwi/test_cffdrs_fwi_reference.py`, fixture from
+`engine/tests/fwi/data/generate_cffdrs_fwi_reference.py`: the cffdrs 48-day test sequence
+(start 85 / 6 / 15) and 21 single-day edge cases (cold days, heavy and threshold rain, zero wind,
+RH 0 / 100, codes 0 / 101), each at the FFMC coefficient 147.2 and at cffdrs's 147.27723.
+
+| Quantity | Agreement with cffdrs at the same coefficient |
+|---|---|
+| FFMC, ISI, DC | float precision (≤ 1e-13) |
+| DMC | exact without DMC rain; ≤ 0.064 on rain days (FireSim uses Van Wagner 1987 eq 16 as printed, cffdrs the program form `20 + 280/exp(0.023 P)`); BUI ≤ 0.066, FWI ≤ 0.02 |
+| One-decimal CSV values (cffdrs R at 147.27723) | after rounding: FFMC/DMC/BUI ≤ 0.1, ISI ≤ 0.2, FWI ≤ 0.3, DC exact |
+
+The edge cases caught the cold-day Drought Code rule (15 failures before the fix); the 48-day
+sequence has no day at or below -2.8 °C.
+
 ## 2. Spread models: reproduce the FBP ellipse on uniform fuel
 
 Uniform fuel, 20 km/h wind, FFMC 92, BUI about 50. Burned area relative to FBP.
@@ -107,6 +123,31 @@ ellipse (see the test docstring). Remaining: on a pure grid axis the level set s
 the cell size; the new stencil makes grid runs about 1.3-1.5× slower. Effect on the CFSDS validation (all 143
 fire-days): held-out F1 at 17 h 0.208 → 0.212 (active edges + spin-up + 10-20 h) and
 0.245 → 0.250 (Bennett start), within noise ([validation.md](validation.md)).
+
+### Level set vs Lautenberger (2013)
+
+FireSim's grid model is often described as "ELMFIRE-style". Checked against the published paper
+only (Lautenberger 2013, *Fire Safety J.* 62: 289-298; ELMFIRE source code was not opened), the
+shared part is the Eulerian level-set framework; the numerics and the spread-rate rule differ.
+
+| Item | Lautenberger (2013) | FireSim `spread/cellular.py` | |
+|---|---|---|---|
+| Front representation | Scalar phi on a regular grid, front at phi = 0, advection `dphi/dt + Ux dphi/dx + Uy dphi/dy = 0` (eq 1, p.290) | Same | agree |
+| Front normal | Node-centred central differences (eqs 2-4, p.290) | Mean of the two one-sided differences (= central) | agree |
+| Spatial scheme | Superbee flux limiter on face values (eqs 6-9, pp.290-291) | ENO2 (min-mod of second differences), first order next to non-fuel, rotated (axis + diagonal) upwinding | differ |
+| Time scheme | Second-order Runge-Kutta (eqs 10a-b, p.291); CFL-limited step | Forward Euler, Courant number 0.2 | differ |
+| Initial phi | -1 burning, +1 elsewhere (p.291) | Signed distance; exact FBP point-ignition ellipse for the first 5 cells of head run | differ |
+| Domain edge | Zero-gradient (p.291) | Zero-gradient at the domain and across non-fuel cells | agree |
+| Normal spread rate | Rothermel head rate projected by cosines: `Vs/Vs0 = max(1, 1 + phi_s cos(theta_a - pi - theta) + phi_w cos(theta_w - pi - theta))` (eqs 13-14, p.292), i.e. not an ellipse; flanks never slower than the no-wind rate | FBP ellipse support function (Richards 1990): head ROS, flank FROS, back BROS from ST-X-3 | differ (FireSim keeps the FBP shape) |
+| Slope projection | Map-plane rate reduced by `1 - |cos(theta_a - theta)|(1 - cos gamma)` (eq 15, p.292) | Slope enters only through FBP net effective wind (ST-X-3); no map-plane projection | differ |
+| Acceleration | `1 - exp(-(t - t_ign)/tau)`, tau ~ 600 s (eq 12, p.291) | FBP point-ignition acceleration (ST-X-3 eqs 70-71), mean over each step | differ (FireSim follows FBP) |
+| Crown fire | Van Wagner (1977) I0 (eq 17), RAC = 0.05/CBD (eq 19), crown ROS = 3.34 x FM10 (p.292) | FBP crown fraction burned (ST-X-3 eqs 56-58) | differ |
+| Verification | No-wind circle, wind, slope and wind + slope vs BehavePlus on a 5 m grid (Sec. 3, pp.294-295) | Area and shape vs the exact FBP ellipse at 25-50 m (section 2) and vs WISE (section 3) | analogous tests |
+
+So the level set reproduces the FBP ellipse (section 2) rather than ELMFIRE's cosine-projected
+shape; results should not be described as ELMFIRE results. The Superbee / RK2 combination was not
+adopted and is not needed for the ellipse tests above, but it is the published alternative if
+ENO2 shows oscillation or front-speed problems on finer (20 m) grids.
 
 ## 3. Comparison with WISE (independent model)
 

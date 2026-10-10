@@ -1,0 +1,109 @@
+/* About & sources tab (components/AboutPanel.tsx): replaces map, Situation panel and timeline;
+   Setup stays, as in the EOC tab */
+.app-about {
+  grid-template-areas:
+    "top top top"
+    "setup about about"
+    "setup about about";
+}
+
+.about-panel {
+  grid-area: about;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-md);
+  line-height: var(--lh);
+}
+
+.about-inner {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--sp-4, 16px) var(--sp-4, 16px) 48px;
+}
+
+.about-header h2 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-lg);
+}
+
+.about-toc ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  list-style: none;
+  counter-reset: toc;
+}
+
+.about-toc li {
+  counter-increment: toc;
+  font-size: var(--fs-sm);
+}
+
+.about-toc li::before {
+  content: counter(toc) " ";
+  color: var(--text-3);
+}
+
+.about-section {
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 8px;
+}
+
+.about-section:focus {
+  outline: none;
+}
+
+.about-section h3 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.about-section p,
+.about-section ul {
+  margin: 0 0 var(--sp-2);
+  color: var(--text-2);
+}
+
+.about-section ul {
+  padding-left: 20px;
+}
+
+.about-section li + li {
+  margin-top: var(--sp-1);
+}
+
+.about-section strong {
+  color: var(--text);
+}
+
+.about-refs {
+  margin: 0 0 var(--sp-2);
+}
+
+.about-refs > div {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--sp-2);
+  padding: 4px 0;
+}
+
+.about-refs dt {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.about-refs dd {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.about-docs {
+  font-size: var(--fs-sm);
+}

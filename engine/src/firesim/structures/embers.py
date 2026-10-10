@@ -34,7 +34,7 @@ Model (one unit per building, spec §2):
    (FSJ104686 pp.4-5), and then starts its own design fire (Qin25 p.122).
 
 FireSim choices (labelled [H] in the spec) are marked in the code. The wind heights are the
-least certain part; see ``u10_to_u6`` and the spec §6 notes (C15-C17).
+least certain part; see ``u10_to_u6`` and the spec §6 notes (C16-C18).
 """
 
 from __future__ import annotations
@@ -193,7 +193,7 @@ def himoto_b_star(hrr_kw, u_ms, d_m):
 
     ``u_ms`` is the wind for the PDF. FireSim passes its **10 m** wind: the published X_max
     of 65 / 84 / 109 m (FSJ104686 p.3) are reproduced only with B* evaluated at 1.15 × the
-    17.9 m/s 6.1 m wind (spec §6, C16). ``d_m`` = √(floor area) (HT08 p.24).
+    17.9 m/s 6.1 m wind (spec §6, C17). ``d_m`` = √(floor area) (HT08 p.24).
     """
     u = np.asarray(u_ms, float)
     d = np.asarray(d_m, float)
@@ -218,7 +218,7 @@ def sardoy_lognormal(ib_mw_m, u_ms):
     printed in Qin25 eqs 4.2-4.6, pp.72-73; FSJ104651 SI; IJWF24 eqs 6-10).
 
     ``u_ms`` is the 6.1 m wind: Qin25's worked case (p.124, 6.71 m/s at 6.1 m, 3,189 kW/m)
-    gives μ = 2.18, σ = 1.23 only with the 6.1 m wind, although p.72 says 10 m (spec C17).
+    gives μ = 2.18, σ = 1.23 only with the 6.1 m wind, although p.72 says 10 m (spec C18).
     """
     ib = np.maximum(np.asarray(ib_mw_m, float), 1e-9)
     u = np.maximum(np.asarray(u_ms, float), 1e-9)

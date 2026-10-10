@@ -56,6 +56,7 @@ docker compose up --build
 | `types.py` | Core dataclasses: `SimulationConfig`, `SimulationFrame`, `FBPResult`, `FWIResult`, `WeatherInput`, `FireType` enum |
 | `fbp/constants.py` | All 18 FBP fuel types from ST-X-3 / Wotton 2009 (`FuelTypeSpec`: a/b/c ROS params, q, bui0, default cbh, cfl) |
 | `fbp/calculator.py` | FBP equations matching cffdrs: `calculate_fbp()` (head/flank/back ROS, SFC, CFB, HFI, WSV/RAZ slope adjustment), ISI with eq 53a wind cap, curing (Wotton 2009), FMC from date |
+| `fbp/curing.py` | Date-aware grass curing default (M1): 95 % in day of year 60-149, none outside (API 422 when grass can burn; UI `utils/curing.ts`) |
 | `fbp/crown_fire.py` | CSI, RSO, CFB (ST-X-3 eqs 56-58), C-6 crown ROS, `FireType` classification |
 | `fwi/calculator.py` | Van Wagner & Pickett (1985): `FWICalculator` with `calculate()` → `FWIResult` |
 | `spread/huygens.py` | Huygens wavelet model (uniform fuel, convex front); `FuelGrid` holds fuel types plus optional per-cell `cbh`/`cfl` (e.g. LiDAR); `fbp_for_conditions` is the FBP layer both models share |
@@ -167,6 +168,10 @@ perimeter, active edges drawn on the map or picked by side, drawn by MapView (`r
 House-to-house spread (opt-in, Setup → Fuel & landscape): Situation card `StructureSpreadPanel.tsx`
 (counts, chart, map toggle), MapView `structureUnits` layer, caveat in `InfoTip.tsx`
 (`utils/structureSpread.ts`); minimal visible text, "Illustrative" badge.
+UI text (2026-10-10): panels carry labels, values and short badges only; explanations are
+accessible tooltips (`InfoTip.tsx`/`Badge.tsx`, text in `content/explanations.ts`), literature
+and limits in the "About & sources" tab (`AboutPanel.tsx`). Main-run progress `RunProgress.tsx`
+(WebSocket `simulation.status`). Keep new caveats short and put the explanation in a tip.
 
 ### Services / Hooks
 - `src/services/api.ts` — All API calls + WebSocket URL builder

@@ -18,6 +18,8 @@ import { ASSET_CATEGORIES, CATEGORY_ORDER, type AssetCategory } from "../utils/a
 import { symbolImage } from "../utils/assetSymbols";
 import { MECHANISM_LABEL, STRUCT_B2B, STRUCT_EMBER, STRUCT_FRONT, describeUnit } from "../utils/structureSpread";
 import InfoTip from "./InfoTip";
+import Badge from "./Badge";
+import { BADGES, TIPS } from "../content/explanations";
 
 /** Ensemble line colour: ink, one colour for every arrival line (design spec §3.3, §6.2) */
 const ENS_INK = "#1f2937";
@@ -236,6 +238,8 @@ interface MapViewProps {
   spotFiresVisible?: boolean;
   /** Increment to fit the map to the final frame (e.g. when a run completes) */
   fitRequest?: number;
+  /** Increment to arm ignition placement (the next map click sets the ignition), e.g. "New ignition" */
+  armIgnitionRequest?: number;
   /** Ensemble (range of outcomes): P10 arrival lines, P10/P50 extent now, P90, burn probability */
   ensemble?: EnsembleMapLayers | null;
   /** Observed (RPAS) perimeter and its active edges, and the edge being drawn */
@@ -295,6 +299,7 @@ export default function MapView({
   mapRefCallback,
   spotFiresVisible: spotFiresVisibleProp,
   fitRequest = 0,
+  armIgnitionRequest = 0,
   ensemble = null,
   recon = null,
   onReconDrawPoint,
@@ -320,6 +325,12 @@ export default function MapView({
   if (ignitionPoint !== prevIgnition) {
     setPrevIgnition(ignitionPoint);
     if (ignitionPoint && ignitionMode) setIgnitionMode(false);
+  }
+  // "New ignition" from outside the map (run bar, Situation panel): arm placement mode
+  const [prevArm, setPrevArm] = useState(armIgnitionRequest);
+  if (armIgnitionRequest !== prevArm) {
+    setPrevArm(armIgnitionRequest);
+    if (armIgnitionRequest > 0 && !readOnly) setIgnitionMode(true);
   }
   // Drawing an active edge for the RPAS perimeter restart: map clicks add vertices
   const drawingRef = useRef(false);
@@ -1368,26 +1379,37 @@ export default function MapView({
         <text x="12" y="16" text-anchor="middle" fill="white" font-size="12" font-weight="bold">&#x1F525;</text>
       </svg>`;
 
-      markerRef.current = new maplibregl.Marker({ element: el })
+      el.setAttribute("data-testid", "ignition-marker");
+      // Drag the marker to move the ignition (keyboard and typed coordinates do the same)
+      const marker = new maplibregl.Marker({ element: el, draggable: !readOnlyRef.current })
         .setLngLat([ignitionPoint.lng, ignitionPoint.lat])
         .addTo(map.current);
+      marker.on("dragend", () => {
+        const at = marker.getLngLat();
+        onMapClickRef.current(at.lat, at.lng);
+      });
+      markerRef.current = marker;
 
-      // Pan to ignition without changing zoom level
-      map.current.panTo([ignitionPoint.lng, ignitionPoint.lat], { duration: 500 });
+      // Keep the user's view: pan (zoom unchanged) only when the ignition is off screen,
+      // e.g. typed coordinates or a loaded scenario
+      if (!map.current.getBounds().contains([ignitionPoint.lng, ignitionPoint.lat])) {
+        map.current.panTo([ignitionPoint.lng, ignitionPoint.lat], { duration: 500 });
+      }
     }
   }, [ignitionPoint]);
 
   // Update fire visualization — auto-selects heatmap (CA) or polygon (Huygens)
   useEffect(() => {
-    if (!map.current || !mapReady || frames.length === 0) return;
+    if (!map.current || !mapReady) return;
 
     const currentFrame = frames[currentFrameIndex];
-    if (!currentFrame) return;
 
-    // T=0 synthetic frame: clear all fire layers and return
+    // No frames (a new run starting, or results cleared) or the T=0 synthetic frame:
+    // clear all fire layers so the previous run's fire is not left on the map
     if (
-      (!currentFrame.burned_cells || currentFrame.burned_cells.length === 0) &&
-      currentFrame.perimeter.length === 0
+      !currentFrame ||
+      ((!currentFrame.burned_cells || currentFrame.burned_cells.length === 0) &&
+        currentFrame.perimeter.length === 0)
     ) {
       (map.current.getSource("fire-heatmap") as maplibregl.GeoJSONSource | undefined)
         ?.setData({ type: "FeatureCollection", features: [] });
@@ -2114,25 +2136,29 @@ export default function MapView({
       {/* Ensemble legend: line styles, and the burn-probability ramp when shown */}
       {ensemble && (ensemble.show.lines || ensemble.show.p90 || ensemble.show.prob) && (
         <div className="burn-prob-legend ens-legend" data-testid="ensemble-legend">
-          <div className="burn-prob-legend-title">Range of outcomes</div>
+          <div className="burn-prob-legend-title">
+            Range of outcomes <InfoTip label="About the range of outcomes layers" text={`${TIPS.p10} ${TIPS.p90}`} />
+          </div>
           <div className="burn-prob-legend-scale">
             {ensemble.show.lines && (
               <>
-                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-line" aria-hidden="true" /> Early arrival (P10, 1 in 10 members), clock time</div>
+                <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-line" aria-hidden="true" /> P10 arrival (clock time)</div>
                 <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-now" aria-hidden="true" /> P10 extent now</div>
                 {ensemble.show.p50 && (
-                  <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-p50" aria-hidden="true" /> Median extent now (P50)</div>
+                  <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-p50" aria-hidden="true" /> P50 extent now</div>
                 )}
                 <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-future" aria-hidden="true" /> Later (projected)</div>
               </>
             )}
             {ensemble.show.p90 && (
-              <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-p90" aria-hidden="true" /> Reached by 9 in 10 members (P90)</div>
+              <div className="burn-prob-legend-row"><span className="ens-swatch ens-swatch-p90" aria-hidden="true" /> P90 footprint</div>
             )}
           </div>
           {ensemble.show.prob && (
             <>
-              <div className="burn-prob-legend-meta ens-legend-sub">Burn probability, share of members (single run hidden)</div>
+              <div className="ens-legend-sub with-tip">
+                Burn probability: share of members <InfoTip label="About burn probability" text={TIPS.probability} />
+              </div>
               <div className="ens-ramp" aria-hidden="true" style={{
                 background: `linear-gradient(to right, ${PROB_STOPS.map(([p]) => `${probCss(p)} ${p}%`).join(", ")})`,
               }} />
@@ -2148,8 +2174,8 @@ export default function MapView({
           data-testid="structure-legend"
         >
           <div className="burn-prob-legend-title">
-            House-to-house <span className="struct-badge">Illustrative</span>
-            <InfoTip text={structureCaveat} label="About the house-to-house layer" alignRight />
+            House-to-house <Badge tone="warn" className="struct-badge">{BADGES.illustrative}</Badge>
+            <InfoTip text={structureCaveat} label="About the house-to-house layer" />
           </div>
           <div className="burn-prob-legend-scale">
             <div className="burn-prob-legend-row">
@@ -2173,10 +2199,10 @@ export default function MapView({
           below that the heatmap shows intensity-weighted density */}
       {!ensProbOn && frames.length > 0 && frames[currentFrameIndex]?.burned_cells && frames[currentFrameIndex].burned_cells!.length > 0 && (
         <div className="burn-prob-legend fire-legend">
-          <div className="burn-prob-legend-title">{mapZoom >= 14 ? "Crown Fire State" : "Fire Intensity"}</div>
-          {mapZoom < 14 && (
-            <div className="burn-prob-legend-meta">Burned cells weighted by HFI · zoom in for crown state</div>
-          )}
+          <div className="burn-prob-legend-title">
+            {mapZoom >= 14 ? "Crown Fire State" : "Fire Intensity"}
+            {mapZoom < 14 && <InfoTip label="About the fire intensity layer" text={TIPS.fireLegend} />}
+          </div>
           <div className="burn-prob-legend-scale">
             {(mapZoom >= 14
               ? [
@@ -2241,11 +2267,12 @@ export default function MapView({
           <button
             className={`mcp-btn mcp-ignite${ignitionMode ? " active" : ""}`}
             onClick={() => setIgnitionMode((v) => !v)}
-            title={ignitionMode ? "Click map to place ignition (ESC to cancel)" : ignitionPoint ? "Move ignition point" : "Place ignition point"}
+            title={ignitionMode ? "Click the map to place the ignition (Esc cancels)" : ignitionPoint ? "Move the ignition point: click, then click the map (or drag the marker)" : "Place the ignition point: click, then click the map"}
+            aria-pressed={ignitionMode}
           >
-            <span className="mcp-icon">⊕</span>
+            <span className="mcp-icon" aria-hidden="true">🔥</span>
             <span className="mcp-label">
-              {ignitionMode ? "Arm" : ignitionPoint ? "Move" : "Ignite"}
+              {ignitionMode ? "Click map…" : ignitionPoint ? "Move ignition" : "Place ignition"}
             </span>
             {ignitionMode && <span className="mcp-active-dot" />}
           </button>
@@ -2253,7 +2280,8 @@ export default function MapView({
             <button
               className="mcp-btn mcp-clear"
               onClick={() => { onClearIgnition(); setIgnitionMode(true); }}
-              title="Clear ignition point"
+              title="Clear the ignition point"
+              aria-label="Clear ignition"
             >
               ✕
             </button>

@@ -58,7 +58,7 @@ WEST = 270.0  # wind FROM the west: embers carried to +x
 @pytest.mark.parametrize("hrr_mw,xmax", [(10, 65.0), (40, 84.0), (160, 109.0)])
 def test_himoto_xmax_matches_fsj104686_p3(hrr_mw, xmax):
     """X_max = 65 / 84 / 109 m for 10 / 40 / 160 MW in a 17.9 m/s wind (FSJ104686 p.3, D = 10 m).
-    Reproduced with B* at the 10 m wind (1.15 x 17.9 m/s, spec C16); 62 / 80 / 103 m at 17.9."""
+    Reproduced with B* at the 10 m wind (1.15 x 17.9 m/s, spec C17); 62 / 80 / 103 m at 17.9."""
     mu, sg = E.himoto_lognormal(hrr_mw * 1000.0, U10_BENCH, 10.0)
     assert float(E.x_max(mu, sg)) == pytest.approx(xmax, abs=0.6)
     mu6, sg6 = E.himoto_lognormal(hrr_mw * 1000.0, U6_BENCH, 10.0)

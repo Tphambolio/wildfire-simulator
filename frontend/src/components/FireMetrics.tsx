@@ -1,6 +1,13 @@
-/** Fire metrics display panel showing current frame statistics. */
+/**
+ * Run details under the Situation KPI tiles: what the tiles do not show (spread model, maximum
+ * intensity anywhere on the front, Huygens fire type and flame length, building exposure, fuel
+ * mix). Area, head ROS, head intensity, direction, spotting and elapsed time are in the tiles and
+ * the panel header, so they are not repeated here.
+ */
 
 import type { SimulationFrame } from "../types/simulation";
+import { BADGES, TIPS } from "../content/explanations";
+import Badge from "./Badge";
 import HfiClassChip from "./HfiClassChip";
 
 interface FireMetricsProps {
@@ -9,30 +16,24 @@ interface FireMetricsProps {
   totalFrames: number;
 }
 
-
 function formatFireType(ft: string): string {
   return ft
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export default function FireMetrics({ frame, status, totalFrames }: FireMetricsProps) {
-  if (!frame) {
-    return (
-      <div className="panel metrics-panel">
-        <h3>Fire Metrics</h3>
-        <div className="hint">
-          {status === "running" ? "Waiting for first frame..." : "Run a simulation to see metrics"}
-        </div>
-      </div>
-    );
-  }
+export default function FireMetrics({ frame }: FireMetricsProps) {
+  // Before the first frame the Situation header says what to do; no second empty state here
+  if (!frame) return null;
 
   const isCAMode = Array.isArray(frame.burned_cells);
+  // The KPI tile shows the head's intensity when the run has a head summary; the maximum
+  // anywhere on the front is then extra information
+  const showMaxHfi = !!frame.head;
 
   return (
     <div className="panel metrics-panel">
-      <h3>Fire Metrics</h3>
+      <h3>Run details</h3>
 
       {(frame.ignition_snapped_m ?? 0) > 0 && (
         <div className="notice notice-warning">
@@ -41,48 +42,23 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
       )}
 
       <div className="metrics-tags">
-        <span className="tag" title={isCAMode ? "Grid (level-set) spread on the fuel grid" : "Huygens wavelet perimeter spread"}>
-          {isCAMode ? "CA Grid" : "Huygens"}
-        </span>
+        <Badge tone="info" className="tag" tip={isCAMode ? TIPS.gridModel : TIPS.huygensModel}>
+          {isCAMode ? "Grid model" : "Huygens"}
+        </Badge>
         {(frame.num_fronts ?? 1) > 1 && (
           <span className="tag">{frame.num_fronts} fronts</span>
         )}
       </div>
 
       <div className="metrics-rows">
-        <div className="metric-row">
-          <span className="metric-label">Time Elapsed</span>
-          <span className="metric-value mono">T+{frame.time_hours.toFixed(1)}h</span>
-        </div>
-        <div className="metric-row">
-          <span className="metric-label">Area Burned</span>
-          <span className="metric-value">{frame.area_ha.toFixed(1)} ha</span>
-        </div>
-        <div className="metric-row">
-          <span className="metric-label">Head ROS</span>
-          <span className="metric-value">{frame.head_ros_m_min.toFixed(1)} m/min</span>
-        </div>
-        {frame.head && (
-          <>
-            <div className="metric-row">
-              <span className="metric-label">Head spreading toward</span>
-              <span className="metric-value">
-                {["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(frame.head.raz / 45) % 8]}{" "}
-                ({frame.head.raz.toFixed(0)}°)
-              </span>
-            </div>
-            <div className="metric-row" title="Albini maximum spotting distance from the head (surface or torching-tree model)">
-              <span className="metric-label">Max spotting distance</span>
-              <span className="metric-value">{frame.head.max_spot_distance_m.toFixed(0)} m</span>
-            </div>
-          </>
+        {showMaxHfi && (
+          <div className="metric-row">
+            <span className="metric-label">Max HFI on the front</span>
+            <span className="metric-value">
+              {frame.max_hfi_kw_m.toFixed(0)} kW/m <HfiClassChip hfi={frame.max_hfi_kw_m} />
+            </span>
+          </div>
         )}
-        <div className="metric-row">
-          <span className="metric-label">Max HFI</span>
-          <span className="metric-value">
-            {frame.max_hfi_kw_m.toFixed(0)} kW/m <HfiClassChip hfi={frame.max_hfi_kw_m} />
-          </span>
-        </div>
         {!isCAMode && (
           <div className="metric-row">
             <span className="metric-label">Fire Type</span>
@@ -103,22 +79,21 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
             </span>
           </div>
         )}
-        <div className="metric-row">
-          <span className="metric-label">Frames</span>
-          <span className="metric-value">{totalFrames}</span>
-        </div>
       </div>
 
       {frame.building_exposure && (
         <div className="fuel-breakdown">
-          <h4>Building exposure</h4>
+          <div className="with-tip card-h-row">
+            <h4>Building exposure</h4>
+            <Badge tone="info" tip={TIPS.exposure} testId="exposure-badge">{BADGES.exposureNotIgnition}</Badge>
+          </div>
           {(
             [
               ["Inside perimeter", frame.building_exposure.inside_perimeter],
               ["Within 30 m of fire", frame.building_exposure.within_30m],
               ["Within 100 m", frame.building_exposure.within_100m],
               ["Within 500 m", frame.building_exposure.within_500m],
-              ["Radiant \u2265 12.5 kW/m\u00b2", frame.building_exposure.flux_over_12_5],
+              ["Radiant ≥ 12.5 kW/m²", frame.building_exposure.flux_over_12_5],
               ["Flux-time criterion reached", frame.building_exposure.ftp_reached],
             ] as const
           ).map(([label, n]) => (
@@ -127,10 +102,6 @@ export default function FireMetrics({ frame, status, totalFrames }: FireMetricsP
               <span className="metric-value">{n}</span>
             </div>
           ))}
-          <div className="hint-sm">
-            Exposure, not ignition probability. Radiant heat uses Cohen's worst-case flame model
-            (overestimates measured flux); embers are not modelled; building-to-building fire only with House-to-house spread.
-          </div>
         </div>
       )}
 

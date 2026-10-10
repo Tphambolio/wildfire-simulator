@@ -170,7 +170,7 @@ PREREG_EMBERS = {
         "ember_mass_g": 0.2,  # FSJ104686 p.3
         "transport": "Himoto lognormal (HT08 eqs 38-40), D = sqrt(footprint area), "
                      "truncated at the 99th percentile; crosswind normal sigma_Y = 0.92 D",
-        "pdf_wind": "10 m wind (spec C16)",
+        "pdf_wind": "10 m wind (spec C17)",
         "flight_wind": "10 m wind / 1.15 (6.1 m; Andrews 2009 p.58) [H]",
         "v_air": "0.064 x 6.1 m wind (Qin25 p.157)",
         "ignition": "psi* = 0.211 / ((v + 0.073)(4.111 - v)) g/cm2 (FSJ104686 eq 1), "

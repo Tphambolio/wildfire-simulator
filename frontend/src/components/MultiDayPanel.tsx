@@ -144,10 +144,6 @@ export default function MultiDayPanel({ days, onChange, disabled }: MultiDayPane
 
   return (
     <div className="md-panel">
-      <div className="md-panel-note">
-        FWI (FFMC/DMC/DC) carries forward each day via CFFDRS equations.
-        Fire front continues from previous day&apos;s perimeter.
-      </div>
       {days.map((d, i) => (
         <DayInput
           key={i}

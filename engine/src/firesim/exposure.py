@@ -86,7 +86,8 @@ def flux_time_product(flux: np.ndarray, duration_s: np.ndarray) -> float:
 
 
 def flame_length_m(intensity_kw_m: np.ndarray, crowning: np.ndarray) -> np.ndarray:
-    """Byram (1959) for surface fire, Thomas (1963) when CFB >= 0.1 (Alexander & Cruz 2012)."""
+    """Byram (1959) for surface fire, Thomas (1963) when CFB >= 0.1 (as suggested by Rothermel
+    1991 for crown fires, via Alexander & Cruz 2012 p.99; approximate for crown fires)."""
     i = np.clip(np.asarray(intensity_kw_m, dtype=float), 0.0, None)
     return np.where(crowning, 0.0266 * i ** (2.0 / 3.0), 0.0775 * i**0.46)
 

@@ -67,7 +67,8 @@ def _payload(files, **extra):
                     "relative_humidity": 25.0, "precipitation_24h": 0.0},
         "fwi_overrides": {"ffmc": 92.0, "dmc": 45.0, "dc": 300.0},
         "duration_hours": 1.5, "snapshot_interval_minutes": 30.0, "fuel_type": "C2",
-        "fuel_grid_path": files["fuel"], "buildings_path": files["buildings"], **extra,
+        "fuel_grid_path": files["fuel"], "buildings_path": files["buildings"],
+        "fuel_modifiers": {"grass_cure": 60.0}, **extra,
     }
 
 

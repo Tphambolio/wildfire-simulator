@@ -169,13 +169,13 @@ describe("StructureSpreadPanel", () => {
   });
 });
 
-describe("InfoTip", () => {
-  it("opens on hover and closes on leave", () => {
+describe("InfoTip (structure caveat)", () => {
+  it("opens on keyboard focus and closes on Escape", () => {
     render(<InfoTip text="Caveat text" label="About X" />);
     const tip = screen.getByRole("tooltip", { hidden: true });
-    fireEvent.mouseEnter(tip.parentElement!);
+    fireEvent.focus(screen.getByRole("button", { name: "About X" }));
     expect(tip).toHaveClass("open");
-    fireEvent.mouseLeave(tip.parentElement!);
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(tip).not.toHaveClass("open");
   });
 });

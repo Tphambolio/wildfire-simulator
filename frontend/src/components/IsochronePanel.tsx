@@ -7,6 +7,8 @@
  */
 
 import { memo } from "react";
+import InfoTip from "./InfoTip";
+import { TIPS } from "../content/explanations";
 import type { Isochrone } from "../utils/isochrones";
 import { ISO_PRESETS, DEFAULT_ISO_HOURS } from "../utils/isochrones";
 
@@ -41,7 +43,9 @@ function IsochronePanel({
   return (
     <div className="panel iso-panel">
       <div className="iso-header">
-        <h3>Arrival Time Isochrones</h3>
+        <h3 className="with-tip">
+          Arrival Time Isochrones <InfoTip label="About isochrones" text={TIPS.isochrones} />
+        </h3>
         <button
           className={`ov-vis-btn ${visible ? "on" : "off"}`}
           onClick={() => onToggleVisible(!visible)}
@@ -50,8 +54,6 @@ function IsochronePanel({
           {visible ? "ON" : "OFF"}
         </button>
       </div>
-
-      <div className="iso-subtitle">Time for fire front to reach each location</div>
 
       {/* Preset interval selector */}
       <div className="iso-preset-row">
@@ -95,9 +97,6 @@ function IsochronePanel({
         ))}
       </div>
 
-      <div className="iso-note">
-        Rings show predicted fire boundary at each interval. Red = sooner, green = later.
-      </div>
     </div>
   );
 }

@@ -48,6 +48,9 @@ Background notes (owner's internal reports, not peer reviewed):
 | **NRC21** | National Research Council Canada (2021). *National Guide for Wildland-Urban Interface Fires.* | PDF |
 | **Hamada51** | Hamada M. (1951). On the rate of fire spread. (Cited by HT08 [4,5], FSJ104651 [15], Qin25 [33].) | **Not read**; known only through the three papers above |
 | **Scawthorn / Hazus** | Low-wind correction to Hamada, attributed to Scawthorn and the FEMA Hazus model by FSJ104651 SI and Qin25 p.39 | **Not read**; used as printed in FSJ104651 SI |
+| **CAT17** | Caton S.E., Hakes R.S.P., Gorham D.J., Zhou A., Gollner M.J. (2017). Review of pathways for building fire spread in the wildland urban interface Part I: exposure conditions. *Fire Technol.* 53: 429-473. doi:10.1007/s10694-016-0589-z | PDF (read 2026-10-10). Background for the three pathways; no equations used |
+| **LD10** | Lee S.W., Davidson R.A. (2010). Physics-based simulation model of post-earthquake fire spread. *J. Earthquake Eng.* 14(5): 670-687. doi:10.1080/13632460903336928 | PDF (read 2026-10-10). Model lineage and caveats; no equations used |
+| **SBK14** | Syphard A.D., Brennan T.J., Keeley J.E. (2014). The role of defensible space for residential structure protection during wildfires. *Int. J. Wildland Fire* 23: 1165-1175. doi:10.1071/WF13158 | Letter-paged online-early PDF (pp. A-K) |
 
 Labels used below: **[P]** primary source read; **[H]** FireSim heuristic or adaptation (not
 published; stated reason); **[T]** tuned, not measured (calibrated to California fires or chosen
@@ -55,6 +58,26 @@ by the authors to fit an outcome); **[U]** unverified or not published.
 
 PDFs and text extractions: `~/dev/wildfire/references/structure-ignition/` (`text/` holds the
 extractions used for this file).
+
+**Pathways and lineage (CAT17, LD10; read 2026-10-10).**
+- CAT17 (p.436) groups WUI exposure into three pathways: radiant exposure, direct flame
+  contact and firebrands. Here they map to stage 4 (WU-E radiation and flame contact, §5) and
+  stages 6-7 (embers, §6); the Hamada stage lumps all three into one empirical rate (§4).
+  CAT17 calls firebrands "one of the primary sources of ignition" with no consensus on their
+  share (pp.440, 442), and records flame-contact fluxes of 20-40 kW/m² (turbulent) to 50-70 kW/m²
+  (laminar) (p.438).
+- LD10 (p.671) describes Hamada (1951) as assuming "equally spaced, equal-size square
+  buildings" and an elliptical fire, with empirical upwind, downwind and crosswind speeds; it
+  says later models to about 2000 (Scawthorn et al. 1981; FEMA 2006, i.e. Hazus) adapted
+  Hamada's equations, and that Hamada gave "fair agreement" when hindcasting losses in five US
+  earthquakes (Scawthorn 1987). This is a secondary confirmation of the Scawthorn / Hazus
+  lineage above; the Hazus correction itself is still used as printed in FSJ104651 SI.
+- LD10 is the physics-based alternative (room-by-room fires, window-flame impingement,
+  configuration-factor radiation from window flames, room gas and roof flames, branding). Its
+  ignition rule is a critical flux of 12.5 kW/m² with an ignition delay of 1 / 7 / 10 / 25 /
+  30 min at 30 / 20 / 17.5 / 15 / 12.5 kW/m² (p.677, after Quintiere 2006). It needs room
+  layouts, window areas and fire loads that FireSim does not have, so it is not a FireSim
+  option.
 
 ## 2. Building representation
 
@@ -117,7 +140,8 @@ parameters are uniform for all structures"; Qin25 p.185).
 Wildland intensity and flame length come from FireSim's FBP layer as the grid model already
 computes them for building exposure (`exposure.py`, `cellular.py: flame_emitters`): head fire
 intensity per burned cell; flame length Byram (1959) `0.0775 I^0.46` for surface fire and
-Thomas (1963) `0.0266 I^(2/3)` when CFB ≥ 0.1, as recommended by Alexander & Cruz (2012). FireSim
+Thomas (1963) `0.0266 I^(2/3)` when CFB ≥ 0.1, as suggested by Rothermel (1991) for crown fires
+(via Alexander & Cruz 2012, p.99; approximate for crown fires). FireSim
 does not use Rothermel.
 
 - **Time a unit is first reached by the front** `t_front` **[H]** (rule changed 2026-10-09,
@@ -314,6 +338,13 @@ start from fixed values.
 | Wildland source | `HRR = HFI · Δx`; flame reach from a wildland cell `3((3/5)v + 3) + d/2` | — | PROCI24 eq 8; IJWF24 eq 15 (after Jiang et al. 2021) [P] |
 | Point source position | unit centroid; distance R centroid to target footprint edge | — | [H], after Qin25 §6.3.1 single-unit treatment |
 
+Caveat on the radiation row: LD10 (p.672) notes that treating emitted radiation as a point
+source "performs poorly when ignition of combustibles is of concern" (citing Beyler 2002) and
+uses configuration factors instead. The WU-E point source is kept because it is the published
+coupled model, but its near-field fluxes (separations of a few metres, typical in Edmonton)
+must be checked against a view-factor calculation (e.g. `exposure.py`'s panel model) before
+stage 4 outputs are shown.
+
 The flux-time product here is the **heat dose** form of PROCI24/IJWF24 (kJ/m², no critical flux),
 not Cohen04's `∫(q − 13.1)^1.828 dt ≥ 11,501` used in `exposure.py`. The two must not be mixed in
 one output; the WU-E output must say which it uses.
@@ -355,10 +386,10 @@ page before coding; the page and equation are in the code docstrings.
 | Burning unit | From its involvement time (any mechanism) a unit burns the design fire, HRR = HRRPUA(t) × footprint area | Qin25 eqs 6.2, 6.10, pp.146, 169 [P]; design fire from involvement for front and Hamada units too [H] |
 | Design fires | 150 kW/m², 300 / 60 / 3600 s (default, D1); 400 kW/m², 300 / 3600 / 300 s (scenario) | PROCI24 p.3; FSJ104686 p.2 [P] |
 | Generation | GR = GR' × HRR; GR' 10 pcs/(MW·s) structures [T] (5.68 scenario), 33.3 vegetation; counts are the exact integral of HRR over each step | Qin25 eqs 3.8, 3.17, Table 6.1 [P] |
-| Structure transport | Himoto lognormal: mean / std of the flight distance 0.47 B*^(2/3) D and 0.88 B*^(1/3) D converted to log form; D = √(footprint area); ρ_p 100 kg/m³, d_p 5 mm, ρ∞ 1.1, c_p 1.0, T∞ 300 K; truncated at the 99th percentile and renormalised; B* evaluated at the **10 m** wind (C16) | HT08 eqs 38-40, pp.22-24; Qin25 eqs 6.3-6.4, p.149; FSJ104686 p.3 [P] |
+| Structure transport | Himoto lognormal: mean / std of the flight distance 0.47 B*^(2/3) D and 0.88 B*^(1/3) D converted to log form; D = √(footprint area); ρ_p 100 kg/m³, d_p 5 mm, ρ∞ 1.1, c_p 1.0, T∞ 300 K; truncated at the 99th percentile and renormalised; B* evaluated at the **10 m** wind (C17) | HT08 eqs 38-40, pp.22-24; Qin25 eqs 6.3-6.4, p.149; FSJ104686 p.3 [P] |
 | Crosswind | Normal, σ_Y = 0.92 D, truncated at the two-sided 99 % and renormalised | HT08 eq 39, p.23 [P]; truncation by analogy with Qin25 p.75 [H] |
-| Emission point | Centroid; the flight distance is measured from the source's downwind edge (its extent along the wind), so nothing lands on the emitting footprint | Qin25 §6.3.1 item 3, p.170 [P]; the edge offset is the reading that reproduces FSJ104686 p.5's 33 % (C15) [H] |
-| Vegetation transport | Burning grid cells emit at HRR = HFI × cell size (Qin25 eq 6.1) for their flaming time (cell size / normal speed, + 60 s where the front stops, as `exposure.py`), Sardoy lognormal (Qin25 eqs 4.2-4.6, I in MW/m) with the **6.1 m** wind (C17), measured from the cell's downwind edge, σ_Y = 0.92 × cell size | Qin25 pp.42, 72-73, 124 [P]; σ_Y for a cell [H] |
+| Emission point | Centroid; the flight distance is measured from the source's downwind edge (its extent along the wind), so nothing lands on the emitting footprint | Qin25 §6.3.1 item 3, p.170 [P]; the edge offset is the reading that reproduces FSJ104686 p.5's 33 % (C16) [H] |
+| Vegetation transport | Burning grid cells emit at HRR = HFI × cell size (Qin25 eq 6.1) for their flaming time (cell size / normal speed, + 60 s where the front stops, as `exposure.py`), Sardoy lognormal (Qin25 eqs 4.2-4.6, I in MW/m) with the **6.1 m** wind (C18), measured from the cell's downwind edge, σ_Y = 0.92 × cell size | Qin25 pp.42, 72-73, 124 [P]; σ_Y for a cell [H] |
 | Pooling | Expected number landing on each footprint: the target's box in the source's wind frame (exact for a wind-aligned rectangle) × footprint area / box area | Qin25 eqs 4.17, 6.5, 6.9 [P]; box × fill [H] |
 | Ignition | ψ = N × 0.2 g / A ≥ ψ*(v_air), v_air = 0.064 × 6.1 m wind; the crossing time is interpolated within the 30 s accumulation step; ignition at crossing + flight time (distance / 6.1 m wind) + 42 s + 300 s; the unit then starts its design fire | FSJ104686 eq 1, pp.3-5; Qin25 eq 5.12, pp.120-123, 157 [P] |
 | Determinism | Expected-value pooling, no random draws: the stochastic t_ign,small algorithm (Qin25 eqs 5.2-5.4, p.106) is replaced by the fixed 42 s of the FSJ104686 p.5 worked example | [H]; runs are repeatable without a seed |
@@ -414,11 +445,12 @@ choice under D1, recorded as open item (owner decision needed).
 | C12 | Wind height | 6.1 m / 20 ft (FSJ104686 p.3; Qin25 p.78), 10 m (RTMA, FSJ104651), unstated for Hamada | 10 m open wind for Hamada; explicit reduction for embers | §3 |
 | C13 | WU-E coefficients PROCI24 does not print | α_c, absorptivity and FTP are not in PROCI24; Qin25 (p.227) attributes defaults to it | IJWF24 baseline (α_c 0.95, absorptivity 0.89, FTP 10,500); α_c 0.5 scenario | Values printed in a peer-reviewed source |
 | C14 | Structure firebrand generation | 5.68 → 10 pcs/(MW·s) (Qin25 p.147; FSJ104686 p.4) | **10 [T]**, 5.68 scenario | The tuned value is the one the authors carry forward; both are labelled |
-| C15 | Where the flight distance starts | Qin25 §6.3.1 (p.170): emission from the centre, nothing lands on the emitting footprint; FSJ104686 p.5: 33 % of the first structure's embers land on the second (SS = SSD = 10 m) | **From the source's downwind edge** | Measured from the centroid the 1-D fraction is 20 %; from the downwind edge it is 33.3 % and the published ignition time (2,705 s) is reproduced (2,703 s). Qin25's own Test 6-1 (2,496.9 s to threshold, p.157) implies 31 % |
-| C16 | Wind in the Himoto PDF | FSJ104686 p.3 quotes X_max 65 / 84 / 109 m "in a 40-mph wind, u_wind = 17.9 m/s" (the 6.1 m wind of p.3) | **10 m wind** (= 1.15 × 6.1 m) in B* | With 17.9 m/s in B* the published equations give 62 / 80 / 103 m; with 1.15 × 17.9 = 20.6 m/s they give 65.2 / 84.4 / 108.8 m. Qin25 p.72 says the PDFs use the 10 m wind. Inferred, not stated |
-| C17 | Wind in the Sardoy PDF | Qin25 p.72: "ambient wind velocity measured at 10-meter elevation"; Qin25 p.124 worked case: μ = 2.18, σ = 1.23 at 6.71 m/s "measured at 6.1 m" | **6.1 m wind** | Only the 6.1 m wind reproduces the worked values (2.215 with the 10 m wind) |
-| C18 | Sardoy fireline-intensity unit | FSJ104651 SI: I_f in kW/m; Qin25 eq 4.2: I_B in MW/m | **MW/m** | With kW/m the p.124 case gives μ ≈ 13 (flight distances of e^13 m); MW/m reproduces μ = 2.18 |
-| C19 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
+| C15 | Himoto crosswind ember spread | HT08 eq 39: σ_Y/D = 0.92 (author manuscript); LD10 p.682 reproduces the same model with p_Y ~ N(0, 0.092 R_f) | **HT08 (0.92)** | Primary source; LD10's 0.092 is a factor of 10 smaller and is taken as a transcription error. Matters only if the structure-ember stage (§6) uses the crosswind spread |
+| C16 | Where the flight distance starts | Qin25 §6.3.1 (p.170): emission from the centre, nothing lands on the emitting footprint; FSJ104686 p.5: 33 % of the first structure's embers land on the second (SS = SSD = 10 m) | **From the source's downwind edge** | Measured from the centroid the 1-D fraction is 20 %; from the downwind edge it is 33.3 % and the published ignition time (2,705 s) is reproduced (2,703 s). Qin25's own Test 6-1 (2,496.9 s to threshold, p.157) implies 31 % |
+| C17 | Wind in the Himoto PDF | FSJ104686 p.3 quotes X_max 65 / 84 / 109 m "in a 40-mph wind, u_wind = 17.9 m/s" (the 6.1 m wind of p.3) | **10 m wind** (= 1.15 × 6.1 m) in B* | With 17.9 m/s in B* the published equations give 62 / 80 / 103 m; with 1.15 × 17.9 = 20.6 m/s they give 65.2 / 84.4 / 108.8 m. Qin25 p.72 says the PDFs use the 10 m wind. Inferred, not stated |
+| C18 | Wind in the Sardoy PDF | Qin25 p.72: "ambient wind velocity measured at 10-meter elevation"; Qin25 p.124 worked case: μ = 2.18, σ = 1.23 at 6.71 m/s "measured at 6.1 m" | **6.1 m wind** | Only the 6.1 m wind reproduces the worked values (2.215 with the 10 m wind) |
+| C19 | Sardoy fireline-intensity unit | FSJ104651 SI: I_f in kW/m; Qin25 eq 4.2: I_B in MW/m | **MW/m** | With kW/m the p.124 case gives μ ≈ 13 (flight distances of e^13 m); MW/m reproduces μ = 2.18 |
+| C20 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500
 kJ/m² (IJWF24, "qualitative" combustibility scale); structure GR' 10 pcs/(MW·s); FSJ104651's 10
@@ -498,7 +530,7 @@ FireSim's plan:
      unrecorded demolitions in the business district at 21:30 (a likely source of false
      positives).
 
-7. **Ember ignition at Jasper (2026-10-10, [R12]; `--embers`, `PREREG_EMBERS`, committed
+7. **Ember ignition at Jasper (2026-10-10, [R16]; `--embers`, `PREREG_EMBERS`, committed
    `ccce4d6` before scoring).** Same units, seeds, wind, window and baselines as item 6; ember
    values from §6.1; no wildland source (structure-only run).
    - **No building was ignited by embers in any of the 17 pre-registered runs** (150 or
@@ -546,7 +578,7 @@ FireSim's plan:
   by buildings, and California-tuned generation (GR' 10 [T]). At the 150 kW/m² default it almost
   never ignites a building (§6.1); at Jasper it ignited none in 17 runs (§8 item 7). With Hamada on
   it double counts embers, which Hamada's empirical rate already includes (Qin25 p.177). The wind
-  heights in the transport PDFs are inferred from the published check values (C16, C17), and the
+  heights in the transport PDFs are inferred from the published check values (C17, C18), and the
   wildland coupling (Sardoy from 50 m FBP cells at crown-fire intensities) is outside the range the
   correlation was shown for (Qin25 Fig. 6.2: I ≤ 0.5 MW/m).
 - Without the ember option, ember ignition, the main WUI loss mechanism, is not in the Hamada stage except implicitly

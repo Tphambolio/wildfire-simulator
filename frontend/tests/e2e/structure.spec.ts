@@ -57,6 +57,11 @@ async function enableStructureSpread(page: Page) {
   await expect(embers).not.toBeChecked();
   await expect(embers).toBeDisabled();
   await box.check();
+  // The option's explanation is in the "Illustrative" badge tooltip (no label title)
+  const optBadge = page.locator(".setup-panel .with-tip", { has: box }).getByRole("button", { name: "Illustrative" });
+  await optBadge.focus();
+  await expect(page.locator(`[id="${await optBadge.getAttribute("aria-describedby")}"]`)).toContainText("Hamada model");
+  await page.keyboard.press("Escape");
   await expect(embers).toBeEnabled();
   await embers.check();
 }

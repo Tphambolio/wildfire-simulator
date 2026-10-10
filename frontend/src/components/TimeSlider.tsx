@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BurningPeriod, SimulationFrame } from "../types/simulation";
 import { clockAt, formatClock, formatElapsed, zoneAbbrev } from "../utils/time";
 import { formatBurningPeriod, inBurningPeriod, offPeriods } from "../utils/skillOptions";
+import Badge from "./Badge";
 
 interface TimeSliderProps {
   frames: SimulationFrame[];
@@ -99,9 +100,7 @@ export default function TimeSlider({
   if (frames.length < 2) {
     return (
       <div className="time-slider time-slider-empty">
-        <span className="hint-sm">
-          Timeline: after a run, scrub and play the fire by clock time (America/Edmonton).
-        </span>
+        <span className="hint-sm">Timeline appears after a run</span>
       </div>
     );
   }
@@ -194,9 +193,9 @@ export default function TimeSlider({
         ) : null}
         <span className={now ? "ts-now-elapsed" : "ts-now-clock"}>{elapsed}</span>
         {outside && (
-          <span className="ts-now-off" title={`Outside the burning period ${bpLabel}: no spread is modelled`}>
+          <Badge tone="warn" className="ts-now-off" tip={`Outside the burning period ${bpLabel}: no spread is modelled.`}>
             No spread
-          </span>
+          </Badge>
         )}
       </div>
 

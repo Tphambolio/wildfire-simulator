@@ -36,6 +36,21 @@ contact at 10 m); 10-30 m radiant zone (NRC 2021 p.27: "a 30 m distance is often
 limit for significant radiative heating"); 30-100 m short-range ember zone; 100-500 m long-range
 ember zone.
 
+Support for the bands (checked 2026-10-10):
+- ICFME (as reviewed by Caton et al. 2017, *Fire Technol.* 53, p.437): crown fires ignited only
+  half of the wood wall panels at 10 m (radiant flux up to 150 kW/m2); no panel at 20 m or beyond
+  ignited and flux there never exceeded 20 kW/m2. SIAM-type worst-case calculations put the
+  limit for radiant ignition by the most intense crown fire at about 40 m (same page), so the
+  30 m radiant band is a typical, not an absolute, limit.
+- Defensible space, San Diego County 2001-2010, 1,000 destroyed and 1,000 surviving structures
+  (Syphard et al. 2014, *IJWF* 23, abstract p. A and Discussion p. H of the letter-paged online
+  version): the most effective clearance was 5-20 m depending on slope, and clearance beyond
+  30 m gave no significant extra protection; the largest drop in loss was from 0-7 m to 8-15 m
+  (Table 2, p. G). This supports 10 m and 30 m as meaningful break points, but it is southern
+  California shrubland under Santa Ana winds, not boreal or aspen parkland; it measures loss,
+  not exposure; and the authors attribute the lack of benefit beyond 30 m to ember ignition
+  (p. I), which these bands do not model.
+
 ## Radiant model
 
 Cohen's Structure Ignition Assessment Model (SIAM; Cohen 2004, CJFR 34: 1616-1626):
@@ -43,7 +58,9 @@ Cohen's Structure Ignition Assessment Model (SIAM; Cohen 2004, CJFR 34: 1616-162
 - Flux at a wall element: `q = F E`, with `F` the view factor from the element to the flame and
   `E` the flame emissive power. `E = sigma T^4` with T = 1200 K and emissivity 1 gives
   117.6 kW/m2 (Cohen's scenario); a second scenario uses 200 kW/m2, the top of the 150-200 kW/m2
-  measured for thick crown-fire flames (NRC 2021 p.27). Flux is reported with 117.6; the
+  measured for thick crown-fire flames (NRC 2021 p.27). Field radiometers beneath crown fires
+  have recorded peak irradiance of 200-300 kW/m2 (100 for surface fires, 132 for shrub; Caton
+  et al. 2017 p.437), so 200 kW/m2 is not an upper bound of measured values. Flux is reported with 117.6; the
   flux-time index is reported for both.
 - Flux-time criterion (Cohen 2004 eqs 2-4, after Tran et al. 1992):
   `FTP = integral of (q - 13.1)^1.828 dt`, ignition of wood when FTP >= 11,501 (kW/m2)^1.828 s.
@@ -54,7 +71,8 @@ Cohen's Structure Ignition Assessment Model (SIAM; Cohen 2004, CJFR 34: 1616-162
 **Flames from the grid run.** Each burned cell is a vertical flame panel, one cell wide, facing
 the local spread direction (the arrival-time gradient). Flame height is the flame length from
 the cell's fireline intensity: Byram (1959) `0.0775 I^0.46` for surface fire, Thomas (1963)
-`0.0266 I^(2/3)` when CFB >= 0.1 (Alexander & Cruz 2012). A panel is present while the front
+`0.0266 I^(2/3)` when CFB >= 0.1 (suggested for crown fires by Rothermel 1991, via Alexander &
+Cruz 2012, p.99; approximate for crown fires). A panel is present while the front
 crosses its cell (cell size / normal spread rate), so one panel carries the moving flame face;
 where the front stops (fuel edge, barrier, end of run) it keeps flaming for a residence time of
 60 s (NRC p.27: ~30 s; Cohen 2000: 50-70 s; Westhaver 2017: 60-90 s).
@@ -75,7 +93,8 @@ Conservative (raise the numbers):
 
 Not conservative (lower the numbers):
 - vertical flames (no wind tilt toward downwind buildings);
-- no convective heating or direct flame contact beyond the distance band;
+- no convective heating or direct flame contact beyond the distance band (flame contact gives
+  about 20-40 kW/m2 for turbulent and 50-70 kW/m2 for laminar flames, Caton et al. 2017 p.438);
 - only the modelled wildland front radiates; burning buildings, sheds, fences, vehicles and
   yard fuels, usually the main sources in a WUI fire, are not modelled;
 - no embers: the distance bands mark the ember zones but no ember exposure is computed.
@@ -127,5 +146,14 @@ or loss prediction.
   urban conflagration models. *Fire Safety J.* 162: 104686.
 - Himoto, K., Tanaka, T. (2008). Development and validation of a physics-based urban fire
   spread model. *Fire Safety J.* 43(7): 477-494.
-- Tran, H.C. et al. (1992). Wood ignition with radiant heat. In *Fire and Flammability of
-  Furnishings and Contents of Buildings*, ASTM STP 1233. (Via Cohen 2004; not checked here.)
+- Caton, S.E., Hakes, R.S.P., Gorham, D.J., Zhou, A., Gollner, M.J. (2017). Review of pathways
+  for building fire spread in the wildland urban interface Part I: exposure conditions.
+  *Fire Technol.* 53: 429-473. doi:10.1007/s10694-016-0589-z
+- Syphard, A.D., Brennan, T.J., Keeley, J.E. (2014). The role of defensible space for
+  residential structure protection during wildfires. *Int. J. Wildland Fire* 23: 1165-1175.
+  doi:10.1071/WF13158 (read as the letter-paged online-early version)
+- Tran, H.C., Cohen, J.D., Chase, R.A. (1992). Modeling ignition of structures in
+  wildland/urban interface fires. In *Proceedings: 1st International Fire and Materials
+  Conference*, Arlington, Virginia, 24-25 September 1992. Inter Science Communications, London,
+  pp. 253-262. (As cited in Cohen 2004, checked against Cohen's reference list; the paper itself
+  not read.)
