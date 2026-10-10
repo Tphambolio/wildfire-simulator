@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,7 @@ from firesim.validation.ensemble_scores import (
     crps_ensemble,
     log_area,
     score_ensemble_day,
+    spread_skill,
     summarize_ensemble,
 )
 
@@ -25,6 +27,41 @@ def test_crps_one_member_is_absolute_error_and_spread_helps():
     # an ensemble that brackets the observation beats its own mean's absolute error
     assert crps_ensemble(np.array([0.0, 2.0]), 1.0) == pytest.approx(0.5)
     assert crps_ensemble(np.array([1.0, 1.0]), 1.0) == pytest.approx(0.0)
+
+
+def test_crps_is_the_empirical_cdf_integral():
+    # Gneiting & Raftery (2007) eq. 20 (p. 367): CRPS = integral of (F(y) - 1{y >= x})^2 dy;
+    # eq. 21's kernel form over all N^2 member pairs must equal it for the empirical F
+    rng = np.random.default_rng(1)
+    x, y = rng.normal(size=7), 0.3
+    grid = np.linspace(-10, 10, 200001)
+    F = (x[None, :] <= grid[:, None]).mean(axis=1)
+    g = (F - (grid >= y)) ** 2
+    integral = float(np.sum(0.5 * (g[1:] + g[:-1]) * np.diff(grid)))  # trapezoid rule
+    assert crps_ensemble(x, y) == pytest.approx(integral, abs=1e-3)
+
+
+def test_spread_skill_follows_fortin_eq15():
+    # Members and observation drawn from the same distribution each day (exchangeable): the
+    # finite-ensemble ratio of Fortin et al. (2014) eq. 15 is 1; without the (N + 1) / N
+    # correction it would be sqrt(6 / 5) = 1.095 for N = 5
+    rng = np.random.default_rng(20261010)
+    t, n = 20000, 5
+    centre = rng.normal(0.0, 2.0, size=t)
+    scale = rng.uniform(0.2, 2.0, size=t)  # spread varies from day to day
+    members = [c + s * rng.normal(size=n) for c, s in zip(centre, scale)]
+    obs = centre + scale * rng.normal(size=t)
+    ss = spread_skill(members, obs)
+    assert ss["ratio"] == pytest.approx(1.0, abs=0.02)
+    assert ss["rmse"] / ss["rms_spread"] == pytest.approx(math.sqrt(6 / 5), abs=0.03)
+    # average spread is sqrt(mean variance) (eq. 16); the mean sd is biased low (p. 1711)
+    assert ss["mean_sd"] < ss["rms_spread"]
+    # a constant bias inflates the ratio; the debiased ratio is unaffected
+    biased = spread_skill(members, obs - 1.5)
+    assert biased["bias"] == pytest.approx(1.5, abs=0.05)
+    assert biased["ratio"] > 1.3
+    assert biased["ratio_debiased"] == pytest.approx(ss["ratio_debiased"], abs=1e-9)
+    assert biased["ratio_debiased"] == pytest.approx(1.0, abs=0.02)
 
 
 def _day(member_masks, det_mask, obs_mask, prior=None):

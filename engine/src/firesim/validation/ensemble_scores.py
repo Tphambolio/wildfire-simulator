@@ -13,11 +13,34 @@ Per fire-day (``score_ensemble_day``) and pooled over fire-days (``summarize_ens
   of observed growth), F1 and area.
 - **Burned area**: each member's growth area against the observed growth area: rank of the
   observation among the members (rank histogram), whether it falls inside the members'
-  10th-90th percentile range (should be ~80 % of fire-days), and the CRPS of log10 area
-  (Hersbach 2000; the ensemble estimator of Gneiting & Raftery 2007, eq. 21).
-- **Spread-skill**: ensemble spread (sd of member log10 area) against the error of the
-  ensemble mean; for a calibrated ensemble the mean squared error equals the mean variance
-  times (N + 1) / N (Fortin et al. 2014).
+  10th-90th percentile range (should be ~80 % of fire-days), and the CRPS of log10 area.
+  CRPS in negative orientation (lower is better): ``E|X - y| - 0.5 E|X - X'|`` with X, X'
+  independent draws from the forecast. Gneiting & Raftery (2007, JASA 102: 359-378) eq. 21
+  (p. 367) prints the positively oriented form ``0.5 E|X - X'| - E|X - y|``; the negative form is
+  the unnumbered CRPS* display that follows it on the same page. Taking X from the N members
+  with equal weights (all N^2 pairs, i = j included) gives the CRPS of the members' empirical
+  distribution exactly, the quantity Hersbach (2000) computes from the order statistics (G&R
+  p. 367). It reduces to the absolute error for one member (G&R p. 367).
+- **Spread-skill** (Fortin et al. 2014, J. Hydrometeor. 15: 1708-1713): the root-mean-square
+  error of the ensemble mean over T fire-days against the ensemble spread, both in log10 area.
+  Per day the spread is the unbiased member variance s_t^2 (divisor N - 1, Fortin eq. 9,
+  p. 1710); the average spread is the square root of the *mean variance*, not the mean
+  standard deviation (eq. 16, p. 1711: the mean sd "necessarily leads to a smaller value" and
+  false diagnoses of under-dispersion). For a finite ensemble whose members and observation are
+  exchangeable, ``MSE ~ (N + 1) / N * mean(s_t^2)`` (eq. 14; RMSE form eq. 15, p. 1711), so
+  ``spread_skill_ratio = RMSE / sqrt((N + 1) / N * mean(s_t^2))`` is 1 for a reliable
+  ensemble, > 1 under-dispersed. Bias inflates the RMSE and can also produce a false
+  under-dispersion diagnosis (Fortin p. 1712), so the ratio is also reported with the mean
+  error removed (``spread_skill_ratio_debiased``; MSE = error variance + bias^2, Fortin
+  p. 1710).
+
+Proper scores (Brier, CRPS) are the ranking criteria. Skill scores (``bss_*``, ``crpss_vs_det``)
+are reported for orientation only: skill scores of the form of G&R eq. 8 are "generally
+improper, even if the underlying scoring rule S is proper" (G&R p. 362). Scores compare
+settings only on the same fire-days and cells (G&R p. 362); ``brier`` is computed on a fixed
+cell set per fire-day for that reason. ``brier_near`` uses the cells any member, the
+deterministic run or reality burned, a set that changes with the forecast, so it is a
+diagnostic and must not be used to rank settings.
 
 Scores are on the burn day's *growth*: the starting fire (cells burned before the burn day,
 or burning at t = 0 in any member) is excluded from prediction and observation alike, as in
@@ -37,10 +60,11 @@ FOOTPRINT_LEVELS = (10, 50, 90)
 
 
 def crps_ensemble(members: np.ndarray, obs: float) -> float:
-    """CRPS of an ensemble (equal weights) against a scalar observation.
+    """CRPS of an ensemble (equal weights) against a scalar observation, lower is better.
 
-    Gneiting & Raftery (2007) eq. 21: E|X - y| - 0.5 E|X - X'|. Equals the absolute error
-    for a one-member (deterministic) forecast.
+    ``E|X - y| - 0.5 E|X - X'|`` over the members' empirical distribution (all N^2 pairs):
+    the negatively oriented form of Gneiting & Raftery (2007) eq. 21, p. 367. Equals the
+    absolute error for a one-member (deterministic) forecast.
     """
     x = np.asarray(members, dtype=float)
     return float(np.mean(np.abs(x - obs)) - 0.5 * np.mean(np.abs(x[:, None] - x[None, :])))
@@ -48,6 +72,37 @@ def crps_ensemble(members: np.ndarray, obs: float) -> float:
 
 def log_area(ha) -> np.ndarray:
     return np.log10(np.asarray(ha, dtype=float) + AREA_FLOOR_HA)
+
+
+def spread_skill(members: list[np.ndarray], obs: np.ndarray) -> dict:
+    """Spread-skill of T forecasts of a scalar (Fortin et al. 2014, eqs. 9, 14-16).
+
+    ``members``: T arrays of N member values (N >= 2, the same N for every forecast);
+    ``obs``: the T observations. Returns the RMSE of the ensemble mean, the average spread
+    as the square root of the mean unbiased member variance (eq. 16), the finite-ensemble
+    ratio ``RMSE / sqrt((N + 1) / N * mean(s_t^2))`` (eq. 15), the same ratio with the mean
+    error (bias) removed from the RMSE, the mean standard deviation (the *incorrect* average
+    spread of Fortin p. 1711, kept for comparison with earlier runs), the bias and the
+    correlation of spread with absolute error.
+    """
+    obs = np.asarray(obs, dtype=float)
+    n = len(members[0])
+    var = np.array([np.var(m, ddof=1) for m in members])  # s_t^2, eq. 9
+    err = np.array([np.mean(m) for m in members]) - obs
+    rmse = float(np.sqrt(np.mean(err ** 2)))
+    bias = float(np.mean(err))
+    err_sd = float(np.sqrt(max(np.mean(err ** 2) - bias ** 2, 0.0)))  # MSE - bias^2
+    denom = float(np.sqrt(np.mean(var) * (n + 1) / n))
+    sd = np.sqrt(var)
+    return {
+        "rmse": rmse,
+        "rms_spread": float(np.sqrt(np.mean(var))),
+        "mean_sd": float(np.mean(sd)),
+        "ratio": rmse / denom if denom > 0 else math.nan,
+        "ratio_debiased": err_sd / denom if denom > 0 else math.nan,
+        "bias": bias,
+        "corr": float(np.corrcoef(sd, np.abs(err))[0, 1]) if len(obs) > 2 else math.nan,
+    }
 
 
 def score_ensemble_day(dob: np.ndarray, day: int, members: np.ndarray, det: np.ndarray,
@@ -141,11 +196,7 @@ def summarize_ensemble(recs: list[dict], window: str = "17h") -> dict:
     lo = np.array([np.percentile(m, 10) for m in mem_l])
     hi = np.array([np.percentile(m, 90) for m in mem_l])
     inside = (obs_l >= lo) & (obs_l <= hi)
-    spread = np.array([np.std(m, ddof=1) for m in mem_l])
-    err = np.array([np.mean(m) for m in mem_l]) - obs_l
-    denom = np.sqrt(np.mean(spread ** 2) * (n + 1) / n)
-    ss_ratio = float(np.sqrt(np.mean(err ** 2)) / denom) if denom > 0 else math.nan
-    corr = float(np.corrcoef(spread, np.abs(err))[0, 1]) if len(rows) > 2 else math.nan
+    ss = spread_skill(mem_l, obs_l)
 
     def fp_mean(level: str, key: str) -> float:
         v = np.array([np.nan_to_num(r[level][key], nan=0.0) if key == "f1" else
@@ -183,8 +234,11 @@ def summarize_ensemble(recs: list[dict], window: str = "17h") -> dict:
         "coverage_p10_p90": float(np.mean(inside)),
         "below_p10": float(np.mean(obs_l < lo)), "above_p90": float(np.mean(obs_l > hi)),
         "rank_hist": np.bincount(np.clip(ranks, 0, n), minlength=n + 1).tolist(),
-        "spread_skill_ratio": ss_ratio, "spread_error_corr": corr,
-        "mean_spread_log10": float(np.mean(spread)),
-        "ens_mean_bias_log10": float(np.mean(err)),
+        "spread_skill_ratio": ss["ratio"], "spread_skill_ratio_debiased": ss["ratio_debiased"],
+        "spread_error_corr": ss["corr"],
+        "rmse_log10_ens_mean": ss["rmse"],
+        "rms_spread_log10": ss["rms_spread"],  # sqrt(mean variance): Fortin eq. 16
+        "mean_spread_log10": ss["mean_sd"],  # mean sd (biased low; Fortin p. 1711)
+        "ens_mean_bias_log10": ss["bias"],
         "footprints": footprints,
     }

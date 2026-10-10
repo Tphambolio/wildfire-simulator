@@ -14,10 +14,16 @@ The result is a 2D float array of shape (rows, cols) where each value is the
 fraction of iterations in which that cell burned — i.e., burn probability
 ∈ [0.0, 1.0].
 
-References:
-    Parisien, M.-A., & Moritz, M. A. (2009). Environmental controls on the
-    distribution of wildfire at multiple spatial scales. Ecological Monographs,
-    79(1), 127–154.
+Source note (2026-10-10): this module previously cited Parisien, M.-A., & Moritz, M.A.
+(2009), Environmental controls on the distribution of wildfire at multiple spatial scales,
+Ecological Monographs 79(1): 127-154. Checked against the paper, that citation does not
+support the method: Parisien & Moritz fit statistical fire-suitability models (Maxent and
+boosted regression trees, abstract p. 127) to historical fire records; they do not simulate
+fire spread or compute burn probability by Monte Carlo. The method here (perturbed inputs to
+a deterministic spread model, burn probability = fraction of runs burning a cell) has no
+verified published source in this repo and is illustrative only. Simulation-based burn
+probability (e.g. Burn-P3, Parisien et al. 2005) is a separate, more complete method that is
+not implemented and whose report has not been checked here.
 """
 
 from __future__ import annotations
