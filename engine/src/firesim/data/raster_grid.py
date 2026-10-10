@@ -41,22 +41,43 @@ def source_resolution_m(src) -> float:
     return min(ry * M_PER_DEG_LAT, rx * M_PER_DEG_LAT * math.cos(mid))
 
 
+def categorical_resampling(target_resolution_m: float, source_m: float) -> Resampling:
+    """Resampling for a categorical raster (fuel codes): majority (mode) when coarsening,
+    nearest neighbour otherwise.
+
+    Nearest neighbour is a point sample: coarsening the Edmonton 20 m fuel grid to 50 m with it
+    keeps one source cell in about 6.25 and discards the rest (84 % of source cells), so a 50 m
+    cell's class is whatever happens to lie under its centre. The mode takes the class covering
+    most of the 50 m cell (GDAL ``mode``: no-data source pixels are ignored, ties go to the
+    first class found). Neither keeps sub-cell non-fuel strips such as roads (a 20 m strip is a
+    minority of a 50 m cell); only a finer grid does (``firesim.spread.wui_window``). For a
+    grid at or finer than the source (refining, or reprojecting at the same size) every target
+    cell lies in one source cell and nearest neighbour is exact.
+    """
+    return Resampling.mode if float(target_resolution_m) > source_m * 1.001 else Resampling.nearest
+
+
 def read_to_latlng(
     path: str,
     target_resolution_m: float,
-    resampling: Resampling,
+    resampling: Resampling | str,
     dtype: str,
     dst_nodata: float,
 ) -> LatLngRaster:
     """Reproject band 1 of ``path`` onto a lat/lng grid of about ``target_resolution_m`` cells.
 
     The grid is never finer than the source (no upsampling). Cells outside the source
-    footprint get ``dst_nodata``.
+    footprint get ``dst_nodata``. ``resampling="categorical"`` picks
+    ``categorical_resampling`` (mode when coarsening, nearest otherwise).
     """
     with rasterio.open(path) as src:
         if src.crs is None:
             raise ValueError(f"Raster {path!r} has no CRS; cannot place it on the map")
         cell_m = max(float(target_resolution_m), source_resolution_m(src))
+        if isinstance(resampling, str):
+            if resampling != "categorical":
+                raise ValueError(f"Unknown resampling {resampling!r}")
+            resampling = categorical_resampling(cell_m, source_resolution_m(src))
         lng_min, lat_min, lng_max, lat_max = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
         mid = math.radians((lat_min + lat_max) / 2.0)
         dlat = cell_m / M_PER_DEG_LAT

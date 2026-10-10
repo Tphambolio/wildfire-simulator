@@ -28,6 +28,12 @@ Structure units are built from every footprint in the fuel grid's box, as the AP
 (``BuildingIndex.building_geoms_in_bbox``). The default variant is checked against the counts
 the ``Simulator`` itself returns with ``structure_spread=True``.
 
+``--grid`` (2026-10-10, mechanics decision M5) picks the FBP grid: ``wui20`` (default, as the
+API: 50 m majority-class grid, run repeated at the native 20 m in a window around the fire
+when buildings are near), ``mode50`` (50 m majority class only) or ``nearest50`` (50 m
+nearest neighbour, the grid of the 2026-10-09/10 results). Front contact is measured on the
+grid the run used (the 20 m crop when the window is used).
+
 Outputs are **aggregate only** (counts per hour, distances, graph statistics). No per-building
 list or time is written. Structure spread is illustrative and not validated in Canada; these
 are model-sensitivity numbers, not loss estimates.
@@ -56,6 +62,7 @@ sys.path.insert(0, str(REPO / "engine" / "src"))
 from firesim.data.building_index import BuildingIndex  # noqa: E402
 from firesim.data.dem_loader import load_terrain_grid  # noqa: E402
 from firesim.data.environment import load_environment_mask  # noqa: E402
+from firesim.data.fine_grid import FineFuelSource  # noqa: E402
 from firesim.data.fuel_loader import load_fuel_grid  # noqa: E402
 from firesim.fbp.constants import FuelType  # noqa: E402
 from firesim.fwi.calculator import FWICalculator  # noqa: E402
@@ -275,12 +282,16 @@ def main() -> int:
     ap.add_argument("--sites", nargs="*", default=list(SITES))
     ap.add_argument("--weather", nargs="*", default=list(WEATHER))
     ap.add_argument("--embers", action="store_true", help="add the ember-ignition variants")
+    ap.add_argument("--grid", choices=("wui20", "mode50", "nearest50"), default="wui20",
+                    help="FBP grid: 20 m WUI window (API default), 50 m majority, 50 m nearest")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     timings: dict = {}
 
     t0 = time.time()
-    fuel_grid = load_fuel_grid(str(FUEL))
+    fuel_grid = load_fuel_grid(str(FUEL),
+                               resampling="nearest" if args.grid == "nearest50" else "categorical")
+    fine = FineFuelSource.from_raster(str(FUEL)) if args.grid == "wui20" else None
     terrain = load_terrain_grid(str(DEM))
     bidx = BuildingIndex(str(BUILDINGS), str(NEIGHBOURHOODS))
     bbox = (fuel_grid.lat_min, fuel_grid.lat_max, fuel_grid.lng_min, fuel_grid.lng_max)
@@ -326,6 +337,7 @@ def main() -> int:
             "grid": [fuel_grid.rows, fuel_grid.cols],
             "duration_h": DURATION_H, "day_of_year": DAY_OF_YEAR, "grass_cure": GRASS_CURE,
             "seed": SEED, "spotting": False, "water_mask": False, "burning_period": None,
+            "grid_mode": args.grid,
             "weather": {k: {**w, **fwi_codes(w)} for k, w in WEATHER.items()},
             "variants": [{"name": n, "cutoff_m": c, "contact_m": k, "min_area_m2": m,
                           "contact_rule": rule} for n, c, k, m, rule in VARIANTS],
@@ -377,14 +389,18 @@ def main() -> int:
             )
             sim = _CapturingSimulator(config, fuel_grid=masked, terrain_grid=terrain,
                                       default_fuel=FuelType.C2, structure_spread=True,
-                                      structure_footprints=footprints)
+                                      structure_footprints=footprints, fine_fuel=fine,
+                                      fine_building_mask=bgeoms)
             t1 = time.time()
             frames = list(sim.run())
             fbp_s = round(time.time() - t1, 1)
             em = sim.captured_emitters
             last = frames[-1]
             engine_counts = last.structure_spread or {}
+            rg = sim._run_grid
+            run_bbox = (rg.lat_min, rg.lat_max, rg.lng_min, rg.lng_max)
             run = {
+                "grid": last.grid,
                 "fbp_area_ha": round(last.area_ha, 1),
                 "fbp_area_by_hour_ha": [round(f.area_ha, 1) for f in frames],
                 "max_hfi_kw_m": round(last.max_hfi_kw_m, 0),
@@ -409,7 +425,7 @@ def main() -> int:
                 lng = em.lng0 + np.asarray(em.x) / em.m_per_deg_lng
                 cx, cy = u.frame.to_local(lat, lng)
                 if rule == "cells":
-                    t_front = building_cell_contact_times(u, arrival, bbox, contact)
+                    t_front = building_cell_contact_times(u, arrival, run_bbox, contact)
                 else:
                     t_front = footprint_contact_times(u, cx, cy, em.start_min, em.cell_size,
                                                       contact)
@@ -440,7 +456,7 @@ def main() -> int:
                     run["variants"][name] = {"involved": 0}
                     continue
                 opts = EmberOptions(design_fire_kw_m2=dfire, gr_structure=gr, from_wildland=wild)
-                t_front = building_cell_contact_times(u, arrival, bbox, DEFAULT_CONTACT_M)
+                t_front = building_cell_contact_times(u, arrival, run_bbox, DEFAULT_CONTACT_M)
                 res = spread_with_embers(u, t_front, wind, duration_min=duration_min, embers=opts,
                                          wildland=WildlandSources.from_emitters(em, u.frame))
                 lat = em.lat0 + np.asarray(em.y) / em.m_per_deg_lat
@@ -454,8 +470,8 @@ def main() -> int:
                     # The engine's reachable-box build must give the same counts
                     t3 = time.time()
                     eng = structure_spread_for_grid_run(
-                        footprints, arrival, sim._schedule, duration_min, bbox=bbox,
-                        embers=opts, emitters=em)
+                        footprints, arrival, sim._schedule, duration_min, bbox=run_bbox,
+                        area_bbox=bbox, embers=opts, emitters=em)
                     c_eng = eng.counts_at(duration_min)
                     m["engine_reachable_build"] = {
                         k: c_eng.get(k) for k in ("units_built", "units_involved",

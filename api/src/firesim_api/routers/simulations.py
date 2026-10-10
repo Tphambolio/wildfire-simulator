@@ -70,6 +70,7 @@ def _frame_to_schema(frame: SimulationFrame, day: int | None = None, offset: int
         building_exposure_detail=frame.building_exposure_detail,
         structure_spread=getattr(frame, "structure_spread", None),
         structure_spread_detail=getattr(frame, "structure_spread_detail", None),
+        grid=getattr(frame, "grid", None),
     )
 
 

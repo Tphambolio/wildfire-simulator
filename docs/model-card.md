@@ -48,7 +48,7 @@ head fire intensity and FWI codes mean.
 | Fire behaviour | FBP System, 18 fuel types | ST-X-3 (1992), GLC-X-10 (2009); `cffdrs` |
 | Weather / moisture | FWI System; hourly FFMC | Van Wagner & Pickett (1985); Van Wagner (1977) PS-X-69; `cffdrs` |
 | Diurnal burning (opt-in in the API, on by default in the UI) | Hourly FFMC spin-up from 17:00 local before the start; burning period (spread only between set hours, 10-20 h validated; a point ignition outside it waits for it) | Beck et al. (2002); Lawson et al. (1996); Tymstra et al. (2010) |
-| Growth (spatial fuel) | Level set advected with the Huygens velocity of each cell's FBP ellipse | Richards (1990); Lautenberger (2013) (level-set framework only; discretisation differs, `docs/verification.md`) |
+| Growth (spatial fuel) | Level set advected with the Huygens velocity of each cell's FBP ellipse; 50 m cells (majority fuel class per cell), repeated on the fuel grid's native 20 m cells in a window around the fire when buildings are near and the fire is small enough (2026-10-10, M5; frame `grid`) | Richards (1990); Lautenberger (2013) (level-set framework only; discretisation differs, `docs/verification.md`) |
 | Growth (uniform fuel) | Huygens wavelets (convex front) | Richards (1990) |
 | Crown fire | Van Wagner (1977) initiation; CFB eq 58; C-6 crown rate | ST-X-3; Cruz et al. (2006) found foliar moisture matters much less than Van Wagner assumes (context, not implemented) |
 | Flame length | Byram (surface), Thomas (CFB >= 0.1; approximate for crown fires) | Byram's form: Alexander & Cruz (2012) Table 1, p.98; Thomas for crown fires suggested by Rothermel (1991), via Alexander & Cruz (2012) p.99 |
@@ -152,7 +152,9 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   default design fire it almost never ignites a building, and at Jasper 2024 it ignited none, so
   it does not explain the destroyed groups 250-500 m from the first ignitions. Front contact is measured from the building's own grid cells, so on the
   50 m grid it happens when the front reaches a cell next to the building's cells (typically
-  20-40 m, up to ~70 m from the footprint); this removed a grid artefact of the first rule
+  20-40 m, up to ~70 m from the footprint; 9-15 m, up to ~30 m, on the 20 m WUI window used near
+  buildings since 2026-10-10, which changed involved counts by −52 % to +33 % on the test sites
+  and made the 20 m fire areas 0-410 % larger); this removed a grid artefact of the first rule
   (contact 5 / 20 m had changed counts by −71 % to +557 %) and raised involved buildings by
   +38 % to +751 % on the test sites. Sensitivity on Edmonton footprints (2026-10-09,
   `scripts/structure_sensitivity.py`): involved buildings at 6 h change by −58 % to +170 % for a

@@ -9,7 +9,6 @@ import sys
 import numpy as np
 import rasterio
 import rasterio.errors
-from rasterio.warp import Resampling
 
 from firesim.fbp.constants import FuelType
 from firesim.data.raster_grid import read_to_latlng
@@ -296,18 +295,24 @@ def load_fuel_grid(
     water_path: str | None = None,
     buildings_path: str | None = None,
     code_scheme: str = "auto",
+    resampling: str = "categorical",
 ) -> FuelGrid:
     """Load a GeoTIFF fuel raster and return a FuelGrid.
 
     Args:
         path: Path to GeoTIFF with integer FBP fuel codes.
         target_resolution_m: Target cell size in meters for downsampling.
-            Smaller = more detail but more memory. Default 50m.
+            Smaller = more detail but more memory. Default 50m. Coarsening takes the
+            majority (mode) class of the source cells in each target cell; at or below the
+            source resolution cells are copied by nearest neighbour
+            (``firesim.data.raster_grid.categorical_resampling``).
         water_path: Optional path to water body GeoJSON for masking.
         buildings_path: Optional path to building footprint GeoJSON for masking.
         code_scheme: Raster code table: "auto" (detect from the codes present) or a
             key of CODE_SCHEMES ("edmonton_fbp", "uplvi", "canopy_lidar", "terra_pipeline",
             "cfs_national_2014", "cfs_national"; the last is never auto-detected).
+        resampling: "categorical" (default: mode when coarsening, nearest otherwise) or
+            "nearest" (the rule before 2026-10-10; kept for comparisons only).
 
     Returns:
         FuelGrid ready for use with Simulator.
@@ -330,10 +335,16 @@ def load_fuel_grid(
         _warn_geojson_crs(buildings_path, "buildings")
 
     # Reproject onto a regular lat/lng grid (FuelGrid indexes cells linearly in lat/lng).
-    # Nearest neighbour keeps the integer codes; float64 with NaN no-data covers integer
-    # and float rasters alike (normalize_fuel_codes rounds and fills).
+    # Mode (coarsening) and nearest neighbour both keep the integer codes; float64 with NaN
+    # no-data covers integer and float rasters alike (normalize_fuel_codes rounds and fills).
+    # Until 2026-10-10 coarsening was nearest neighbour, a point sample that discards ~84 % of
+    # the Edmonton 20 m cells (reports "Fuel type grids Canada global", "WUI 20 m grid").
     try:
-        grid = read_to_latlng(path, target_resolution_m, Resampling.nearest, "float64", np.nan)
+        from rasterio.warp import Resampling
+
+        grid = read_to_latlng(path, target_resolution_m,
+                              Resampling.nearest if resampling == "nearest" else "categorical",
+                              "float64", np.nan)
     except rasterio.errors.RasterioIOError as exc:
         raise rasterio.errors.RasterioIOError(
             f"Cannot open fuel grid GeoTIFF {path!r}: {exc}. "
