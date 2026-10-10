@@ -285,6 +285,14 @@ export interface CurrentWeather {
   data_timestamp: string | null;
   station_name: string | null;
   distance_km: number | null;
+  /** Date (YYYY-MM-DD, noon LST) the FWI codes are valid for */
+  codes_date?: string | null;
+  /** "today" | "yesterday" | "older" (station codes) | "estimate" (cold-start estimate) */
+  codes_status?: "today" | "yesterday" | "older" | "estimate" | null;
+  /** Age of the codes in words (also in `message`) */
+  codes_label?: string | null;
+  /** Open-Meteo model used for any value (null = station data only) */
+  weather_model?: string | null;
 }
 
 export interface ScenarioConfig {
