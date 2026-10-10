@@ -66,5 +66,14 @@ class Settings:
         """
         return os.environ.get("FIRESIM_WUI_FINE_GRID", "1").strip().lower() not in ("0", "false", "no", "off")
 
+    @property
+    def pyra_source(self) -> bool:
+        """Use Pyra's chain for the starting FWI codes (``/api/v1/weather/current`` "pyra" tier).
+
+        On unless ``FIRESIM_PYRA_SOURCE`` is ``0``, ``false``, ``no`` or ``off``. When off, or when
+        Pyra's chain has no value for the point, the CWFIS → archive → GEM chain is used.
+        """
+        return os.environ.get("FIRESIM_PYRA_SOURCE", "1").strip().lower() not in {"0", "false", "no", "off"}
+
 
 settings = Settings()
