@@ -5,7 +5,7 @@
  * the info tooltip. Illustrative — not validated in Canada (docs/structure-spread-spec.md §9).
  */
 import type { SimulationFrame } from "../types/simulation";
-import { STRUCT_B2B, STRUCT_FRONT, structureCaveat, structureSeries } from "../utils/structureSpread";
+import { STRUCT_B2B, STRUCT_EMBER, STRUCT_FRONT, structureCaveat, structureSeries } from "../utils/structureSpread";
 import InfoTip from "./InfoTip";
 
 interface StructureSpreadPanelProps {
@@ -24,7 +24,7 @@ export function StructureChart({ frames, frameIndex }: { frames: SimulationFrame
   const series = structureSeries(frames);
   if (series.length === 0) return null;
   const tMax = Math.max(...series.map((p) => p.t), 1e-6);
-  const nMax = Math.max(...series.map((p) => p.front + p.b2b), 1);
+  const nMax = Math.max(...series.map((p) => p.front + p.b2b + p.ember), 1);
   const bw = Math.max(2, Math.min(18, (W - 4) / series.length - 2));
   const x = (t: number) => 2 + (t / tMax) * (W - bw - 4);
   const y = (n: number) => H - 2 - (n / nMax) * (H - 6);
@@ -37,7 +37,7 @@ export function StructureChart({ frames, frameIndex }: { frames: SimulationFrame
       width="100%"
       height={H}
       role="img"
-      aria-label={`Buildings involved over the run: ${last.front + last.b2b} by ${last.t.toFixed(1)} h (${last.front} front contact, ${last.b2b} building to building)`}
+      aria-label={`Buildings involved over the run: ${last.front + last.b2b + last.ember} by ${last.t.toFixed(1)} h (${last.front} front contact, ${last.b2b} building to building${last.ember ? `, ${last.ember} ember ignition` : ""})`}
       data-testid="structure-chart"
     >
       <line x1={0} x2={W} y1={H - 2} y2={H - 2} className="struct-chart-axis" />
@@ -45,6 +45,15 @@ export function StructureChart({ frames, frameIndex }: { frames: SimulationFrame
         <g key={p.t} opacity={p.t <= cur + 1e-9 ? 1 : 0.35}>
           <rect x={x(p.t)} width={bw} y={y(p.front)} height={H - 2 - y(p.front)} fill={STRUCT_FRONT} />
           <rect x={x(p.t)} width={bw} y={y(p.front + p.b2b)} height={y(p.front) - y(p.front + p.b2b)} fill={STRUCT_B2B} />
+          {p.ember > 0 && (
+            <rect
+              x={x(p.t)}
+              width={bw}
+              y={y(p.front + p.b2b + p.ember)}
+              height={y(p.front + p.b2b) - y(p.front + p.b2b + p.ember)}
+              fill={STRUCT_EMBER}
+            />
+          )}
         </g>
       ))}
       <line
@@ -63,7 +72,7 @@ export default function StructureSpreadPanel({ frames, frameIndex, mapVisible, o
   const frame = frames[frameIndex] ?? null;
   const s = frame?.structure_spread ?? frames.find((f) => f.structure_spread)?.structure_spread ?? null;
   if (!s) return null;
-  const caveat = structureCaveat(s.label, s.neighbour_cutoff_m ?? 30);
+  const caveat = structureCaveat(s.label, s.neighbour_cutoff_m ?? 30, 50, s.embers ? s.design_fire_kw_m2 : undefined);
   const computed = s.computed !== false && s.units_involved != null;
   const cur = frame?.structure_spread;
   return (
@@ -84,6 +93,7 @@ export default function StructureSpreadPanel({ frames, frameIndex, mapVisible, o
                 ["Buildings involved", cur?.units_involved, null],
                 ["Front contact", cur?.units_front_contact, STRUCT_FRONT],
                 ["Building to building", cur?.units_structure_to_structure, STRUCT_B2B],
+                ...(s.embers ? ([["Ember ignition", cur?.units_ember, STRUCT_EMBER]] as const) : []),
               ] as const
             ).map(([label, n, color]) => (
               <div key={label} className="metric-row">
