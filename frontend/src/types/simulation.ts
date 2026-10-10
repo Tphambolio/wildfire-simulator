@@ -125,6 +125,21 @@ export interface SimulationFrame {
   // Opt-in structure spread (request structure_spread): modelled involvement counts
   structure_spread?: StructureSpreadSummary | null;
   structure_spread_detail?: StructureUnitDetail[] | null; // final frame only
+  // Grid runs: the grid the frame is on (20 m WUI window or 50 m; mechanics decision M5)
+  grid?: GridInfo | null;
+}
+
+/**
+ * The grid a grid-model frame is on. `cell_m` is 20 near buildings when the fuel grid's
+ * native 20 m window was used (`wui_window`), else 50; `reason` and `note` say why.
+ */
+export interface GridInfo {
+  cell_m: number;
+  wui_window: boolean;
+  reason: string; // "used" | "no_buildings" | "too_large" | "edge" | "no_native_grid"
+  note: string;
+  window?: number[]; // [lat_min, lat_max, lng_min, lng_max] when used
+  window_cells?: number;
 }
 
 /**
@@ -316,12 +331,40 @@ export interface CurrentWeather {
   distance_km: number | null;
   /** Date (YYYY-MM-DD, noon LST) the FWI codes are valid for */
   codes_date?: string | null;
-  /** "today" | "yesterday" | "older" (station codes) | "estimate" (cold-start estimate) */
-  codes_status?: "today" | "yesterday" | "older" | "estimate" | null;
+  /** "today" | "yesterday" | "older" (station codes) | "estimate" (cold-start estimate) |
+   *  "forecast" (Pyra, before noon LST) | "stepped" (Pyra, after noon LST, carried + stepped) */
+  codes_status?: "today" | "yesterday" | "older" | "estimate" | "forecast" | "stepped" | null;
   /** Age of the codes in words (also in `message`) */
   codes_label?: string | null;
   /** Open-Meteo model used for any value (null = station data only) */
   weather_model?: string | null;
+  /** Tier that answered: "pyra" | "cwfis" | "cwfis_archive" | "gem_estimate" (null = unavailable) */
+  source_tier?: "pyra" | "cwfis" | "cwfis_archive" | "gem_estimate" | null;
+  /** Details of the "pyra" tier (Pyra station, carried chain, step, peak-burn indices) */
+  pyra?: PyraDetails | null;
+}
+
+/** How the API's "pyra" tier got its codes (docs/api-reference.md). */
+export interface PyraDetails {
+  station_name: string;
+  station_lat: number;
+  station_lng: number;
+  station_distance_km: number;
+  page_url: string;
+  chain_source: "cwfis_live" | "pyra_cwfis_prev";
+  chain_station_name: string | null;
+  chain_station_id: string | null;
+  chain_distance_km: number | null;
+  chain_date: string | null;
+  step: "none" | "gem_noon_forecast" | "gem_noon" | "cwfis_obs";
+  rain_24h: number | null;
+  peak_wind_speed: number | null;
+  peak_isi: number | null;
+  peak_fwi: number | null;
+  carry_over_generated: string | null;
+  carry_over_url: string | null;
+  pyra_commit: string;
+  notes: string[];
 }
 
 export interface ScenarioConfig {

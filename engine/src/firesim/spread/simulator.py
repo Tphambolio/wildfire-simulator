@@ -80,6 +80,9 @@ class Simulator:
         structure_design_fire_kw_m2: int = 150,
         structure_burnout: bool = True,
         progress=None,
+        fine_fuel=None,
+        fine_building_mask: list | None = None,
+        wui_window=None,
     ):
         """Initialize simulator.
 
@@ -131,6 +134,15 @@ class Simulator:
                 then ("structures", None) before house-to-house spread when it is on, and
                 ("finishing", None) while frames are built. The Huygens model yields frames
                 as it goes, so callers can use the frame times instead.
+            fine_fuel: grid model, optional: the fuel raster at its native cell size
+                (``firesim.data.fine_grid.FineFuelSource``, 20 m for Edmonton). When given, a
+                point-ignition run whose window holds buildings is repeated at that size on a
+                crop around the 50 m fire (mechanics decision M5; ``firesim.spread.wui_window``)
+                and the 20 m result is returned if it fits the guards; otherwise the 50 m run.
+                Frames carry ``grid`` (cell size, whether the window was used, and why not).
+            fine_building_mask: footprints (lng/lat) masked as non-fuel on the 20 m crop: the
+                same buildings as the run grid's mask (default ``building_footprints``).
+            wui_window: ``WindowOptions`` (guards); default ``WindowOptions()``.
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -156,6 +168,11 @@ class Simulator:
         self.structure_design_fire_kw_m2 = int(structure_design_fire_kw_m2)
         self.structure_burnout = bool(structure_burnout)
         self.progress = progress
+        self.fine_fuel = fine_fuel
+        self.fine_building_mask = fine_building_mask
+        self.wui_window = wui_window
+        self._run_grid = fuel_grid  # the grid the frames are on (the 20 m crop when used)
+        self._grid_info: dict | None = None
         # Seed for ember spotting (config.seed, else a hash of the config): repeatable runs
         self.seed = config.resolved_seed()
         if active_edges is not None and fuel_grid is None:
@@ -312,14 +329,54 @@ class Simulator:
         """
         config = self.config
         self._schedule = self.weather_schedule()
+        fine = self._fine_window_applies()
+        share = 0.25 if fine else 1.0  # progress: the 50 m run, then the 20 m window run
 
-        ca_frames = run_cellular_simulation(
+        def run_on(grid, lo, hi, spot_spacing=None):
+            return self._run_grid_model(grid, (lambda f: self.progress("spread", lo + (hi - lo) * f))
+                                        if self.progress else None, spot_spacing)
+
+        ca_frames = run_on(self.fuel_grid, 0.0, share)
+        self._run_grid = self.fuel_grid
+        coarse_m = _grid_cell_m(self.fuel_grid)
+        self._grid_info = {"cell_m": round(coarse_m, 1), "wui_window": False,
+                           "reason": "no_native_grid", "note": "50 m cells"
+                           if abs(coarse_m - 50.0) < 1.0 else f"{coarse_m:.0f} m cells"}
+        if fine:
+            from firesim.spread.wui_window import run_with_window
+
+            res = run_with_window(
+                lambda g: run_on(g, share, 1.0, spot_spacing=3.0 * coarse_m),
+                self.fuel_grid, ca_frames, config.duration_hours * 60.0, self.fine_fuel,
+                ignition=(config.ignition_lat, config.ignition_lng),
+                has_buildings=self._has_buildings,
+                building_geoms=(self.fine_building_mask if self.fine_building_mask is not None
+                                else self.building_footprints),
+                options=self.wui_window,
+            )
+            ca_frames, self._run_grid, self._grid_info = res.frames, res.grid, res.summary()
+
+        if self.progress and self.structure_spread:
+            self.progress("structures", None)
+        exposure = self._building_exposure(ca_frames[-1].emitters if ca_frames else None,
+                                           config.duration_hours * 60.0)
+        structures = self._structure_spread(ca_frames[-1].emitters if ca_frames else None,
+                                            config.duration_hours * 60.0,
+                                            ca_frames[-1].arrival if ca_frames else None)
+        if self.progress:
+            self.progress("finishing", None)
+        yield from self._cellular_frames(ca_frames, exposure, structures)
+
+    def _run_grid_model(self, grid, progress, spot_spacing=None) -> list[CellularFrame]:
+        """The grid model on ``grid`` with this run's settings."""
+        config = self.config
+        return run_cellular_simulation(
             config={
                 "ignition_lat": config.ignition_lat,
                 "ignition_lng": config.ignition_lng,
                 "duration_hours": config.duration_hours,
             },
-            fuel_grid=self.fuel_grid,
+            fuel_grid=grid,
             conditions=self._schedule[0][1],
             default_fuel=self.default_fuel,
             spread_modifier_grid=self.spread_modifier_grid,
@@ -338,19 +395,46 @@ class Simulator:
             active_edges=self.active_edges,
             seed=self.seed,
             active_edge_buffer_m=self.active_edge_buffer_m,
-            progress=(lambda f: self.progress("spread", f)) if self.progress else None,
+            progress=progress,
+            spot_sample_spacing_m=spot_spacing,
         )
 
-        if self.progress and self.structure_spread:
-            self.progress("structures", None)
-        exposure = self._building_exposure(ca_frames[-1].emitters if ca_frames else None,
-                                           config.duration_hours * 60.0)
-        structures = self._structure_spread(ca_frames[-1].emitters if ca_frames else None,
-                                            config.duration_hours * 60.0,
-                                            ca_frames[-1].arrival if ca_frames else None)
-        if self.progress:
-            self.progress("finishing", None)
+    def _fine_window_applies(self) -> bool:
+        """The 20 m window is tried for point ignitions (and observed perimeters) when a native
+        grid finer than the run grid is given and the run grid has no per-cell canopy layers."""
+        g = self.fuel_grid
+        if self.fine_fuel is None or g is None or self.initial_burned:
+            return False
+        if g.cbh is not None or g.cfl is not None:
+            return False
+        return self.fine_fuel.cell_m < _grid_cell_m(g) * 0.95
 
+    def _has_buildings(self, bounds) -> bool:
+        """Any building footprint (or centroid) intersects ``bounds`` (lat_min, lat_max,
+        lng_min, lng_max)."""
+        import shapely
+
+        lat_min, lat_max, lng_min, lng_max = bounds
+        for geoms in (self.fine_building_mask, self.building_footprints):
+            if geoms:
+                if shapely.intersects(np.asarray(geoms, dtype=object),
+                                      shapely.box(lng_min, lat_min, lng_max, lat_max)).any():
+                    return True
+        if self.building_centroids:
+            c = np.asarray(self.building_centroids, dtype=float)
+            if np.any((c[:, 0] >= lat_min) & (c[:, 0] <= lat_max)
+                      & (c[:, 1] >= lng_min) & (c[:, 1] <= lng_max)):
+                return True
+        src = self.structure_footprints
+        if src is not None and hasattr(src, "count_intersecting"):
+            return src.count_intersecting(bounds) > 0
+        if isinstance(src, list) and src:
+            return bool(shapely.intersects(np.asarray(src, dtype=object),
+                                           shapely.box(lng_min, lat_min, lng_max, lat_max)).any())
+        return False
+
+    def _cellular_frames(self, ca_frames, exposure, structures) -> Generator[SimulationFrame, None, None]:
+        """SimulationFrames from the grid model's frames."""
         # Each frame's cells are a prefix of the final frame's (ordered by arrival), so the
         # cell dicts are built once and each frame takes a slice
         all_cells = [
@@ -431,6 +515,7 @@ class Simulator:
                 structure_spread_detail=(
                     structures.involved_detail() if structures and is_last else None
                 ),
+                grid=self._grid_info,
             )
 
     def _head_summary(self, head: dict | None) -> dict | None:
@@ -448,9 +533,9 @@ class Simulator:
 
     def _arrival_raster(self, arrival) -> dict | None:
         """Arrival minutes per fuel-grid cell (rounded; -1 = not burned), north row first."""
-        if arrival is None or self.fuel_grid is None:
+        if arrival is None or self._run_grid is None:
             return None
-        g = self.fuel_grid
+        g = self._run_grid
         minutes = np.where(np.isfinite(arrival), np.rint(arrival), -1).astype(np.int16)
         return {
             "rows": g.rows, "cols": g.cols,
@@ -506,10 +591,13 @@ class Simulator:
             from firesim.structures.embers import EmberOptions
 
             embers = EmberOptions(design_fire_kw_m2=self.structure_design_fire_kw_m2)
-        g = self.fuel_grid
+        g, area = self._run_grid, self.fuel_grid
         return structure_spread.structure_spread_for_grid_run(
             footprints, arrival, self._schedule, duration_min,
             bbox=(g.lat_min, g.lat_max, g.lng_min, g.lng_max),
+            # units and the reachable box over the whole run grid, also when the arrival
+            # grid is the 20 m window (building-to-building spread can leave the window)
+            area_bbox=(area.lat_min, area.lat_max, area.lng_min, area.lng_max),
             max_units=structure_spread.DEFAULT_MAX_UNITS,  # read at call time (OOM guard)
             embers=embers, emitters=emitters,
             burnout=self.structure_burnout,
@@ -711,6 +799,14 @@ class Simulator:
             num_fronts=num_fronts,
             buildings_at_risk=buildings_at_risk,
         )
+
+
+def _grid_cell_m(grid) -> float:
+    """Nominal cell size (m) of a lat/lng FuelGrid (the smaller side)."""
+    cell_lat = (grid.lat_max - grid.lat_min) / grid.rows
+    cell_lng = (grid.lng_max - grid.lng_min) / grid.cols
+    return min(cell_lat * 111320.0,
+               cell_lng * 111320.0 * math.cos(math.radians((grid.lat_max + grid.lat_min) / 2.0)))
 
 
 def _finite(v: float) -> float | None:

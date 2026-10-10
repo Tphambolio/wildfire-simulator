@@ -444,6 +444,9 @@ class SimulationFrame(BaseModel):
     # Final frame only: involved units for the map (id, t_h, mechanism, source_id, polygon);
     # illustrative, display only, never exported (docs/api-reference.md)
     structure_spread_detail: list[dict] | None = None
+    # Grid model: the grid the frame is on: {cell_m, wui_window, reason, note[, window,
+    # window_cells]}. cell_m 20 when the 20 m WUI window was used (mechanics decision M5)
+    grid: dict | None = None
 
 
 class SimulationResponse(BaseModel):

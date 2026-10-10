@@ -536,6 +536,7 @@ def structure_spread_for_grid_run(
     duration_min: float,
     *,
     bbox: tuple[float, float, float, float],
+    area_bbox: tuple[float, float, float, float] | None = None,
     neighbour_cutoff_m: float | None = None,
     contact_m: float = DEFAULT_WILDLAND_CONTACT_M,
     fb: float = DEFAULT_COMBUSTIBLE_FRACTION,
@@ -578,8 +579,13 @@ def structure_spread_for_grid_run(
             inf where unburned (``CAFrame.arrival``).
         schedule: the run's weather periods, ``[(start_min, SpreadConditions), ...]``.
         duration_min: run length.
-        bbox: the fuel grid's bounds ``(lat_min, lat_max, lng_min, lng_max)``: the run area
-            and the frame of ``arrival_min``.
+        bbox: the bounds ``(lat_min, lat_max, lng_min, lng_max)`` of ``arrival_min``'s grid.
+        area_bbox: the run area (units, reachable box, local frame centre); default ``bbox``.
+            With the 20 m WUI window (``firesim.spread.wui_window``) the arrival grid is a
+            crop of the run grid, and units are still taken over the whole run grid's box so
+            building-to-building spread is not cut at the crop edge (the crop holds every
+            burned cell more than ``edge_cells`` from its edge, so no unit outside it has
+            front contact).
         embers: ``EmberOptions`` to add ember ignition (opt-in), or ``None`` (Hamada only).
         emitters: the grid run's ``Emitters`` (burning cells with intensity), the wildland
             ember sources when ``embers.from_wildland``.
@@ -605,6 +611,8 @@ def structure_spread_for_grid_run(
         raise ValueError("design_fire_kw_m2 must match the ember design fire")
     burnout_min = burnout_minutes(design_fire_kw_m2) if burnout else None
     source = footprints if hasattr(footprints, "footprints_intersecting") else ListFootprintSource(footprints)
+    grid_bbox = bbox
+    bbox = grid_bbox if area_bbox is None else tuple(area_bbox)
     lat_min, lat_max, lng_min, lng_max = bbox
     units_in_run = source.count_in_box(bbox)
     if units_in_run == 0:
@@ -621,6 +629,7 @@ def structure_spread_for_grid_run(
 
     arrival_min = np.asarray(arrival_min, dtype=float)
     rows, cols = arrival_min.shape
+    g_lat_min, g_lat_max, g_lng_min, g_lng_max = grid_bbox
     burned = np.isfinite(arrival_min) & (arrival_min <= duration_min)
     if not burned.any():
         res = StructureSpreadResult(t_min=np.zeros(0), source=np.zeros(0, dtype=np.int8),
@@ -628,10 +637,10 @@ def structure_spread_for_grid_run(
                                     params=params, units_in_run=units_in_run, frame=frame,
                                     burnout_min=burnout_min)
         return res
-    dlat, dlng = (lat_max - lat_min) / rows, (lng_max - lng_min) / cols
+    dlat, dlng = (g_lat_max - g_lat_min) / rows, (g_lng_max - g_lng_min) / cols
     r_idx, c_idx = np.nonzero(burned.any(axis=1))[0], np.nonzero(burned.any(axis=0))[0]
-    b_lat = (lat_max - (r_idx.max() + 1) * dlat, lat_max - r_idx.min() * dlat)
-    b_lng = (lng_min + c_idx.min() * dlng, lng_min + (c_idx.max() + 1) * dlng)
+    b_lat = (g_lat_max - (r_idx.max() + 1) * dlat, g_lat_max - r_idx.min() * dlat)
+    b_lng = (g_lng_min + c_idx.min() * dlng, g_lng_min + (c_idx.max() + 1) * dlng)
     cw, ch = dlng * frame.m_per_deg_lng, dlat * M_PER_DEG_LAT
     k = int(np.abs(contact_offsets(contact_m, cw, ch)).max())
     contact_reach_m = (k + 2) * max(cw, ch)
@@ -656,7 +665,7 @@ def structure_spread_for_grid_run(
             return StructureSpreadSkipped(not_computed(units_in_run, needed, max_units, params))
         units = build_units(source.footprints_intersecting(reach), neighbour_cutoff_m=cutoff,
                             bbox=bbox, frame=frame)
-        t_front = building_cell_contact_times(units, arrival_min, bbox, contact_m)
+        t_front = building_cell_contact_times(units, arrival_min, grid_bbox, contact_m)
         result = spread_with_embers(units, t_front, wind, duration_min=duration_min, fb=fb,
                                     embers=embers, wildland=wildland, burnout_min=burnout_min)
         guard = cutoff + 1.0

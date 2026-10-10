@@ -36,6 +36,7 @@ function structPaint(t: number): { fill: maplibregl.ExpressionSpecification; lin
   const out: maplibregl.ExpressionSpecification = ["<=", ["get", "t_out_h"], t + 1e-6];
   return { fill: ["case", out, STRUCT_BURNT, STRUCT_COLOR], line: ["case", out, STRUCT_COLOR, STRUCT_EDGE] };
 }
+import { cellAreaWeight } from "../utils/gridCell";
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
 import { BADGES, TIPS } from "../content/explanations";
@@ -525,7 +526,9 @@ export default function MapView({
       type: "heatmap",
       source: "fire-heatmap",
       paint: {
-        "heatmap-weight": ["interpolate", ["linear"], ["get", "intensity"], 0, 0, 15000, 1],
+        // x the cell's area relative to 50 m (`cw`), so 20 m runs are not drawn denser
+        "heatmap-weight": ["*", ["coalesce", ["get", "cw"], 1],
+          ["interpolate", ["linear"], ["get", "intensity"], 0, 0, 15000, 1]],
         "heatmap-intensity": 1.5,
         "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 10, 8, 14, 25, 16, 40],
         "heatmap-color": [
@@ -1460,10 +1463,11 @@ export default function MapView({
         lat: number; lng: number; intensity: number; fire_type?: string;
       }>;
 
+      const cw = cellAreaWeight(currentFrame.grid);
       const features: GeoJSON.Feature[] = allCells.map((c) => ({
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: [c.lng, c.lat] },
-        properties: { intensity: c.intensity, fire_type: c.fire_type ?? "surface" },
+        properties: { intensity: c.intensity, fire_type: c.fire_type ?? "surface", cw },
       }));
 
       heatSrc.setData({ type: "FeatureCollection", features });

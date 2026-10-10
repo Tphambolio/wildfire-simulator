@@ -180,6 +180,15 @@ does not use Rothermel.
     the footprint was a median 22-42 m and at most ~70 m from the nearest burned cell edge), and
     involved buildings at 6 h rose by +38 % to +751 % against the first rule. The first rule is
     kept as `footprint_contact_times` for diagnostics only.
+  - *20 m cells near buildings* (2026-10-10, M5, [R18] in the record): when the run uses the 20 m
+    WUI window (`spread/wui_window.py`; frame `grid.cell_m` = 20) the same rule is applied on the
+    20 m crop: building cells are the 20 m cells a footprint touches, and contact is a burned 20 m
+    cell next to one. On the six sensitivity runs the footprint-to-burned-cell gap fell from a
+    median 22-42 m (max 64-78 m) to **9-15 m (max 24-30 m)**, close to the 10 m band. Contact
+    distances below 20 m still give one outcome (5 = 10 m); 20 m now adds a ring (+9 to +68 %
+    involved). Units are built over the whole run grid (`area_bbox`), so building-to-building
+    spread continues beyond the crop; the crop holds every burned cell more than 6 cells from its
+    edge, so no unit outside it has front contact.
 - **Wind**: the run's 10 m open wind (FBP input) for the weather period in force, converted to
   m/s. Hamada51's wind height is not stated in any source read [U]; FSJ104651 drove its runs with
   RTMA 10-minute mean wind (gust for Thomas; Table 2, p.5). FSJ104686 (p.3) flies embers at the
@@ -621,7 +630,11 @@ FireSim's plan:
   cutoffs 20-45 m [R8] (−48 % to +220 % with the first front-contact rule [R7]).
 - Front contact is measured from the building's grid cells (§3 [H]), so it is made at grid
   resolution: on the 50 m grid a building is reached when the front reaches a cell next to one
-  its footprint touches, typically 20-40 m and up to ~70 m from the footprint [R8]. It no longer
+  its footprint touches, typically 20-40 m and up to ~70 m from the footprint [R8]; with the 20 m
+  WUI window (2026-10-10, used when the fire is small enough) typically 9-15 m and up to ~30 m.
+  Fires over the window's guards (≈ 2,400 ha of 20 m burned cells) stay at 50 m.
+  Counts depend on the resolution: on the live reference request the 20 m run involved 29 units
+  (4 front) against 289 (27 front) at 50 m for the same burned area. It no longer
   depends on where a footprint sits inside its cell, but it still depends on which cells a
   footprint touches and on the grid's cell size and origin; `wildland_contact_m` has no effect
   below one cell. The fuel-grid building mask covers only the 4 neighbourhoods nearest the

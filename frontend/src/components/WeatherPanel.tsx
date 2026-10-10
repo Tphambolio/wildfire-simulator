@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast, FORECAST_MODEL_LABEL } from "../services/api";
+import { isPyraSource } from "../utils/weatherSource";
 import MultiDayPanel from "./MultiDayPanel";
 import SetupSection from "./SetupSection";
 import { edmontonDayOfYear, formatClock, formatDate, roundToMinute, toDateTimeInputs, toEdmontonIso, zonedWallTimeToMs, zoneAbbrev } from "../utils/time";
@@ -1166,6 +1167,10 @@ function WeatherPanel({
         {weatherManual ? (
           <div className="hint-sm weather-message" data-testid="weather-source">
             Manual <InfoTip label="About manual weather" text={TIPS.weatherManual} />
+          </div>
+        ) : isPyraSource(weatherSource) ? (
+          <div className="hint-sm weather-message" data-testid="weather-source" data-source-tier="pyra">
+            {weatherSource}
           </div>
         ) : (weatherSource || stationName) && (
           <div className="hint-sm weather-message" data-testid="weather-source">
