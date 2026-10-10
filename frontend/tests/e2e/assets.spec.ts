@@ -44,6 +44,15 @@ async function textBelow12px(page: Page): Promise<string[]> {
   });
 }
 
+/** Focus a badge or i button and return its open pop-up (the explanation moved off the panel). */
+async function tipOf(page: Page, trigger: ReturnType<Page["locator"]>) {
+  await trigger.focus();
+  const id = (await trigger.getAttribute("aria-describedby")) ?? (await trigger.getAttribute("aria-controls"));
+  const tip = page.locator(`[id="${id}"]`);
+  await expect(tip).toBeVisible();
+  return tip;
+}
+
 const reachedOnMap = async (page: Page): Promise<string[]> =>
   JSON.parse((await page.locator(".map-view-canvas").first().getAttribute("data-assets-reached")) ?? "[]");
 
@@ -56,7 +65,7 @@ test.describe("critical assets", () => {
     // Loaded with the Edmonton grid, before any run, without an upload
     await expect(card.locator(".assets-chip").first()).toBeVisible();
     await expect.poll(async () => Number(await page.locator(".map-view-canvas").first().getAttribute("data-assets"))).toBeGreaterThan(400);
-    await expect(card).toContainText("Run a simulation to see when the modelled fire reaches each asset.");
+    await expect(card).toContainText("Run a simulation to see when the modelled fire reaches each asset and major road.");
 
     await setIgnitionAtMapCentre(page);
     await runToCompletion(page);
@@ -69,10 +78,16 @@ test.describe("critical assets", () => {
     await expect(card.locator(".assets-group-h", { hasText: "Power plants and substations" })).toBeVisible();
     // Major roads reached, first reach per named road
     await expect(card.locator(".road-row").filter({ has: page.locator(".asset-row-name", { hasText: /^Anthony Henday Drive NW$/ }) })).toContainText(/Fire on the road by \d{2}:\d{2}/);
-    // Sources in the card footer
-    await expect(card.locator(".assets-sources")).toContainText("City of Edmonton Open Data");
-    await expect(card.locator(".assets-sources")).toContainText("Statistics Canada ODHF");
-    await expect(card.locator(".assets-sources")).toContainText("© OpenStreetMap contributors");
+    // "Model output" badge; the explanation and the sources are in its tooltip (and About & sources)
+    const badge = card.getByRole("button", { name: "Model output" });
+    await expect(badge).toBeVisible();
+    const tip = await tipOf(page, badge);
+    await expect(tip).toContainText("Model output, not an instruction");
+    await expect(tip.locator(".assets-sources")).toContainText("City of Edmonton Open Data");
+    await expect(tip.locator(".assets-sources")).toContainText("Statistics Canada ODHF");
+    await expect(tip.locator(".assets-sources")).toContainText("© OpenStreetMap contributors");
+    await page.keyboard.press("Escape");
+    await expect(tip).toBeHidden();
     // The map labels reached assets and draws reached roads
     await expect.poll(() => reachedOnMap(page)).toContain("Riverview Substation");
     await expect(page.locator(".map-asset-label", { hasText: "Riverview Substation" })).toHaveText(/ · 500 m by \d{2}:\d{2}$/);
@@ -108,30 +123,39 @@ test.describe("critical assets", () => {
     await setIgnitionAtMapCentre(page);
     await runToCompletion(page);
     const card = page.getByTestId("critical-assets");
-    await expect(card).toContainText("the ensemble's P10 (early end of the range, 1 in 10 members) first", { timeout: 30_000 });
-    await expect(card.locator(".asset-row").first()).toContainText(/Fire within 500 m by (\d{2}:\d{2}|not reached) \(P10\) · (\d{2}:\d{2}|not reached) \(single run\)/);
-    const summary = page.locator(".eoc-reached-section");
-    await expect(summary).toContainText("Assets reached by the modelled fire");
-    await expect(summary).toContainText("not an instruction");
-    await expect(summary).toContainText("ensemble P10 / single run");
+    await expect(card.locator(".asset-row").first()).toContainText(/Fire within 500 m by (\d{2}:\d{2}|not reached) \(P10\) · (\d{2}:\d{2}|not reached) \(single run\)/, { timeout: 30_000 });
+    const tip = await tipOf(page, card.getByRole("button", { name: "Model output" }));
+    await expect(tip).toContainText("the ensemble's P10 (early end of the range, 1 in 10 members) first");
+    await page.keyboard.press("Escape");
     await card.scrollIntoViewIfNeeded();
     await waitForMapQuiet(page);
     await shot(page, "ensemble");
     expect(await textBelow12px(page)).toEqual([]);
     expect(await seriousAxe(page)).toEqual([]);
+
+    // The full EOC summary is in the EOC Console (the Simulation tab keeps only its actions)
+    await expect(page.locator(".situation-panel .eoc-reached-section")).toHaveCount(0);
+    await page.getByRole("button", { name: /EOC Console/ }).click();
+    await page.getByRole("textbox", { name: "Incident name", exact: true }).fill("Assets check");
+    await page.getByRole("button", { name: "Open EOC Console" }).click();
+    const summary = page.locator(".eoc-reached-section");
+    await expect(summary).toContainText("Assets reached by the modelled fire");
+    const eocTip = await tipOf(page, summary.getByRole("button", { name: "Model output" }));
+    await expect(eocTip).toContainText("not an instruction");
+    await expect(eocTip).toContainText("ensemble P10 / single run");
   });
 
   test("data gaps: no EOC point, care facilities to verify, secondary roads and ramps reached", async ({ page }) => {
     await mockApi(page);
     await openApp(page);
     const card = page.getByTestId("critical-assets");
-    // Data notes in the card, before any run
-    const notes = card.locator(".assets-data-note");
+    // Data notes in the badge tooltip, before any run
     await expect(card).not.toContainText("Emergency Operations Centre");
-    await expect(notes.first()).toContainText(/care facilit(y is|ies are) in no current official list/);
-    await expect(card.locator(".assets-sources")).toContainText("Government of Alberta");
-    await card.locator(".assets-data-notes").scrollIntoViewIfNeeded();
+    const tip = await tipOf(page, card.getByRole("button", { name: "Model output" }));
+    await expect(tip.locator(".assets-data-note").first()).toContainText(/care facilit(y is|ies are) in no current official list/);
+    await expect(tip.locator(".assets-sources")).toContainText("Government of Alberta");
     await shot(page, "card_notes", "gaps");
+    await page.keyboard.press("Escape");
 
     await setIgnitionAtMapCentre(page);
     const t0 = Date.now();

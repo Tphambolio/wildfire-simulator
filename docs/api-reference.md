@@ -130,11 +130,19 @@ Get simulation status and results.
       "fuel_breakdown": {"C2": 1.0}
     }
   ],
-  "error": null
+  "error": null,
+  "phase": "finishing",
+  "progress": 1.0
 }
 ```
 
-Status values: `running`, `completed`, `failed`
+Status values: `running`, `completed`, `failed`, `cancelled`
+
+`phase` and `progress` (added 2026-10-10, optional, for progress display only; `null` before the
+run starts and for multi-day runs): `phase` is `loading` (fuel grid, DEM, water mask),
+`buildings` (building index and mask), `spread`, `structures` (house-to-house spread, only when
+requested) or `finishing` (frames being built); `progress` is the fraction of the run duration
+the spread has computed, 0-1. Clients that poll (no WebSocket) use them for the progress bar.
 
 **Grid-run frame fields** (spatial fuel grid):
 
@@ -168,10 +176,20 @@ Stream simulation frames in real-time.
 **Events received:**
 
 ```json
+{"type": "simulation.status", "simulation_id": "abc123", "phase": "spread", "progress": 0.42}
 {"type": "simulation.frame", "frame": { ... }}
 {"type": "simulation.completed"}
 {"type": "simulation.error", "error": "message"}
 ```
+
+`simulation.status` (added 2026-10-10; single runs and perimeter restarts) reports the run's
+phase while it computes: `loading`, `buildings`, `spread` (with `progress` 0-1, rounded to 3
+decimals, sent when it moves at least 2 points), `structures`, `finishing` (`progress` `null`
+outside `spread`). The grid model computes the whole run before its frames are sent, so this is
+the only progress a client sees until the frames arrive. A client that connects mid-run first
+gets the current phase. Display only: it never changes results, and clients that ignore unknown
+event types are unaffected. Cancelling (`{"action": "cancel"}`) now also stops a grid run
+during the spread computation (status `cancelled`, no frames).
 
 ### GET /api/v1/health
 

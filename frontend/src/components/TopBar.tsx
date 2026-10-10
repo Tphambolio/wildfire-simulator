@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { formatClock, formatDate, zoneAbbrev } from "../utils/time";
-
-const LIMITS_URL = "https://github.com/Tphambolio/wildfire-simulator/blob/master/docs/model-card.md";
+import { BADGES, TIPS } from "../content/explanations";
+import Badge from "./Badge";
 
 /** Wall clock in America/Edmonton, updated every 15 s. */
 export function EdmontonClock() {
@@ -23,19 +23,27 @@ export function EdmontonClock() {
   );
 }
 
-export type AppTab = "simulation" | "eoc";
+export type AppTab = "simulation" | "eoc" | "about";
 
 interface TopBarProps {
   incidentName: string | null;
-  incidentSub: string;
+  incidentSub: ReactNode;
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
   status: string | null;
   /** Run controls and exports, shown before the status badge */
   actions?: ReactNode;
+  /** Open About & sources at its Limits section (the low-skill badge) */
+  onOpenLimits?: () => void;
 }
 
-export default function TopBar({ incidentName, incidentSub, activeTab, onTabChange, status, actions }: TopBarProps) {
+const TABS: Array<[AppTab, string]> = [
+  ["simulation", "Simulation"],
+  ["eoc", "EOC Console"],
+  ["about", "About & sources"],
+];
+
+export default function TopBar({ incidentName, incidentSub, activeTab, onTabChange, status, actions, onOpenLimits }: TopBarProps) {
   return (
     <header className="top-bar">
       <div className="top-bar-brand">
@@ -49,35 +57,31 @@ export default function TopBar({ incidentName, incidentSub, activeTab, onTabChan
         <span className="top-bar-incident-sub">{incidentSub}</span>
       </div>
       <nav className="top-bar-nav" aria-label="Workspace">
-        <button
-          className={`nav-link${activeTab === "simulation" ? " active" : ""}`}
-          aria-current={activeTab === "simulation" ? "page" : undefined}
-          onClick={() => onTabChange("simulation")}
-        >
-          <span className="nav-link-num">1</span> Simulation
-        </button>
-        <button
-          className={`nav-link${activeTab === "eoc" ? " active" : ""}`}
-          aria-current={activeTab === "eoc" ? "page" : undefined}
-          onClick={() => onTabChange("eoc")}
-        >
-          <span className="nav-link-num">2</span> EOC Console
-        </button>
+        {TABS.map(([tab, label], i) => (
+          <button
+            key={tab}
+            className={`nav-link${activeTab === tab ? " active" : ""}`}
+            aria-current={activeTab === tab ? "page" : undefined}
+            onClick={() => onTabChange(tab)}
+          >
+            <span className="nav-link-num">{i + 1}</span> {label}
+          </button>
+        ))}
       </nav>
       <div className="top-bar-right">
         {actions}
         <span role="status" aria-live="polite" className="top-bar-status">
           {status && <span className={`status-badge status-${status}`}>{status}</span>}
         </span>
-        <a
+        <Badge
+          tone="warn"
           className="limits-badge"
-          href={LIMITS_URL}
-          target="_blank"
-          rel="noreferrer"
-          title="FBP equations match the cffdrs reference implementation and spread was compared with WISE. A first validation on 143 Alberta fire-days shows low one-day skill (F1 about 0.15-0.24) and over-predicted growth on most days, similar to WISE with default settings. Use for preparedness, training and what-if analysis, not as an operational forecast."
+          tip={TIPS.lowSkill}
+          onActivate={onOpenLimits ?? (() => onTabChange("about"))}
+          testId="limits-badge"
         >
-          Training &amp; planning tool · low one-day skill on observed fires
-        </a>
+          {BADGES.lowSkill}
+        </Badge>
         <EdmontonClock />
       </div>
     </header>

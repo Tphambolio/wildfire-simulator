@@ -21,6 +21,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import MapView from "./MapView";
 import EOCSummary from "./EOCSummary";
+import InfoTip from "./InfoTip";
+import { TIPS } from "../content/explanations";
 import AnnotationSymbolPicker, { SymbolIcon } from "./AnnotationSymbolPicker";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "./WeatherPanel";
@@ -481,7 +483,8 @@ export default function EOCConsole({
       {/* ── Console header ─────────────────────────────────────────── */}
       <div className="eoc-console-header">
         <div className="eoc-header-left">
-          {editingName ? (
+          {/* With an incident open, its name and ACTIVE status are in the period strip above */}
+          {incidentNameProp !== undefined ? null : editingName ? (
             <input
               className="eoc-incident-name-input"
               value={incidentName}
@@ -496,7 +499,7 @@ export default function EOCConsole({
               <span className="eoc-edit-icon">✎</span>
             </button>
           )}
-          {frames.length > 0 && <span className="eoc-status-badge">● ACTIVE</span>}
+          {incidentNameProp === undefined && frames.length > 0 && <span className="eoc-status-badge">● ACTIVE</span>}
         </div>
         <div className="eoc-header-right">
           <button className="eoc-action-btn" onClick={async () => { await captureMapSnapshot(); setConsoleTab("situation"); }} title="Print EOC Console">
@@ -709,17 +712,21 @@ export default function EOCConsole({
               className="eoc-markup-tool"
               onClick={() => consoleMapRef.current?.zoomIn()}
               title="Zoom in"
+              aria-label="Zoom in"
             >+</button>
             <button
               className="eoc-markup-tool"
               onClick={() => consoleMapRef.current?.zoomOut()}
               title="Zoom out"
+              aria-label="Zoom out"
             >−</button>
             <div className="eoc-markup-divider" />
             <button
               className={`eoc-markup-tool${spotFiresVisible ? " active" : ""}`}
               onClick={() => setSpotFiresVisible(v => !v)}
               title={spotFiresVisible ? "Spot fires ON — click to hide" : "Spot fires OFF — click to show"}
+              aria-label="Spot fires"
+              aria-pressed={spotFiresVisible}
             >✦</button>
             <div className="eoc-markup-divider" />
             <span className="eoc-markup-label">MARK</span>
@@ -727,10 +734,13 @@ export default function EOCConsole({
               className={`eoc-markup-tool${showSymbolPicker ? " active" : ""}`}
               onClick={() => setShowSymbolPicker(v => !v)}
               title="ICS symbol palette"
+              aria-label="ICS symbol palette"
+              aria-pressed={showSymbolPicker}
             >⊕</button>
             <button
               className={`eoc-markup-tool${isFetchingFacilities ? " active" : ""}`}
               title={!ignitionPoint ? "Set an ignition point first to fetch nearby resources" : "Fetch nearby emergency facilities from OpenStreetMap"}
+              aria-label="Fetch nearby emergency facilities from OpenStreetMap"
               disabled={isFetchingFacilities || !ignitionPoint || !onFetchFacilities}
               onClick={async () => {
                 if (!onFetchFacilities) return;
@@ -751,16 +761,21 @@ export default function EOCConsole({
               className={`eoc-markup-tool${activeSymbolKey === "freehand_path" ? " active" : ""}`}
               onClick={() => setActiveSymbolKey(k => k === "freehand_path" ? null : "freehand_path")}
               title="Freehand draw on active layer (click active to pan)"
+              aria-label="Freehand draw"
+              aria-pressed={activeSymbolKey === "freehand_path"}
             >✏</button>
             <button
               className={`eoc-markup-tool${activeSymbolKey === "text_label" ? " active" : ""}`}
               onClick={() => setActiveSymbolKey(k => k === "text_label" ? null : "text_label")}
               title="Place text label on active layer (click active to pan)"
+              aria-label="Text label"
+              aria-pressed={activeSymbolKey === "text_label"}
             >T</button>
             <button
               className="eoc-markup-tool"
               onClick={clearMarkup}
               title="Clear freehand markup"
+              aria-label="Clear freehand markup"
               disabled={penPaths.length === 0 && textMarkers.length === 0 && currentPenPath.length === 0}
             >⌫</button>
           </div>
@@ -800,7 +815,6 @@ export default function EOCConsole({
               <div className="eoc-forms-panel">
                 <div className="eoc-forms-header">
                   <span className="eoc-forms-title">ICS FORMS</span>
-                  <span className="eoc-forms-subtitle">ICS Canada forms</span>
                 </div>
 
                 {/* Initial forms */}
@@ -885,8 +899,7 @@ export default function EOCConsole({
 
                 {!formHtml && (
                   <div className="eoc-forms-empty">
-                    Select a form above to generate and preview it.<br />
-                    The current map state will be captured as a snapshot for embedded maps.
+                    Select a form above to generate and preview it. <InfoTip label="About the form maps" text={TIPS.eocSnapshot} />
                   </div>
                 )}
               </div>

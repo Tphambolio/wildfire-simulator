@@ -14,7 +14,11 @@ import { ASSET_CATEGORIES, assetLabel, assetReachPhrases, criticalReachLines, gr
 import { openICS209Report, type ICS209RunContext } from "../utils/ics209";
 import { getVersion } from "../services/api";
 import HfiClassChip from "./HfiClassChip";
-import { fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
+import FwiClassChip from "./FwiClassChip";
+import Badge from "./Badge";
+import InfoTip, { TipButton } from "./InfoTip";
+import { BADGES, TIPS } from "../content/explanations";
+import { hfiClass } from "../utils/fireClasses";
 import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
 import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
 
@@ -32,6 +36,8 @@ interface EOCSummaryProps {
   /** Run ID, start time and ensemble, for the ICS 209-WF */
   run209?: ICS209RunContext | null;
   incidentName?: string;
+  /** Actions only (Simulation tab); the full summary is in the EOC Console */
+  compact?: boolean;
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────────────
@@ -316,6 +322,7 @@ export default function EOCSummary({
   evacZones,
   run209 = null,
   incidentName,
+  compact = false,
 }: EOCSummaryProps) {
   const spread = extractSpreadStats(frames);
   const burnArea = burnProbData ? extractBurnAreaStats(burnProbData) : null;
@@ -371,45 +378,48 @@ export default function EOCSummary({
   const suppAdvisory = suppAdvisoryEarly;
 
   return (
-    <div className="panel eoc-panel" id="eoc-summary">
+    <div className={`panel eoc-panel${compact ? " eoc-panel-compact" : ""}`} id="eoc-summary">
       <div className="eoc-header">
-        <h3>EOC Summary</h3>
+        <h3>{compact ? "Report & export" : "EOC Summary"}</h3>
         <div className="eoc-actions">
-          <button className="ts-btn ts-speed" onClick={handleCopy} title="Copy situation report to clipboard">
+          <TipButton className="ts-btn ts-speed" onClick={handleCopy} tip="Copy the situation report to the clipboard.">
             Copy Report
-          </button>
-          <button className="ts-btn ts-speed" onClick={handlePrint} title="Print report">
-            Print
-          </button>
+          </TipButton>
+          {!compact && (
+            <TipButton className="ts-btn ts-speed" onClick={handlePrint} tip="Print the EOC summary.">
+              Print
+            </TipButton>
+          )}
           {frames.length > 0 && (
-            <button
+            <TipButton
               className="ts-btn ts-speed eoc-btn-emph"
               onClick={handleICS209}
-              title="Generate printable ICS Canada 209-WF Incident Status Summary"
+              tip="Open a printable ICS Canada 209-WF Incident Status Summary pre-filled from this run."
             >
               ICS 209-WF
-            </button>
+            </TipButton>
           )}
           {frames.length > 0 && (
             <>
-              <button
+              <TipButton
                 className="ts-btn ts-speed"
                 onClick={handleExportGeoJSON}
-                title="Download GeoJSON — fire perimeter, burn probability, spot fires, assets reached by the modelled fire"
+                tip="Download GeoJSON: fire perimeter, burn probability, spot fires, assets reached by the modelled fire."
               >
                 GeoJSON
-              </button>
-              <button
+              </TipButton>
+              <TipButton
                 className="ts-btn ts-speed"
                 onClick={handleExportKML}
-                title="Download KML — fire perimeter and ignition point for Google Earth / ArcGIS"
+                tip="Download KML: fire perimeter and ignition point for Google Earth or ArcGIS."
               >
                 KML
-              </button>
+              </TipButton>
             </>
           )}
         </div>
       </div>
+      {compact ? null : (<>
 
       {/* Input conditions recap */}
       {runParams && (
@@ -427,12 +437,7 @@ export default function EOCSummary({
             <span className="eoc-label">FWI</span>
             <span className="eoc-value">
               {runParams.fwi_value.toFixed(1)}{" "}
-              <span
-                className="eoc-badge"
-                style={{ background: fwiClassColor(runParams.fwi_value), color: fwiClassTextColor(runParams.fwi_value) }}
-              >
-                {runParams.danger_rating}
-              </span>
+              <FwiClassChip className="eoc-badge" fwi={runParams.fwi_value} label={runParams.danger_rating} />
             </span>
             <span className="eoc-label">FFMC</span>
             <span className="eoc-value">{runParams.fwi.ffmc ?? "—"}</span>
@@ -517,6 +522,15 @@ export default function EOCSummary({
               {spread.spotCount > 0
                 ? `${spread.spotCount} events · max ${spread.maxSpotDistM.toFixed(0)} m`
                 : "None"}
+              {spread.spotCount > 0 && (
+                <>
+                  {" "}
+                  <InfoTip
+                    label="About modelled spotting"
+                    text={`Modelled spotting up to ${spread.maxSpotDistM.toFixed(0)} m: new ignitions may appear beyond the perimeter. ${TIPS.spotting}`}
+                  />
+                </>
+              )}
             </span>
           </div>
         </section>
@@ -525,7 +539,10 @@ export default function EOCSummary({
       {/* Burn probability area stats */}
       {burnArea && (
         <section className="eoc-section">
-          <h4>Burn probability (Monte Carlo/ensemble), model output · {runParams?.n_iterations ?? "?"} iter</h4>
+          <div className="card-h-row">
+            <h4>Burn probability</h4>
+            <Badge tone="info" tip={TIPS.burnProbEoc(runParams?.n_iterations ?? "?", burnArea.cellSizeM)}>{BADGES.modelOutput}</Badge>
+          </div>
           <div className="eoc-bp-table">
             <div className="eoc-bp-row eoc-bp-header">
               <span>Threshold</span>
@@ -542,18 +559,15 @@ export default function EOCSummary({
               </div>
             ))}
           </div>
-          <div className="eoc-sublabel">
-            Cell size: {burnArea.cellSizeM.toFixed(0)} m
-          </div>
         </section>
       )}
 
       {/* Assets and major roads reached by the modelled fire (model output, not an instruction) */}
       {criticalReach && (criticalReach.assets.length + criticalReach.roads.length) > 0 && (
         <section className="eoc-section eoc-reached-section">
-          <h4>Assets reached by the modelled fire</h4>
-          <div className="eoc-sublabel">
-            Model output for this run ({criticalReach.hasEnsemble ? "ensemble P10 / single run" : "single run"}), not an instruction.
+          <div className="card-h-row">
+            <h4>Assets reached by the modelled fire</h4>
+            <Badge tone="info" tip={TIPS.assetsReachedEoc(criticalReach.hasEnsemble)} testId="eoc-reached-badge">{BADGES.modelOutput}</Badge>
           </div>
           {groupRows(criticalReach.assets).map((g) => (
             <div key={g.category} className="eoc-reached-group">
@@ -583,9 +597,13 @@ export default function EOCSummary({
       {/* Suppression advisory */}
       {suppAdvisory && (
         <section className="eoc-section eoc-supp-section">
-          <h4 className="eoc-supp-title" style={{ borderLeftColor: suppAdvisory.color }}>
-            Suppression Advisory · {suppAdvisory.intensityLabel}
-          </h4>
+          <div className="card-h-row eoc-supp-title" style={{ borderLeftColor: suppAdvisory.color }}>
+            <h4 className="with-tip">
+              Suppression Advisory · {suppAdvisory.intensityLabel}
+              <InfoTip label="What this class means" text={hfiClass(spread?.peakHfiKwM ?? 0).meaning} />
+            </h4>
+            <Badge tone="info" tip={`${TIPS.hfiClassCaveat} Source: ${TIPS.hfiClassSource}.`}>{BADGES.c2Generalisation}</Badge>
+          </div>
           <div className="eoc-grid">
             <span className="eoc-label">Strategy</span>
             <span className="eoc-value eoc-strong">
@@ -595,9 +613,6 @@ export default function EOCSummary({
             <span className="eoc-value">
               {suppAdvisory.suppressionFeasible ? "Feasible" : "NOT safe — withdraw crews"}
             </span>
-          </div>
-          <div className="eoc-sublabel">
-            {suppAdvisory.strategyDetail}
           </div>
           <div className="eoc-sublabel eoc-strong">
             Initial attack resources:
@@ -610,17 +625,8 @@ export default function EOCSummary({
         </section>
       )}
 
-      {/* RPAS operational advisory */}
-      {suppAdvisory && (
-        <section className="eoc-section eoc-rpas-section">
-          <h4>RPAS</h4>
-          <ul className="eoc-resource-list eoc-rpas-notes">
-            {suppAdvisory.rpasNotes.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {/* The RPAS reminder is in the Copy Report text, the ICS forms and About & sources (not on screen) */}
+      </>)}
     </div>
   );
 }

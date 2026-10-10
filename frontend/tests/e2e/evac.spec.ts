@@ -71,7 +71,11 @@ test.describe("neighbourhoods and evacuation status", () => {
     await expect(page.locator(".evac-set-item", { hasText: name })).toContainText("ORDER");
     await expect.poll(() => drawnTiers(page), { timeout: 15_000 }).toEqual([[name, "ORDER"]]);
     await expect(page.locator(".map-nbhd-label", { hasText: name }).locator(".map-nbhd-label-tier")).toHaveText("ORDER · set by Planning");
-    await expect(page.locator(".evac-status")).toContainText("Saved in this browser");
+    const savedTip = page.locator(".evac-status").getByRole("button", { name: "Where evacuation statuses are saved" });
+    await savedTip.hover();
+    await expect(page.getByRole("tooltip").filter({ hasText: "Saved in this browser" })).toBeVisible();
+    // "Status set by Planning" stays visible; FireSim does not recommend tiers (in its tip)
+    await expect(page.getByTestId("evac-planning-badge")).toHaveText("Status set by Planning");
     expect(await seriousAxe(page)).toEqual([]);
   });
 

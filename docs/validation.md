@@ -261,7 +261,7 @@ tested settings on every probabilistic score; a finer search was not done.
 | Observed area below P10 / above P90 of members | 58 / 22 % | 34 / 17 % | 10 / 10 % |
 | CRPS of log10 burned area (deterministic run 0.616) | 0.546 | **0.471** | lower is better |
 | CRPS skill vs the deterministic run | +0.11 | **+0.24** | > 0 |
-| Spread / skill (RMSE of ensemble mean / spread x sqrt((N+1)/N)) | 4.70 | 1.58 | 1 |
+| Spread / skill (RMSE of ensemble mean / (sqrt of mean member variance x sqrt((N+1)/N)); Fortin et al. 2014 eq. 15) | 4.70 | 1.58 | 1 |
 | Brier score, burn probability (whole working areas) | 0.0068 | 0.0062 | lower is better |
 | Brier skill vs the deterministic run (0/1) | +0.18 | **+0.25** | > 0 |
 | Observed growth at burn probability >= 0.1 / 0.5 / 0.9 | 51 / 37 / 26 % | 68 / 35 / 16 % | |
@@ -576,9 +576,14 @@ spin-up and the burning period are opt-in.
 - Brier, G.W. (1950). Verification of forecasts expressed in terms of probability. *Monthly
   Weather Review* 78, 1-3.
 - Fortin, V., Abaza, M., Anctil, F., Turcotte, R. (2014). Why should ensemble spread match the
-  RMSE of the ensemble mean? *J. Hydrometeorology* 15, 1708-1713.
+  RMSE of the ensemble mean? *J. Hydrometeorology* 15, 1708-1713. doi:10.1175/JHM-D-14-0008.1.
+  Spread = sqrt of the mean unbiased member variance (eqs 9, 16); finite-ensemble ratio eq. 15
+  (p. 1711), as implemented in `validation/ensemble_scores.py`. Corrigendum: *J. Hydrometeor.*
+  16, 484 (2015), fixes typesetting above eqs 11-12 (not the equations used here).
 - Gneiting, T., Raftery, A.E. (2007). Strictly proper scoring rules, prediction, and
-  estimation. *J. Am. Stat. Assoc.* 102, 359-378.
+  estimation. *J. Am. Stat. Assoc.* 102(477), 359-378. doi:10.1198/016214506000001437. CRPS
+  eqs 20-21 (p. 367; FireSim reports the negatively oriented form); skill scores generally
+  improper (p. 362).
 - Hersbach, H. (2000). Decomposition of the continuous ranked probability score for ensemble
   prediction systems. *Weather and Forecasting* 15, 559-570.
 - Input-error data: ECCC MSC GeoMet `climate-hourly` station observations (Open Government
