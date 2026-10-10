@@ -115,6 +115,9 @@ class BuildingIndex:
         raw_by_nbhd: dict[str, list[dict]] = {k: [] for k in nbhd_keys}
         # {nbhd_key: [(lat, lng), ...]} — approximate centroids
         centroids_by_nbhd: dict[str, list[tuple[float, float]]] = {k: [] for k in nbhd_keys}
+        # {nbhd_key: [building id, ...]}: the feature's ``id`` property (-1 when absent), for
+        # per-building attributes (structure step 3: vegetation, roof scenario keys)
+        ids_by_nbhd: dict[str, list[int]] = {k: [] for k in nbhd_keys}
 
         unassigned = 0
         for f in building_features:
@@ -148,6 +151,11 @@ class BuildingIndex:
                 key = nbhd_keys[idx]
                 raw_by_nbhd[key].append(geometry)
                 centroids_by_nbhd[key].append((clat, clng))
+                try:
+                    bid = int((f.get("properties") or {}).get("id", -1))
+                except (TypeError, ValueError):
+                    bid = -1
+                ids_by_nbhd[key].append(bid)
             except Exception:
                 continue
 
@@ -161,6 +169,7 @@ class BuildingIndex:
         self._nbhd_centroids = nbhd_centroids  # (lat, lng) per neighbourhood
         self._raw_by_nbhd = raw_by_nbhd
         self._centroids_by_nbhd = centroids_by_nbhd
+        self._ids_by_nbhd = ids_by_nbhd
 
     def nearest_neighbourhoods(self, lat: float, lng: float, n: int = 4) -> list[str]:
         """Return the n neighbourhood keys nearest to (lat, lng) by centroid distance."""
@@ -195,6 +204,27 @@ class BuildingIndex:
             result.extend(self._centroids_by_nbhd.get(key, []))
         return result
 
+    def _flatten(self) -> None:
+        """Flat per-building lists (every neighbourhood once): raw geometry, centroid, id."""
+        import numpy as np
+
+        raw: list[dict] = []
+        lat: list[float] = []
+        lng: list[float] = []
+        ids: list[int] = []
+        ids_by = getattr(self, "_ids_by_nbhd", {})
+        for key, geoms in self._raw_by_nbhd.items():  # each key once
+            raw.extend(geoms)
+            for clat, clng in self._centroids_by_nbhd.get(key, []):
+                lat.append(clat)
+                lng.append(clng)
+            got = ids_by.get(key, [])
+            ids.extend(got if len(got) == len(geoms) else [-1] * len(geoms))
+        self._flat_geoms = raw
+        self._flat_lat = np.asarray(lat, dtype=float)
+        self._flat_lng = np.asarray(lng, dtype=float)
+        self._flat_ids = np.asarray(ids, dtype=np.int64)
+
     def building_geoms_in_bbox(
         self, lat_min: float, lat_max: float, lng_min: float, lng_max: float
     ) -> list:
@@ -206,17 +236,7 @@ class BuildingIndex:
         import numpy as np
 
         if not hasattr(self, "_flat_geoms"):
-            raw: list[dict] = []
-            lat: list[float] = []
-            lng: list[float] = []
-            for key, geoms in self._raw_by_nbhd.items():  # each key once
-                raw.extend(geoms)
-                for clat, clng in self._centroids_by_nbhd.get(key, []):
-                    lat.append(clat)
-                    lng.append(clng)
-            self._flat_geoms = raw
-            self._flat_lat = np.asarray(lat, dtype=float)
-            self._flat_lng = np.asarray(lng, dtype=float)
+            self._flatten()
         sel = np.nonzero(
             (self._flat_lat >= lat_min) & (self._flat_lat <= lat_max)
             & (self._flat_lng >= lng_min) & (self._flat_lng <= lng_max)
@@ -242,17 +262,7 @@ class BuildingIndex:
         if hasattr(self, "_flat_bounds"):
             return
         if not hasattr(self, "_flat_geoms"):
-            raw: list[dict] = []
-            lat: list[float] = []
-            lng: list[float] = []
-            for key, geoms in self._raw_by_nbhd.items():
-                raw.extend(geoms)
-                for clat, clng in self._centroids_by_nbhd.get(key, []):
-                    lat.append(clat)
-                    lng.append(clng)
-            self._flat_geoms = raw
-            self._flat_lat = np.asarray(lat, dtype=float)
-            self._flat_lng = np.asarray(lng, dtype=float)
+            self._flatten()
         b = np.full((len(self._flat_geoms), 4), np.nan)
         for i, g in enumerate(self._flat_geoms):
             try:
@@ -289,13 +299,22 @@ class BuildingIndex:
         return int(len(self._intersecting(bbox)))
 
     def footprints_intersecting(self, bbox: tuple[float, float, float, float]) -> list:
-        """Shapely footprints (lng, lat) whose bounds intersect ``bbox``; built on demand."""
+        """Shapely footprints (lng, lat) whose bounds intersect ``bbox``; built on demand.
+
+        An unreadable footprint is returned as an empty polygon (dropped by ``build_units``)
+        so the list stays aligned with ``ids_intersecting``."""
+        from shapely.geometry import Polygon
+
         out = []
         for i in self._intersecting(bbox):
             try:
-                geom = shape(self._flat_geoms[i])
-                if not geom.is_empty:
-                    out.append(geom)
+                out.append(shape(self._flat_geoms[i]))
             except Exception:
-                continue
+                out.append(Polygon())
         return out
+
+    def ids_intersecting(self, bbox: tuple[float, float, float, float]):
+        """Building ids (the GeoJSON ``id`` property, -1 when absent) of
+        ``footprints_intersecting(bbox)``, in the same order."""
+        self._ensure_flat()
+        return self._flat_ids[self._intersecting(bbox)]

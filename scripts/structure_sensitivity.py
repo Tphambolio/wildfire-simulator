@@ -27,6 +27,13 @@ reused for every structure-spread variant, so only the structure layer changes:
   the 150 kW/m² design fire (66 min) at cutoff 20 / 30 / 45 m, and at the end of the 400 kW/m²
   fire (70 min). Without ``--burnout`` the Hamada variants are the published model (no
   burn-out), as in reports R7/R8; the ``Simulator`` check then runs with burn-out off.
+- structure step 3 (``--step3``, 2026-10-10, spec §4.6, §6.2; implies ``--burnout``): the
+  vegetation-bridged cutoff (links <= 20 m, 20-45 m only across >= 20 % gap woody cover from
+  the shipped ``data/edmonton_canopy_5m.tif``, Meta 1 m CHM), with burn-out, against the 20 / 30 /
+  45 m burn-out variants; ember ignition with burn-out, and the combustible-roof scenario
+  (5 / 15 / 30 % of buildings at random with the run seed, ember threshold x 0.375; at 15 % also
+  x 0.5 and x 1); and bridge + embers + 15 % roofs. The bridge is checked against the engine's
+  reachable-box build. Roofs are a scenario, not observed roofs.
 
 Structure units are built from every footprint in the fuel grid's box, as the API does
 (``BuildingIndex.building_geoms_in_bbox``). The default variant is checked against the counts
@@ -159,6 +166,19 @@ EMBER_VARIANTS = [
     ("embers_structures_only", 30.0, 150, 10.0, False),
     ("embers_400_structures_only", 30.0, 400, 10.0, False),
 ]
+
+# Structure step 3 variants (--step3): name, graph cutoff, bridge, embers, roof share, psi factor
+STEP3_VARIANTS = [
+    ("veg_bridge", 45.0, True, False, 0.0, 1.0),
+    ("embers_burnout", 30.0, False, True, 0.0, 1.0),
+    ("roofs_5", 30.0, False, True, 0.05, 0.375),
+    ("roofs_15", 30.0, False, True, 0.15, 0.375),
+    ("roofs_30", 30.0, False, True, 0.30, 0.375),
+    ("roofs_15_k0.5", 30.0, False, True, 0.15, 0.5),
+    ("roofs_15_k1", 30.0, False, True, 0.15, 1.0),
+    ("veg_bridge_embers_roofs_15", 45.0, True, True, 0.15, 0.375),
+]
+CANOPY = DATA / "edmonton_canopy_5m.tif"
 
 # Burn-out variants (--burnout): name, cutoff, design fire whose end is the burn-out time
 BURNOUT_VARIANTS = [
@@ -297,9 +317,13 @@ def main() -> int:
     ap.add_argument("--weather", nargs="*", default=list(WEATHER))
     ap.add_argument("--embers", action="store_true", help="add the ember-ignition variants")
     ap.add_argument("--burnout", action="store_true", help="add the burn-out variants")
+    ap.add_argument("--step3", action="store_true",
+                    help="add the structure step 3 variants (vegetation bridge, roof scenario)")
     ap.add_argument("--grid", choices=("wui20", "mode50", "nearest50"), default="wui20",
                     help="FBP grid: 20 m WUI window (API default), 50 m majority, 50 m nearest")
     args = ap.parse_args()
+    if args.step3:
+        args.burnout = True  # the step-3 variants are compared with the burn-out variants
     args.out.mkdir(parents=True, exist_ok=True)
     timings: dict = {}
 
@@ -329,7 +353,8 @@ def main() -> int:
     units_by_key: dict = {}
     for _, cutoff, _, min_area, _ in VARIANTS + [(n, c, 10.0, 0.0, "cells")
                                                  for n, c, *_ in (EMBER_VARIANTS if args.embers else [])
-                                                 + (BURNOUT_VARIANTS if args.burnout else [])]:
+                                                 + (BURNOUT_VARIANTS if args.burnout else [])
+                                                 + (STEP3_VARIANTS if args.step3 else [])]:
         key = (cutoff, min_area)
         if key in units_by_key:
             continue
@@ -342,6 +367,12 @@ def main() -> int:
               flush=True)
 
     city_graph = {f"cutoff{c:g}_min{m:g}": graph_stats(u) for (c, m), u in units_by_key.items()}
+    canopy = canopy_win = None
+    if args.step3:
+        from firesim.structures.vegetation import CanopyCover
+
+        canopy = CanopyCover(CANOPY)
+        canopy_win = canopy.window(*bbox)
     labels_by_key = {k: _components(u) for k, u in units_by_key.items()}
 
     results: dict = {
@@ -473,7 +504,7 @@ def main() -> int:
                 if em is None or len(em.x) == 0:
                     run["variants"][name] = {"involved": 0}
                     continue
-                t_front = building_cell_contact_times(u, arrival, bbox, DEFAULT_CONTACT_M)
+                t_front = building_cell_contact_times(u, arrival, run_bbox, DEFAULT_CONTACT_M)
                 res = hamada_spread(u, t_front, wind, duration_min=duration_min,
                                     burnout_min=burnout_minutes(dfire))
                 lat = em.lat0 + np.asarray(em.y) / em.m_per_deg_lat
@@ -517,6 +548,53 @@ def main() -> int:
                     m["engine_matches_whole_city"] = (
                         c_eng.get("units_involved") == m["involved"]
                         and c_eng.get("units_ember") == m["ember"])
+                run["variants"][name] = m
+            for name, cutoff, bridge, emb, share, k in (STEP3_VARIANTS if args.step3 else []):
+                from firesim.structures import roofs as R
+                from firesim.structures.vegetation import BridgedLinks
+
+                u = units_by_key[(cutoff, 0.0)]
+                t2 = time.time()
+                if em is None or len(em.x) == 0:
+                    run["variants"][name] = {"involved": 0}
+                    continue
+                t_front = building_cell_contact_times(u, arrival, run_bbox, DEFAULT_CONTACT_M)
+                links = BridgedLinks(u, canopy_win) if bridge else None
+                psi = (R.psi_factors(R.assign_combustible_roofs(R.building_keys(u), share, SEED), k)
+                       if share else None)
+                if emb:
+                    res = spread_with_embers(u, t_front, wind, duration_min=duration_min,
+                                             embers=EmberOptions(),
+                                             wildland=WildlandSources.from_emitters(em, u.frame),
+                                             burnout_min=burnout_minutes(150), link_filter=links,
+                                             psi_factor=psi)
+                else:
+                    res = hamada_spread(u, t_front, wind, duration_min=duration_min,
+                                        burnout_min=burnout_minutes(150), link_filter=links)
+                lat = em.lat0 + np.asarray(em.y) / em.m_per_deg_lat
+                lng = em.lng0 + np.asarray(em.x) / em.m_per_deg_lng
+                cx, cy = u.frame.to_local(lat, lng)
+                lx, ly = u.frame.to_local(s["lat"], s["lng"])
+                m = run_metrics(u, res, (float(lx), float(ly)), np.column_stack([cx, cy]),
+                                duration_min)
+                m["runtime_s"] = round(time.time() - t2, 2)
+                if links is not None:
+                    m["bridge"] = links.stats()
+                if share:
+                    m["roof_scenario"] = {"label": R.roof_label(share), "psi_factor": k,
+                                          "seed": SEED}
+                if name == "veg_bridge":
+                    t3 = time.time()
+                    eng = structure_spread_for_grid_run(
+                        footprints, arrival, sim._schedule, duration_min, bbox=run_bbox,
+                        area_bbox=bbox, vegetation_bridge=True, canopy=canopy)
+                    c_eng = eng.counts_at(duration_min)
+                    m["engine_reachable_build"] = {
+                        k_: c_eng.get(k_) for k_ in ("units_built", "units_involved",
+                                                     "units_structure_to_structure",
+                                                     "links_tested", "links_bridged")}
+                    m["engine_reachable_build"]["runtime_s"] = round(time.time() - t3, 1)
+                    m["engine_matches_whole_city"] = c_eng.get("units_involved") == m["involved"]
                 run["variants"][name] = m
             if em is not None and len(em.x):
                 # How many units lie within each distance of a burned cell (end of run): shows
@@ -596,6 +674,11 @@ def tables(r: dict) -> str:
                     f"{v.get('max_dist_from_ignition_m', '—')} | {v.get('hull_area_ha', '—')} | "
                     f"{b.get('median', '—')} / {b.get('max', '—')} | "
                     f"{v.get('units_in_front_touched_components', '—')} | {v.get('runtime_s', '—')} |")
+            vb = run["variants"].get("veg_bridge")
+            if vb:
+                lines += ["", f"Vegetation bridge: links {vb.get('bridge')}; engine reachable build "
+                              f"{vb.get('engine_reachable_build')}, matches the whole-city run: "
+                              f"{vb.get('engine_matches_whole_city')}"]
             ev = run["variants"].get("embers")
             if ev:
                 lines += ["", f"Embers (default ember variant): {ev.get('ember', 0)} ember-ignited "

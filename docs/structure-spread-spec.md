@@ -1,7 +1,9 @@
 # Structure-to-structure spread: specification
 
 Status: **specification, 2026-10-09**; built so far: units (§2), Hamada (§4) and, since
-2026-10-10, ember ignition (§6.1) and building burn-out (§4.3). Nothing here is validated in Canada. Every output built
+2026-10-10, ember ignition (§6.1), building burn-out (§4.3) and structure step 3 (opt-in):
+per-building vegetation attributes (§2.1), the vegetation-bridged cutoff (§4.6) and the
+combustible-roof scenario (§6.2). Nothing here is validated in Canada. Every output built
 from it must be labelled **"illustrative — not validated in Canada"**.
 
 This is the specification for adding structure-to-structure fire spread to FireSim. It fixes one
@@ -134,6 +136,31 @@ The footprint attributes `type`, `height`, `material` and `roof_type` in the dat
 documented source (every footprint is `wood_frame` / `asphalt_shingle`) and are **not used**.
 None of the published models uses construction, roof or height either (PROCI24 p.3: "These
 parameters are uniform for all structures"; Qin25 p.185).
+
+### 2.1 Vegetation attributes (structure step 3, 2026-10-10; context only)
+
+Per footprint, from **open data only** (`firesim.structures.vegetation.BuildingVegetation`,
+`data/edmonton_building_vegetation.csv.gz`, built by `scripts/build_building_vegetation.py`):
+
+| Field | Definition | Source |
+|---|---|---|
+| `cc_0_5`, `cc_5_10`, `cc_10_30`, `cc_0_10` | share of the ring's 1 m pixels (Euclidean distance from the footprint's own pixels) with canopy height ≥ 2 m outside every footprint; roads, lawns and other buildings stay in the denominator | Meta/WRI 1 m global canopy height map (Tolan et al. 2024, *Remote Sens. Environ.* 300: 113888; CC BY 4.0), Edmonton tile imagery 2015-2020. 0-10 m is FPInnovations' structure ignition zone and point-intercept denominator (WF TR 2025 n.04 p.9) [P]; ≥ 2 m is the lowest class of the City canopy analysis [H] |
+| `overhang_frac` | share of the footprint's pixels under canopy ≥ 2 m (crowns over the roof) | same; Syphard et al. 2014 (IJWF 23: 1165) pp.A, I: overhang among the most important factors [P] |
+| `dist_stand_1ha_m` | distance from the footprint's bounding box to a ≥ 1 ha stand (≈ 10 m blocks with ≥ 50 % canopy, 8-connected) | same; FPI p.9 patch size [P]; block and 50 % rule [H] |
+
+- **Edmonton:** all 346,238 FireSim footprints, keyed by the footprint `id` (the step-3 data
+  report, `~/dev/wildfire/reports/Structure step 3 vegetation and roof data 2026-10-10.md` §2).
+  Median `cc_0_10` 4.8 %; 27.7 % of footprints have canopy over the roof.
+- **Any other area:** `scripts/build_building_vegetation.py ring-metrics` computes the same
+  fields from a Meta CHM tile and footprints. It runs offline (a tile is ~0.5 GB; minutes per
+  city), not on the live server: computing it per run is a follow-up.
+- **Never City LiDAR:** the City's LiDAR canopy products are City-owned, not open data (contract
+  934295 §13.1); no per-building value derived from them is shipped.
+- **Use:** the attributes are carried on the units (`building_id` → table) and appear in the
+  involved-unit detail as `veg` (map display only). **No model dynamics read them.** The Jasper
+  pre-specified check found that canopy within 10 m added nothing beyond distance from the ember
+  entries (ΔAUC −0.001, −0.004 to +0.008; step-3 data report §3.2), so they are context and a
+  validation baseline (§8 item 9), not a spread modifier.
 
 ## 3. Coupling to the FBP wildland front
 
@@ -355,6 +382,44 @@ Hamada model also predicts an increasing ROSsurface with increasing separation d
 appears counterintuitive"), although the **time** to cross a larger gap still increases; rate
 increases with wind (Qin25 p.178); isotropic at zero wind (FSJ104651 SI).
 
+### 4.6 Vegetation-bridged cutoff (opt-in, structure step 3, 2026-10-10) [H]
+
+`structure_vegetation_bridge` (API; default off; `vegetation.BridgedLinks`). **Rule:** a
+Hamada link between units i and j exists if their edge-to-edge separation d ≤ **20 m**, or if
+20 m < d ≤ **45 m** and the **gap woody cover** between them is ≥ **20 %**. It replaces the 30 m
+cutoff (the graph is built to 45 m and links are filtered when a unit passes fire; the ember
+stage is unchanged).
+
+- **Values, none fitted:** 20 and 45 m are the pre-registered cutoff sensitivities (D2; [R10]
+  PREREG); 20 % is FPInnovations' woody-cover threshold (WF TR 2025 n.04 p.24: block loss 2-4 ×
+  at > 20 % vs < 10 % woody cover in the 10 m zone) [P]. FPI p.28: spread "appears to have been
+  exacerbated in neighbourhoods with higher (e.g., > 20 %) woody vegetation cover" [P].
+- **Gap woody cover (FireSim definition [H]):** the *gap corridor* is the convex hull of the two
+  footprints minus the two footprints. Points on a 1 m lattice in the corridor score 0 inside any
+  other building (a structure, in the denominator as in FPI's point-intercept sampling, p.9), and
+  otherwise the canopy share (CHM ≥ 2 m) of the open (non-building) ground of the canopy-raster
+  cell they fall in. The gap cover is the mean. No canopy data at any point → no cover → **not
+  bridged** (the rule falls back to 20 m).
+- **Why this corridor:** it is the ground a flame or radiant path between the two footprints
+  crosses; it needs no direction (Hamada's wind term already handles direction); it is the
+  region the step-3 data report proposed (§5.2); its cover is computed with the same 2 m
+  threshold as the attributes (§2.1). A wider corridor (e.g. a 10 m buffer) would mix in yards
+  that are not between the pair.
+- **Canopy raster (live server):** `data/edmonton_canopy_5m.tif`, the open-ground canopy share
+  (percent, uint8) of 7 × 7 Meta CHM pixels (≈ 5 m on the ground; EPSG:3857, the CHM's own
+  grid), building pixels excluded from both numerator and denominator
+  (`scripts/build_building_vegetation.py canopy-raster`; 8.2 MB). The validation scripts use
+  the CHM at 1 m (no aggregation).
+- **Why opt-in and not a default:** the cutoff is the parameter that dominates every result
+  (§4.4: −58 % to +170 % over 20-45 m in Edmonton), and the 20 % threshold comes from Jasper, so
+  Jasper cannot confirm it (§8 item 9). It is adopted for display only if it beats plain Hamada
+  and the distance and distance + vegetation baselines on an independent fire (§8 item 9).
+- **f_b stays 1.** In the SI form f_b mixes construction brackets and removes the wind term
+  (C9); using it for vegetation would be a category error (step-3 data report §5.2).
+- Counts gain `vegetation_bridged_cutoff`, `bridge_base_cutoff_m` 20, `bridge_max_cutoff_m` 45,
+  `bridge_min_gap_cover` 0.2, `bridge_canopy_data`, `links_tested`, `links_bridged`;
+  `neighbour_cutoff_m` reads 20.
+
 ## 5. WU-E option (stage 4, not built)
 
 Semi-physical: direct flame contact, point-source radiation, flux-time ignition (PROCI24 eqs 1-8,
@@ -460,6 +525,51 @@ building not otherwise involved, at 15-80 km/h). GR' = 10 [T] was set by its aut
 400 kW/m² curve (Qin25 p.147, Table 6.1); combining it with PROCI24's 150 kW/m² curve is FireSim's
 choice under D1, recorded as open item (owner decision needed).
 
+### 6.2 Combustible-roof scenario (opt-in, structure step 3, 2026-10-10) — a scenario, not observed roofs
+
+No open data hold roof covering for Edmonton or Jasper (OSM `roof:material` on 0 of 1,051 Jasper
+and 58 of 386,712 Edmonton buildings, none shake; no City or municipal roof field; FireSim's
+own `roof_type` is a placeholder; step-3 data report §4). The roof report
+(`~/dev/wildfire/reports/Roof and building vulnerability from open data 2026-10-10.md` §6, rank 1)
+recommends a pre-specified scenario, approved by the owner:
+
+- `structure_combustible_roof_share` s ∈ {0, 0.05, 0.15, 0.30} (default 0 = no roof term; needs
+  `structure_embers`). Each building gets a combustible roof with probability s, independently,
+  from a hash of the run seed and its building id (centroid when there is no id), so the
+  assignment is repeatable for a seed and independent of which buildings a run builds [H]. The
+  shares are nested (a building combustible at 5 % is combustible at 15 % and 30 %). California
+  had ≈ 5.8 % wood roofs among inspected structures (Naser & Kodur 2025 p.14, citing Headwaters
+  Economics) [S]; Fort McMurray had essentially none (Westhaver 2017 p.34) [P].
+- **Where it acts:** the ember stage only. A combustible-roof unit ignites when its pooled ember
+  load reaches **k · ψ*** (§6, FSJ104686 eq 1), k = **0.375**. Rooftops were the first ignition
+  points at Jasper (FPI p.23; NOR-X-433 p.35) [P]; Hamada is unchanged (FPI p.2: materials had
+  little influence once structure-to-structure spread took over) [P].
+- **k = 0.375, from DeBeer (2023, UMD PhD, Tables 10-1 and 10-4, pp.202-205) [P].**
+  Horizontally mounted Western Red Cedar (the wood of cedar shakes) and pine treated wood (the
+  receptor of FSJ104686 eq 1) under glowing firebrand piles of 0.06 and 0.16 g/cm² in a wind
+  tunnel, n = 9 per condition. At 1.4 m/s the 0.06 g/cm² pile ignited WRC (P = 0.11) at least as
+  often as the 0.16 g/cm² pile ignited PTW (P = 0.05, 5 cm-edge equivalent). WRC therefore needs
+  at most 0.06/0.16 = 0.375 of PTW's loading for the same probability at that airflow. Using that
+  bound as a factor on ψ* is FireSim's reading [H]: a WRC board is not a shake roof assembly,
+  FireSim's v_air (0.064 × the 6.1 m wind) is mostly below DeBeer's 0.9-2.7 m/s, and the samples
+  are small (at 2.4 m/s the same tables put the factor between 0.375 and 1). No published
+  ember threshold or ignition-probability ratio for wood shake vs Class A roofs was found in the
+  roof report's 14 references or the structure-ignition folder. **Sensitivity:** k = 0.5 (the
+  roof report's placeholder [H]) and k = 1 (no roof effect; reproduces the run without roofs
+  exactly, a unit test). No Jasper or CAL FIRE roof data set k or s.
+- **Labels:** counts carry `roof_scenario` {`combustible_roof_share`, `psi_factor`, `seed`,
+  `label` = "scenario: X % combustible roofs (not observed roofs)",
+  `units_combustible_roof_built`, `units_involved_combustible_roof`}; counts by mechanism are
+  unchanged in form. The detail flags involved units with `combustible_roof_scenario: true`.
+  Random placement has no spatial skill: the scenario gives an envelope of counts, never a map
+  of roofs.
+- **Reachable box:** the wildland ember margin uses the lowest threshold in the run (k · ψ*), so
+  the exactness of §2 holds (unit test).
+- **What the equations imply:** with buildings as the only ember sources, k = 0.375 still leaves
+  a single 150 kW/m² building short of a neighbour's threshold at 15-27 km/h (§6.1: one building
+  emits ~0.46 million embers, ψ* needs ~1.4 million on a median footprint, k·ψ* ~0.5 million of
+  which about a third can land). The scenario matters mainly with wildland embers or 400 kW/m².
+
 ## 7. Conflicting published values and the choices made
 
 | # | Conflict | Values and sources | FireSim choice | Reason |
@@ -486,6 +596,9 @@ choice under D1, recorded as open item (owner decision needed).
 | C18 | Wind in the Sardoy PDF | Qin25 p.72: "ambient wind velocity measured at 10-meter elevation"; Qin25 p.124 worked case: μ = 2.18, σ = 1.23 at 6.71 m/s "measured at 6.1 m" | **6.1 m wind** | Only the 6.1 m wind reproduces the worked values (2.215 with the 10 m wind) |
 | C19 | Sardoy fireline-intensity unit | FSJ104651 SI: I_f in kW/m; Qin25 eq 4.2: I_B in MW/m | **MW/m** | With kW/m the p.124 case gives μ ≈ 13 (flight distances of e^13 m); MW/m reproduces μ = 2.18 |
 | C21 | Building burn-out | None in Hamada (FSJ104651 p.3); design fire ends when the fuel is consumed (PROCI24 p.2; Qin25 eq 6.2 p.146; FSJ104686 p.2); spread only in the fully developed phase (LD10 p.673, room scale) | **Burn-out at the design-fire end (66 / 70 min) for Hamada crossings and embers** [H] | One burning duration for both stages; the fully-developed-only rule gives a 1 min window with the PROCI24 curve and is a room-scale rule (§4.3) |
+| C22 | Woody-cover metric for the bridged cutoff | FPI p.9, p.24: woody cover by point intercept (7.5 m grid on Google Earth) in the 10 m zone around buildings, at block level; the step-3 data (§2.1): CHM ≥ 2 m share of 1 m pixels in rings | **CHM ≥ 2 m share of the gap corridor** (§4.6) with FPI's 20 % threshold [H] | The corridor is where spread between the two buildings passes; FPI's threshold is the only published value. The CHM misses shrubs < 2 m (FPI's woody class includes shrubs), so the corridor cover reads low against FPI's; the Meta CHM imagery is 2011 at Jasper and 2015-2020 in Edmonton |
+| C23 | Ember threshold for combustible roofs | No published ψ* for wood shake (spec §6: FSJ104686 eq 1 is PTW only); DeBeer 2023 Tables 10-1, 10-4: WRC vs PTW ignition probability at two pile loadings; roof report §6: k = 0.5 placeholder [H] | **k = 0.375** (DeBeer bound at 1.4 m/s), k = 0.5 and 1 as sensitivity | The only measured comparison of a shake wood with the eq 1 receptor; the roof report's 0.5 has no source |
+| C24 | Roof class per building | FPI p.8: Jasper's municipal pre-fire roof assessment (not public); CAL FIRE DINS `ROOFCONSTRUCTION` (California); no open roof data for Alberta | **Random scenario** with the run seed (§6.2), never observed roofs | No open source for Alberta; DINS and FPI roofs are outcomes of the validation fires and may not set anything |
 | C20 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500
@@ -609,6 +722,25 @@ FireSim's plan:
      crossing finishes before its source burns out, and the spread continues as a percolation
      over the neighbour graph. The cutoff and the run length, not burn-out, bound the counts.
 
+9. **Structure step 3 (2026-10-10; `scripts/structure_step3_validation.py`, `PREREG_STEP3`,
+   committed before any score).** Questions: does the vegetation-bridged cutoff (§4.6) beat plain
+   Hamada (30 m) and the distance and **distance + vegetation** baselines; what does the roof
+   scenario (§6.2) change. New baseline (e1): the count-matched top-N of an out-of-fold logistic
+   score from log(1 + distance to the seeds) + canopy cover 0-10 m (250 m spatial blocks,
+   10 folds × 10 repeats; `jasper_structure_validation.distance_vegetation_scores`); (e2) adds
+   cover 10-30 m. These use the outcome out of fold, so they are deliberately strong baselines.
+   - **Independent test: CAL FIRE DINS** (`~/dev/wildfire/validation-data/calfire-dins/`; Eaton
+     2025 has pre-fire footprint units; Camp units are DINS points and cannot carry footprint
+     spread). Ignition points, wind and window come from a run config the data preparation
+     writes from published accounts; its sha256 is recorded with the results. Decision rule:
+     the bridge is adopted for display only if κ(VB) beats κ(H30), (a) and (e1) with every 95 %
+     block-bootstrap interval of the difference excluding zero. Status: see `docs/PROJECT_RECORD.md`
+     §4.4 and the step-3 build report ([R22]).
+   - **Jasper** is a disclosed **non-independent** consistency check (FPI's 20 % threshold is
+     from the same fire). Results are in `docs/PROJECT_RECORD.md` §4.4 ([R22]).
+   - **Edmonton sensitivity** (`scripts/structure_sensitivity.py --step3`): the [R8] sites and
+     days with the bridge and the roof scenario; results in [R22].
+
 ## 9. Limits
 
 - Not validated in Canada. The only validations are on three Californian fires with Rothermel,
@@ -654,6 +786,13 @@ FireSim's plan:
   attached buildings may merge into one footprint. Accuracy of the footprints in Edmonton has
   not been assessed. All footprints are kept (D4); dropping those under 40 m² changed involved
   buildings by −8 % to 0 % and left the city-wide median nearest separation at 2.6 m [R7].
+- Structure step 3 (opt-in): the vegetation-bridged cutoff uses a FireSim corridor definition
+  and a Jasper-derived threshold (§4.6, C22) and is not validated; the canopy map is the Meta
+  1 m CHM (2015-2020 imagery in Edmonton; misses shrubs under 2 m, hedges, fences, woodpiles and
+  decks); the live server has gap cover only where `data/edmonton_canopy_5m.tif` covers the run
+  area. The roof scenario is random (no spatial skill), acts only through the ember threshold,
+  and its factor k = 0.375 is a lab bound read as a threshold factor [H] (C23). Vegetation
+  attributes are context only.
 - Outputs are counts and times of **modelled involvement**. They are not predictions of which
   buildings burn and must not be used for evacuation tiers or per-building loss.
 
@@ -689,6 +828,15 @@ FireSim's plan:
   150 kW/m²). When the run had embers the card adds an "Ember ignition" row, the chart a third
   (chartreuse, `--struct-ember`) segment, the map and legend a third mechanism colour, and the
   caveat names the ember model and design fire.
+- **Structure step 3 in the app (2026-10-10):** under House-to-house spread, a "Tree-bridged
+  gaps (20–45 m)" checkbox (sends `structure_vegetation_bridge`) and a "Combustible roofs" select
+  (None / 5 / 15 / 30 %, enabled only with Ember ignition; sends
+  `structure_combustible_roof_share`) with a "Scenario" badge; explanations in tooltips
+  (`content/explanations.ts`). With a roof scenario the card shows the label "Scenario: X %
+  combustible roofs (not observed roofs)" and an "Outline scenario roofs" toggle; the map draws
+  a dashed amber outline on involved units the scenario gave a combustible roof, the legend
+  repeats the label and the footprint tooltip says "Combustible roof (scenario, not observed)".
+  The caveat adds the bridge rule and the roof label. Counts by mechanism are unchanged.
 - D3's concern (building-level precision 9-77 % in FSJ104651, §8; a per-house map can read as
   a loss forecast) is handled by labelling, not by hiding: the owner's reasons are that
   aggregated blocks can look more catastrophic than the modelled result and that firefighters
@@ -706,3 +854,6 @@ FireSim's plan:
 7. Ember ignition (§6). **Built 2026-10-10** (§6.1); first check at Jasper §8 item 7.
 8. Verification suite: Qin25 1-D tests, FSJ104686 benchmark (SSD × wind × GR maps, Fig. 6).
 9. Canadian validation (§8).
+10. Structure step 3 (2026-10-10): vegetation attributes (§2.1), vegetation-bridged cutoff
+    (§4.6), combustible-roof scenario (§6.2), distance + vegetation baseline and pre-registered
+    tests (§8 item 9). All opt-in.

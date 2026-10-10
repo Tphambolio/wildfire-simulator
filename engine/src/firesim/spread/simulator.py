@@ -79,6 +79,10 @@ class Simulator:
         structure_embers: bool = False,
         structure_design_fire_kw_m2: int = 150,
         structure_burnout: bool = True,
+        structure_vegetation=None,
+        structure_vegetation_bridge: bool = False,
+        structure_canopy=None,
+        structure_combustible_roof_share: float = 0.0,
         progress=None,
         fine_fuel=None,
         fine_building_mask: list | None = None,
@@ -129,6 +133,15 @@ class Simulator:
             structure_burnout: with ``structure_spread`` (default on): a unit stops passing
                 fire when its design fire ends, 66 min (150) or 70 min after involvement
                 (docs/structure-spread-spec.md §4.3); off = published Hamada (no burnout).
+            structure_vegetation: with ``structure_spread``, optional
+                ``structures.vegetation.BuildingVegetation`` (per-building open-data vegetation
+                attributes for the involved-unit detail; context only; spec §2.1).
+            structure_vegetation_bridge: with ``structure_spread``, opt-in vegetation-bridged
+                cutoff (links ≤ 20 m; 20-45 m only across ≥ 20 % gap woody cover from
+                ``structure_canopy``, a ``vegetation.CanopyCover``; spec §4.6 [H]).
+            structure_combustible_roof_share: with ``structure_embers``, roof scenario share
+                (0, 0.05, 0.15, 0.30): seeded random buildings ignite from embers at 0.375 ψ*
+                (spec §6.2; a scenario, not observed roofs).
             progress: Optional callable(phase, fraction) for progress display only (no
                 effect on results). Grid model: ("spread", 0-1) while the front advances,
                 then ("structures", None) before house-to-house spread when it is on, and
@@ -167,6 +180,10 @@ class Simulator:
         self.structure_embers = structure_embers
         self.structure_design_fire_kw_m2 = int(structure_design_fire_kw_m2)
         self.structure_burnout = bool(structure_burnout)
+        self.structure_vegetation = structure_vegetation
+        self.structure_vegetation_bridge = bool(structure_vegetation_bridge)
+        self.structure_canopy = structure_canopy
+        self.structure_combustible_roof_share = float(structure_combustible_roof_share or 0.0)
         self.progress = progress
         self.fine_fuel = fine_fuel
         self.fine_building_mask = fine_building_mask
@@ -602,6 +619,11 @@ class Simulator:
             embers=embers, emitters=emitters,
             burnout=self.structure_burnout,
             design_fire_kw_m2=self.structure_design_fire_kw_m2,
+            vegetation=self.structure_vegetation,
+            vegetation_bridge=self.structure_vegetation_bridge,
+            canopy=self.structure_canopy,
+            combustible_roof_share=self.structure_combustible_roof_share,
+            seed=self.seed,
         )
 
     def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:

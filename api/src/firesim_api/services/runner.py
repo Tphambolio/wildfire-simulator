@@ -232,6 +232,44 @@ class SimulationRunner:
         logger.info("BuildingIndex cached for key=%s", key)
         return bidx
 
+    def _get_building_vegetation(self):
+        """Per-building vegetation attributes (structure step 3), loaded once; None when the
+        file is not configured or unreadable (attributes are context only)."""
+        from firesim_api.settings import settings
+
+        path = settings.building_vegetation_path
+        if not path:
+            return None
+        cache = self.__dict__.setdefault("_veg_cache", {})
+        if path not in cache:
+            try:
+                from firesim.structures.vegetation import BuildingVegetation
+
+                cache[path] = BuildingVegetation.from_csv(path)
+                logger.info("Building vegetation: %d rows from %s", len(cache[path]), path)
+            except Exception:  # noqa: BLE001 - optional context data
+                logger.exception("Building vegetation not loaded from %s", path)
+                cache[path] = None
+        return cache[path]
+
+    def _get_canopy(self):
+        """The gap-cover canopy raster (vegetation-bridged cutoff); None when absent."""
+        from firesim_api.settings import settings
+
+        path = settings.canopy_path
+        if not path:
+            return None
+        cache = self.__dict__.setdefault("_canopy_cache", {})
+        if path not in cache:
+            try:
+                from firesim.structures.vegetation import CanopyCover
+
+                cache[path] = CanopyCover(path)
+            except Exception:  # noqa: BLE001
+                logger.exception("Canopy raster not opened from %s", path)
+                cache[path] = None
+        return cache[path]
+
     def _get_fine_source(self, fuel_path: str | None, water_path: str | None, run_grid):
         """The fuel raster at its native cell size for the 20 m WUI window, or None (disabled,
         no raster, or the run grid is not coarser than the raster)."""
@@ -520,6 +558,14 @@ class SimulationRunner:
                 structure_embers=getattr(params, "structure_embers", False),
                 structure_design_fire_kw_m2=getattr(params, "structure_design_fire_kw_m2", 150),
                 structure_burnout=getattr(params, "structure_burnout", True),
+                structure_vegetation=(self._get_building_vegetation()
+                                      if structure_geoms is not None else None),
+                structure_vegetation_bridge=getattr(params, "structure_vegetation_bridge", False),
+                structure_canopy=(self._get_canopy()
+                                  if getattr(params, "structure_vegetation_bridge", False)
+                                  else None),
+                structure_combustible_roof_share=getattr(
+                    params, "structure_combustible_roof_share", 0.0),
                 progress=run.set_phase,
                 # 20 m WUI window (mechanics decision M5): tried when buildings are near the
                 # fire, kept only within the memory guards (firesim.spread.wui_window)

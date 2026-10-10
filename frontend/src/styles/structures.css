@@ -89,3 +89,13 @@
   font-size: var(--fs-xs);
   margin-top: 2px;
 }
+
+/* Roof scenario: the label under the panel title, and the dashed legend swatch */
+.struct-scenario {
+  margin: var(--sp-1) 0 var(--sp-2);
+}
+
+.burn-prob-legend-swatch.struct-swatch-roof {
+  background: transparent;
+  border: 2px dashed;
+}

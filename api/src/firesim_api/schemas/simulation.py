@@ -351,10 +351,42 @@ class SimulationCreate(BaseModel):
         ),
     )
 
+    structure_vegetation_bridge: bool = Field(
+        default=False,
+        description=(
+            "Opt-in, illustrative — not validated in Canada; needs `structure_spread`. "
+            "Vegetation-bridged cutoff (FireSim heuristic, docs/structure-spread-spec.md §4.6): "
+            "buildings ≤ 20 m apart link as usual; 20-45 m apart only when the gap between "
+            "them carries ≥ 20 % woody cover (FPInnovations WF TR 2025 n.04 p.24 threshold), "
+            "from the open Meta 1 m canopy height map. Replaces the 30 m cutoff. Where no "
+            "canopy data covers the run area no link is bridged (plain 20 m cutoff). Counts "
+            "gain `vegetation_bridged_cutoff`, `links_tested`, `links_bridged`."
+        ),
+    )
+    structure_combustible_roof_share: float = Field(
+        default=0.0,
+        description=(
+            "Roof scenario (opt-in; needs `structure_embers`): share of buildings assigned a "
+            "combustible roof at random with the run seed, one of 0 (default, no roof term), "
+            "0.05, 0.15, 0.30. They ignite from embers at 0.375 × the ember threshold ψ* "
+            "(DeBeer 2023, firebrand piles on cedar vs pine treated wood; "
+            "docs/structure-spread-spec.md §6.2). **A scenario, not observed roofs**: counts "
+            "gain `roof_scenario` with its label; detail flags `combustible_roof_scenario`."
+        ),
+    )
+
     @model_validator(mode="after")
     def _embers_need_structure_spread(self):
         if self.structure_embers and not self.structure_spread:
             raise ValueError("structure_embers needs structure_spread: true")
+        if self.structure_vegetation_bridge and not self.structure_spread:
+            raise ValueError("structure_vegetation_bridge needs structure_spread: true")
+        if not any(abs(self.structure_combustible_roof_share - v) < 1e-9
+                   for v in (0.0, 0.05, 0.15, 0.30)):
+            raise ValueError("structure_combustible_roof_share must be one of 0, 0.05, 0.15, 0.30")
+        if self.structure_combustible_roof_share > 0 and not self.structure_embers:
+            raise ValueError("structure_combustible_roof_share needs structure_embers: true "
+                             "(the roof scenario acts on ember ignition)")
         return self
 
     @field_validator("start_time")

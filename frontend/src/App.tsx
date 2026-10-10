@@ -20,7 +20,7 @@ import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityR
 import { useRecon } from "./hooks/useRecon";
 import { clockAt, formatClock, zoneAbbrev } from "./utils/time";
 import StructureSpreadPanel from "./components/StructureSpreadPanel";
-import { structureCaveat, structureDetail, structureUnitsGeoJSON } from "./utils/structureSpread";
+import { caveatFor, roofScenarioLabel, structureDetail, structureUnitsGeoJSON } from "./utils/structureSpread";
 import {
   ARRIVAL_BUFFER_M,
   arrivalsToGeoJSON,
@@ -288,6 +288,8 @@ export default function App() {
   const [isochronesVisible, setIsochronesVisible] = useState(false);
   // House-to-house spread map layer: on by default when the run has it (opt-in run option)
   const [structureVisible, setStructureVisible] = useState(true);
+  // Roof scenario runs: outline the buildings the scenario gave combustible roofs (not observed)
+  const [structureRoofOutline, setStructureRoofOutline] = useState(true);
   const [isoTargetHours, setIsoTargetHours] = useState<number[]>(DEFAULT_ISO_HOURS);
   const [fuelGridImage, setFuelGridImage] = useState<{ image: string; bounds: [number, number, number, number]; legend?: Array<{ fuel: string; color: string }> } | null>(null);
   const [fuelGridVisible, setFuelGridVisible] = useState(true);
@@ -986,7 +988,9 @@ export default function App() {
             structureUnits={structureUnits}
             structureVisible={structureVisible}
             structureLabel={structureSummary?.label}
-            structureCaveat={structureSummary ? structureCaveat(structureSummary.label, structureSummary.neighbour_cutoff_m, 50, structureSummary.embers ? structureSummary.design_fire_kw_m2 : undefined, structureSummary.burnout ? structureSummary.burnout_min : undefined) : ""}
+            structureCaveat={caveatFor(structureSummary)}
+            structureRoofLabel={roofScenarioLabel(structureSummary)}
+            structureRoofOutline={structureRoofOutline}
             structureClock={scenarioStart ? structureClock : undefined}
           />
         </MapErrorBoundary>
@@ -1053,6 +1057,8 @@ export default function App() {
               mapVisible={structureVisible}
               onMapVisible={setStructureVisible}
               mapAvailable={structureUnits !== null}
+              roofOutline={structureRoofOutline}
+              onRoofOutline={setStructureRoofOutline}
             />
           )}
           <EvacStatusPanel
