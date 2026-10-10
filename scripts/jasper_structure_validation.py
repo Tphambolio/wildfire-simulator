@@ -64,7 +64,8 @@ CACHE_NAME = "moj_damage_townsite_status.geojson"
 # Pre-registered set-up (fixed 2026-10-10 before any Status value was read; do not edit after
 # the first scored run: add a new, dated block instead and report both).
 # Times are minutes after 18:00 MDT, 24 July 2024 (first structure ignitions: NOR-X-433
-# §4.6.2 p.35 "documented within the Jasper townsite at 18:00"; AAR p.20 and p.55 18:00).
+# §4.6.2 p.35 "documented within the Jasper townsite at 18:00"; AAR p.21 and p.56 18:00;
+# pages as printed).
 # Seed points are area centres rounded to 0.001 deg (~100 m): they locate an area, not a
 # building. They were placed from OpenStreetMap features matching the areas the accounts name;
 # the names are not repeated here (no street names in the repo).
@@ -74,13 +75,13 @@ PREREG = {
     "outcome_primary": "Destroyed = 1; Visible Damage and No Visible Damage = 0",
     "outcome_sensitivity": "Destroyed or Visible Damage = 1; No Visible Damage = 0",
     "seed_areas": {
-        # Municipal AAR p.20 (18:00: first impacts in the industrial area, a south-end road area
-        # and a west-side neighbourhood) and p.55 (18:00: the south end of town first to ignite)
+        # Municipal AAR p.21 (18:00: first impacts in the industrial area, a south-end road area
+        # and a west-side neighbourhood) and p.56 (18:00: the south end of town first to ignite)
         "aar_south_end": (52.870, -118.086),
         "aar_industrial": (52.873, -118.078),
         "aar_west_neighbourhood": (52.869, -118.102),
-        # FPInnovations WF TR 2025 n.04 §5.1 p.14 (also exec. summary p.3): one of the first
-        # rooftop ignitions in a west-end crescent, then the roof of a south-west lodge
+        # FPInnovations WF TR 2025 n.04 §5.1 p.14 (also p.3): one of the first rooftop
+        # ignitions in a west-end crescent, then the roof of a south-west lodge
         "fpi_west_end_first_roof": (52.870, -118.099),
         "fpi_southwest_lodge": (52.871, -118.092),
     },
@@ -123,7 +124,7 @@ PREREG = {
         "a_obs_distance_band_observed_count": "same ranking, N = observed destroyed count "
                                               "(uses the observed total; reference only)",
         "b1_separation_5m_one_step": "seeds + units within 5 m of a seed (FPI p.26: < 5 m to a "
-                                     "burned structure -> P(destroyed) > 0.8; exec. summary)",
+                                     "burned structure -> P(destroyed) > 0.8; exec. summary p.2)",
         "b2_separation_5m_percolation": "seeds + every unit linked to a seed by gaps <= 5 m",
         "c_random_observed_rate": "each unit destroyed with p = observed rate; 1000 draws",
         "d_seeds_only": "no structure spread (spec §8 item 4b)",
