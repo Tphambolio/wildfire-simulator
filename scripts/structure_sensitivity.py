@@ -23,6 +23,10 @@ reused for every structure-spread variant, so only the structure layer changes:
   time GR' 5.68, 400 kW/m², cutoff 20 / 45 m, structures-only embers (no wildland source).
   The default ember variant is also checked against ``structure_spread_for_grid_run`` (the
   engine's reachable-box build).
+- building burn-out (``--burnout``, 2026-10-10, spec §4.3): Hamada with burn-out at the end of
+  the 150 kW/m² design fire (66 min) at cutoff 20 / 30 / 45 m, and at the end of the 400 kW/m²
+  fire (70 min). Without ``--burnout`` the Hamada variants are the published model (no
+  burn-out), as in reports R7/R8; the ``Simulator`` check then runs with burn-out off.
 
 Structure units are built from every footprint in the fuel grid's box, as the API does
 (``BuildingIndex.building_geoms_in_bbox``). The default variant is checked against the counts
@@ -67,6 +71,7 @@ from firesim.structures.spread import (  # noqa: E402
     SOURCE_STRUCTURE,
     WindPeriod,
     building_cell_contact_times,
+    burnout_minutes,
     footprint_contact_times,
     hamada_spread,
     spread_with_embers,
@@ -146,6 +151,14 @@ EMBER_VARIANTS = [
     ("embers_cutoff_45", 45.0, 150, 10.0, True),
     ("embers_structures_only", 30.0, 150, 10.0, False),
     ("embers_400_structures_only", 30.0, 400, 10.0, False),
+]
+
+# Burn-out variants (--burnout): name, cutoff, design fire whose end is the burn-out time
+BURNOUT_VARIANTS = [
+    ("burnout", 30.0, 150),
+    ("burnout_cutoff_20", 20.0, 150),
+    ("burnout_cutoff_45", 45.0, 150),
+    ("burnout_400", 30.0, 400),
 ]
 
 
@@ -236,6 +249,7 @@ def run_metrics(units, res, ign_xy, cells_xy, duration_min) -> dict:
             "structure": int(np.sum(by & (src == SOURCE_STRUCTURE))),
             "ember": int(np.sum(by & (src == SOURCE_EMBER))),
             "total": int(np.sum(by)),
+            "burnt_out": int(np.sum(res.t_out_min <= h * 60.0 + 1e-9)),
         })
     inv = np.isfinite(t)
     out = {"hourly": hourly, "involved": int(inv.sum()),
@@ -275,6 +289,7 @@ def main() -> int:
     ap.add_argument("--sites", nargs="*", default=list(SITES))
     ap.add_argument("--weather", nargs="*", default=list(WEATHER))
     ap.add_argument("--embers", action="store_true", help="add the ember-ignition variants")
+    ap.add_argument("--burnout", action="store_true", help="add the burn-out variants")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     timings: dict = {}
@@ -302,7 +317,8 @@ def main() -> int:
     # Units per (cutoff, filter): built once, reused by every site and weather day
     units_by_key: dict = {}
     for _, cutoff, _, min_area, _ in VARIANTS + [(n, c, 10.0, 0.0, "cells")
-                                                 for n, c, *_ in (EMBER_VARIANTS if args.embers else [])]:
+                                                 for n, c, *_ in (EMBER_VARIANTS if args.embers else [])
+                                                 + (BURNOUT_VARIANTS if args.burnout else [])]:
         key = (cutoff, min_area)
         if key in units_by_key:
             continue
@@ -377,7 +393,8 @@ def main() -> int:
             )
             sim = _CapturingSimulator(config, fuel_grid=masked, terrain_grid=terrain,
                                       default_fuel=FuelType.C2, structure_spread=True,
-                                      structure_footprints=footprints)
+                                      structure_footprints=footprints,
+                                      structure_burnout=args.burnout)
             t1 = time.time()
             frames = list(sim.run())
             fbp_s = round(time.time() - t1, 1)
@@ -392,7 +409,8 @@ def main() -> int:
                 "fbp_plus_engine_structure_s": fbp_s,
                 "engine_default_counts": {k: engine_counts.get(k) for k in
                                           ("units_in_run", "units_front_contact",
-                                           "units_structure_to_structure", "units_involved")},
+                                           "units_structure_to_structure", "units_involved",
+                                           "units_burning", "units_burnt_out", "burnout_min")},
                 "variants": {},
             }
             duration_min = DURATION_H * 60.0
@@ -432,6 +450,23 @@ def main() -> int:
                             "p90": round(float(np.percentile(gap, 90)), 1),
                             "max": round(float(gap.max()), 1),
                             "share_over_10m": round(float(np.mean(gap > 10.0)), 3)}
+                run["variants"][name] = m
+            for name, cutoff, dfire in (BURNOUT_VARIANTS if args.burnout else []):
+                u = units_by_key[(cutoff, 0.0)]
+                t2 = time.time()
+                if em is None or len(em.x) == 0:
+                    run["variants"][name] = {"involved": 0}
+                    continue
+                t_front = building_cell_contact_times(u, arrival, bbox, DEFAULT_CONTACT_M)
+                res = hamada_spread(u, t_front, wind, duration_min=duration_min,
+                                    burnout_min=burnout_minutes(dfire))
+                lat = em.lat0 + np.asarray(em.y) / em.m_per_deg_lat
+                lng = em.lng0 + np.asarray(em.x) / em.m_per_deg_lng
+                cx, cy = u.frame.to_local(lat, lng)
+                lx, ly = u.frame.to_local(s["lat"], s["lng"])
+                m = run_metrics(u, res, (float(lx), float(ly)), np.column_stack([cx, cy]),
+                                duration_min)
+                m["runtime_s"] = round(time.time() - t2, 2)
                 run["variants"][name] = m
             for name, cutoff, dfire, gr, wild in (EMBER_VARIANTS if args.embers else []):
                 u = units_by_key[(cutoff, 0.0)]
@@ -478,7 +513,8 @@ def main() -> int:
                         u0, cx, cy, em.start_min, em.cell_size, b)).sum())
                     for b in CONTACT_BANDS_M}
                 run["cell_size_m"] = round(float(em.cell_size), 1)
-            d = run["variants"]["default"]
+            # The Simulator ran with burn-out on only with --burnout: compare like with like
+            d = run["variants"]["burnout" if args.burnout else "default"]
             run["default_matches_engine"] = (
                 engine_counts.get("units_involved") == d.get("involved")
                 and engine_counts.get("units_structure_to_structure") == d.get("structure"))
@@ -534,7 +570,9 @@ def tables(r: dict) -> str:
                       "Spread time (s) |",
                       "|---|---|---|---|---|---|---|---|---|"]
             for name, v in run["variants"].items():
-                hrs = " / ".join(str(h["total"]) for h in v.get("hourly", []))
+                hrs = " / ".join(str(h["total"]) + (f" ({h['burnt_out']} out)"
+                                                     if h.get("burnt_out") else "")
+                                 for h in v.get("hourly", []))
                 b = v.get("s2s_beyond_burned_cells_m") or {}
                 lines.append(
                     f"| {name} | {hrs} | {v.get('front', 0)} / {v.get('structure', 0)} / {v.get('ember', 0)} | "
