@@ -1,6 +1,7 @@
 # Structure-to-structure spread: specification
 
-Status: **specification, 2026-10-09.** Nothing here is validated in Canada. Every output built
+Status: **specification, 2026-10-09**; built so far: units (§2), Hamada (§4) and, since
+2026-10-10, ember ignition (§6.1). Nothing here is validated in Canada. Every output built
 from it must be labelled **"illustrative — not validated in Canada"**.
 
 This is the specification for adding structure-to-structure fire spread to FireSim. It fixes one
@@ -321,7 +322,7 @@ Verification gates before use: IJWF24 Fig. 3a (within 20 % of Hamada without emb
 Fig. 7a (no spread beyond 30 m for 10 m buildings without embers), PROCI24 pp.4-5 heat-flux
 ranges (Tubbs: flame contact 30-50, radiation 5-25 kW/m²; Thomas: 80-130 and 10-40).
 
-## 6. Embers (stages 6-7, not built)
+## 6. Embers (stages 6-7, built 2026-10-10: opt-in, illustrative)
 
 | Item | Equation / value | Source |
 |---|---|---|
@@ -340,6 +341,58 @@ The ember models produce short-range (≲ 100 m) structure-to-structure transpor
 "focus… is on short-distance firebrands"). They do not reproduce the 1-2 km spotting seen at
 Jasper and Fort McMurray; FireSim's Albini spotting (`spread/albini.py`) stays the long-range
 model.
+
+### 6.1 As built (2026-10-10, `engine/src/firesim/structures/embers.py`)
+
+Opt-in: API `structure_embers` (default **false**; needs `structure_spread`) and
+`structure_design_fire_kw_m2` (150 default, 400). Ember ignition is added **to** Hamada and front
+contact: a unit is involved at the earliest of front contact, a Hamada crossing and an ember
+ignition, and the mechanism is recorded (`ember`). Every equation was checked against the paper
+page before coding; the page and equation are in the code docstrings.
+
+| Step | As built | Source / label |
+|---|---|---|
+| Burning unit | From its involvement time (any mechanism) a unit burns the design fire, HRR = HRRPUA(t) × footprint area | Qin25 eqs 6.2, 6.10, pp.146, 169 [P]; design fire from involvement for front and Hamada units too [H] |
+| Design fires | 150 kW/m², 300 / 60 / 3600 s (default, D1); 400 kW/m², 300 / 3600 / 300 s (scenario) | PROCI24 p.3; FSJ104686 p.2 [P] |
+| Generation | GR = GR' × HRR; GR' 10 pcs/(MW·s) structures [T] (5.68 scenario), 33.3 vegetation; counts are the exact integral of HRR over each step | Qin25 eqs 3.8, 3.17, Table 6.1 [P] |
+| Structure transport | Himoto lognormal: mean / std of the flight distance 0.47 B*^(2/3) D and 0.88 B*^(1/3) D converted to log form; D = √(footprint area); ρ_p 100 kg/m³, d_p 5 mm, ρ∞ 1.1, c_p 1.0, T∞ 300 K; truncated at the 99th percentile and renormalised; B* evaluated at the **10 m** wind (C16) | HT08 eqs 38-40, pp.22-24; Qin25 eqs 6.3-6.4, p.149; FSJ104686 p.3 [P] |
+| Crosswind | Normal, σ_Y = 0.92 D, truncated at the two-sided 99 % and renormalised | HT08 eq 39, p.23 [P]; truncation by analogy with Qin25 p.75 [H] |
+| Emission point | Centroid; the flight distance is measured from the source's downwind edge (its extent along the wind), so nothing lands on the emitting footprint | Qin25 §6.3.1 item 3, p.170 [P]; the edge offset is the reading that reproduces FSJ104686 p.5's 33 % (C15) [H] |
+| Vegetation transport | Burning grid cells emit at HRR = HFI × cell size (Qin25 eq 6.1) for their flaming time (cell size / normal speed, + 60 s where the front stops, as `exposure.py`), Sardoy lognormal (Qin25 eqs 4.2-4.6, I in MW/m) with the **6.1 m** wind (C17), measured from the cell's downwind edge, σ_Y = 0.92 × cell size | Qin25 pp.42, 72-73, 124 [P]; σ_Y for a cell [H] |
+| Pooling | Expected number landing on each footprint: the target's box in the source's wind frame (exact for a wind-aligned rectangle) × footprint area / box area | Qin25 eqs 4.17, 6.5, 6.9 [P]; box × fill [H] |
+| Ignition | ψ = N × 0.2 g / A ≥ ψ*(v_air), v_air = 0.064 × 6.1 m wind; the crossing time is interpolated within the 30 s accumulation step; ignition at crossing + flight time (distance / 6.1 m wind) + 42 s + 300 s; the unit then starts its design fire | FSJ104686 eq 1, pp.3-5; Qin25 eq 5.12, pp.120-123, 157 [P] |
+| Determinism | Expected-value pooling, no random draws: the stochastic t_ign,small algorithm (Qin25 eqs 5.2-5.4, p.106) is replaced by the fixed 42 s of the FSJ104686 p.5 worked example | [H]; runs are repeatable without a seed |
+| Wind | 10 m open wind of the period in force; 6.1 m = 10 m ÷ 1.15 | Andrews (2009) RMRS-GTR-213 p.58 [P] for the ratio; its use in town [H] |
+| No ember burnout, no cooling | Embers accumulate without loss | FSJ104686 p.8 limit (9) [P] |
+
+**Check values reproduced (unit tests, `engine/tests/structures/test_embers.py`):** X_max 65 / 84 /
+109 m for 10 / 40 / 160 MW (FSJ104686 p.3); v_air 1.1 m/s, ψ* 0.059 g/cm², 2.95 × 10⁵ embers on
+10 × 10 m (p.5; Qin25 p.157: 2,928.9 pcs/m²); 33 % of a 40 MW structure's embers on the next
+structure (p.5); the 1-D benchmark (SS = SSD = 10 m, 400 kW/m², GR' 10, 17.9 m/s) ignites the second
+structure at 2,703 s against the paper's 2,705 s (p.5) and spreads at 0.009 m/s against "≈ 0.01 m/s"
+(p.6); fire load 1.56 GJ/m² and 1.56 × 10⁶ embers per 100 m² structure (pp.2, 5); Sardoy μ 2.18,
+σ 1.23, X_kmax 150 m (Qin25 p.124). The accumulation step is converged (30 s vs 6 s: < 3 s
+difference).
+
+**Reachable box (memory, §2).** The first margin also covers the wildland embers: not Sardoy's X_max
+(kilometres at crown-fire intensity), but the distance beyond which even every burning cell's whole
+emission at its peak density could not reach the smallest ψ* of the run, plus 100 m for footprint
+extents [H] (`WildlandSources.safe_reach_m`). The exactness test grows each involved unit by the
+larger of the cutoff and its own ember reach (Himoto X_max at its design-fire peak in the strongest
+wind, plus crosswind). Tests check that the reachable build equals the whole-area build with
+structure and wildland embers. Live-request reproduction ([R11] request, embers on): 3,937 units
+built, peak RSS 1,088 MB (1,086 MB with embers off), structure step 9 s.
+
+**What the equations imply (FireSim arithmetic, before any validation).** A building's whole design
+fire emits GR' × fire load × area embers: 0.30 GJ/m² × 10 = 3,015 embers/m² of footprint at
+150 kW/m², 15,600 at 400 kW/m². The threshold is ψ*/0.2 g = 2,950 embers/m² at 17.9 m/s and
+8,900 /m² at 15 km/h (v_air 0.23 m/s). With about a third of the embers landing on the next building
+in the best case (and less with the crosswind spread over real layouts), **at the 150 kW/m² default
+a building can ignite a neighbour by embers only if several burning buildings feed it; in practice
+the ember stage is inert at 150 kW/m²** (Jasper: largest pool 0.05-0.4 of the threshold on any
+building not otherwise involved, at 15-80 km/h). GR' = 10 [T] was set by its authors with the
+400 kW/m² curve (Qin25 p.147, Table 6.1); combining it with PROCI24's 150 kW/m² curve is FireSim's
+choice under D1, recorded as open item (owner decision needed).
 
 ## 7. Conflicting published values and the choices made
 
@@ -361,6 +414,11 @@ model.
 | C12 | Wind height | 6.1 m / 20 ft (FSJ104686 p.3; Qin25 p.78), 10 m (RTMA, FSJ104651), unstated for Hamada | 10 m open wind for Hamada; explicit reduction for embers | §3 |
 | C13 | WU-E coefficients PROCI24 does not print | α_c, absorptivity and FTP are not in PROCI24; Qin25 (p.227) attributes defaults to it | IJWF24 baseline (α_c 0.95, absorptivity 0.89, FTP 10,500); α_c 0.5 scenario | Values printed in a peer-reviewed source |
 | C14 | Structure firebrand generation | 5.68 → 10 pcs/(MW·s) (Qin25 p.147; FSJ104686 p.4) | **10 [T]**, 5.68 scenario | The tuned value is the one the authors carry forward; both are labelled |
+| C15 | Where the flight distance starts | Qin25 §6.3.1 (p.170): emission from the centre, nothing lands on the emitting footprint; FSJ104686 p.5: 33 % of the first structure's embers land on the second (SS = SSD = 10 m) | **From the source's downwind edge** | Measured from the centroid the 1-D fraction is 20 %; from the downwind edge it is 33.3 % and the published ignition time (2,705 s) is reproduced (2,703 s). Qin25's own Test 6-1 (2,496.9 s to threshold, p.157) implies 31 % |
+| C16 | Wind in the Himoto PDF | FSJ104686 p.3 quotes X_max 65 / 84 / 109 m "in a 40-mph wind, u_wind = 17.9 m/s" (the 6.1 m wind of p.3) | **10 m wind** (= 1.15 × 6.1 m) in B* | With 17.9 m/s in B* the published equations give 62 / 80 / 103 m; with 1.15 × 17.9 = 20.6 m/s they give 65.2 / 84.4 / 108.8 m. Qin25 p.72 says the PDFs use the 10 m wind. Inferred, not stated |
+| C17 | Wind in the Sardoy PDF | Qin25 p.72: "ambient wind velocity measured at 10-meter elevation"; Qin25 p.124 worked case: μ = 2.18, σ = 1.23 at 6.71 m/s "measured at 6.1 m" | **6.1 m wind** | Only the 6.1 m wind reproduces the worked values (2.215 with the 10 m wind) |
+| C18 | Sardoy fireline-intensity unit | FSJ104651 SI: I_f in kW/m; Qin25 eq 4.2: I_B in MW/m | **MW/m** | With kW/m the p.124 case gives μ ≈ 13 (flight distances of e^13 m); MW/m reproduces μ = 2.18 |
+| C19 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500
 kJ/m² (IJWF24, "qualitative" combustibility scale); structure GR' 10 pcs/(MW·s); FSJ104651's 10
@@ -440,6 +498,27 @@ FireSim's plan:
      unrecorded demolitions in the business district at 21:30 (a likely source of false
      positives).
 
+7. **Ember ignition at Jasper (2026-10-10, [R12]; `--embers`, `PREREG_EMBERS`, committed
+   `ccce4d6` before scoring).** Same units, seeds, wind, window and baselines as item 6; ember
+   values from §6.1; no wildland source (structure-only run).
+   - **No building was ignited by embers in any of the 17 pre-registered runs** (150 or
+     400 kW/m², GR' 5.68 or 10, cutoff 20 / 30 / 45 m, wind × 0.75 / × 1.25, the documented 27 km/h
+     gust, and embers without Hamada). Every Hamada + embers run equals its Hamada-only reference
+     exactly: κ 0.472 (primary), distance band (a) 0.516, FireSim − (a) −0.044 (−0.157 to +0.045).
+   - **The decision rule is not met; embers do not help on this test.** They do not reach the
+     destroyed groups 250-500 m from the seeds (100 FN there).
+   - Why (model-only diagnostic): at 15 km/h v_air = 0.23 m/s and ψ* = 0.178 g/cm² (~1.4 million
+     embers on a median 154 m² footprint) while one such building emits 0.46 million (150 kW/m²) or
+     2.4 million (400) in its whole fire; Himoto X_max is 46-57 m. The largest pool on any building
+     not otherwise involved was 4.5 % (150) to 14 % (400) of its threshold with Hamada, 9-53 % with
+     embers alone. Embers alone ignite a few buildings only at 400 kW/m² and ≥ 40 km/h.
+   - Edmonton (`scripts/structure_sensitivity.py --embers`, the [R7]/[R8] sites and days): no
+     ember ignition in any of 42 runs (seven ember variants incl. 400 kW/m² and wildland embers
+     at 78-82 MW/m peak HFI); counts identical to Hamada alone.
+   - The published model is short-range by design (FSJ104686 p.3). The 250-500 m losses need the
+     wildland-front ember source of a coupled run (§6.1), longer-range spotting, or are outside this
+     model.
+
 ## 9. Limits
 
 - Not validated in Canada. The only validations are on three Californian fires with Rothermel,
@@ -462,7 +541,15 @@ FireSim's plan:
   below one cell. The fuel-grid building mask covers only the 4 neighbourhoods nearest the
   ignition; outside them a building's own cells can burn and the same rule applies.
 - Wind is the run's 10 m open wind, uniform over the run area; no street canyon or sheltering.
-- Ember ignition, the main WUI loss mechanism, is not in the Hamada stage except implicitly
+- Ember ignition (opt-in, §6.1) is the published short-range model (≲ 100 m from buildings) with
+  one target material (pressure-treated wood, 2 % moisture), no ember cooling, no wind modification
+  by buildings, and California-tuned generation (GR' 10 [T]). At the 150 kW/m² default it almost
+  never ignites a building (§6.1); at Jasper it ignited none in 17 runs (§8 item 7). With Hamada on
+  it double counts embers, which Hamada's empirical rate already includes (Qin25 p.177). The wind
+  heights in the transport PDFs are inferred from the published check values (C16, C17), and the
+  wildland coupling (Sardoy from 50 m FBP cells at crown-fire intensities) is outside the range the
+  correlation was shown for (Qin25 Fig. 6.2: I ≤ 0.5 MW/m).
+- Without the ember option, ember ignition, the main WUI loss mechanism, is not in the Hamada stage except implicitly
   through Hamada's empirical rate; yard fuels, sheds, fences and vehicles are not modelled.
 - Microsoft footprints: detached garages and sheds may be separate footprints or missing;
   attached buildings may merge into one footprint. Accuracy of the footprints in Edmonton has
@@ -474,7 +561,8 @@ FireSim's plan:
 ### Outputs and display (2026-10-10)
 
 - **Counts per frame** (`structure_spread`): units involved by the frame's time, by mechanism
-  (front contact, building to building), with `label` "illustrative — not validated in Canada".
+  (front contact, building to building and, with `structure_embers`, `units_ember` /
+  `units_ember_from_wildland`), with `label` "illustrative — not validated in Canada".
 - **Involved units on the final frame** (`structure_spread_detail`, owner decision 2026-10-10,
   D3 reversed): for each involved unit only its footprint (simplified 0.5 m), involvement time
   (h), mechanism, and the unit that passed the fire on (building to building). No address,
@@ -489,6 +577,11 @@ FireSim's plan:
   (not validated in Canada; modelled involvement, not a prediction of which buildings will
   burn; 30 m neighbour cutoff; front contact on the ~50 m grid) is in an info tooltip on hover
   or keyboard focus. Per-building results are not put in any export, ICS 209 or report.
+- **Ember ignition in the app (2026-10-10):** an "Ember ignition" checkbox under House-to-house
+  spread (off by default, enabled only with it; sends `structure_embers`, default design fire
+  150 kW/m²). When the run had embers the card adds an "Ember ignition" row, the chart a third
+  (chartreuse, `--struct-ember`) segment, the map and legend a third mechanism colour, and the
+  caveat names the ember model and design fire.
 - D3's concern (building-level precision 9-77 % in FSJ104651, §8; a per-house map can read as
   a loss forecast) is handled by labelling, not by hiding: the owner's reasons are that
   aggregated blocks can look more catastrophic than the modelled result and that firefighters
@@ -502,7 +595,7 @@ FireSim's plan:
    `structure_spread` (default false), labelled "illustrative — not validated in Canada".
 4. WU-E option (§5) with verification gates.
 5. FBP coupling refinements: residence, building → wildland, road firebreaks.
-6. Firebrand generation and transport (§6).
-7. Ember ignition (§6).
+6. Firebrand generation and transport (§6). **Built 2026-10-10** (§6.1).
+7. Ember ignition (§6). **Built 2026-10-10** (§6.1); first check at Jasper §8 item 7.
 8. Verification suite: Qin25 1-D tests, FSJ104686 benchmark (SSD × wind × GR maps, Fig. 6).
 9. Canadian validation (§8).
