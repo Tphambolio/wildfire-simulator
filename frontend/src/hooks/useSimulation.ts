@@ -6,6 +6,7 @@ import type {
   SimulationCreate,
   MultiDaySimulationCreate,
   PerimeterOverrideRequest,
+  RunPhase,
   SimulationFrame,
   SimulationStatus,
   WSEvent,
@@ -34,42 +35,72 @@ interface SimulationState {
   error: string | null;
   isRunning: boolean;
   isPaused: boolean;
+  /** Run progress for display (RunProgress): server phase, fraction 0-1, start time */
+  phase: RunPhase | null;
+  progress: number | null;
+  startedAt: number | null;
+  durationHours: number | null;
+}
+
+const IDLE: SimulationState = {
+  simulationId: null,
+  status: null,
+  frames: [],
+  currentFrameIndex: 0,
+  error: null,
+  isRunning: false,
+  isPaused: false,
+  phase: null,
+  progress: null,
+  startedAt: null,
+  durationHours: null,
+};
+
+/** Progress from a frame's time (Huygens runs stream frames as they compute). */
+export function frameProgress(prev: number | null, timeHours: number, durationHours: number | null): number | null {
+  if (!durationHours || durationHours <= 0) return prev;
+  const f = Math.min(1, Math.max(0, timeHours / durationHours));
+  return prev === null ? f : Math.max(prev, f);
 }
 
 export function useSimulation() {
-  const [state, setState] = useState<SimulationState>({
-    simulationId: null,
-    status: null,
-    frames: [],
-    currentFrameIndex: 0,
-    error: null,
-    isRunning: false,
-    isPaused: false,
-  });
+  const [state, setState] = useState<SimulationState>(IDLE);
 
   const wsRef = useRef<WebSocket | null>(null);
+  // Each run gets a token; messages and polls from an older run are ignored, so a new run
+  // started after a completed one is never overwritten by the old run's socket or poll
+  const runTokenRef = useRef(0);
+
+  /** Close the current run's socket without letting its close handler start a poll. */
+  const detachSocket = () => {
+    const ws = wsRef.current;
+    wsRef.current = null;
+    if (ws) {
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      ws.close();
+    }
+  };
 
   const _startWithCreateFn = useCallback(async (
-    createFn: () => Promise<{ simulation_id: string }>
+    createFn: () => Promise<{ simulation_id: string }>,
+    durationHours: number | null = null,
   ) => {
-    // Close existing WebSocket
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
+    detachSocket();
+    const token = ++runTokenRef.current;
 
     setState({
-      simulationId: null,
+      ...IDLE,
       status: "running",
-      frames: [],
-      currentFrameIndex: 0,
-      error: null,
       isRunning: true,
-      isPaused: false,
+      startedAt: Date.now(),
+      durationHours,
     });
 
     try {
       const resp = await createFn();
+      if (token !== runTokenRef.current) return;
       const simId = resp.simulation_id;
 
       setState((prev) => ({ ...prev, simulationId: simId }));
@@ -79,9 +110,16 @@ export function useSimulation() {
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
+        if (token !== runTokenRef.current) return;
         const data: WSEvent = JSON.parse(event.data);
 
-        if (data.type === "simulation.frame" && data.frame) {
+        if (data.type === "simulation.status" && data.phase) {
+          setState((prev) => ({
+            ...prev,
+            phase: data.phase!,
+            progress: typeof data.progress === "number" ? Math.max(prev.progress ?? 0, data.progress) : prev.progress,
+          }));
+        } else if (data.type === "simulation.frame" && data.frame) {
           setState((prev) => {
             const frame = withAllCells(data.frame!, prev.frames[prev.frames.length - 1]);
             // Prepend a synthetic T=0 frame on the very first real frame so the
@@ -93,6 +131,7 @@ export function useSimulation() {
               ...prev,
               frames: newFrames,
               currentFrameIndex: newFrames.length - 1,
+              progress: frameProgress(prev.progress, frame.time_hours, prev.durationHours),
             };
           });
         } else if (data.type === "simulation.completed") {
@@ -126,23 +165,28 @@ export function useSimulation() {
         }
       };
 
+      let polling = false;
+      const fallback = () => {
+        if (polling || token !== runTokenRef.current) return;
+        polling = true;
+        pollForResults(simId, token);
+      };
       ws.onerror = () => {
         // Fallback to polling if WebSocket fails
-        pollForResults(simId);
+        fallback();
       };
 
       ws.onclose = () => {
-        wsRef.current = null;
+        if (wsRef.current === ws) wsRef.current = null;
         // If simulation is still running when WS closes (e.g. long data load),
         // fall back to polling so we still get results
         setState((prev) => {
-          if (prev.isRunning) {
-            pollForResults(simId);
-          }
+          if (prev.isRunning) fallback();
           return prev;
         });
       };
     } catch (err) {
+      if (token !== runTokenRef.current) return;
       setState((prev) => ({
         ...prev,
         status: "failed",
@@ -155,24 +199,34 @@ export function useSimulation() {
   const startSimulation = useCallback(
     // Grid runs stream only newly burned cells; withAllCells rebuilds each frame's full list
     (params: SimulationCreate) =>
-      _startWithCreateFn(() => createSimulation({ ...params, cells_mode: "incremental" })),
+      _startWithCreateFn(() => createSimulation({ ...params, cells_mode: "incremental" }), params.duration_hours ?? null),
     [_startWithCreateFn]
   );
 
   const startMultiDaySimulation = useCallback(
-    (params: MultiDaySimulationCreate) => _startWithCreateFn(() => createMultiDaySimulation(params)),
+    (params: MultiDaySimulationCreate) =>
+      _startWithCreateFn(() => createMultiDaySimulation(params), (params.days?.length ?? 0) * 24 || null),
     [_startWithCreateFn]
   );
 
   const startPerimeterOverride = useCallback(
-    (req: PerimeterOverrideRequest) => _startWithCreateFn(() => createPerimeterOverride(req)),
+    (req: PerimeterOverrideRequest) => _startWithCreateFn(() => createPerimeterOverride(req), req.duration_hours ?? null),
     [_startWithCreateFn]
   );
 
-  const pollForResults = useCallback(async (simId: string) => {
+  /** Clear the current results (frames, status) and stop listening to the run. */
+  const clearResults = useCallback(() => {
+    detachSocket();
+    runTokenRef.current += 1;
+    setState(IDLE);
+  }, []);
+
+  const pollForResults = useCallback(async (simId: string, token: number) => {
     const poll = async () => {
+      if (token !== runTokenRef.current) return;
       try {
         const resp = await getSimulation(simId);
+        if (token !== runTokenRef.current) return;
         const full: SimulationFrame[] = [];
         for (const f of resp.frames) full.push(withAllCells(f, full[full.length - 1]));
         const framesWithT0 = full.length > 0 ? [T0_FRAME, ...full] : [];
@@ -183,11 +237,14 @@ export function useSimulation() {
           currentFrameIndex: framesWithT0.length - 1,
           isRunning: resp.status === "running",
           error: resp.error,
+          phase: resp.phase ?? prev.phase,
+          progress: typeof resp.progress === "number" ? Math.max(prev.progress ?? 0, resp.progress) : prev.progress,
         }));
         if (resp.status === "running") {
           setTimeout(poll, 1000);
         }
       } catch (err) {
+        if (token !== runTokenRef.current) return;
         // On 404 (simulation not found after machine restart), surface the error
         const msg = err instanceof Error ? err.message : "";
         if (msg.includes("not found") || msg.includes("404")) {
@@ -238,6 +295,7 @@ export function useSimulation() {
     startSimulation,
     startMultiDaySimulation,
     startPerimeterOverride,
+    clearResults,
     setFrameIndex,
     pauseSimulation,
     resumeSimulation,

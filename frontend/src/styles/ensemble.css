@@ -19,6 +19,18 @@
   border-bottom: 1px solid var(--border);
 }
 
+.ens-h-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+}
+
+.ens-h-row .ens-h {
+  margin: 0;
+}
+
 .ens-h {
   margin: 0 0 var(--sp-2);
   font-size: var(--fs-lg);
@@ -47,6 +59,45 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ens-progress-fill { transition: none; }
+}
+
+/* Main-run progress (components/RunProgress.tsx), same look as the ensemble's */
+.run-progress {
+  margin: var(--sp-2) 0 0;
+}
+
+.run-progress-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.run-progress-row .ens-progress-text {
+  flex: 1 1 auto;
+}
+
+.run-progress-elapsed {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.run-progress-indeterminate .ens-progress-fill {
+  width: 30%;
+  animation: run-progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes run-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-progress-indeterminate .ens-progress-fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.45;
+  }
 }
 
 .ens-error {

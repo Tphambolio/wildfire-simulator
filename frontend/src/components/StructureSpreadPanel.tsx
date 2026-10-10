@@ -7,6 +7,8 @@
 import type { SimulationFrame } from "../types/simulation";
 import { STRUCT_B2B, STRUCT_FRONT, structureCaveat, structureSeries } from "../utils/structureSpread";
 import InfoTip from "./InfoTip";
+import Badge from "./Badge";
+import { BADGES } from "../content/explanations";
 
 interface StructureSpreadPanelProps {
   frames: SimulationFrame[];
@@ -70,8 +72,8 @@ export default function StructureSpreadPanel({ frames, frameIndex, mapVisible, o
     <section className="panel struct-panel" aria-labelledby="struct-title" data-testid="structure-panel">
       <div className="fuel-breakdown">
         <h4 id="struct-title" className="struct-title">
-          House-to-house spread <span className="struct-badge">Illustrative</span>
-          <InfoTip text={caveat} label="About house-to-house spread" alignRight />
+          House-to-house spread <Badge tone="warn" className="struct-badge">{BADGES.illustrative}</Badge>
+          <InfoTip text={caveat} label="About house-to-house spread" />
         </h4>
         {!computed ? (
           <div className="hint-sm" role="note">

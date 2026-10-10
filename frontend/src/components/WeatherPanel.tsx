@@ -9,7 +9,7 @@ import MultiDayPanel from "./MultiDayPanel";
 import SetupSection from "./SetupSection";
 import { edmontonDayOfYear, formatClock, formatDate, roundToMinute, toDateTimeInputs, toEdmontonIso, zonedWallTimeToMs, zoneAbbrev } from "../utils/time";
 import { formatDecimal, parseCanadaCoordinate, parseCoordinatePair, splitPair } from "../utils/coords";
-import { fwiClass, fwiClassColor, fwiClassTextColor } from "../utils/fwiClass";
+import { fwiClass } from "../utils/fwiClass";
 import {
   DEFAULT_BURNING_PERIOD,
   VALIDATION_DOC_URL,
@@ -19,7 +19,34 @@ import {
   validateBurningHours,
 } from "../utils/skillOptions";
 import type { BurningPeriod } from "../types/simulation";
+import { BADGES, TIPS } from "../content/explanations";
+import Badge from "./Badge";
+import InfoTip, { TipButton } from "./InfoTip";
+import FwiClassChip from "./FwiClassChip";
 import { SPRING_WINDOW_LABEL, curingFactor, defaultGrassCure } from "../utils/curing";
+
+/** Moving the ignition this far from where the weather was set shows a notice. */
+const FAR_KM = 25;
+
+/** Great-circle distance in km. */
+function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r;
+  const dLng = (b.lng - a.lng) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+/** Short visible status for a weather message; the full message goes in its tooltip. */
+export function shortWeatherStatus(msg: string): { text: string; ok: boolean } {
+  const m = msg.toLowerCase();
+  if (m.includes("unavailable") || m.includes("not available") || m.includes("could not") || m.includes("failed")) {
+    return { text: m.includes("hourly") ? "Hourly forecast unavailable" : "Weather not loaded", ok: false };
+  }
+  const spin = m.includes("spin-up skipped") ? " · spin-up skipped" : "";
+  if (m.startsWith("hourly forecast")) return { text: `Hourly forecast loaded${spin}`, ok: true };
+  return { text: `Fire weather loaded${spin}`, ok: true };
+}
 
 /** Last curing the user entered (a suggestion outside the spring window; per browser). */
 const LAST_CURE_KEY = "firesim.lastGrassCure";
@@ -188,6 +215,8 @@ interface WeatherPanelProps {
   runBarTarget?: HTMLElement | null;
   /** Current burning period / spin-up settings (for the observed-perimeter restart) */
   onSkillOptions?: (opts: SkillOptionsState) => void;
+  /** After a run: arm a new ignition on the map ("New ignition" in the run bar) */
+  onNewIgnition?: () => void;
 }
 
 function WeatherPanel({
@@ -204,6 +233,7 @@ function WeatherPanel({
   onEdmontonGridChange,
   runBarTarget,
   onSkillOptions,
+  onNewIgnition,
 }: WeatherPanelProps) {
   const fieldId = useId();
 
@@ -345,6 +375,9 @@ function WeatherPanel({
     loadedScenarioIdRef.current = scenarioToLoad.id;
     setWeather(scenarioToLoad.weather);
     setFwi(scenarioToLoad.fwi);
+    weatherManualRef.current = true;
+    setWeatherManual(true);
+    weatherAnchorRef.current = scenarioToLoad.ignitionPoint ?? null;
     setFuelType(scenarioToLoad.fuelType);
     setUseEdmontonGrid(scenarioToLoad.useEdmontonGrid);
     setUseSyntheticCA(scenarioToLoad.useSyntheticCA);
@@ -415,41 +448,72 @@ function WeatherPanel({
     });
   }, [onSkillOptions, burningOn, burningError, bpStart, bpEnd, spinUpOn, spinUpAvailable]);
 
-  // ── Auto-fetch CWFIS weather when ignition point is first set ─────────────
+  // ── Station weather (CWFIS) for the ignition point ───────────────────────
+  // Weather and FWI are filled from the nearest station only while they are still "auto":
+  // never edited, not from a preset or a loaded scenario. Once the user has set them, moving
+  // the ignition keeps them (owner bug 2026-10-10: a move used to overwrite every input);
+  // "Update weather for this location" loads the station values on request.
+  const [weatherManual, setWeatherManual] = useState(false);
+  const weatherManualRef = useRef(false);
+  const markWeatherManual = () => {
+    weatherManualRef.current = true;
+    setWeatherManual(true);
+  };
+  // Where the current weather applies (the point it was loaded for), for the distance notice
+  const weatherAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [farKm, setFarKm] = useState<number | null>(null);
+
+  const loadStationWeather = async (point: { lat: number; lng: number }, onRequest: boolean) => {
+    setWeatherLoading(true);
+    setWeatherMessage(null);
+    try {
+      const w = await fetchCurrentWeather(point.lat, point.lng);
+      // An edit made while the request was out wins over an automatic fill
+      if (!onRequest && weatherManualRef.current) return;
+      if (w.available) {
+        if (w.wind_speed !== null) setWeather((prev) => ({ ...prev, wind_speed: Math.round(w.wind_speed!) }));
+        if (w.wind_direction !== null) setWeather((prev) => ({ ...prev, wind_direction: Math.round(w.wind_direction!) }));
+        if (w.temperature !== null) setWeather((prev) => ({ ...prev, temperature: Math.round(w.temperature!) }));
+        if (w.relative_humidity !== null) setWeather((prev) => ({ ...prev, relative_humidity: Math.round(w.relative_humidity!) }));
+        if (w.ffmc !== null || w.dmc !== null || w.dc !== null) {
+          setFwi((prev) => ({
+            ffmc: w.ffmc ?? prev.ffmc,
+            dmc: w.dmc ?? prev.dmc,
+            dc: w.dc ?? prev.dc,
+          }));
+        }
+        setWeatherSource(w.source);
+        setWeatherTimestamp(w.data_timestamp ?? null);
+        setStationName(w.station_name ?? null);
+        setStationDistanceKm(w.distance_km ?? null);
+        weatherAnchorRef.current = point;
+        weatherManualRef.current = false;
+        setWeatherManual(false);
+        setFarKm(null);
+      }
+      setWeatherMessage(w.message);
+    } catch {
+      setWeatherMessage("Could not reach CWFIS — check network");
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
   const autoFetchedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!ignitionPoint) return;
     const key = `${ignitionPoint.lat.toFixed(4)},${ignitionPoint.lng.toFixed(4)}`;
-    if (autoFetchedRef.current === key) return; // already fetched for this point
+    if (autoFetchedRef.current === key) return; // already handled for this point
     autoFetchedRef.current = key;
-    setWeatherLoading(true);
-    setWeatherMessage(null);
-    fetchCurrentWeather(ignitionPoint.lat, ignitionPoint.lng)
-      .then((w) => {
-        if (w.available) {
-          if (w.wind_speed !== null) setWeather((prev) => ({ ...prev, wind_speed: Math.round(w.wind_speed!) }));
-          if (w.wind_direction !== null) setWeather((prev) => ({ ...prev, wind_direction: Math.round(w.wind_direction!) }));
-          if (w.temperature !== null) setWeather((prev) => ({ ...prev, temperature: Math.round(w.temperature!) }));
-          if (w.relative_humidity !== null) setWeather((prev) => ({ ...prev, relative_humidity: Math.round(w.relative_humidity!) }));
-          if (w.ffmc !== null || w.dmc !== null || w.dc !== null) {
-            setFwi({
-              ffmc: w.ffmc ?? fwi.ffmc,
-              dmc: w.dmc ?? fwi.dmc,
-              dc: w.dc ?? fwi.dc,
-            });
-          }
-          setWeatherSource(w.source);
-          setWeatherTimestamp(w.data_timestamp ?? null);
-          setStationName(w.station_name ?? null);
-          setStationDistanceKm(w.distance_km ?? null);
-        }
-        setWeatherMessage(w.message);
-      })
-      .catch(() => {
-        setWeatherMessage("Could not reach CWFIS — check network");
-      })
-      .finally(() => setWeatherLoading(false));
-  // fwi intentionally omitted — only re-run when ignitionPoint changes
+    if (weatherManualRef.current) {
+      // Keep the user's weather; say so when the new point is far from where it was set
+      const a = weatherAnchorRef.current;
+      const km = a ? distanceKm(a, ignitionPoint) : null;
+      setFarKm(km !== null && km > FAR_KM ? km : null);
+      return;
+    }
+    void loadStationWeather(ignitionPoint, false);
+  // loadStationWeather is stable in behaviour; only re-run when the ignition point changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ignitionPoint]);
 
@@ -647,37 +711,20 @@ function WeatherPanel({
     }, atMs);
   };
 
+  // User edits of the weather and FWI inputs
+  const editWeather = (w: WeatherParams) => {
+    setWeather(w);
+    markWeatherManual();
+  };
+  const editFwi = (f: FWIOverrides) => {
+    setFwi(f);
+    markWeatherManual();
+  };
+
   const handleLoadWeather = async () => {
     if (!ignitionPoint) return;
-    setWeatherLoading(true);
-    setWeatherMessage(null);
-    // Force re-fetch even if already auto-fetched for this point
-    autoFetchedRef.current = null;
-    try {
-      const w = await fetchCurrentWeather(ignitionPoint.lat, ignitionPoint.lng);
-      if (w.available) {
-        if (w.wind_speed !== null) setWeather((prev) => ({ ...prev, wind_speed: Math.round(w.wind_speed!) }));
-        if (w.wind_direction !== null) setWeather((prev) => ({ ...prev, wind_direction: Math.round(w.wind_direction!) }));
-        if (w.temperature !== null) setWeather((prev) => ({ ...prev, temperature: Math.round(w.temperature!) }));
-        if (w.relative_humidity !== null) setWeather((prev) => ({ ...prev, relative_humidity: Math.round(w.relative_humidity!) }));
-        if (w.ffmc !== null || w.dmc !== null || w.dc !== null) {
-          setFwi({
-            ffmc: w.ffmc ?? fwi.ffmc,
-            dmc: w.dmc ?? fwi.dmc,
-            dc: w.dc ?? fwi.dc,
-          });
-        }
-        setWeatherSource(w.source);
-        setWeatherTimestamp(w.data_timestamp ?? null);
-        setStationName(w.station_name ?? null);
-        setStationDistanceKm(w.distance_km ?? null);
-      }
-      setWeatherMessage(w.message);
-    } catch {
-      setWeatherMessage("Could not reach CWFIS — check network");
-    } finally {
-      setWeatherLoading(false);
-    }
+    autoFetchedRef.current = `${ignitionPoint.lat.toFixed(4)},${ignitionPoint.lng.toFixed(4)}`;
+    await loadStationWeather(ignitionPoint, true);
   };
 
   const handleComputeFWI = async () => {
@@ -693,6 +740,7 @@ function WeatherPanel({
         dc_prev: fwi.dc ?? 15,
       });
       setFwi({ ffmc: result.ffmc, dmc: result.dmc, dc: result.dc });
+      markWeatherManual();
     } catch {
       // silently fail — live computation still shown
     } finally {
@@ -714,6 +762,7 @@ function WeatherPanel({
     if (!p) return;
     setWeather(p.weather);
     setFwi(p.fwi);
+    markWeatherManual();
     setGrassCure(p.grassCure);
     setPercentConifer(p.percentConifer);
     setDurationHours(p.durationHours);
@@ -784,15 +833,20 @@ function WeatherPanel({
           {isRunning ? "Simulating..." : `Run ${multiDayDays.length * 24}h Scenario`}
         </button>
       )}
+      {onNewIgnition && (
+        <TipButton className="btn-secondary btn-inline run-bar-new-ignition" tip={TIPS.newIgnition} onClick={onNewIgnition}>
+          New ignition
+        </TipButton>
+      )}
       <div id="run-bar-reason" className={`run-bar-reason${disabledReason && !isRunning ? " attention" : ""}`}>
-        {disabledReason ?? `${simMode === "single" ? `${durationHours} h` : `${multiDayDays.length} days`} from ${startFollowsNow ? "now" : startDate ? `${formatClock(startDate)} ${zoneAbbrev(startDate)}` : "the start"} · Ctrl+Enter`}
+        {disabledReason ?? `${simMode === "single" ? `${durationHours} h` : `${multiDayDays.length} days`} from ${startFollowsNow ? "now" : startDate ? `${formatClock(startDate)} ${zoneAbbrev(startDate)}` : "the start"}`}
       </div>
     </div>
   );
 
   return (
     <div className="weather-panel">
-      <div className="setup-preset">
+      <div className="setup-preset with-tip">
         <label className="setup-preset-label">
           Start from a preset
           <select value={presetId} onChange={(e) => applyPreset(e.target.value)}>
@@ -802,9 +856,10 @@ function WeatherPanel({
             ))}
           </select>
         </label>
-        {presetId && (
-          <div className="hint-sm">{PRESETS.find((p) => p.id === presetId)?.note}</div>
-        )}
+        <InfoTip
+          label="About the presets"
+          text={`${TIPS.preset}${presetId ? ` ${PRESETS.find((p) => p.id === presetId)?.note ?? ""}` : ""}`}
+        />
       </div>
 
       {/* 1 ── Ignition & time ───────────────────────────────────────────── */}
@@ -820,7 +875,7 @@ function WeatherPanel({
         defaultOpen
       >
         <fieldset className="field-group">
-        <legend>Ignition point</legend>
+        <legend className="with-tip">Ignition point <InfoTip label="How to set the ignition" text={TIPS.ignitionHowTo} /></legend>
         <div className="field-row">
           <label className="field">
             Latitude
@@ -861,18 +916,13 @@ function WeatherPanel({
           <button type="button" className="btn-secondary btn-inline" onClick={() => applyCoords(latText, lngText)}>
             Set ignition
           </button>
-          <span className="hint-sm" id={`${fieldId}-coord-hint`}>
-            Decimal (53.4606, -113.6597) or DMS (53°27&apos;38&quot;N 113°39&apos;35&quot;W); paste a pair into either field.
-          </span>
-        </div>
-        <div className="hint-sm">
-          Or click the map; or Tab to the map, move the crosshair with the arrow keys (Shift: larger
-          steps) and press Enter. Ctrl+Enter runs.
+          <span className="visually-hidden" id={`${fieldId}-coord-hint`}>{TIPS.coords}</span>
+          <InfoTip label="Coordinate formats" text={TIPS.coords} />
         </div>
         </fieldset>
 
         <fieldset className="field-group">
-        <legend>Scenario start <span className="legend-sub">America/Edmonton</span></legend>
+        <legend className="with-tip">Scenario start <InfoTip label="About the scenario start" text={TIPS.startNow} /></legend>
         <div className="field-row field-row-nowrap">
           <label className="field field-date">
             Date
@@ -905,13 +955,12 @@ function WeatherPanel({
           </button>
         </div>
         {startError && <div className="input-error" id={`${fieldId}-start-err`} role="alert">{startError}</div>}
-        <div className="hint-sm" id={`${fieldId}-start-hint`}>
-          Ignition time; the timeline and Situation times count from it.{" "}
-          {startFollowsNow ? "Now follows the clock until you set a date or time." : ""}
-          {useHourlyForecast && simMode === "single" && startMs !== null && startMs < nowMs - 3_600_000 && (
-            <> The start is in the past, so the hourly forecast is used as a hindcast (Open-Meteo keeps one past day).</>
-          )}
-        </div>
+        <span className="visually-hidden" id={`${fieldId}-start-hint`}>{TIPS.startNow}</span>
+        {useHourlyForecast && simMode === "single" && startMs !== null && startMs < nowMs - 3_600_000 && (
+          <div className="status-line">
+            <Badge tone="info" tip={TIPS.hindcast}>{BADGES.pastStart}</Badge>
+          </div>
+        )}
         </fieldset>
       </SetupSection>
 
@@ -937,7 +986,7 @@ function WeatherPanel({
                 min={0}
                 max={100}
                 value={weather.wind_speed}
-                onChange={(e) => setWeather({ ...weather, wind_speed: Number(e.target.value) })}
+                onChange={(e) => editWeather({ ...weather, wind_speed: Number(e.target.value) })}
               />
             </label>
             {validationErrors.wind_speed && <div className="input-error">{validationErrors.wind_speed}</div>}
@@ -949,7 +998,7 @@ function WeatherPanel({
                 min={0}
                 max={359}
                 value={weather.wind_direction}
-                onChange={(e) => setWeather({ ...weather, wind_direction: Number(e.target.value) })}
+                onChange={(e) => editWeather({ ...weather, wind_direction: Number(e.target.value) })}
               />
             </label>
 
@@ -960,7 +1009,7 @@ function WeatherPanel({
                 min={-10}
                 max={45}
                 value={weather.temperature}
-                onChange={(e) => setWeather({ ...weather, temperature: Number(e.target.value) })}
+                onChange={(e) => editWeather({ ...weather, temperature: Number(e.target.value) })}
               />
             </label>
             {validationErrors.temperature && <div className="input-error">{validationErrors.temperature}</div>}
@@ -972,7 +1021,7 @@ function WeatherPanel({
                 min={5}
                 max={100}
                 value={weather.relative_humidity}
-                onChange={(e) => setWeather({ ...weather, relative_humidity: Number(e.target.value) })}
+                onChange={(e) => editWeather({ ...weather, relative_humidity: Number(e.target.value) })}
               />
             </label>
             {validationErrors.relative_humidity && <div className="input-error">{validationErrors.relative_humidity}</div>}
@@ -985,24 +1034,27 @@ function WeatherPanel({
                 max={50}
                 step={0.5}
                 value={weather.precipitation_24h}
-                onChange={(e) => setWeather({ ...weather, precipitation_24h: Number(e.target.value) })}
+                onChange={(e) => editWeather({ ...weather, precipitation_24h: Number(e.target.value) })}
               />
             </label>
 
-            <label
-              title="Wind, temperature, RH and rain change hour by hour (Open-Meteo forecast for the ignition point); FFMC follows the hourly FFMC model from the FFMC above."
-            >
-              <input
-                type="checkbox"
-                checked={useHourlyForecast}
-                onChange={(e) => setUseHourlyForecast(e.target.checked)}
-              />
-              Use hourly forecast weather
-            </label>
+            <div className="with-tip">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={useHourlyForecast}
+                  onChange={(e) => setUseHourlyForecast(e.target.checked)}
+                />
+                Use hourly forecast weather
+              </label>
+              <InfoTip label="About hourly forecast weather" text={TIPS.hourlyForecast} />
+            </div>
           </div>
         )}
         {simMode === "multiday" && (
-          <div className="hint-sm">Daily weather is entered per day under 4 Run options.</div>
+          <div className="status-line">
+            <Badge tone="neutral" tip={TIPS.multiDayWeather}>Set per day in 4</Badge>
+          </div>
         )}
 
         <div className="section">
@@ -1014,7 +1066,7 @@ function WeatherPanel({
               min={0}
               max={101}
               value={fwi.ffmc ?? 85}
-              onChange={(e) => setFwi({ ...fwi, ffmc: Number(e.target.value) })}
+              onChange={(e) => editFwi({ ...fwi, ffmc: Number(e.target.value) })}
             />
           </label>
           {validationErrors.ffmc && <div className="input-error">{validationErrors.ffmc}</div>}
@@ -1026,7 +1078,7 @@ function WeatherPanel({
               min={0}
               max={999}
               value={fwi.dmc ?? 40}
-              onChange={(e) => setFwi({ ...fwi, dmc: Number(e.target.value) })}
+              onChange={(e) => editFwi({ ...fwi, dmc: Number(e.target.value) })}
             />
           </label>
           {validationErrors.dmc && <div className="input-error">{validationErrors.dmc}</div>}
@@ -1038,7 +1090,7 @@ function WeatherPanel({
               min={0}
               max={1000}
               value={fwi.dc ?? 200}
-              onChange={(e) => setFwi({ ...fwi, dc: Number(e.target.value) })}
+              onChange={(e) => editFwi({ ...fwi, dc: Number(e.target.value) })}
             />
           </label>
           {validationErrors.dc && <div className="input-error">{validationErrors.dc}</div>}
@@ -1058,39 +1110,31 @@ function WeatherPanel({
             <span className="fwi-live-label">FWI</span>
             <strong>{liveFWI.toFixed(1)}</strong>
           </span>
-          <span
-            className="fwi-danger-badge"
-            style={{ background: fwiClassColor(liveFWI), color: fwiClassTextColor(liveFWI) }}
-            title="CWFIS FWI map class (not an official fire danger rating)"
-          >
-            {liveDanger}
-          </span>
+          <FwiClassChip className="fwi-danger-badge" fwi={liveFWI} label={liveDanger} />
         </div>
         {liveBUI < 80 && (
-          <div className="hint-sm" role="note">
-            BUI {liveBUI.toFixed(0)} is below 80: green aspen (D-2) does not carry fire in the FBP
-            System (Alexander 2010). Raise DMC/DC for a drier scenario, or use D-1 (leafless) for
-            spring.
+          <div className="status-line" role="note">
+            <Badge tone="warn" tip={TIPS.d2Bui(liveBUI)} testId="d2-bui-badge">{BADGES.d2NoSpread}</Badge>
           </div>
         )}
 
         <div className="setup-links">
-          <button
+          <TipButton
             className="toggle-advanced"
             onClick={handleComputeFWI}
             disabled={fwiLoading}
-            title="Update FFMC/DMC/DC from today's weather inputs"
+            tip={TIPS.updateCodes}
           >
             {fwiLoading ? "Computing..." : "Update codes from weather"}
-          </button>
-          <button
+          </TipButton>
+          <TipButton
             className="toggle-advanced"
             onClick={handleLoadWeather}
             disabled={!ignitionPoint || weatherLoading}
-            title="Load current FWI indices from CWFIS for this location"
+            tip={TIPS.loadWeather}
           >
-            {weatherLoading ? "Loading..." : "Load current fire weather"}
-          </button>
+            {weatherLoading ? "Loading..." : "Update weather for this location"}
+          </TipButton>
           <a
             href="https://tphambolio.github.io/FWI/"
             target="_blank"
@@ -1101,21 +1145,27 @@ function WeatherPanel({
           </a>
         </div>
 
-        {weatherMessage && (
-          <div
-            className={`hint-sm weather-message ${
-              weatherMessage.toLowerCase().includes("not available") ||
-              weatherMessage.toLowerCase().includes("could not")
-                ? "text-danger"
-                : "text-success"
-            }`}
-          >
-            {weatherMessage}
+        {weatherMessage && (() => {
+          const st = shortWeatherStatus(weatherMessage);
+          return (
+            <div className={`status-line weather-message ${st.ok ? "text-success" : "text-danger"}`} data-testid="weather-status">
+              <span>{st.text}</span>
+              <InfoTip label="Weather details" text={weatherMessage} />
+            </div>
+          );
+        })()}
+
+        {farKm !== null && (
+          <div className="status-line" role="status" data-testid="weather-far">
+            <Badge tone="warn" tip={TIPS.weatherFar(farKm)}>Weather set {Math.round(farKm)} km away</Badge>
           </div>
         )}
-
-        {(weatherSource || stationName) && (
-          <div className="hint-sm weather-message">
+        {weatherManual ? (
+          <div className="hint-sm weather-message" data-testid="weather-source">
+            Manual <InfoTip label="About manual weather" text={TIPS.weatherManual} />
+          </div>
+        ) : (weatherSource || stationName) && (
+          <div className="hint-sm weather-message" data-testid="weather-source">
             {stationName && (
               <span>
                 {stationName}
@@ -1135,22 +1185,25 @@ function WeatherPanel({
         title="Fuel & landscape"
         summary={
           useEdmontonGrid
-            ? `Edmonton grid (FBP 10 m) · curing ${cure !== null ? `${cure}%` : "required"}${enableSpotting ? " · spotting on" : ""}`
+            ? `Edmonton grid · curing ${cure !== null ? `${cure}%` : "required"}${enableSpotting ? " · spotting on" : ""}`
             : `${fuelType} uniform${useSyntheticCA ? " · synthetic mosaic" : ""} · curing ${cure !== null ? `${cure}%` : "required"}`
         }
         attention={curingError !== null}
       >
-        <label>
-          <input
-            type="checkbox"
-            checked={useEdmontonGrid}
-            onChange={(e) => {
-              setUseEdmontonGrid(e.target.checked);
-              onEdmontonGridChange?.(e.target.checked ? EDMONTON_FUEL_GRID_PATH : null);
-            }}
-          />
-          Use Edmonton Fuel Grid (FBP 10m)
-        </label>
+        <div className="with-tip">
+          <label>
+            <input
+              type="checkbox"
+              checked={useEdmontonGrid}
+              onChange={(e) => {
+                setUseEdmontonGrid(e.target.checked);
+                onEdmontonGridChange?.(e.target.checked ? EDMONTON_FUEL_GRID_PATH : null);
+              }}
+            />
+            Use Edmonton fuel grid
+          </label>
+          <InfoTip label="About the Edmonton fuel grid" text={TIPS.edmontonGrid(fuelType)} />
+        </div>
         <label>
           Grass curing (%){curingRequired ? " · required" : grassCure === null && cureDefault !== null ? " · spring default" : ""}
           <input
@@ -1193,31 +1246,32 @@ function WeatherPanel({
                 ))}
               </select>
             </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={useSyntheticCA}
-                onChange={(e) => setUseSyntheticCA(e.target.checked)}
-              />
-              Cellular automaton (synthetic fuel mosaic)
-            </label>
-            {useSyntheticCA && (
-              <div className="hint-sm">
-                Generates a 5km mixed-fuel grid around the ignition point — shows heatmap spread
-              </div>
-            )}
+            <div className="with-tip">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={useSyntheticCA}
+                  onChange={(e) => setUseSyntheticCA(e.target.checked)}
+                />
+                Synthetic fuel mosaic (demo grid)
+              </label>
+              <InfoTip label="About the synthetic fuel mosaic" text={TIPS.syntheticCA} />
+            </div>
           </>
         )}
         {(useEdmontonGrid || useSyntheticCA) && (
           <>
-            <label>
-              <input
-                type="checkbox"
-                checked={enableSpotting}
-                onChange={(e) => setEnableSpotting(e.target.checked)}
-              />
-              Ember spotting (Albini 1979)
-            </label>
+            <div className="with-tip">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={enableSpotting}
+                  onChange={(e) => setEnableSpotting(e.target.checked)}
+                />
+                Ember spotting
+              </label>
+              <Badge tone="warn" tip={TIPS.spotting}>{BADGES.illustrative}</Badge>
+            </div>
             {enableSpotting && (
               <div className="check-row-indent">
                 <label>
@@ -1231,64 +1285,67 @@ function WeatherPanel({
                     onChange={(e) => setSpottingIntensity(Number(e.target.value))}
                   />
                 </label>
-                <div className="hint-sm">
-                  Crown fires loft embers downwind — seeds secondary ignitions
-                </div>
               </div>
             )}
           </>
         )}
         {useEdmontonGrid && (
           <>
-            <label className="check-row-indent">
-              <input
-                type="checkbox"
-                checked={includeWater}
-                onChange={(e) => setIncludeWater(e.target.checked)}
-              />
-              Extra water mask (OpenStreetMap; known to cover land, off by default)
-            </label>
-            <label className="check-row-indent">
-              <input
-                type="checkbox"
-                checked={includeBuildings}
-                onChange={(e) => setIncludeBuildings(e.target.checked)}
-              />
-              Buildings (341K footprints)
-            </label>
-            <label
-              className="check-row-indent struct-option"
-              title="Fire passing from building to building (Hamada model), from the buildings the modelled front reaches. Illustrative."
-            >
-              <input
-                type="checkbox"
-                checked={structureAvailable && structureSpread}
-                disabled={!structureAvailable}
-                onChange={(e) => setStructureSpread(e.target.checked)}
-              />
-              House-to-house spread
-            </label>
-            <label
-              className="check-row-indent"
-              title="425 park-buffer zones with spread x0.7, intensity x1.2, embers x3.0. These values have no documented source; leave off unless testing."
-            >
-              <input
-                type="checkbox"
-                checked={includeWUI}
-                onChange={(e) => setIncludeWUI(e.target.checked)}
-              />
-              WUI zone modifiers (unsourced test values)
-            </label>
-            <label className="check-row-indent">
-              <input
-                type="checkbox"
-                checked={includeDEM}
-                onChange={(e) => setIncludeDEM(e.target.checked)}
-              />
-              Terrain slope (DEM — FBP net effective wind)
-            </label>
-            <div className="hint-sm">
-              Edmonton grid fuels: C-2, D-2, M-2, O-1a, O-1b. Cells without fuel data use {fuelType}.
+            <div className="with-tip check-row-indent">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={includeWater}
+                  onChange={(e) => setIncludeWater(e.target.checked)}
+                />
+                Extra water mask (OSM)
+              </label>
+              <InfoTip label="About the extra water mask" text={TIPS.waterMask} />
+            </div>
+            <div className="with-tip check-row-indent">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={includeBuildings}
+                  onChange={(e) => setIncludeBuildings(e.target.checked)}
+                />
+                Buildings (346,238 footprints)
+              </label>
+              <InfoTip label="About the building footprints" text={TIPS.buildings} />
+            </div>
+            <div className="with-tip check-row-indent">
+              <label className="struct-option">
+                <input
+                  type="checkbox"
+                  checked={structureAvailable && structureSpread}
+                  disabled={!structureAvailable}
+                  onChange={(e) => setStructureSpread(e.target.checked)}
+                />
+                House-to-house spread
+              </label>
+              <Badge tone="warn" tip={TIPS.structureOption}>{BADGES.illustrative}</Badge>
+            </div>
+            <div className="with-tip check-row-indent">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={includeWUI}
+                  onChange={(e) => setIncludeWUI(e.target.checked)}
+                />
+                WUI zone modifiers
+              </label>
+              <Badge tone="warn" tip={TIPS.wui} testId="wui-unsourced">{BADGES.unsourced}</Badge>
+            </div>
+            <div className="with-tip check-row-indent">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={includeDEM}
+                  onChange={(e) => setIncludeDEM(e.target.checked)}
+                />
+                Terrain slope (DEM)
+              </label>
+              <InfoTip label="About terrain slope" text={TIPS.dem} />
             </div>
           </>
         )}
@@ -1327,6 +1384,7 @@ function WeatherPanel({
             >
               Multi-day
             </button>
+            <InfoTip label="About multi-day runs" text={TIPS.multiDay} />
           </div>
         )}
         {simMode === "single" && (
@@ -1354,15 +1412,21 @@ function WeatherPanel({
         </label>
         {simMode === "single" && (
           <div className="ensemble-option" role="group" aria-label="Range of outcomes">
-            <label>
-              <input
-                type="checkbox"
-                checked={ensembleOn && useEdmontonGrid}
-                disabled={!useEdmontonGrid}
-                onChange={(e) => setEnsembleOn(e.target.checked)}
+            <div className="with-tip">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={ensembleOn && useEdmontonGrid}
+                  disabled={!useEdmontonGrid}
+                  onChange={(e) => setEnsembleOn(e.target.checked)}
+                />
+                Range of outcomes (ensemble)
+              </label>
+              <InfoTip
+                label="About the range of outcomes"
+                text={useEdmontonGrid ? TIPS.ensemble(ensembleMembers) : TIPS.ensembleNeedsGrid}
               />
-              Range of outcomes (ensemble)
-            </label>
+            </div>
             {ensembleOn && useEdmontonGrid && (
               <label>
                 Members: <strong>{ensembleMembers}</strong>
@@ -1376,29 +1440,33 @@ function WeatherPanel({
                 />
               </label>
             )}
-            <p className="hint-sm">
-              {useEdmontonGrid
-                ? `Re-runs the fire ${ensembleMembers} times with varied wind, moisture and spread rate after the single run: about 1 s per member on the server, longer for large fires. The variations are sized from Alberta forecast errors and observed fires, but the spread of outcomes is still narrower than the real uncertainty (about half of observed days fall inside the 10-90 % range).`
-                : "Needs the Edmonton fuel grid (grid runs only)."}
-            </p>
+            {!useEdmontonGrid && <p className="status-line">{BADGES.needsGrid}</p>}
           </div>
         )}
-        <fieldset className="field-group skill-options" aria-describedby={`${fieldId}-skill-evidence`}>
+        <fieldset className="field-group skill-options">
           <legend>Diurnal burning</legend>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={burningOn}
-              onChange={(e) => setBurningOn(e.target.checked)}
-            />
-            <span>
-              Burning period{" "}
-              {burningError ? "" : formatBurningPeriod({ start_hour: bpStart, end_hour: bpEnd })}{" "}
+          <div className="with-tip">
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={burningOn}
+                onChange={(e) => setBurningOn(e.target.checked)}
+              />
+              <span>
+                Burning period{" "}
+                {burningError ? "" : formatBurningPeriod({ start_hour: bpStart, end_hour: bpEnd })}
+              </span>
+            </label>
+            <InfoTip label="About the burning period" interactive>
+              {TIPS.burningPeriod}
               {bpStart === DEFAULT_BURNING_PERIOD.start_hour && bpEnd === DEFAULT_BURNING_PERIOD.end_hour
-                ? "(validated on Alberta fires)"
-                : `(validated: ${formatBurningPeriod(DEFAULT_BURNING_PERIOD)})`}
-            </span>
-          </label>
+                ? ""
+                : ` These hours differ from the validated ${formatBurningPeriod(DEFAULT_BURNING_PERIOD)}.`}{" "}
+              <a href={VALIDATION_DOC_URL} target="_blank" rel="noopener noreferrer">
+                Evidence: held-out validation
+              </a>
+            </InfoTip>
+          </div>
           {burningOn && (
             <div className="field-row field-row-nowrap check-row-indent">
               <label className="field field-hour">
@@ -1430,31 +1498,23 @@ function WeatherPanel({
             </div>
           )}
           {burningError && <div className="input-error" id={`${fieldId}-bp-err`} role="alert">{burningError}</div>}
-          <p className="hint-sm">
-            No spread outside these local hours; with spin-up and RPAS active edges it raised
-            one-day skill on held-out Alberta fires (F1 0.12 to 0.21).
-          </p>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={spinUpOn && spinUpAvailable}
-              disabled={!spinUpAvailable}
-              onChange={(e) => setSpinUpOn(e.target.checked)}
-            />
-            <span>Evening FFMC spin-up</span>
-          </label>
-          <p className="hint-sm">
-            {simMode === "multiday"
-              ? "Not for multi-day runs (daily weather only)."
-              : spinUpAvailable
-                ? "Starts the hourly FFMC at 17:00 the evening before from the FFMC in 2, so morning spread is not overstated (Lawson et al. 1996)."
-                : "Needs hourly forecast weather (2 Weather & FWI): starts the hourly FFMC at 17:00 the evening before."}
-          </p>
-          <p className="hint-sm" id={`${fieldId}-skill-evidence`}>
-            <a href={VALIDATION_DOC_URL} target="_blank" rel="noopener noreferrer" className="hint-link">
-              Evidence: held-out validation (docs/validation.md)
-            </a>
-          </p>
+          <div className="with-tip">
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={spinUpOn && spinUpAvailable}
+                disabled={!spinUpAvailable}
+                onChange={(e) => setSpinUpOn(e.target.checked)}
+              />
+              <span>Evening FFMC spin-up</span>
+            </label>
+            <InfoTip label="About the evening FFMC spin-up" text={TIPS.spinUp} />
+          </div>
+          {!spinUpAvailable && (
+            <p className="status-line" data-testid="spinup-reason">
+              {simMode === "multiday" ? BADGES.notMultiDay : BADGES.needsHourly}
+            </p>
+          )}
         </fieldset>
         {simMode === "multiday" && (
           <MultiDayPanel
@@ -1486,34 +1546,22 @@ function WeatherPanel({
           <div className="range-scale hint-sm">
             <span>10 (fast)</span><span>200 (accurate)</span>
           </div>
-          <button
+          <TipButton
             className="btn-secondary"
             onClick={handleMonteCarlo}
             disabled={!ignitionPoint || burnProbRunning || isRunning || (!useEdmontonGrid && !useSyntheticCA) || hasErrors || curingError !== null}
-            title={
-              hasErrors || curingError
-                ? curingError ?? "Fix validation errors before running"
-                : !useEdmontonGrid && !useSyntheticCA
-                  ? "Enable Edmonton Grid or Synthetic CA to run Monte Carlo"
-                  : "Apply weather conditions & run Monte Carlo burn probability"
-            }
+            tip={TIPS.burnProbability}
           >
             {burnProbRunning ? `Running ${mcIterations} iterations...` : "Apply & Run Burn Probability"}
-          </button>
+          </TipButton>
           {burnProbRunning && (
             <div className="burn-prob-progress">
               <div className="burn-prob-progress-bar" />
             </div>
           )}
-          {!useEdmontonGrid && !useSyntheticCA && !hasErrors && (
-            <div className="hint-sm">
-              Enable Edmonton Grid or Synthetic CA to use Monte Carlo.
-            </div>
-          )}
-          {!ignitionPoint && <div className="hint-sm">Set an ignition point first.</div>}
-          {hasErrors && (
-            <div className="hint-sm text-danger">
-              Fix input errors before running.
+          {(hasErrors || curingError !== null || !ignitionPoint || (!useEdmontonGrid && !useSyntheticCA)) && (
+            <div className={`status-line${hasErrors || curingError !== null ? " text-danger" : ""}`} data-testid="burnprob-reason">
+              {hasErrors ? "Fix input errors" : curingError !== null ? curingError : !ignitionPoint ? "Set an ignition point" : "Needs a fuel grid"}
             </div>
           )}
         </SetupSection>

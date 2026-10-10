@@ -78,6 +78,10 @@ export interface MockOptions {
   ensembleStep?: number;
   /** Replay the house-to-house spread fixture instead of the Terwillegar one */
   structure?: boolean;
+  /** Send `simulation.status` messages (loading, spread 0-100 %, finishing) before the frames,
+   * one every `phaseDelayMs`, as the API does while the grid model computes */
+  phases?: boolean;
+  phaseDelayMs?: number;
 }
 
 export interface MockState {
@@ -155,7 +159,17 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     const simId = ws.url().split("/").pop();
     let i = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const statuses: Array<[string, number | null]> = opts.phases
+      ? [["loading", null], ["buildings", null], ["spread", 0], ["spread", 0.25], ["spread", 0.5], ["spread", 0.75], ["finishing", null]]
+      : [];
+    let s = 0;
     const next = () => {
+      if (s < statuses.length) {
+        const [phase, progress] = statuses[s++];
+        ws.send(JSON.stringify({ type: "simulation.status", simulation_id: simId, phase, progress }));
+        timer = setTimeout(next, opts.phaseDelayMs ?? 400);
+        return;
+      }
       if (i < fx.frames.length) {
         ws.send(JSON.stringify({ type: "simulation.frame", simulation_id: simId, frame: fx.frames[i++] }));
         timer = setTimeout(next, frameDelayMs);

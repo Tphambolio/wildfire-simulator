@@ -215,14 +215,24 @@ export interface SimulationResponse {
   config: SimulationCreate | null;
   frames: SimulationFrame[];
   error: string | null;
+  /** Run phase while computing (absent from older API versions) */
+  phase?: RunPhase | null;
+  /** Fraction of the spread computed, 0-1 */
+  progress?: number | null;
 }
 
+/** Server-side run phases (API `simulation.status`, docs/api-reference.md) */
+export type RunPhase = "loading" | "buildings" | "spread" | "structures" | "finishing";
+
 export interface WSEvent {
-  type: "simulation.frame" | "simulation.completed" | "simulation.error" | "status";
+  type: "simulation.frame" | "simulation.completed" | "simulation.error" | "status" | "simulation.status";
   simulation_id?: string;
   frame?: SimulationFrame;
   error?: string;
   state?: "running" | "paused" | "cancelled";
+  /** simulation.status: phase and spread fraction (0-1, null outside the spread) */
+  phase?: RunPhase;
+  progress?: number | null;
 }
 
 export interface FWIResult {

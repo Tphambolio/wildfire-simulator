@@ -51,6 +51,11 @@ async function enableStructureSpread(page: Page) {
   await expect(box).toBeDisabled();
   await page.getByLabel(/^Buildings/).check();
   await box.check();
+  // The option's explanation is in the "Illustrative" badge tooltip (no label title)
+  const optBadge = page.locator(".setup-panel .with-tip", { has: box }).getByRole("button", { name: "Illustrative" });
+  await optBadge.focus();
+  await expect(page.locator(`[id="${await optBadge.getAttribute("aria-describedby")}"]`)).toContainText("Hamada model");
+  await page.keyboard.press("Escape");
 }
 
 /** Pixel of a [lng, lat] point in the map canvas, from the bounds MapView publishes (Mercator). */

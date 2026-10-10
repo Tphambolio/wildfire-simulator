@@ -10,7 +10,8 @@ test.describe("smoke", () => {
 
     await openApp(page);
     await expect(page).toHaveTitle(/FireSim/);
-    await expect(page.locator(".metrics-panel")).toContainText("Run a simulation to see metrics");
+    await expect(page.locator(".situation-status")).toContainText("No run yet");
+    await expect(page.locator(".metrics-panel")).toHaveCount(0);
 
     await setIgnitionAtMapCentre(page);
     await runToCompletion(page);
@@ -29,9 +30,11 @@ test.describe("smoke", () => {
     // All frames arrived (plus the synthetic T=0 frame) and the metrics show the final frame
     const n = fixture.frames.length + 1;
     await expect(page.locator(".ts-frame-count")).toHaveText(`${n}/${n}`);
-    const area = page.locator(".metric-row", { hasText: "Area Burned" }).locator(".metric-value");
+    const area = page.locator(".kpi", { hasText: "Area" }).locator(".kpi-value");
     await expect(area).toHaveText(`${finalFrame.area_ha.toFixed(1)} ha`);
-    await expect(page.locator(".metric-row", { hasText: "Time Elapsed" })).toContainText("T+4.0h");
+    await expect(page.locator(".situation-sub")).toContainText("T+4:00");
+    // The details card does not repeat the KPI tiles
+    await expect(page.locator(".metrics-panel")).not.toContainText("Area Burned");
     if (finalFrame.building_exposure) {
       await expect(page.getByRole("heading", { name: "Building exposure" })).toBeVisible();
     }
@@ -45,7 +48,7 @@ test.describe("smoke", () => {
     await setIgnitionAtMapCentre(page);
     await runToCompletion(page);
     expect(api.polls).toBeGreaterThanOrEqual(1);
-    const area = page.locator(".metric-row", { hasText: "Area Burned" }).locator(".metric-value");
+    const area = page.locator(".kpi", { hasText: "Area" }).locator(".kpi-value");
     await expect(area).toHaveText(`${finalFrame.area_ha.toFixed(1)} ha`);
   });
 });

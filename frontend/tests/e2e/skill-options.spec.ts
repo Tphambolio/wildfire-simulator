@@ -1,7 +1,7 @@
 /**
  * Spread-skill options (docs/validation.md, held-out results):
- * - Run options: "Burning period 10:00–20:00 (validated on Alberta fires)" on by default, the
- *   request carries it with start_time; bad hours block Run with a message; off = not sent;
+ * - Run options: "Burning period 10:00–20:00" on by default, its explanation and evidence link
+ *   in an interactive tooltip (keyboard: focus the i, Tab to the link), the request carries it with start_time; bad hours block Run with a message; off = not sent;
  * - the timeline shades the hours outside the burning period and the Situation panel says when
  *   the selected time is outside it;
  * - evening FFMC spin-up needs hourly forecast weather; with it the request has
@@ -74,11 +74,23 @@ test("burning period: on by default, sent, validated, shaded on the timeline", a
   await page.locator(".setup-section-toggle", { hasText: "Run options" }).click();
   const bp = page.getByLabel(/^Burning period/);
   await expect(bp).toBeChecked();
-  await expect(page.locator(".skill-options")).toContainText("Burning period 10:00–20:00 (validated on Alberta fires)");
-  await expect(page.getByRole("link", { name: /Evidence: held-out validation/ })).toHaveAttribute("href", /docs\/validation\.md/);
-  // Spin-up needs hourly weather: shown, but not available yet
-  await expect(page.getByLabel("Evening FFMC spin-up")).toBeDisabled();
-  await expect(page.locator(".skill-options")).toContainText("Needs hourly forecast weather");
+  await expect(page.locator(".skill-options")).toContainText("Burning period 10:00–20:00");
+  await expect(page.locator(".skill-options p.hint-sm")).toHaveCount(0); // no paragraphs: the evidence is in the tooltip
+  // Keyboard: focus the i button, the tip opens; Tab moves into it to the evidence link
+  const bpTip = page.getByRole("button", { name: "About the burning period" });
+  await bpTip.focus();
+  await expect(bpTip).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(`#${await bpTip.getAttribute("aria-controls")}`)).toContainText("F1 0.12 to 0.21");
+  await page.keyboard.press("Tab");
+  const evidence = page.getByRole("link", { name: /Evidence: held-out validation/ });
+  await expect(evidence).toBeFocused();
+  await expect(evidence).toHaveAttribute("href", /docs\/validation\.md/);
+  await page.keyboard.press("Escape");
+  await expect(bpTip).toBeFocused();
+  await expect(bpTip).toHaveAttribute("aria-expanded", "false");
+  // Spin-up needs hourly weather: shown, but not available yet (short visible reason)
+  await expect(page.getByLabel("Evening FFMC spin-up", { exact: true })).toBeDisabled();
+  await expect(page.getByTestId("spinup-reason")).toHaveText("Needs hourly forecast");
   await page.locator(".skill-options").scrollIntoViewIfNeeded();
   await shot(page, "runoptions");
 
@@ -103,11 +115,15 @@ test("burning period: on by default, sent, validated, shaded on the timeline", a
   expect(parseFloat(band)).toBeGreaterThan(45);
   expect(parseFloat(band)).toBeLessThan(60);
   await expect(page.locator(".ts-now-off")).toHaveText("No spread");
-  await expect(page.locator(".situation-burning")).toContainText("Outside the burning period (10:00–20:00): no spread modelled until 10:00");
+  await expect(page.locator(".situation-burning")).toContainText("Outside burning period: no spread until 10:00");
+  const bpInfo = page.locator(".situation-burning").getByRole("button", { name: "About the burning period" });
+  await bpInfo.hover();
+  await expect(page.getByRole("tooltip").filter({ hasText: "no spread is modelled until 10:00" })).toBeVisible();
   await shot(page, "timeline_outside");
   await page.getByRole("slider", { name: "Timeline" }).focus();
   await page.keyboard.press("Home");
-  await expect(page.locator(".situation-burning")).toContainText("fire spreading");
+  // Inside the burning period (the default state) needs no banner
+  await expect(page.locator(".situation-burning")).toHaveCount(0);
   await expect(page.locator(".ts-now-off")).toHaveCount(0);
 
   // Off: not sent, no shading
@@ -126,7 +142,7 @@ test("evening FFMC spin-up with hourly forecast: hours from 17:00 the evening be
   await page.locator(".setup-section-toggle", { hasText: "Weather & FWI" }).click();
   await page.getByLabel("Use hourly forecast weather").check();
   await page.locator(".setup-section-toggle", { hasText: "Run options" }).click();
-  const spin = page.getByLabel("Evening FFMC spin-up");
+  const spin = page.getByLabel("Evening FFMC spin-up", { exact: true });
   await expect(spin).toBeEnabled();
   await expect(spin).toBeChecked();
   await runButton(page).click();
@@ -148,14 +164,19 @@ test("RPAS perimeter: mark active edges on the map and by side, restart sends ac
 
   await page.locator(".setup-section-toggle", { hasText: "Observed perimeter (RPAS)" }).click();
   const panel = page.locator(".recon-panel");
-  await expect(panel).toContainText("Restart the run at 17:00");
+  await expect(panel.getByRole("button", { name: /Restart at 17:00 .* from observed/ })).toBeVisible();
+  await panel.getByRole("button", { name: "About the restart" }).focus();
+  await expect(page.getByRole("tooltip").filter({ hasText: "Restarts the run at 17:00" })).toBeVisible();
   await panel.getByRole("button", { name: /Use the modelled perimeter at 17:00/ }).click();
   const map = page.locator("[data-bounds]");
   await expect(map).toHaveAttribute("data-recon-perimeter", "1");
 
   await panel.getByLabel("Only marked edges active").check();
-  await expect(panel.getByText("Edges not marked active are treated as burned out")).toBeVisible();
-  const restart = panel.getByRole("button", { name: "Restart from observed perimeter" });
+  const edgesTip = panel.getByRole("button", { name: "About active edges" });
+  await edgesTip.hover();
+  await expect(page.locator(`#${await edgesTip.getAttribute("aria-controls")}`)).toContainText("Edges not marked active are treated as burned out");
+  await page.mouse.move(0, 0);
+  const restart = panel.getByRole("button", { name: /Restart at .* from observed/ });
   await expect(restart).toBeDisabled(); // nothing marked yet
 
   // Draw a line on the map: three clicks, then Finish line

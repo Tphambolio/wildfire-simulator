@@ -24,6 +24,9 @@ import {
 } from "../utils/activeEdges";
 import { formatClock, toEdmontonIso, zoneAbbrev } from "../utils/time";
 import { VALIDATION_DOC_URL, formatBurningPeriod } from "../utils/skillOptions";
+import InfoTip from "./InfoTip";
+import Badge from "./Badge";
+import { TIPS } from "../content/explanations";
 
 interface PerimeterOverridePanelProps {
   /** ID of the currently active simulation (source config). Null = disabled. */
@@ -115,14 +118,9 @@ function PerimeterOverridePanel({
     <div className="panel recon-panel">
       <h3 className="recon-title">RPAS Recon Override</h3>
 
-      {!simulationId ? (
-        <p className="recon-hint">Run a simulation first to enable perimeter correction.</p>
-      ) : (
+      {/* Before a run the section summary says "Available after a run" */}
+      {!simulationId ? null : (
         <>
-          <p className="recon-hint">
-            Restart the run at {atLabel} (the timeline&apos;s selected time) from an observed
-            fire perimeter, with only its active edges spreading.
-          </p>
 
           <fieldset className="field-group">
             <legend>1 · Observed perimeter</legend>
@@ -195,23 +193,24 @@ function PerimeterOverridePanel({
                   />
                   Whole perimeter active
                 </label>
-                <label>
-                  <input
-                    type="radio"
-                    name={`${id}-mode`}
-                    checked={marked}
-                    onChange={() => recon.setMode("marked")}
-                  />
-                  Only marked edges active
-                </label>
+                <div className="with-tip">
+                  <label>
+                    <input
+                      type="radio"
+                      name={`${id}-mode`}
+                      checked={marked}
+                      onChange={() => recon.setMode("marked")}
+                    />
+                    Only marked edges active
+                  </label>
+                  <InfoTip label="About active edges" interactive>
+                    {TIPS.activeEdges}{" "}
+                    <a href={VALIDATION_DOC_URL} target="_blank" rel="noopener noreferrer">
+                      Evidence: held-out validation
+                    </a>
+                  </InfoTip>
+                </div>
               </div>
-              <p className="hint-sm">
-                Edges not marked active are treated as burned out and do not spread
-                (raised skill on held-out Alberta fires;{" "}
-                <a href={VALIDATION_DOC_URL} target="_blank" rel="noopener noreferrer" className="hint-link">
-                  evidence
-                </a>).
-              </p>
 
               {marked && (
                 <>
@@ -276,6 +275,7 @@ function PerimeterOverridePanel({
                       ))}
                     </div>
                   </fieldset>
+                  <div className="with-tip">
                   <label className="field recon-buffer">
                     Buffer around active edges (m)
                     <input
@@ -289,11 +289,12 @@ function PerimeterOverridePanel({
                       aria-describedby={`${id}-buffer-hint`}
                     />
                   </label>
-                  <p className="hint-sm" id={`${id}-buffer-hint`}>
-                    Blank: one fuel-grid cell (the validated default).{" "}
+                  <InfoTip label="About the buffer" text={TIPS.bufferBlank} />
+                  </div>
+                  <p className="status-line" id={`${id}-buffer-hint`}>
                     {recon.lines.length
-                      ? `${recon.lines.length} active line${recon.lines.length === 1 ? "" : "s"} on the map (orange-red dashes, “active (RPAS)”).`
-                      : "No active edge marked yet."}
+                      ? `${recon.lines.length} active edge${recon.lines.length === 1 ? "" : "s"} on the map`
+                      : "No active edge marked yet"}
                   </p>
                 </>
               )}
@@ -330,18 +331,23 @@ function PerimeterOverridePanel({
               />
             </label>
           </div>
-          <p className="hint-sm">
-            Run options from Setup: {burningPeriod ? `burning period ${formatBurningPeriod(burningPeriod)}` : "burns all day"}
-            {spinUp ? " · evening FFMC spin-up" : ""}.
-          </p>
-          <button
-            type="button"
-            className="btn-primary recon-restart"
-            disabled={disabled || !state.perimeter || state.drawing || (marked && recon.lines.length === 0)}
-            onClick={restart}
-          >
-            Restart from observed perimeter
-          </button>
+          <div className="status-line">
+            <Badge tone="neutral" testId="recon-run-options">
+              {burningPeriod ? `Burns ${formatBurningPeriod(burningPeriod)}` : "Burns all day"}
+              {spinUp ? " · spin-up" : ""}
+            </Badge>
+          </div>
+          <div className="with-tip">
+            <button
+              type="button"
+              className="btn-primary recon-restart"
+              disabled={disabled || !state.perimeter || state.drawing || (marked && recon.lines.length === 0)}
+              onClick={restart}
+            >
+              Restart at {atLabel} from observed
+            </button>
+            <InfoTip label="About the restart" text={`${TIPS.reconRestart(atLabel)} Run options from Setup apply.`} />
+          </div>
 
           {parseError && <div className="recon-error" role="alert">{parseError}</div>}
         </>

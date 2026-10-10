@@ -5,6 +5,8 @@
  */
 
 import { memo, useCallback, useRef, useState } from "react";
+import InfoTip from "./InfoTip";
+import { TIPS } from "../content/explanations";
 
 export interface UserLayer {
   id: string;
@@ -85,19 +87,13 @@ function AssetLayersPanel({ edmonton, edmontonNote, userLayers, onAddLayer, onRe
 
   return (
     <div className="asset-layers">
-      <p className="hint-sm">
-        <strong>Edmonton:</strong> {edmonton ? `${edmonton.assets} critical assets and ${edmonton.roads} major road lines, loaded with the Edmonton fuel grid.` : edmontonNote}
-      </p>
-      <p className="hint-sm">
-        After a run, the Critical assets card lists when the modelled fire reaches each asset and major road.
-      </p>
+      {/* The section summary gives the asset count; only a load problem needs a line here */}
+      {!edmonton && <p className="hint-sm">{edmontonNote}</p>}
       <details className="asset-layers-own">
         <summary>Add your own layer</summary>
-        <p className="hint-sm">
-          GeoJSON in WGS84. Points and polygons are treated as assets (a <code>category</code> property is used when it
-          matches a FireSim category), lines as roads (named by <code>name</code> or <code>ref</code>). The layer stays in
-          this browser tab.
-        </p>
+        <div className="status-line">
+          GeoJSON (WGS84) <InfoTip label="About the layer format" text={TIPS.ownLayer} />
+        </div>
         <div className="field-row">
           <button type="button" className="btn-secondary btn-inline" onClick={() => fileRef.current?.click()}>
             Choose a file…

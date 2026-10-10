@@ -28,6 +28,14 @@ from firesim_api.schemas.simulation import (
 logger = logging.getLogger(__name__)
 
 
+class RunCancelled(Exception):
+    """Raised from the progress callback to stop a cancelled run mid-computation."""
+
+
+#: Run phases reported to clients (WebSocket ``simulation.status``, GET ``phase``)
+RUN_PHASES = ("loading", "buildings", "spread", "structures", "finishing")
+
+
 class SimulationRun:
     """Tracks state of a single simulation run."""
 
@@ -47,6 +55,31 @@ class SimulationRun:
         self._pause_event = threading.Event()
         self._pause_event.set()  # Initially running (not paused)
         self._cancel_event = threading.Event()
+        # Progress for display: phase (RUN_PHASES) and fraction of the spread done (0-1)
+        self.phase: str | None = None
+        self.progress: float | None = None
+        self.on_status: Callable[[str, str, float | None], None] | None = None
+        self._last_sent: tuple[str | None, float] = (None, -1.0)
+
+    def set_phase(self, phase: str, progress: float | None = None) -> None:
+        """Record the run's phase and progress; notify ``on_status`` when the phase changes
+        or progress moved at least 2 points (keeps WebSocket traffic small). Raises
+        ``RunCancelled`` when the run was cancelled, so a long grid computation stops."""
+        if self._cancel_event.is_set():
+            raise RunCancelled()
+        self.phase = phase
+        if progress is not None:
+            self.progress = max(0.0, min(1.0, float(progress)))
+        last_phase, last_p = self._last_sent
+        p = self.progress if self.progress is not None else -1.0
+        if phase == last_phase and (progress is None or p - last_p < 0.02):
+            return
+        self._last_sent = (phase, p)
+        if self.on_status is not None:
+            try:
+                self.on_status(self.id, phase, self.progress if phase == "spread" else None)
+            except Exception:  # display only: never fail a run over a status message
+                logger.debug("status callback failed for %s", self.id, exc_info=True)
 
     def add_frame(self, frame: SimulationFrame) -> None:
         with self._lock:
@@ -141,18 +174,21 @@ class SimulationRunner:
         self,
         params: SimulationCreate,
         on_frame: Callable[[str, SimulationFrame], None] | None = None,
+        on_status: Callable[[str, str, float | None], None] | None = None,
     ) -> str:
         """Create and start a new simulation.
 
         Args:
             params: Simulation parameters
             on_frame: Optional callback invoked for each frame (sim_id, frame)
+            on_status: Optional callback (sim_id, phase, progress) for progress display
 
         Returns:
             Simulation ID
         """
         sim_id = str(uuid.uuid4())[:8]
         run = SimulationRun(sim_id, params)
+        run.on_status = on_status
 
         with self._lock:
             self._runs[sim_id] = run
@@ -341,6 +377,7 @@ class SimulationRunner:
 
             # Load spatial grids (cached — only loads once per unique path combo).
             # Buildings are NOT baked in here; applied per-simulation below.
+            run.set_phase("loading")
             fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
                 params.fuel_grid_path,
                 params.water_path,
@@ -401,6 +438,7 @@ class SimulationRunner:
                 import dataclasses
                 from firesim.data.environment import load_environment_mask
 
+                run.set_phase("buildings")
                 bidx = self._get_building_index(buildings_path, settings.neighbourhoods_path)
                 nearest = bidx.nearest_neighbourhoods(
                     params.ignition_lat, params.ignition_lng, n=4
@@ -450,10 +488,13 @@ class SimulationRunner:
                 building_footprints=building_geoms or None,
                 structure_spread=getattr(params, "structure_spread", False),
                 structure_footprints=structure_geoms,
+                progress=run.set_phase,
             )
 
+            run.set_phase("spread", 0.0)
             for frame in simulator.run():
                 run.add_frame(frame)
+                run.progress = min(1.0, frame.time_hours / max(params.duration_hours, 1e-9))
                 if on_frame is not None:
                     on_frame(run.id, frame)
                 # Block here when paused; unblocks on resume() or cancel()
@@ -471,6 +512,9 @@ class SimulationRunner:
             else:
                 logger.info("Simulation %s cancelled after %d frames", run.id, len(run.frames))
 
+        except RunCancelled:
+            run.status = SimulationStatus.CANCELLED
+            logger.info("Simulation %s cancelled during computation", run.id)
         except Exception as e:
             run.status = SimulationStatus.FAILED
             run.error = str(e)
@@ -686,6 +730,7 @@ class SimulationRunner:
         self,
         req: PerimeterOverrideRequest,
         on_frame: Callable[[str, SimulationFrame], None] | None = None,
+        on_status: Callable[[str, str, float | None], None] | None = None,
     ) -> str:
         """Create a new simulation seeded from a drone-observed fire perimeter.
 
@@ -735,6 +780,7 @@ class SimulationRunner:
 
         sim_id = str(uuid.uuid4())[:8]
         run = SimulationRun(sim_id, original.config)
+        run.on_status = on_status
 
         with self._lock:
             self._runs[sim_id] = run
@@ -795,6 +841,7 @@ class SimulationRunner:
             )
 
             dem_path = params.dem_path or settings.dem_path
+            run.set_phase("loading")
             fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
                 params.fuel_grid_path,
                 params.water_path,
@@ -813,10 +860,13 @@ class SimulationRunner:
                 spotting_intensity=params.spotting_intensity,
                 active_edges=req.active_edges,
                 active_edge_buffer_m=req.active_edge_buffer_m,
+                progress=run.set_phase,
             )
 
+            run.set_phase("spread", 0.0)
             for frame in simulator.run():
                 run.add_frame(frame)
+                run.progress = min(1.0, frame.time_hours / max(req.duration_hours, 1e-9))
                 if on_frame is not None:
                     on_frame(run.id, frame)
                 run._pause_event.wait()
@@ -832,6 +882,9 @@ class SimulationRunner:
             else:
                 logger.info("Perimeter override sim %s cancelled", run.id)
 
+        except RunCancelled:
+            run.status = SimulationStatus.CANCELLED
+            logger.info("Perimeter override sim %s cancelled during computation", run.id)
         except Exception as e:
             run.status = SimulationStatus.FAILED
             run.error = str(e)

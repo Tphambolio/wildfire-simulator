@@ -35,6 +35,9 @@ import {
 } from "./utils/evacZones";
 // The EOC console (and its ICS forms) loads only when its tab is opened
 const EOCConsole = lazy(() => import("./components/EOCConsole"));
+// The About & sources tab is static text, loaded when opened
+const AboutPanel = lazy(() => import("./components/AboutPanel"));
+import type { AboutSectionId } from "./components/AboutPanel";
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IncidentPanel from "./components/IncidentPanel";
 import IsochronePanel from "./components/IsochronePanel";
@@ -42,8 +45,14 @@ import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
-import { fwiClassColor, fwiClassTextColor } from "./utils/fwiClass";
-import TopBar from "./components/TopBar";
+import TopBar, { type AppTab } from "./components/TopBar";
+import Badge from "./components/Badge";
+import InfoTip from "./components/InfoTip";
+import FwiClassChip from "./components/FwiClassChip";
+import { BADGES, TIPS } from "./content/explanations";
+import RunProgress from "./components/RunProgress";
+import { TipButton } from "./components/InfoTip";
+import { fallbackScenarioConfig } from "./utils/scenarioDefaults";
 import SetupSection from "./components/SetupSection";
 import SituationPanel from "./components/SituationPanel";
 import EnsemblePanel, { type EnsembleToggles } from "./components/EnsemblePanel";
@@ -216,8 +225,7 @@ function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
         <div className="eoc-start-icon">🔥</div>
         <h2 className="eoc-start-title">Start a New Incident</h2>
         <p className="eoc-start-hint">
-          Name the incident before opening the EOC Console.<br />
-          You can rename it at any time from the period strip.
+          Name the incident before opening the EOC Console. <InfoTip label="About incidents" text={TIPS.eocResume} />
         </p>
         <input
           className="eoc-start-input"
@@ -233,9 +241,6 @@ function EocStartScreen({ onCreate }: { onCreate: (name: string) => void }) {
         <button className="eoc-start-btn" onClick={submit} disabled={!name.trim()}>
           Open EOC Console
         </button>
-        <p className="eoc-start-hint">
-          Or resume an existing incident under <strong>Incidents &amp; saved scenarios</strong> in the Setup column.
-        </p>
       </div>
     </div>
   );
@@ -273,7 +278,13 @@ export default function App() {
   // Evacuation status set by Planning when no incident is open (kept in this browser)
   const [scratchEvacTiers, setScratchEvacTiers] = useState<EvacTierRecord[]>(loadScratchEvacTiers);
   // Active top-level tab
-  const [activeTab, setActiveTab] = useState<"simulation" | "eoc">("simulation");
+  const [activeTab, setActiveTab] = useState<AppTab>("simulation");
+  // Section of the About & sources tab to show when it opens (the low-skill badge opens Limits)
+  const [aboutSection, setAboutSection] = useState<AboutSectionId | null>(null);
+  const openLimits = useCallback(() => {
+    setAboutSection("about-limits");
+    setActiveTab("about");
+  }, []);
   const [isochronesVisible, setIsochronesVisible] = useState(false);
   // House-to-house spread map layer: on by default when the run has it (opt-in run option)
   const [structureVisible, setStructureVisible] = useState(true);
@@ -379,7 +390,11 @@ export default function App() {
     pauseSimulation,
     resumeSimulation,
     cancelSimulation,
+    clearResults,
     error,
+    phase: runPhase,
+    progress: runFraction,
+    startedAt: runStartedAt,
   } = useSimulation();
 
   // Scenario start of the current run (design spec §2.3): the start date and time set in
@@ -422,8 +437,14 @@ export default function App() {
     [startMultiDaySimulation]
   );
 
-  // After a run completes: fit the map to the fire and move focus to the Situation panel
+  // After the first completed run: fit the map to the fire; later runs keep the user's view
+  // (re-running at a new spot, e.g. the south bank) — "Fit to fire" on the map fits on request.
+  // Focus moves to the Situation panel after every run.
   const [fitRequest, setFitRequest] = useState(0);
+  const fittedOnceRef = useRef(false);
+  // "New ignition": arm placement on the map (the next click sets the ignition)
+  const [armIgnition, setArmIgnition] = useState(0);
+  const armNewIgnition = useCallback(() => setArmIgnition((n) => n + 1), []);
   const situationRef = useRef<HTMLElement | null>(null);
   const [runBarEl, setRunBarEl] = useState<HTMLDivElement | null>(null);
   const prevStatusRef = useRef<string | null>(null);
@@ -431,7 +452,10 @@ export default function App() {
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
     if (status === "completed" && prev !== "completed" && frames.length > 0) {
-      setFitRequest((n) => n + 1);
+      if (!fittedOnceRef.current) {
+        fittedOnceRef.current = true;
+        setFitRequest((n) => n + 1);
+      }
       if (activeTab === "simulation") situationRef.current?.focus({ preventScroll: true });
     }
   }, [status, frames.length, activeTab]);
@@ -694,17 +718,21 @@ export default function App() {
   );
 
   return (
-    <div className={`app${activeTab === "eoc" ? " app-eoc" : ""}`}>
+    <div className={`app${activeTab === "eoc" ? " app-eoc" : activeTab === "about" ? " app-about" : ""}`}>
       {/* ── Top bar: incident, tabs, run status, limits badge, clock ── */}
       <TopBar
         incidentName={incident?.name ?? null}
         incidentSub={
           incident && activePeriod
             ? `Operational period ${incident.activePeriodIndex + 1}`
-            : "Scenario not saved · open an incident in the EOC Console"
+            : <Badge tone="neutral" tip={TIPS.notSaved}>{BADGES.notSaved}</Badge>
         }
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => {
+          if (tab === "about") setAboutSection(null);
+          setActiveTab(tab);
+        }}
+        onOpenLimits={openLimits}
         status={status}
         actions={<>
           {isRunning && !isPaused && (
@@ -740,10 +768,7 @@ export default function App() {
               <span>{lastRunParams.weather.wind_speed} km/h {["N","NE","E","SE","S","SW","W","NW"][Math.round(lastRunParams.weather.wind_direction / 45) % 8]}</span>
               <span>·</span>
               <span>FWI {lastRunParams.fwi_value.toFixed(1)}</span>
-              <span className="run-params-danger" style={{
-                background: fwiClassColor(lastRunParams.fwi_value),
-                color: fwiClassTextColor(lastRunParams.fwi_value),
-              }}>{lastRunParams.danger_rating}</span>
+              <FwiClassChip className="run-params-danger" fwi={lastRunParams.fwi_value} label={lastRunParams.danger_rating} />
             </div>
           )}
         </>}
@@ -766,6 +791,7 @@ export default function App() {
             onEdmontonGridChange={handleEdmontonGridChange}
             runBarTarget={runBarEl}
             onSkillOptions={setSkillOptions}
+            onNewIgnition={!isRunning && frames.length > 0 ? armNewIgnition : undefined}
           />
           <div className="setup-more-label">More</div>
           <SetupSection
@@ -824,25 +850,7 @@ export default function App() {
             />
             <ScenarioPanel
               scenarios={scenarios}
-              currentConfig={currentConfigRef.current ?? {
-                ignitionPoint,
-                weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
-                fwi: { ffmc: 90, dmc: 45, dc: 300 },
-                fuelType: "C2",
-                useEdmontonGrid: true,
-                useSyntheticCA: false,
-                enableSpotting: false,
-                spottingIntensity: 1.0,
-                includeWater: false,
-                includeBuildings: true,
-                includeWUI: true,
-                includeDEM: true,
-                durationHours: 4,
-                snapshotMinutes: 30,
-                simMode: "single",
-                multiDayDays: [],
-                mcIterations: 50,
-              }}
+              currentConfig={currentConfigRef.current ?? fallbackScenarioConfig(ignitionPoint)}
               onSave={handleSaveScenario}
               onLoad={handleLoadScenario}
               onDelete={deleteScenario}
@@ -911,8 +919,15 @@ export default function App() {
         </div>
       )}
 
+      {/* ── About & sources tab: intended use, limits, methods and references, data, help ── */}
+      {activeTab === "about" && (
+        <Suspense fallback={<div className="hint eoc-loading">Loading…</div>}>
+          <AboutPanel section={aboutSection} />
+        </Suspense>
+      )}
+
       {/* ── Map area — always mounted so MapLibre doesn't reinitialize on tab switch ─── */}
-      <main className="map-area" style={activeTab === "eoc" ? { display: "none" } : {}}>
+      <main className="map-area" style={activeTab !== "simulation" ? { display: "none" } : {}}>
         {/* Telemetry strip — floating glass chips over the map */}
         {lastRunParams && (
           <div className="telemetry-strip">
@@ -932,12 +947,7 @@ export default function App() {
             <div className="tel-chip tel-chip-danger">
               <span className="tel-label">FWI</span>
               <span className="tel-value">{lastRunParams.fwi_value.toFixed(0)}</span>
-              <span
-                className="tel-danger"
-                style={{ background: fwiClassColor(lastRunParams.fwi_value), color: fwiClassTextColor(lastRunParams.fwi_value) }}
-              >
-                {lastRunParams.danger_rating}
-              </span>
+              <FwiClassChip className="tel-danger" fwi={lastRunParams.fwi_value} label={lastRunParams.danger_rating} />
             </div>
           </div>
         )}
@@ -964,6 +974,7 @@ export default function App() {
             fuelGridImage={fuelGridImage}
             fuelGridVisible={fuelGridVisible}
             fitRequest={fitRequest}
+            armIgnitionRequest={armIgnition}
             arrivalOutlines={arrivalOutlines}
             arrivalOutlinesVisible={arrivalOutlinesVisible}
             onSetEvacTier={handleSetEvacTier}
@@ -999,7 +1010,35 @@ export default function App() {
               onToggle={handleEnsToggle}
             />
           }
-          kpiCaption={ensemble.phase !== "off" ? "Single run (P50-like)" : null}
+          kpiCaption={ensemble.phase !== "off" ? BADGES.singleRun : null}
+          progress={
+            isRunning ? (
+              <RunProgress
+                phase={runPhase}
+                progress={runFraction}
+                startedAt={runStartedAt}
+                paused={isPaused}
+                onCancel={simulationId ? cancelSimulation : undefined}
+              />
+            ) : null
+          }
+          actions={
+            !isRunning && (frames.length > 0 || status === "cancelled" || status === "failed") ? (
+              <div className="situation-actions">
+                <TipButton
+                  className="btn-secondary btn-inline"
+                  tip={TIPS.clearResults}
+                  onClick={() => {
+                    clearResults();
+                    setEnsembleMembers(null);
+                    setRunBurningPeriod(null);
+                  }}
+                >
+                  Clear results
+                </TipButton>
+              </div>
+            ) : null
+          }
           burningPeriod={runBurningPeriod}
         >
           <FireMetrics
@@ -1063,6 +1102,7 @@ export default function App() {
             evacZones={evacZones}
             run209={run209}
             incidentName={incident?.name}
+            compact
           />
         </SituationPanel>
       )}
