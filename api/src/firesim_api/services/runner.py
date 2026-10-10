@@ -412,12 +412,12 @@ class SimulationRunner:
                 logger.info("Building mask: %d geometries from %d neighbourhoods",
                             len(building_geoms), len(nearest))
                 if getattr(params, "structure_spread", False):
-                    # Structure spread needs every building in the run area, not only the
-                    # neighbourhoods nearest the ignition (docs/structure-spread-spec.md §2)
-                    structure_geoms = bidx.building_geoms_in_bbox(
-                        fuel_grid.lat_min, fuel_grid.lat_max, fuel_grid.lng_min, fuel_grid.lng_max)
-                    logger.info("Structure spread: %d footprints in the run area",
-                                len(structure_geoms))
+                    # Structure spread may reach any building in the run area, not only the
+                    # neighbourhoods nearest the ignition (docs/structure-spread-spec.md §2).
+                    # The index is passed as a footprint source: after the grid run, units are
+                    # built only for the area the spread can reach (never the whole city;
+                    # building all ~334K footprints OOM-killed the 2 GB machine, 2026-10-10).
+                    structure_geoms = bidx
 
                 if building_geoms:
                     bldg_mask = load_environment_mask(
@@ -449,7 +449,7 @@ class SimulationRunner:
                 building_centroids=building_centroids,
                 building_footprints=building_geoms or None,
                 structure_spread=getattr(params, "structure_spread", False),
-                structure_footprints=structure_geoms or None,
+                structure_footprints=structure_geoms,
             )
 
             for frame in simulator.run():

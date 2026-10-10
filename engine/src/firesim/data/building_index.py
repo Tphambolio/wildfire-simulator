@@ -230,3 +230,72 @@ class BuildingIndex:
             except Exception:
                 continue
         return result
+
+    # ── Footprint source for structure spread (firesim.structures.spread) ───────────────
+    # Compact per-building arrays (raw centroid + bounds, ~14 MB for 346K buildings) so a run
+    # can count and select the footprints of the area its structure spread can reach, and
+    # build shapely geometries only for those (not for the whole city; 2026-10-10 OOM fix).
+
+    def _ensure_flat(self) -> None:
+        import numpy as np
+
+        if hasattr(self, "_flat_bounds"):
+            return
+        if not hasattr(self, "_flat_geoms"):
+            raw: list[dict] = []
+            lat: list[float] = []
+            lng: list[float] = []
+            for key, geoms in self._raw_by_nbhd.items():
+                raw.extend(geoms)
+                for clat, clng in self._centroids_by_nbhd.get(key, []):
+                    lat.append(clat)
+                    lng.append(clng)
+            self._flat_geoms = raw
+            self._flat_lat = np.asarray(lat, dtype=float)
+            self._flat_lng = np.asarray(lng, dtype=float)
+        b = np.full((len(self._flat_geoms), 4), np.nan)
+        for i, g in enumerate(self._flat_geoms):
+            try:
+                c = g["coordinates"]
+                rings = c if g["type"] == "Polygon" else [r for p in c for r in p]
+                xs = [pt[0] for r in rings for pt in r]
+                ys = [pt[1] for r in rings for pt in r]
+                b[i] = (min(xs), min(ys), max(xs), max(ys))
+            except (KeyError, TypeError, ValueError, IndexError):
+                continue
+        self._flat_bounds = b  # lng_min, lat_min, lng_max, lat_max (NaN = unusable)
+
+    def count_in_box(self, bbox: tuple[float, float, float, float]) -> int:
+        """Buildings whose (raw) centroid is inside ``bbox`` = (lat_min, lat_max, lng_min, lng_max)."""
+        import numpy as np
+
+        self._ensure_flat()
+        lat_min, lat_max, lng_min, lng_max = bbox
+        return int(np.sum((self._flat_lat >= lat_min) & (self._flat_lat <= lat_max)
+                          & (self._flat_lng >= lng_min) & (self._flat_lng <= lng_max)))
+
+    def _intersecting(self, bbox):
+        import numpy as np
+
+        self._ensure_flat()
+        lat_min, lat_max, lng_min, lng_max = bbox
+        b = self._flat_bounds
+        with np.errstate(invalid="ignore"):
+            return np.nonzero((b[:, 0] <= lng_max) & (b[:, 2] >= lng_min)
+                              & (b[:, 1] <= lat_max) & (b[:, 3] >= lat_min))[0]
+
+    def count_intersecting(self, bbox: tuple[float, float, float, float]) -> int:
+        """Buildings whose footprint bounds intersect ``bbox``."""
+        return int(len(self._intersecting(bbox)))
+
+    def footprints_intersecting(self, bbox: tuple[float, float, float, float]) -> list:
+        """Shapely footprints (lng, lat) whose bounds intersect ``bbox``; built on demand."""
+        out = []
+        for i in self._intersecting(bbox):
+            try:
+                geom = shape(self._flat_geoms[i])
+                if not geom.is_empty:
+                    out.append(geom)
+            except Exception:
+                continue
+        return out

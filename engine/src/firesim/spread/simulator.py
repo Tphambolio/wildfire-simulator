@@ -75,7 +75,7 @@ class Simulator:
         active_edges: dict | None = None,
         active_edge_buffer_m: float | None = None,
         structure_spread: bool = False,
-        structure_footprints: list | None = None,
+        structure_footprints=None,
     ):
         """Initialize simulator.
 
@@ -110,8 +110,10 @@ class Simulator:
                 from the units reached by the front (``firesim.structures``; illustrative, not
                 validated in Canada; docs/structure-spread-spec.md). Frames then carry
                 ``structure_spread`` counts.
-            structure_footprints: shapely footprints (lng, lat) of every building in the run
-                area for structure spread; defaults to ``building_footprints``.
+            structure_footprints: buildings for structure spread: a footprint source
+                (``BuildingIndex``: shapely geometries are built only for the area the spread
+                can reach) or a list of shapely footprints (lng, lat); defaults to
+                ``building_footprints``.
         """
         self.config = config
         self.fuel_grid = fuel_grid
@@ -400,6 +402,9 @@ class Simulator:
                 structure_spread=(
                     structures.counts_at(cf.time_hours * 60.0 + 1e-9) if structures else None
                 ),
+                structure_spread_detail=(
+                    structures.involved_detail() if structures and is_last else None
+                ),
             )
 
     def _head_summary(self, head: dict | None) -> dict | None:
@@ -461,15 +466,20 @@ class Simulator:
 
         Front contact is measured on the grid run's arrival raster from each footprint's
         grid cells (spec §3); ``emitters`` only signals a finished grid run."""
-        footprints = self.structure_footprints or self.building_footprints
-        if not self.structure_spread or emitters is None or arrival is None or not footprints:
+        footprints = self.structure_footprints
+        if footprints is None or (isinstance(footprints, list) and not footprints):
+            footprints = self.building_footprints
+        if not self.structure_spread or emitters is None or arrival is None:
             return None
-        from firesim.structures.spread import structure_spread_for_grid_run
+        if footprints is None or (isinstance(footprints, list) and not footprints):
+            return None
+        from firesim.structures import spread as structure_spread
 
         g = self.fuel_grid
-        return structure_spread_for_grid_run(
+        return structure_spread.structure_spread_for_grid_run(
             footprints, arrival, self._schedule, duration_min,
             bbox=(g.lat_min, g.lat_max, g.lng_min, g.lng_max),
+            max_units=structure_spread.DEFAULT_MAX_UNITS,  # read at call time (OOM guard)
         )
 
     def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:
