@@ -33,6 +33,38 @@ days). See "Ensemble calibration".
 
 The grid model's point ignitions no longer depend on the wind's angle to the grid (`docs/verification.md` §2, PR #35). The fix also changes the level-set stencil for every grid run, so the chosen set-up and the Bennett start were re-run on all 143 fire-days with the code before (`a8f8f35`, reproducing the numbers below exactly) and after (`4bcfb1d`). Held-out F1 at 17 h: active edges + spin-up + 10-20 h 0.208 → 0.212 (ΔF1 +0.004, 95 % CI −0.001 to +0.009); Bennett start + spin-up 0.245 → 0.250 (+0.005, +0.000 to +0.011). At 8 h and at the best hour F1 dips by 0.003-0.008. Skill is effectively unchanged; the tables below are the pre-fix numbers. Report: `~/dev/wildfire/reports/Grass diagonal spread fix validation 2026-10-09.md`; runs in `$FIRESIM_VALIDATION_DATA/diagfix/`.
 
+## Grass curing default (2026-10-10)
+
+FireSim's grass curing default changed from a fixed 60 % to 95 % in the pre-green-up window
+(day of year 60-149) and no default outside it (decision M1; `engine/src/firesim/fbp/curing.py`,
+`docs/model-card.md`). The chosen set-up (active edges, 2 days + spin-up + 10-20 h) was re-run
+on all 143 fire-days with four curing rules (only O-1 curing differs): the old product default
+60 % everywhere; the harness's former rule (90 % outside the green season, 60 % inside); the M1
+rule (95 % in the window, with 60 % in summer and 90 % in fall standing in for the user's
+entry); and a sensitivity with a silent 90 % in summer.
+
+| Rule | Held-out F1 17 h (79 days) | Held-out area diff | ΔF1 vs 60 % [95 % CI, by fire] |
+|---|---|---|---|
+| 60 % everywhere (old default) | 0.2126 | +0.246 | – |
+| Former harness rule 90 / 60 | 0.2120 | +0.248 | −0.0006 [−0.0016, −0.0000] |
+| **M1: 95 % in the spring window** | **0.2120** | **+0.248** | **−0.0007 [−0.0017, −0.0000]** |
+| M1 with 90 % in summer (sensitivity) | 0.2043 | +0.295 | −0.0084 [−0.0187, −0.0004] |
+
+- **Effect of M1:** none on this dataset. Only 16 of 143 fire-days change: the 14 in the window
+  (5 held-out from 3 fires: −0.009 [−0.016, +0.000]; 9 calibration, 6 of them Horse River:
+  +0.024 [−0.010, +0.135]) and 2 in fall.
+- **Grass in these fires:** these are boreal fires. O-1 is 3.4 % of all observed growth; it
+  appears in the growth of 76 fire-days, but is ≥ 5 % of a day's growth on only 23. The harness
+  therefore cannot confirm the 95 % value; that needs Edmonton grass-fire records.
+- **A silent summer 90 %** would raise over-prediction and lower held-out skill, which supports
+  having no summer default.
+- **Check:** the former-rule run reproduces the recorded 0.212 exactly.
+
+Report: `~/dev/wildfire/reports/Curing default validation 2026-10-10.md` (drafted in the agent session's scratchpad, to be copied there); runs, per-stratum
+tables and the per-fire-day grass table in `$FIRESIM_VALIDATION_DATA/curing/`
+(`scripts/validation/grass_firedays.py`, `scripts/validation/compare_by_stratum.py`,
+`validate.py run --cure-spring / --cure-green / --cure-dormant`).
+
 ## Skill improvements and held-out results (second round, 2026-10-07)
 
 Three changes were tested on the same 143 fire-days, each separately and combined, after
@@ -229,7 +261,7 @@ tested settings on every probabilistic score; a finer search was not done.
 | Observed area below P10 / above P90 of members | 58 / 22 % | 34 / 17 % | 10 / 10 % |
 | CRPS of log10 burned area (deterministic run 0.616) | 0.546 | **0.471** | lower is better |
 | CRPS skill vs the deterministic run | +0.11 | **+0.24** | > 0 |
-| Spread / skill (RMSE of ensemble mean / spread x sqrt((N+1)/N)) | 4.70 | 1.58 | 1 |
+| Spread / skill (RMSE of ensemble mean / (sqrt of mean member variance x sqrt((N+1)/N)); Fortin et al. 2014 eq. 15) | 4.70 | 1.58 | 1 |
 | Brier score, burn probability (whole working areas) | 0.0068 | 0.0062 | lower is better |
 | Brier skill vs the deterministic run (0/1) | +0.18 | **+0.25** | > 0 |
 | Observed growth at burn probability >= 0.1 / 0.5 / 0.9 | 51 / 37 / 26 % | 68 / 35 / 16 % | |
@@ -461,7 +493,8 @@ For each fire-day (Bennett's day *n*):
    location and elevation (ST-X-3).
 4. **Fuel options.** National-grid D-1 and M-1 labels become D-2 / M-2 between day of year 150
    and 258 (green-up to leaf-off; an assumption for Alberta's boreal); M-1/M-2 at 50 %
-   conifer; O-1 curing 90 % outside that period, 60 % inside; wetland (120), vegetated
+   conifer; O-1 curing 90 % outside that period, 60 % inside (all results before 2026-10-10;
+   `--cure-spring 95` applies the M1 spring value, see "Grass curing default"); wetland (120), vegetated
    non-fuel (122), urban, water and non-fuel classes are non-fuel.
 5. **Run.** The grid (level-set) model, deterministic, no suppression, spotting off unless
    stated, 24 h.
@@ -543,9 +576,14 @@ spin-up and the burning period are opt-in.
 - Brier, G.W. (1950). Verification of forecasts expressed in terms of probability. *Monthly
   Weather Review* 78, 1-3.
 - Fortin, V., Abaza, M., Anctil, F., Turcotte, R. (2014). Why should ensemble spread match the
-  RMSE of the ensemble mean? *J. Hydrometeorology* 15, 1708-1713.
+  RMSE of the ensemble mean? *J. Hydrometeorology* 15, 1708-1713. doi:10.1175/JHM-D-14-0008.1.
+  Spread = sqrt of the mean unbiased member variance (eqs 9, 16); finite-ensemble ratio eq. 15
+  (p. 1711), as implemented in `validation/ensemble_scores.py`. Corrigendum: *J. Hydrometeor.*
+  16, 484 (2015), fixes typesetting above eqs 11-12 (not the equations used here).
 - Gneiting, T., Raftery, A.E. (2007). Strictly proper scoring rules, prediction, and
-  estimation. *J. Am. Stat. Assoc.* 102, 359-378.
+  estimation. *J. Am. Stat. Assoc.* 102(477), 359-378. doi:10.1198/016214506000001437. CRPS
+  eqs 20-21 (p. 367; FireSim reports the negatively oriented form); skill scores generally
+  improper (p. 362).
 - Hersbach, H. (2000). Decomposition of the continuous ranked probability score for ensemble
   prediction systems. *Weather and Forecasting* 15, 559-570.
 - Input-error data: ECCC MSC GeoMet `climate-hourly` station observations (Open Government
@@ -553,7 +591,9 @@ spin-up and the burning period are opt-in.
   Open-Meteo archive (CC BY 4.0).
 - Cruz, M.G., Alexander, M.E. (2013). Uncertainty associated with model predictions of surface
   and crown fire rates of spread. *Environmental Modelling & Software* 47, 16-28.
-- Fox-Hughes, P., et al. (2024). *Int. J. Wildland Fire*, doi:10.1071/WF23028 (four
+- Fox-Hughes, P., Bridge, C., Faggian, N., Jolly, C., Matthews, S., Ebert, E., Jacobs, H.,
+  Brown, B., Bally, J. (2024). An evaluation of wildland fire simulators used operationally in
+  Australia. *Int. J. Wildland Fire* 33(4), doi:10.1071/WF23028 (four
   simulators on ten Australian fires; threat score, bearing and forward-spread error).
 - Beck, J.A., Alexander, M.E., Harvey, S.D., Beaver, A.K. (2002). Forecasting diurnal
   variations in fire intensity to enhance wildland firefighter safety. *Int. J. Wildland Fire*

@@ -4,11 +4,15 @@
  *
  * Shows ensemble progress, then the P10 (reached by 1 in 10 members) and median (P50) extent
  * at the selected time, the area range across members at the end of the run, the map layer
- * toggles, and the caveat that the range is narrower than the real uncertainty (held-out
- * Alberta fires, docs/validation.md "Ensemble calibration").
+ * toggles, and the "Range too narrow" badge: the range is narrower than the real uncertainty
+ * (held-out Alberta fires, docs/validation.md "Ensemble calibration"); its explanation and the
+ * P10/P50/P90 definitions are in tooltips (content/explanations.ts).
  */
 
 import { memo, useId, useMemo } from "react";
+import { BADGES, TIPS } from "../content/explanations";
+import Badge from "./Badge";
+import InfoTip from "./InfoTip";
 import type { EnsembleState } from "../hooks/useEnsemble";
 import { areaByMinutes, clockLabel } from "../utils/ensemble";
 import { zoneAbbrev, clockAt } from "../utils/time";
@@ -48,7 +52,10 @@ function EnsemblePanel({ state, selectedMinutes, scenarioStart, toggles, onToggl
 
   return (
     <section className="ens-card" aria-labelledby={`${id}-h`} data-testid="ensemble-card">
-      <h3 id={`${id}-h`} className="ens-h">Range of outcomes</h3>
+      <div className="ens-h-row">
+        <h3 id={`${id}-h`} className="ens-h">Range of outcomes</h3>
+        <Badge tone="warn" tip={TIPS.rangeTooNarrow} testId="ensemble-caveat">{BADGES.rangeTooNarrow}</Badge>
+      </div>
 
       {(state.phase === "waiting" || state.phase === "running") && (
         <div className="ens-progress">
@@ -79,7 +86,10 @@ function EnsemblePanel({ state, selectedMinutes, scenarioStart, toggles, onToggl
       {state.phase === "completed" && g && areas && (
         <>
           <div className="ens-headline">
-            <div className="ens-kicker">P10 extent (1 in 10 members) by {timeWithZone(at, scenarioStart)}</div>
+            <div className="ens-kicker with-tip">
+              <span>P10 extent by {timeWithZone(at, scenarioStart)}</span>
+              <InfoTip label="About P10" text={TIPS.p10} />
+            </div>
             <div className="ens-big" data-testid="ensemble-p10-area">
               {fmtHa(areas.p10)}<small> ha</small>
             </div>
@@ -93,48 +103,37 @@ function EnsemblePanel({ state, selectedMinutes, scenarioStart, toggles, onToggl
             )}
           </div>
           <dl className="ens-range" data-testid="ensemble-area-range">
-            <dt>Area at {timeWithZone(g.durationMinutes, scenarioStart)} (end of run), across members</dt>
+            <dt className="with-tip">
+              <span>End-of-run range ({timeWithZone(g.durationMinutes, scenarioStart)})</span>
+              <InfoTip label="About the end-of-run range" text={TIPS.endRange} />
+            </dt>
             <dd>
               <span><span className="ens-range-k">min</span> {fmtHa(g.areaHa.min)}</span>
               <span><span className="ens-range-k">median</span> {fmtHa(g.areaHa.p50)}</span>
               <span><span className="ens-range-k">max</span> {fmtHa(g.areaHa.max)} ha</span>
             </dd>
           </dl>
-          <p className="hint-sm ens-def">
-            P10 arrival: at least one member in ten brings the fire to a place this early. It is the
-            early end of the modelled range, not a worst case: on held-out Alberta fires part of the
-            observed growth fell outside the P10 footprint on most days. Lines on the map are P10
-            arrival times in clock time.
-          </p>
           <fieldset className="ens-toggles">
             <legend>On the map</legend>
-            <label>
-              <input type="checkbox" checked={toggles.lines} onChange={(e) => onToggle("lines", e.target.checked)} />
-              P10 arrival lines (early end of the range)
-            </label>
-            <label>
-              <input type="checkbox" checked={toggles.p50} onChange={(e) => onToggle("p50", e.target.checked)} />
-              Median extent at the selected time (P50)
-            </label>
-            <label>
-              <input type="checkbox" checked={toggles.p90} onChange={(e) => onToggle("p90", e.target.checked)} />
-              Footprint 9 in 10 members reach (P90)
-            </label>
-            <label>
-              <input type="checkbox" checked={toggles.prob} onChange={(e) => onToggle("prob", e.target.checked)} />
-              Burn probability
-            </label>
+            {(
+              [
+                ["lines", "P10 arrival lines", TIPS.p10, "About P10 arrival lines"],
+                ["p50", "Median extent (P50)", TIPS.p50, "About the median extent"],
+                ["p90", "P90 footprint", TIPS.p90, "About the P90 footprint"],
+                ["prob", "Burn probability", TIPS.probability, "About burn probability"],
+              ] as const
+            ).map(([key, label, tip, tipLabel]) => (
+              <div key={key} className="with-tip">
+                <label>
+                  <input type="checkbox" checked={toggles[key]} onChange={(e) => onToggle(key, e.target.checked)} />
+                  {label}
+                </label>
+                <InfoTip label={tipLabel} text={tip} />
+              </div>
+            ))}
           </fieldset>
         </>
       )}
-
-      <p className="ens-caveat" data-testid="ensemble-caveat">
-        <strong>Range narrower than the real uncertainty.</strong> Members vary wind, fuel moisture,
-        curing and spread rate by amounts set from Alberta forecast errors and observed fires, but on
-        held-out fires the observed one-day area fell inside the members' 10-90 % range on only about
-        half the days, and FireSim usually over-predicts one-day growth. Use the P10 line as a
-        planning margin, not a forecast or a worst case.
-      </p>
     </section>
   );
 }

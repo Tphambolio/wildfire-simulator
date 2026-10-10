@@ -22,7 +22,8 @@
  * References:
  *   CrisisKit AI — github.com/Tphambolio/crisiskitAI (forms.py)
  *   ICS Canada forms and instructions — icscanada.ca/resources/ics-forms/
- *   Alexander & de Groot (1988) — FBP intensity class thresholds
+ *   Head fire intensity classes: utils/fireClasses.ts (Cole & Alexander 1995; CWFIS HFI map
+ *   limits). An earlier "Alexander & de Groot (1988)" reference here described no code in use.
  */
 
 import type { SimulationFrame } from "../types/simulation";
@@ -396,8 +397,12 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
 
 export function buildICS203HTML(opts: ICSFormOptions): string {
   const spread = extractSpreadStats(opts.frames);
-  const suppression = spread ? buildSuppressionSummary(spread) : null;
-  const isComplex = suppression && ["III", "IV", "V"].includes(suppression.intensityClass);
+  // No organization sizing from the modelled intensity. The branch that listed Logistics and
+  // Finance/Admin for "complex" fires (TRA-222, 4dde0fe, 2026-04-04) keyed on the old I-V
+  // intensity classes; since the HFI classes became 1-6 (Cole & Alexander 1995, PR #12) it
+  // never matched, and no source ties an HFI class to ICS organization size (the unsourced
+  // HFI→complexity mapping was removed from the 209 on 2026-10-08). Planning fills the
+  // organization; the form lists the positions every 203 has.
 
   const commandStaffRows = `
 <table class="kv">
@@ -409,9 +414,7 @@ export function buildICS203HTML(opts: ICSFormOptions): string {
   <tr><td>Information Technology Officer</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
 </table>`;
 
-  const generalStaffSections = isComplex
-    ? ["Operations Section Chief", "Planning Section Chief (SITL)", "Logistics Section Chief", "Finance / Admin Section Chief"]
-    : ["Operations Section Chief", "Planning (SITL)"];
+  const generalStaffSections = ["Operations Section Chief", "Planning (SITL)"];
 
   const generalStaffRows = `
 <table class="kv">
@@ -421,7 +424,7 @@ export function buildICS203HTML(opts: ICSFormOptions): string {
   <tr><td>Operations — Div B (Evac Support)</td><td>Division Supervisor</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
   ${spread?.spotCount ? `<tr><td>Air Operations Branch</td><td>ATGS</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>` : ""}
 </table>
-<p class="muted" style="margin-top:8px">Org structure scaled to Intensity Class ${suppression?.intensityClass ?? "?"} (${suppression?.strategy ?? "pending simulation"}). Section Chiefs and names require manual entry.</p>`;
+<p class="muted" style="margin-top:8px">Add Logistics, Finance / Admin and other positions as the incident's organization requires. Section Chiefs and names require manual entry.</p>`;
 
   return wrapForm("ICS 203 – Organization Assignment List", [
     icsBlock("1", "Incident Information", incidentInfoBlock(opts)),

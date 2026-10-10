@@ -53,8 +53,13 @@ label.field-hour > input {
 }
 
 .situation-burning.off {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
   color: var(--warning-text);
   background: var(--warning-soft);
+  font-weight: 600;
 }
 
 /* RPAS perimeter restart */

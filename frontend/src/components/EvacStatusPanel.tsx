@@ -18,6 +18,9 @@ import {
   type NeighbourhoodArrival,
 } from "../utils/evacZones";
 import { formatClock } from "../utils/time";
+import { BADGES, TIPS } from "../content/explanations";
+import Badge from "./Badge";
+import InfoTip from "./InfoTip";
 
 interface EvacStatusPanelProps {
   /** Single (deterministic) run */
@@ -105,11 +108,10 @@ function EvacStatusPanel({
 
   return (
     <section className="evac-status" aria-labelledby={`${id}-h`}>
-      <h3 id={`${id}-h`} className="evac-status-h">Neighbourhoods</h3>
-      <p className="hint-sm">
-        Fire arrival is modelled for this run{worstArrivals ? ": the ensemble's P10 (early end of the range, 1 in 10 members) first, the single run beside it" : ""}.
-        Evacuation status is set by Planning: FireSim does not recommend evacuation tiers.
-      </p>
+      <div className="card-h-row">
+        <h3 id={`${id}-h`} className="evac-status-h">Neighbourhoods</h3>
+        <Badge tone="info" tip={TIPS.neighbourhoods(!!worstArrivals)} testId="evac-planning-badge">{BADGES.setByPlanning}</Badge>
+      </div>
 
       <h4 className="evac-status-sub">Modelled fire within {ARRIVAL_BUFFER_M} m</h4>
       {rows.length === 0 ? (
@@ -125,7 +127,7 @@ function EvacStatusPanel({
               <th scope="col">Neighbourhood</th>
               {worstArrivals ? (
                 <>
-                  <th scope="col">Fire within {ARRIVAL_BUFFER_M} m by, P10 (early)</th>
+                  <th scope="col">P10 (early)</th>
                   <th scope="col">Single run</th>
                 </>
               ) : (
@@ -215,7 +217,7 @@ function EvacStatusPanel({
         </button>
       </div>
 
-      <div className="evac-legend-rows" aria-label="Map key">
+      <div className="evac-legend-rows evac-legend-compact" aria-label="Map key">
         {EVAC_TIERS.map((t) => (
           <span key={t} className="evac-legend-row">
             <TierSwatch tier={t} /> {TIER_STYLE[t].mapLabel} ({TIER_STYLE[t].css})
@@ -233,12 +235,12 @@ function EvacStatusPanel({
         <input type="checkbox" checked={arrivalsVisible} onChange={(e) => onArrivalsVisible(e.target.checked)} />
         Show modelled arrival outlines on the map
       </label>
-      <button type="button" className="btn-secondary" onClick={onExport} disabled={records.length === 0}>
-        Export evacuation status (GeoJSON)
-      </button>
-      <p className="hint-sm">
-        {incidentName ? `Saved with the incident "${incidentName}".` : "Saved in this browser (no incident open)."}
-      </p>
+      <div className="with-tip">
+        <button type="button" className="btn-secondary" onClick={onExport} disabled={records.length === 0}>
+          Export evacuation status (GeoJSON)
+        </button>
+        <InfoTip label="Where evacuation statuses are saved" text={TIPS.evacSaved(incidentName)} />
+      </div>
     </section>
   );
 }

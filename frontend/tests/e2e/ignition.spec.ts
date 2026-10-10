@@ -191,7 +191,7 @@ test.describe("ignition and start time", () => {
     // Without the evening FFMC spin-up (on by default; skill-options.spec covers it), the
     // stream starts at the scenario start
     await page.locator(".setup-section-toggle", { hasText: "Run options" }).click();
-    await page.getByLabel("Evening FFMC spin-up").uncheck();
+    await page.getByLabel("Evening FFMC spin-up", { exact: true }).uncheck();
     await runButton(page).click();
     await expect(page.locator(".status-badge.status-completed")).toHaveText("completed", { timeout: 30_000 });
 

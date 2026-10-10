@@ -65,7 +65,8 @@ fuel a perimeter cannot be concave; grids large enough for that use the level-se
 
 `spread/cellular.py`. The front is the zero contour of a function phi on the fuel grid,
 advected along the Huygens front velocity `U = dH/dp`, where `H` is the support function of
-each cell's FBP wavelet (the approach of ELMFIRE). Second-order ENO upwind differences, first
+each cell's FBP wavelet (Eulerian level set as in ELMFIRE, Lautenberger 2013; the
+discretisation differs, see `docs/verification.md`). Second-order ENO upwind differences, first
 order next to non-fuel; non-fuel cells act as walls (zero-gradient boundary). The first few
 cells of growth use the exact FBP point-ignition ellipse of the ignition cell, restricted to
 cells connected to it through fuel. Deterministic: the same inputs give the same fire.

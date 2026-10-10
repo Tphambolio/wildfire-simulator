@@ -21,6 +21,8 @@ import {
 } from "../utils/assets";
 import { ARRIVAL_BUFFER_M } from "../utils/evacZones";
 import AssetSymbol from "./AssetSymbol";
+import Badge from "./Badge";
+import { BADGES, TIPS } from "../content/explanations";
 
 interface CriticalAssetsPanelProps {
   assets: Asset[];
@@ -75,12 +77,24 @@ function CriticalAssetsPanel({
 
   return (
     <section className="assets-card" aria-labelledby={`${id}-h`} data-testid="critical-assets">
-      <h3 id={`${id}-h`} className="assets-card-h">Critical assets</h3>
-      <p className="hint-sm">
-        When the modelled fire comes within {ARRIVAL_BUFFER_M} m of each asset, and inside it, for this run
-        {hasEnsemble ? ": the ensemble's P10 (early end of the range, 1 in 10 members) first, the single run beside it" : ""}. Model output, not
-        an instruction.
-      </p>
+      <div className="card-h-row">
+        <h3 id={`${id}-h`} className="assets-card-h">Critical assets</h3>
+        <Badge
+          tone="info"
+          testId="assets-model-output"
+          tip={
+            <>
+              <span className="tip-p">{TIPS.criticalAssets(hasEnsemble)}</span>
+              {dataNotes.map((t) => (
+                <span key={t} className="tip-p assets-data-note">{t}</span>
+              ))}
+              {sources.length > 0 && <span className="tip-p assets-sources">Sources: {sources.join(" · ")}</span>}
+            </>
+          }
+        >
+          {BADGES.modelOutput}
+        </Badge>
+      </div>
 
       {assets.length === 0 ? (
         <p className="hint-sm assets-empty">{loadNote ?? "No asset layer loaded. Add one under Setup, Assets, roads & isochrones."}</p>
@@ -111,7 +125,7 @@ function CriticalAssetsPanel({
           </div>
 
           {!hasRun ? (
-            <p className="hint-sm assets-empty">Run a simulation to see when the modelled fire reaches each asset.</p>
+            <p className="hint-sm assets-empty">Run a simulation to see when the modelled fire reaches each asset and major road.</p>
           ) : groups.length === 0 ? (
             <p className="hint-sm assets-empty" data-testid="assets-none">
               {rows.length === 0
@@ -151,12 +165,12 @@ function CriticalAssetsPanel({
         </>
       )}
 
-      <h4 className="assets-group-h assets-roads-h">
-        <span className="road-swatch" aria-hidden="true" /> Major roads reached
-      </h4>
-      {!hasRun ? (
-        <p className="hint-sm assets-empty">Run a simulation to see when the modelled fire reaches each major road.</p>
-      ) : roads.length === 0 ? (
+      {hasRun && (
+        <h4 className="assets-group-h assets-roads-h">
+          <span className="road-swatch" aria-hidden="true" /> Major roads reached
+        </h4>
+      )}
+      {!hasRun ? null : roads.length === 0 ? (
         <p className="hint-sm assets-empty" data-testid="roads-none">No major road reached by the modelled fire.</p>
       ) : (
         <ul className="assets-list roads-list" aria-label="Major roads reached by the modelled fire">
@@ -177,18 +191,6 @@ function CriticalAssetsPanel({
         <input type="checkbox" checked={roadsVisible} onChange={(e) => onRoadsVisible(e.target.checked)} />
         Show reached roads on the map
       </label>
-      {dataNotes.length > 0 && (
-        <ul className="assets-data-notes" aria-label="Data notes">
-          {dataNotes.map((t) => (
-            <li key={t} className="assets-data-note">{t}</li>
-          ))}
-        </ul>
-      )}
-      {sources.length > 0 && (
-        <p className="hint-sm assets-sources">
-          Sources: {sources.join(" · ")}
-        </p>
-      )}
     </section>
   );
 }

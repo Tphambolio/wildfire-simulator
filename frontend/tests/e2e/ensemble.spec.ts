@@ -1,10 +1,11 @@
 /**
  * Range of outcomes (ensemble) view, against the recorded 30-member ensemble
  * (tests/fixtures/ensemble.json.gz, mockApi `ensemble: true`):
- * - the Run options ask for a 30-member ensemble by default (grid runs) and say the range is narrower than the real uncertainty;
+ * - the Run options ask for a 30-member ensemble by default (grid runs); the cost and the
+ *   "narrower than the real uncertainty" caveat are in the option's tooltip;
  * - after the single run, the Situation panel shows "Ensemble n/30" progress, then the
- *   P10 extent, the member area range and the narrow-range caveat, with the
- *   single run captioned "Single run (P50-like)";
+ *   P10 extent, the member area range and the "Range too narrow" badge (caveat in its
+ *   tooltip, opened by hover and by keyboard focus), with the single run captioned "Single run";
  * - the map draws P10 arrival lines labelled in clock time ("14:30"); scrubbing the timeline
  *   moves lines between drawn (up to the selected time) and projected;
  * - burn probability toggles on with its legend; the Neighbourhoods card leads with the
@@ -52,8 +53,14 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
   await page.getByRole("button", { name: /Run options/ }).click();
   const option = page.getByLabel("Range of outcomes (ensemble)");
   await expect(option).toBeChecked();
-  await expect(page.locator(".ensemble-option")).toContainText("about 1 s per member");
-  await expect(page.locator(".ensemble-option")).toContainText("narrower than the real uncertainty");
+  await expect(page.locator(".ensemble-option p.hint-sm")).toHaveCount(0); // the cost and caveat moved to the tip
+  const optTip = page.getByRole("button", { name: "About the range of outcomes" });
+  await optTip.hover();
+  const optPop = page.getByRole("tooltip").filter({ hasText: "about 1 s per member" });
+  await expect(optPop).toBeVisible();
+  await expect(optPop).toContainText("narrower than the real uncertainty");
+  await page.mouse.move(0, 0);
+  await expect(optPop).toBeHidden();
 
   await setIgnitionAtMapCentre(page);
   await runToCompletion(page);
@@ -67,14 +74,22 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
 
   // Complete: P10 extent, area range across members and the caveat
   await expect(page.getByTestId("ensemble-p10-area")).toBeVisible({ timeout: 20_000 });
-  await expect(card).toContainText("P10 extent (1 in 10 members) by");
+  await expect(card).toContainText("P10 extent by");
   const range = page.getByTestId("ensemble-area-range");
   await expect(range).toContainText(fmt(ensembleFixture.area_ha.min));
   await expect(range).toContainText(fmt(ensembleFixture.area_ha.p50));
   await expect(range).toContainText(`${fmt(ensembleFixture.area_ha.max)} ha`);
-  await expect(page.getByTestId("ensemble-caveat")).toContainText("Range narrower than the real uncertainty");
-  await expect(page.getByTestId("ensemble-caveat")).toContainText("over-predicts");
-  await expect(page.locator(".situation-kpi-caption")).toHaveText("Single run (P50-like)");
+  const caveat = page.getByTestId("ensemble-caveat");
+  await expect(caveat).toHaveText("Range too narrow");
+  // Keyboard: focus opens the caveat tooltip (role=tooltip, aria-describedby), Esc closes it
+  await caveat.focus();
+  const caveatTip = page.locator(`[id="${await caveat.getAttribute("aria-describedby")}"]`);
+  await expect(caveatTip).toBeVisible();
+  await expect(caveatTip).toHaveAttribute("role", "tooltip");
+  await expect(caveatTip).toContainText("over-predicts one-day growth");
+  await page.keyboard.press("Escape");
+  await expect(caveatTip).toBeHidden();
+  await expect(page.locator(".situation-kpi-caption .ui-badge")).toHaveText("Single run");
 
   // P10 lines labelled in clock time; at the end of the run every line is drawn (not projected)
   const labels = page.locator(".map-iso-label");
@@ -83,7 +98,7 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
   const drawn = async () => JSON.parse((await page.locator(".map-view-canvas").getAttribute("data-ens-lines")) ?? "[]") as Array<[string, string, number]>;
   expect((await drawn()).length).toBe(8);
   expect((await drawn()).every(([, phase]) => phase === "past")).toBe(true);
-  await expect(page.getByTestId("ensemble-legend")).toContainText("Early arrival (P10, 1 in 10 members)");
+  await expect(page.getByTestId("ensemble-legend")).toContainText("P10 arrival (clock time)");
 
   // Neighbourhoods: P10 time first, single run beside it
   await expect(page.locator(".evac-arrival-table thead")).toContainText("P10 (early)");
@@ -105,8 +120,8 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
   await shot(page, "scrubbed");
 
   // Burn probability on: legend ramp shown
-  await card.getByLabel("Burn probability").check();
-  await expect(page.getByTestId("ensemble-legend")).toContainText("Burn probability, share of members");
+  await card.getByLabel("Burn probability", { exact: true }).check();
+  await expect(page.getByTestId("ensemble-legend")).toContainText("Burn probability: share of members");
   await page.waitForTimeout(500);
   await shot(page, "burn_probability");
 

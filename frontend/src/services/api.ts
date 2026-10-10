@@ -142,7 +142,15 @@ export async function fetchFuelGridImage(fuelGridPath: string): Promise<{ image:
 }
 
 /**
- * Hourly forecast at a point (Open-Meteo, no key) as an hourly weather stream for a scenario
+ * Forecast model, pinned (Open-Meteo would otherwise pick its own "best_match" blend): GEM, the
+ * model the ensemble's input-error climatology was measured on (docs/validation.md). The API's
+ * cold-start estimate uses the same model (api/.../routers/weather.py FORECAST_MODEL).
+ */
+export const FORECAST_MODEL = "gem_seamless";
+export const FORECAST_MODEL_LABEL = "Open-Meteo GEM (gem_seamless)";
+
+/**
+ * Hourly forecast at a point (Open-Meteo GEM, no key) as an hourly weather stream for a scenario
  * that starts at ``startMs`` (default now) and runs ``hours`` hours. See forecastStream.
  */
 export async function fetchHourlyForecast(
@@ -155,7 +163,7 @@ export async function fetchHourlyForecast(
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
     "&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation" +
-    "&wind_speed_unit=kmh&timezone=UTC&past_days=1&forecast_days=3";
+    `&models=${FORECAST_MODEL}&wind_speed_unit=kmh&timezone=UTC&past_days=1&forecast_days=3`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Forecast request failed: ${resp.status}`);
   const data = await resp.json();
@@ -188,6 +196,13 @@ export function forecastStream(
   const endMs = startMs + hours * 3600_000;
   const out: HourlyWeatherParams[] = [];
   for (let i = first; i < t0.length && t0[i] < endMs; i++) {
+    // Say so if the model has no value for a variable (no silent default)
+    for (const [k, v] of [
+      ["temperature_2m", h.temperature_2m[i]], ["relative_humidity_2m", h.relative_humidity_2m[i]],
+      ["wind_speed_10m", h.wind_speed_10m[i]], ["wind_direction_10m", h.wind_direction_10m[i]],
+    ] as const) {
+      if (v === null || v === undefined) throw new Error(`GEM forecast has no ${k} for ${h.time[i]} UTC`);
+    }
     out.push({
       hours_from_start: spin ? (Math.max(t0[i], from) - startMs) / 3600_000 : Math.max(0, (t0[i] - startMs) / 3600_000),
       temperature: h.temperature_2m[i],

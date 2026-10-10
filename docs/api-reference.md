@@ -35,6 +35,21 @@ Start a new fire spread simulation.
 
 - `fwi_overrides` is optional. If omitted, FWI components are computed from weather.
 - `fuel_type` must be one of the 18 FBP fuel type codes (C1-C7, D1-D2, M1-M4, O1a, O1b, S1-S3).
+- `fuel_modifiers.grass_cure` (degree of curing, %, O-1a/O-1b; changed 2026-10-10, decision M1):
+  an explicit value is always used as given. If omitted:
+  - **95 %** when the run's date is in the pre-green-up window, day of year 60-149 (about 1 March
+    to 29 May). The date is `fuel_modifiers.day_of_year`, else `start_time`'s local date.
+  - **No default** outside that window or with no date: the request is rejected with **422**
+    ("fuel_modifiers.grass_cure is required ...") when O-1 grass can burn, i.e. uniform
+    `O1a`/`O1b` fuel or any fuel-grid run (`fuel_grid_path`, `use_ca_mode`; burn-probability
+    requests always). Runs where no grass can burn need no value (`grass_cure` stays null).
+  - Before 2026-10-10 the default was a fixed 60 %, which gives an FBP curing factor of 0.20
+    (GLC-X-10 eq 35b, p.9), so grass spread at a fifth of its fully cured rate. Clients that
+    relied on it should send `"grass_cure": 60` to keep their results.
+  - The value used is echoed in the response `config.fuel_modifiers.grass_cure`. Same rule on
+    `/simulations/multiday` and `/simulations/burn-probability` (the latter has no
+    `start_time`: use `fuel_modifiers.day_of_year`). Sources: `engine/src/firesim/fbp/curing.py`,
+    `docs/model-card.md`.
 - `start_time` (optional): scenario start (ignition) time, ISO 8601 with a UTC offset, e.g.
   `"2026-04-28T13:40:00-06:00"` (a time without an offset is rejected with 422). Frame
   `time_hours` and `hourly_weather[].hours_from_start` count from it, and when
@@ -115,11 +130,19 @@ Get simulation status and results.
       "fuel_breakdown": {"C2": 1.0}
     }
   ],
-  "error": null
+  "error": null,
+  "phase": "finishing",
+  "progress": 1.0
 }
 ```
 
-Status values: `running`, `completed`, `failed`
+Status values: `running`, `completed`, `failed`, `cancelled`
+
+`phase` and `progress` (added 2026-10-10, optional, for progress display only; `null` before the
+run starts and for multi-day runs): `phase` is `loading` (fuel grid, DEM, water mask),
+`buildings` (building index and mask), `spread`, `structures` (house-to-house spread, only when
+requested) or `finishing` (frames being built); `progress` is the fraction of the run duration
+the spread has computed, 0-1. Clients that poll (no WebSocket) use them for the progress bar.
 
 **Grid-run frame fields** (spatial fuel grid):
 
@@ -153,10 +176,20 @@ Stream simulation frames in real-time.
 **Events received:**
 
 ```json
+{"type": "simulation.status", "simulation_id": "abc123", "phase": "spread", "progress": 0.42}
 {"type": "simulation.frame", "frame": { ... }}
 {"type": "simulation.completed"}
 {"type": "simulation.error", "error": "message"}
 ```
+
+`simulation.status` (added 2026-10-10; single runs and perimeter restarts) reports the run's
+phase while it computes: `loading`, `buildings`, `spread` (with `progress` 0-1, rounded to 3
+decimals, sent when it moves at least 2 points), `structures`, `finishing` (`progress` `null`
+outside `spread`). The grid model computes the whole run before its frames are sent, so this is
+the only progress a client sees until the frames arrive. A client that connects mid-run first
+gets the current phase. Display only: it never changes results, and clients that ignore unknown
+event types are unaffected. Cancelling (`{"action": "cancel"}`) now also stops a grid run
+during the spread computation (status `cancelled`, no frames).
 
 ### GET /api/v1/health
 
@@ -259,8 +292,30 @@ fire danger rating.
 
 ### GET /api/v1/weather/current?lat=&lng=
 
-Current fire weather and FWI codes from the nearest CWFIS station (GeoServer WFS, within 2°),
-for use as `fwi_overrides`.
+Current fire weather and FWI codes from the nearest CWFIS station **that reports FFMC, DMC and
+DC** (GeoServer WFS `public:firewx_stns_current`, within 2°), for use as `fwi_overrides`.
+Stations without codes are skipped (the message says how many nearer ones were); `distance_km`
+is the distance of the station actually used.
+
+- If the current layer is empty (it is refreshed around 19 UTC), the newest day of the archive
+  layer `public:firewx_stns` at most two days old is used (`source` ends in `[archive layer]`).
+- If no station has codes (off-season) or CWFIS has nothing, the codes are a **cold-start
+  estimate**: one day from 85 / 6 / 15 with the Open-Meteo GEM forecast (`models=gem_seamless`)
+  at the latest noon LST and the noon-to-noon 24 h rain. Station weather is kept when present.
+  If GEM has no value for a needed variable, the message says which.
+- `temperature` may be negative (before 2026-10-10 sub-zero values were dropped).
+
+Fields added 2026-10-10 (all optional, `null` when not applicable):
+
+| Field | Meaning |
+|---|---|
+| `codes_date` | Date (YYYY-MM-DD) whose noon-LST codes are returned (CWFIS `rep_date`, or the estimate's noon) |
+| `codes_status` | `today`, `yesterday`, `older` (station codes) or `estimate` (cold-start estimate) |
+| `codes_label` | The same in words, e.g. "Yesterday's codes (as of noon LST 2026-10-09; today's are computed after noon LST)"; also appended to `message` |
+| `weather_model` | Open-Meteo model used for any value (`gem_seamless`), `null` for station data only |
+
+Noon LST uses the province's standard-time offset (AB UTC-7, BC UTC-8, …), else the zone's
+standard offset, else longitude / 15.
 
 ### GET /api/v1/version
 

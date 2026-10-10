@@ -1,0 +1,240 @@
+/*
+ * Explanation pop-ups and short badges (components/InfoTip.tsx, Badge.tsx).
+ * The pop-up is a manual popover (top layer, fixed position): the overflow of the Setup and
+ * Situation columns cannot clip it. Text stays at 12 px or more (design spec §6.3).
+ */
+
+.tip-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+/* The "i" trigger: 24 px target (WCAG 2.5.8), 18 px visible circle */
+.info-tip-btn {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-2);
+  font: italic 600 12px/24px Georgia, serif;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: help;
+}
+
+.info-tip-btn::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  z-index: -1;
+}
+
+.info-tip-btn {
+  z-index: 0;
+}
+
+.info-tip-btn:hover,
+.info-tip-btn[aria-expanded="true"] {
+  color: var(--text);
+}
+
+.info-tip-btn:hover::before,
+.info-tip-btn[aria-expanded="true"]::before {
+  border-color: var(--focus);
+}
+
+.info-tip-btn:focus-visible,
+.ui-badge-tip:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/* The pop-up (UA popover styles reset: no inset, margin or canvas colours) */
+.tip-pop {
+  display: none;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: var(--sp-2) var(--sp-3);
+  overflow: visible;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-overlay);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  font-style: normal;
+  line-height: var(--lh);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: normal;
+}
+
+.tip-pop.open {
+  display: block;
+}
+
+.tip-pop a {
+  color: var(--accent-text);
+}
+
+/* Paragraphs inside a pop-up (spans: the pop-up itself is a span) */
+.tip-pop .tip-p {
+  display: block;
+}
+
+.tip-pop .tip-p + .tip-p {
+  margin-top: var(--sp-1);
+}
+
+/* Short status badges (at most four words) */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 var(--sp-1);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-style: normal;
+  line-height: 18px;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.ui-badge-tip {
+  cursor: help;
+}
+
+.ui-badge-tip::after {
+  content: "i";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  font: italic 600 12px/11px Georgia, serif;
+  text-align: center;
+  opacity: 0.8;
+}
+
+.ui-badge-warn {
+  color: var(--warning-text);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning-text) 45%, transparent);
+}
+
+.ui-badge-danger {
+  color: var(--danger-text);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger-text) 45%, transparent);
+}
+
+.ui-badge-info {
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.ui-badge-neutral {
+  color: var(--text-2);
+  background: transparent;
+  border-color: var(--border);
+}
+
+.ui-badge-ok {
+  color: var(--success-text);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success-text) 45%, transparent);
+}
+
+/* A label (or heading) with its tip trigger beside it */
+.with-tip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+}
+
+/* Rows of a control + its tip keep the label spacing (24 px targets stay apart, WCAG 2.5.8) */
+div.with-tip {
+  margin-bottom: 6px;
+}
+
+.with-tip > label {
+  flex: 0 1 auto;
+  margin: 0;
+}
+
+/* Full-width controls with their tip at the end of the row */
+.setup-preset.with-tip {
+  flex-wrap: nowrap;
+  align-items: flex-end;
+}
+
+.setup-preset.with-tip > label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.setup-preset.with-tip > .tip-anchor {
+  margin-bottom: 8px;
+}
+
+/* Card heading with its status badge on the right */
+.card-h-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  margin: 0 0 var(--sp-1);
+}
+
+.card-h-row > h3,
+.card-h-row > h4 {
+  margin: 0;
+}
+
+/* Situation header actions after a run (New ignition, Clear results) */
+.situation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+/* Visible status lines that replaced paragraphs */
+.status-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  margin: var(--sp-1) 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
