@@ -129,12 +129,13 @@ export interface StructureSpreadSummary {
   model: "hamada";
   label: string; // "illustrative — not validated in Canada"
   units_in_run: number; // building units (footprints) in the run area
-  units_front_contact: number; // reached by the wildland front (within the contact distance)
+  units_front_contact: number; // reached by the wildland front (next to the building's grid cells)
   units_structure_to_structure: number; // reached building to building (Hamada)
   units_involved: number;
   combustible_fraction: number;
   neighbour_cutoff_m: number;
   wildland_contact_m: number;
+  front_contact_rule?: string; // "building_cells": contact measured from the footprint's grid cells
 }
 
 export interface BuildingExposureSummary {

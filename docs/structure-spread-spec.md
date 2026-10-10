@@ -102,14 +102,42 @@ intensity per burned cell; flame length Byram (1959) `0.0775 I^0.46` for surface
 Thomas (1963) `0.0266 I^(2/3)` when CFB ≥ 0.1, as recommended by Alexander & Cruz (2012). FireSim
 does not use Rothermel.
 
-- **Time a unit is first reached by the front** `t_front`: the earliest arrival minute of a burned
-  grid cell whose edge is within `wildland_contact_m` of the unit's footprint (cell centre
-  distance minus half a cell, as `exposure.py` measures distance). Default `wildland_contact_m =
-  10 m`, the flame-contact band of `docs/building-exposure.md` (Cohen 2000: walls ignited only on
-  flame contact at 10 m in ICFME) **[H]**. The published coupling has no such distance: in
-  FSJ104651 (p.3) a structure cell next to a burning cell simply starts to burn at the Hamada
-  rate, and in PROCI24 (eq 8, p.3) the wildland cell's `HRR = I_f Δx` drives the WU-E heat
-  balance.
+- **Time a unit is first reached by the front** `t_front` **[H]** (rule changed 2026-10-09,
+  `building_cell_contact_times` in `structures/spread.py`). A unit's *building cells* are the
+  grid cells its footprint touches: the cells the all-touched building mask makes non-fuel
+  (`data/environment.py`), found from the footprint geometry so the rule is the same inside and
+  outside the masked neighbourhoods. The unit is reached at the earliest arrival of a burned cell
+  whose square lies within `wildland_contact_m` of the square of one of its building cells
+  (edge-to-edge distance between cells). Cells on a regular grid are 0 m apart (shared edge or
+  corner) or at least one cell apart, so for any contact distance below the cell size, including
+  the default 10 m on the 50 m engine grid, the rule is: **the front has reached one of the 8
+  neighbours of a building cell, or a building cell itself where it is not masked**; `t_front` is
+  that cell's arrival. A contact distance of a whole cell or more adds rings of cells.
+  Default `wildland_contact_m = 10 m`, the flame-contact band of `docs/building-exposure.md`
+  (Cohen 2000: walls ignited only on flame contact at 10 m in ICFME). The published coupling has
+  no such distance: in FSJ104651 (p.3) a structure cell next to a burning cell simply starts to
+  burn at the Hamada rate, and in PROCI24 (eq 8, p.3) the wildland cell's `HRR = I_f Δx` drives
+  the WU-E heat balance.
+  - *Why from the building cells* (owner decision under delegation, 2026-10-09, [R6] addendum):
+    the first rule measured 10 m from the footprint to the nearest burned cell edge. With 50 m
+    cells and the all-touched mask the nearest burnable cell lies 0-50 m from a footprint
+    depending only on where it sits inside its masked cell, so the 10 m test was decided by grid
+    geometry (contact 5 / 20 m changed involved buildings by −71 % to +557 %, [R7]). The mask
+    removes a building's cells because the building is there, and a 50 m grid cannot say how much
+    yard fuel lies between the wall and the cell edge; fire reaching the cells around the building
+    is the closest the grid can resolve to reaching the building. The outcome now depends only on
+    *which* cells a footprint touches, never on where it sits inside them. The formulation as a
+    cell-to-cell distance (rather than "8-adjacent" directly) keeps `wildland_contact_m`
+    meaningful on finer grids.
+  - *No jumps across non-fuel*: the burned cell must neighbour a cell the footprint touches, so a
+    road or river at least one cell wide that the footprint does not touch stops contact. The
+    rule bridges non-fuel only inside the building's own cells (at most one cell, ≤ 71 m on the
+    diagonal on the 50 m grid).
+  - *Consequences* ([R8]): `wildland_contact_m` has no effect below the cell size (contact 5 / 10
+    / 20 m give identical results); front contact is now made at cell resolution (in the R8 runs
+    the footprint was a median 22-42 m and at most ~70 m from the nearest burned cell edge), and
+    involved buildings at 6 h rose by +38 % to +751 % against the first rule. The first rule is
+    kept as `footprint_contact_times` for diagnostics only.
 - **Wind**: the run's 10 m open wind (FBP input) for the weather period in force, converted to
   m/s. Hamada51's wind height is not stated in any source read [U]; FSJ104651 drove its runs with
   RTMA 10-minute mean wind (gust for Thomas; Table 2, p.5). FSJ104686 (p.3) flies embers at the
@@ -220,9 +248,9 @@ the downwind direction:
 | Parameter | Default | Source / reason |
 |---|---|---|
 | f_b (combustible fraction) | 1.0 | Qin25 p.224: f_b = 1 for the Thomas Fire Hamada run [P]. Not measured for Edmonton. f_b < 1 lowers the wind term (see C9) |
-| `neighbour_cutoff_m` (largest separation that can carry spread) | **30 m** | **[H]** Hamada alone never stops spreading: τ is finite at any d (at V = 17.8 m/s, a₀ = 10 m, d = 100 m gives τ_d ≈ 4.3 min). The published level-set coupling limits a burning cell's influence to its 8 neighbours (FSJ104651 p.17, at 30 m cells). 30 m: IJWF24 Fig. 7a (no spread beyond 30 m separation for 10 m buildings without embers; model output) and NRC21 p.27 ("a 30 m distance is often used as the limit for significant radiative heating"). **Confirmed 2026-10-09** under the owner's delegation (decision D2, `docs/PROJECT_RECORD.md` §3 [R6]). Most Edmonton front-to-front distances across a local street are about 30-40 m, so the cutoff decides whether a street stops spread. Sensitivity on Edmonton footprints [R7]: involved buildings at 6 h −48 % to 0 % at 20 m, +5 % to +220 % at 45 m |
-| `wildland_contact_m` | 10 m | §3 [H]. **Confirmed 2026-10-09** (D2). Sensitivity [R7]: −71 % to 0 % at 5 m, +1 % to +557 % at 20 m. On the 50 m engine grid with the all-touched building mask the test depends on where a footprint sits inside its masked cell; a change to how the distance is measured is an open item |
-| footprints | all (garages and sheds included) | **Decision D4** (2026-10-09). Dropping footprints < 40 m² [H] changes involved buildings by −8 % to 0 % [R7] |
+| `neighbour_cutoff_m` (largest separation that can carry spread) | **30 m** | **[H]** Hamada alone never stops spreading: τ is finite at any d (at V = 17.8 m/s, a₀ = 10 m, d = 100 m gives τ_d ≈ 4.3 min). The published level-set coupling limits a burning cell's influence to its 8 neighbours (FSJ104651 p.17, at 30 m cells). 30 m: IJWF24 Fig. 7a (no spread beyond 30 m separation for 10 m buildings without embers; model output) and NRC21 p.27 ("a 30 m distance is often used as the limit for significant radiative heating"). **Confirmed 2026-10-09** under the owner's delegation (decision D2, `docs/PROJECT_RECORD.md` §3 [R6]). Most Edmonton front-to-front distances across a local street are about 30-40 m, so the cutoff decides whether a street stops spread. Sensitivity on Edmonton footprints [R7]: involved buildings at 6 h −48 % to 0 % at 20 m, +5 % to +220 % at 45 m; with the building-cell front contact [R8]: −58 % to −27 % at 20 m, +4 % to +170 % at 45 m |
+| `wildland_contact_m` | 10 m | §3 [H]. **Confirmed 2026-10-09** (D2). Measured from the building's own grid cells since 2026-10-09 (§3): below one cell (50 m engine grid) it reduces to the 8 neighbours of the building cells and has no further effect. Sensitivity with the first rule (footprint to nearest burned cell) [R7]: −71 % to 0 % at 5 m, +1 % to +557 % at 20 m, a grid artefact; with the building-cell rule [R8]: 0 % at 5 and 20 m |
+| footprints | all (garages and sheds included) | **Decision D4** (2026-10-09). Dropping footprints < 40 m² [H] changes involved buildings by −8 % to 0 % [R7]; −12 % to 0 % with the building-cell front contact [R8] |
 | wind | 10 m open wind of the period in force, km/h ÷ 3.6 | §3 [H] |
 
 ### 4.5 Check values (from the equations above; used as unit tests)
@@ -353,7 +381,8 @@ FireSim's plan:
    a different fire or stated in advance; report the sensitivity runs (cutoff 20 / 30 / 45 m;
    contact 5 / 10 / 20 m; 150 / 400 kW/m²). The cutoff, contact and footprint-size runs were
    made on Edmonton footprints on 2026-10-09 without observed data (`scripts/structure_sensitivity.py`,
-   report [R7] in `docs/PROJECT_RECORD.md`); they must be repeated on the validation fire.
+   reports [R7] and, after the front-contact change, [R8] in `docs/PROJECT_RECORD.md`); they must
+   be repeated on the validation fire.
 
 ## 9. Limits
 
@@ -364,9 +393,15 @@ FireSim's plan:
 - Hamada has no construction, no topography (FSJ104651 p.17), no suppression, no burnout.
 - The neighbour cutoff (30 m) and the front-contact distance (10 m) are FireSim choices, not
   published (confirmed by the owner's delegation 2026-10-09, D2); results depend on them. On
-  three Edmonton sites (2026-10-09, [R7]) involved buildings at 6 h changed by −48 % to +220 %
-  over cutoffs 20-45 m and by −71 % to +557 % over contact distances 5-20 m. The contact
-  result is driven by the 50 m engine grid and its all-touched building mask.
+  three Edmonton sites (2026-10-09) involved buildings at 6 h changed by −58 % to +170 % over
+  cutoffs 20-45 m [R8] (−48 % to +220 % with the first front-contact rule [R7]).
+- Front contact is measured from the building's grid cells (§3 [H]), so it is made at grid
+  resolution: on the 50 m grid a building is reached when the front reaches a cell next to one
+  its footprint touches, typically 20-40 m and up to ~70 m from the footprint [R8]. It no longer
+  depends on where a footprint sits inside its cell, but it still depends on which cells a
+  footprint touches and on the grid's cell size and origin; `wildland_contact_m` has no effect
+  below one cell. The fuel-grid building mask covers only the 4 neighbourhoods nearest the
+  ignition; outside them a building's own cells can burn and the same rule applies.
 - Wind is the run's 10 m open wind, uniform over the run area; no street canyon or sheltering.
 - Ember ignition, the main WUI loss mechanism, is not in the Hamada stage except implicitly
   through Hamada's empirical rate; yard fuels, sheds, fences and vehicles are not modelled.

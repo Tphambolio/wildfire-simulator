@@ -52,7 +52,7 @@ head fire intensity and FWI codes mean.
 | Flame length | Byram (surface), Thomas (CFB >= 0.1) | Alexander & Cruz (2012) |
 | Spotting (opt-in) | Albini/Chase/Morris maximum distance; heuristic emission and landing | USDA FS INT reports 1979-1987 |
 | Building exposure | Distance bands; Cohen solid-flame radiant flux; flux-time index | Cohen (2004); NRC (2021) |
-| Structure-to-structure spread (opt-in, API only; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front comes within 10 m; 30 m neighbour cutoff | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); `docs/structure-spread-spec.md` |
+| Structure-to-structure spread (opt-in, API only; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); `docs/structure-spread-spec.md` |
 | Burn probability | Monte Carlo over ignition point, wind speed and RH | (method, not a validated product) |
 | Classes | HFI classes 1-6; FWI classes | Cole & Alexander (1995) and CWFIS HFI map; CWFIS FWI map |
 
@@ -121,10 +121,14 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   opt-in, illustrative Hamada layer (API `structure_spread`): Japanese empirical coefficients,
   California-only published tests (recall 78-97 %, precision 9-77 %), FireSim's own 10 m
   contact and 30 m cutoff choices, no embers, no construction classes, no suppression; not
-  validated in Canada. Sensitivity on Edmonton footprints (2026-10-09,
-  `scripts/structure_sensitivity.py`): involved buildings at 6 h change by −48 % to +220 % for a
-  20 / 45 m cutoff and by −71 % to +557 % for a 5 / 20 m contact (the contact result depends on
-  the 50 m grid and its building mask); dropping footprints under 40 m² changes them by −8 % to 0 %.
+  validated in Canada. Front contact is measured from the building's own grid cells, so on the
+  50 m grid it happens when the front reaches a cell next to the building's cells (typically
+  20-40 m, up to ~70 m from the footprint); this removed a grid artefact of the first rule
+  (contact 5 / 20 m had changed counts by −71 % to +557 %) and raised involved buildings by
+  +38 % to +751 % on the test sites. Sensitivity on Edmonton footprints (2026-10-09,
+  `scripts/structure_sensitivity.py`): involved buildings at 6 h change by −58 % to +170 % for a
+  20 / 45 m cutoff, 0 % for a 5 / 20 m contact (below the grid's resolution), and −12 % to 0 %
+  when footprints under 40 m² are dropped.
 - Building exposure uses worst-case radiant assumptions and ignores embers, burning buildings
   and yard fuels (usually the main causes of loss).
 - WUI zone modifiers in the repository have no source and are off by default.
