@@ -17,6 +17,7 @@ import { PROB_STOPS, probCss, ringsFeature, type EnsembleMapLayers } from "../ut
 import { ASSET_CATEGORIES, CATEGORY_ORDER, type AssetCategory } from "../utils/assets";
 import { symbolImage } from "../utils/assetSymbols";
 import { MECHANISM_LABEL, STRUCT_B2B, STRUCT_EMBER, STRUCT_FRONT, describeUnit } from "../utils/structureSpread";
+import { cellAreaWeight } from "../utils/gridCell";
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
 import { BADGES, TIPS } from "../content/explanations";
@@ -506,7 +507,9 @@ export default function MapView({
       type: "heatmap",
       source: "fire-heatmap",
       paint: {
-        "heatmap-weight": ["interpolate", ["linear"], ["get", "intensity"], 0, 0, 15000, 1],
+        // x the cell's area relative to 50 m (`cw`), so 20 m runs are not drawn denser
+        "heatmap-weight": ["*", ["coalesce", ["get", "cw"], 1],
+          ["interpolate", ["linear"], ["get", "intensity"], 0, 0, 15000, 1]],
         "heatmap-intensity": 1.5,
         "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 10, 8, 14, 25, 16, 40],
         "heatmap-color": [
@@ -1436,10 +1439,11 @@ export default function MapView({
         lat: number; lng: number; intensity: number; fire_type?: string;
       }>;
 
+      const cw = cellAreaWeight(currentFrame.grid);
       const features: GeoJSON.Feature[] = allCells.map((c) => ({
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: [c.lng, c.lat] },
-        properties: { intensity: c.intensity, fire_type: c.fire_type ?? "surface" },
+        properties: { intensity: c.intensity, fire_type: c.fire_type ?? "surface", cw },
       }));
 
       heatSrc.setData({ type: "FeatureCollection", features });

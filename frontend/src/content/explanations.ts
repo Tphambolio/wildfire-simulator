@@ -86,8 +86,10 @@ export const TIPS = {
   // ── Setup: 3 Fuel & landscape ──
   edmontonGrid: (fallbackFuel: string) =>
     "City of Edmonton canopy-LiDAR FBP fuel product: 20 m cells (EPSG:3776; the file name says " +
-    "10 m), fuel types C-2, D-2, M-2, O-1a and O-1b. The engine resamples it to 50 m cells for " +
-    `the run. Cells without fuel data use ${fallbackFuel}.`,
+    "10 m), fuel types C-2, D-2, M-2, O-1a and O-1b. The run uses 50 m cells (the main fuel " +
+    "type in each); when buildings are near the fire it is repeated on the native 20 m cells " +
+    "in a window around the fire, if the fire is small enough. " +
+    `Cells without fuel data use ${fallbackFuel}.`,
   syntheticCA: "Generates a 5 km mixed-fuel demo grid around the ignition point and runs the grid model on it.",
   spotting:
     "Crown fires loft embers downwind and seed new ignitions. Maximum distance from Albini (1979); " +

@@ -158,3 +158,7 @@ class SimulationFrame:
     # Final frame only, with structure_spread: the involved units (footprint, time, mechanism)
     # for the map; illustrative, display only (docs/structure-spread-spec.md §9)
     structure_spread_detail: list[dict] | None = None
+    # Grid model: the grid the frame is on: {cell_m, wui_window (20 m window used), reason,
+    # note, window (lat_min, lat_max, lng_min, lng_max) and window_cells when used}
+    # (firesim.spread.wui_window, mechanics decision M5)
+    grid: dict | None = None

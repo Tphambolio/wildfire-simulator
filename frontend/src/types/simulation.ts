@@ -123,6 +123,21 @@ export interface SimulationFrame {
   // Opt-in structure spread (request structure_spread): modelled involvement counts
   structure_spread?: StructureSpreadSummary | null;
   structure_spread_detail?: StructureUnitDetail[] | null; // final frame only
+  // Grid runs: the grid the frame is on (20 m WUI window or 50 m; mechanics decision M5)
+  grid?: GridInfo | null;
+}
+
+/**
+ * The grid a grid-model frame is on. `cell_m` is 20 near buildings when the fuel grid's
+ * native 20 m window was used (`wui_window`), else 50; `reason` and `note` say why.
+ */
+export interface GridInfo {
+  cell_m: number;
+  wui_window: boolean;
+  reason: string; // "used" | "no_buildings" | "too_large" | "edge" | "no_native_grid"
+  note: string;
+  window?: number[]; // [lat_min, lat_max, lng_min, lng_max] when used
+  window_cells?: number;
 }
 
 /**
