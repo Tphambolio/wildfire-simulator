@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { forecastStream } from "./api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { FORECAST_MODEL, fetchHourlyForecast, forecastStream } from "./api";
 
 // 24 UTC hours from 2026-04-28T18:00Z (12:00 MDT)
 const base = Date.parse("2026-04-28T18:00:00Z");
@@ -31,5 +31,26 @@ describe("forecastStream", () => {
 
   it("throws when the start is after the forecast", () => {
     expect(() => forecastStream(hourly, base + 30 * 3600_000, 1)).toThrow();
+  });
+
+  it("says so when the model has no value for a variable", () => {
+    const gap = { ...hourly, relative_humidity_2m: hourly.relative_humidity_2m.map((v, i) => (i === 1 ? null : v)) };
+    expect(() => forecastStream(gap as unknown as typeof hourly, base, 3)).toThrow(/GEM forecast has no relative_humidity_2m/);
+  });
+});
+
+describe("fetchHourlyForecast", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("pins the forecast model to GEM", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      urls.push(url);
+      return new Response(JSON.stringify({ hourly }), { status: 200 });
+    });
+    const s = await fetchHourlyForecast(53.5, -113.5, 2, base);
+    expect(s.length).toBeGreaterThan(0);
+    expect(FORECAST_MODEL).toBe("gem_seamless");
+    expect(new URL(urls[0]).searchParams.get("models")).toBe("gem_seamless");
   });
 });

@@ -16,7 +16,7 @@ export interface FWIOverrides {
 
 /** FBP fuel and foliage inputs (ST-X-3 / Wotton et al. 2009). */
 export interface FuelModifiers {
-  grass_cure?: number; // degree of curing (%) for O-1a/O-1b
+  grass_cure?: number; // degree of curing (%) for O-1a/O-1b; omitted: 95 % from 1 Mar to 29 May, else 422 if grass can burn (M1)
   grass_fuel_load?: number; // kg/m2
   percent_conifer?: number; // M-1/M-2
   percent_dead_fir?: number; // M-3/M-4
@@ -285,6 +285,14 @@ export interface CurrentWeather {
   data_timestamp: string | null;
   station_name: string | null;
   distance_km: number | null;
+  /** Date (YYYY-MM-DD, noon LST) the FWI codes are valid for */
+  codes_date?: string | null;
+  /** "today" | "yesterday" | "older" (station codes) | "estimate" (cold-start estimate) */
+  codes_status?: "today" | "yesterday" | "older" | "estimate" | null;
+  /** Age of the codes in words (also in `message`) */
+  codes_label?: string | null;
+  /** Open-Meteo model used for any value (null = station data only) */
+  weather_model?: string | null;
 }
 
 export interface ScenarioConfig {

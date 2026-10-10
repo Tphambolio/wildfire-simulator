@@ -139,7 +139,8 @@ parameters are uniform for all structures"; Qin25 p.185).
 Wildland intensity and flame length come from FireSim's FBP layer as the grid model already
 computes them for building exposure (`exposure.py`, `cellular.py: flame_emitters`): head fire
 intensity per burned cell; flame length Byram (1959) `0.0775 I^0.46` for surface fire and
-Thomas (1963) `0.0266 I^(2/3)` when CFB ≥ 0.1, as recommended by Alexander & Cruz (2012). FireSim
+Thomas (1963) `0.0266 I^(2/3)` when CFB ≥ 0.1, as suggested by Rothermel (1991) for crown fires
+(via Alexander & Cruz 2012, p.99; approximate for crown fires). FireSim
 does not use Rothermel.
 
 - **Time a unit is first reached by the front** `t_front` **[H]** (rule changed 2026-10-09,

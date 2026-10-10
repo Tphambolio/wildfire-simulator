@@ -71,7 +71,8 @@ Cohen's Structure Ignition Assessment Model (SIAM; Cohen 2004, CJFR 34: 1616-162
 **Flames from the grid run.** Each burned cell is a vertical flame panel, one cell wide, facing
 the local spread direction (the arrival-time gradient). Flame height is the flame length from
 the cell's fireline intensity: Byram (1959) `0.0775 I^0.46` for surface fire, Thomas (1963)
-`0.0266 I^(2/3)` when CFB >= 0.1 (Alexander & Cruz 2012). A panel is present while the front
+`0.0266 I^(2/3)` when CFB >= 0.1 (suggested for crown fires by Rothermel 1991, via Alexander &
+Cruz 2012, p.99; approximate for crown fires). A panel is present while the front
 crosses its cell (cell size / normal spread rate), so one panel carries the moving flame face;
 where the front stops (fuel edge, barrier, end of run) it keeps flaming for a residence time of
 60 s (NRC p.27: ~30 s; Cohen 2000: 50-70 s; Westhaver 2017: 60-90 s).
@@ -151,5 +152,8 @@ or loss prediction.
 - Syphard, A.D., Brennan, T.J., Keeley, J.E. (2014). The role of defensible space for
   residential structure protection during wildfires. *Int. J. Wildland Fire* 23: 1165-1175.
   doi:10.1071/WF13158 (read as the letter-paged online-early version)
-- Tran, H.C. et al. (1992). Wood ignition with radiant heat. In *Fire and Flammability of
-  Furnishings and Contents of Buildings*, ASTM STP 1233. (Via Cohen 2004; not checked here.)
+- Tran, H.C., Cohen, J.D., Chase, R.A. (1992). Modeling ignition of structures in
+  wildland/urban interface fires. In *Proceedings: 1st International Fire and Materials
+  Conference*, Arlington, Virginia, 24-25 September 1992. Inter Science Communications, London,
+  pp. 253-262. (As cited in Cohen 2004, checked against Cohen's reference list; the paper itself
+  not read.)

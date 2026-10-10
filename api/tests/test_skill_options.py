@@ -111,7 +111,8 @@ def test_burning_period_from_21h_waits_until_10h(tc, grid, tmp_path):
                    start_time="2026-07-15T21:00:00-06:00", burning_period=[10, 20])
     if grid:
         path, lat, lng = _c2_raster(tmp_path / "c2.tif")
-        payload.update(fuel_grid_path=path, ignition_lat=lat, ignition_lng=lng)
+        payload.update(fuel_grid_path=path, ignition_lat=lat, ignition_lng=lng,
+                       fuel_modifiers={"grass_cure": 60.0})
     data = _wait(tc, tc.post("/api/v1/simulations", json=payload).json()["simulation_id"])
     assert data["status"] == "completed", data.get("error")
     area = _areas(data["frames"])

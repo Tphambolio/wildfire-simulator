@@ -68,6 +68,13 @@ START_CELLS = 5.0
 CFL = 0.2
 # Cells of margin around the burned area in which phi is advanced each step
 BAND_CELLS = 6
+# A cell carries fire when its head ROS exceeds this (m/min). One threshold for the ignition
+# hold and the starting ellipse: with two (1e-6 and 1e-5) an ignition cell whose rate fell
+# between them was accepted by one and rejected by the other, leaving an empty starting
+# fire (ensemble IndexError of 2026-10-10, docs/PROJECT_RECORD.md).
+CARRY_ROS = 1e-5
+# cffdrs floors a zero ROS at 1e-6 m/min ("no spread"); see _CellParams.evaluate
+_FBP_ROS_FLOOR = 1e-6
 
 
 @dataclass
@@ -249,11 +256,11 @@ def run_cellular_simulation(
         # holds until the first period in which the ignition cell spreads; its growth and
         # acceleration start then.
         p0, k = params, period
-        while (ign_row is not None and p0.head[ign_row, ign_col] <= 1e-6
+        while (ign_row is not None and p0.head[ign_row, ign_col] <= CARRY_ROS
                and k + 1 < len(schedule) and schedule[k + 1][0] < duration - 1e-9):
             k += 1
             p0 = _CellParams.evaluate(cell_keys, schedule[k][1])
-        if ign_row is not None and p0.head[ign_row, ign_col] > 1e-6:
+        if ign_row is not None and p0.head[ign_row, ign_col] > CARRY_ROS:
             if k != period:
                 period, params, conditions = k, p0, schedule[k][1]
                 t_ign = schedule[k][0]
@@ -262,6 +269,15 @@ def run_cellular_simulation(
             if t_ign > 0.0:
                 arrival[np.isfinite(arrival)] += t_ign
                 t += t_ign
+        elif ign_row is not None:
+            logger.info("Ignition cell (%s) does not carry fire in any period of the run: "
+                        "nothing burns", fuel_grid.fuel_types[ign_row][ign_col].value)
+
+    if phi is not None and not np.isfinite(arrival).any():
+        # Defensive: a starting fire with no burned cell cannot spread (and has no window).
+        # A zero-burn run is a valid outcome, so return frames with no cells.
+        logger.warning("Starting fire has no burned cell: nothing spreads")
+        phi = None
 
     if phi is not None:
         near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
@@ -411,10 +427,13 @@ def flame_emitters(arrival, cross_ros, p, duration, dx, dy,
 
 
 def _window(burned: np.ndarray, margin: int) -> tuple[slice, slice]:
-    """Bounding box of the burned cells plus ``margin`` cells on each side."""
+    """Bounding box of the burned cells plus ``margin`` cells on each side (empty slices
+    when nothing is burned)."""
     rows, cols = burned.shape
     r_idx = np.flatnonzero(burned.any(axis=1))
     c_idx = np.flatnonzero(burned.any(axis=0))
+    if r_idx.size == 0:
+        return slice(0, 0), slice(0, 0)
     return (slice(max(r_idx[0] - margin, 0), min(r_idx[-1] + margin + 1, rows)),
             slice(max(c_idx[0] - margin, 0), min(c_idx[-1] + margin + 1, cols)))
 
@@ -528,6 +547,13 @@ class _CellParams:
                 pdf=conditions.pdf, gfl=conditions.gfl, cbh=cbh, cfl=cfl,
             )
             m = rm * conditions.ros_multiplier
+            # cffdrs returns its 1e-6 floor where FBP gives no spread (e.g. D-2 below BUI 80).
+            # That is "no spread", not a rate: a multiplier (ensemble ROS error, WUI modifier)
+            # must not scale it into a small spread rate, so floored cells get zero rates.
+            spreads = np.asarray(f["ros"]) > _FBP_ROS_FLOOR
+            f = dict(f)
+            for key in ("ros", "bros", "fros"):
+                f[key] = np.where(spreads, f[key], 0.0)
             if ft in _OPEN_ACCELERATION:
                 alpha = np.full(len(rows), 0.115)
             else:
@@ -635,7 +661,7 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceler
     tg = ellipse_arrival_time(u, v, a, b, c)
     # Only fuel that carries fire under the current conditions can be inside the starting
     # ellipse (e.g. D-2 below BUI 80 has zero spread and must not be painted burned)
-    carries = params.fuel & (params.head > 1e-5)  # FBP floors ROS at 1e-6 m/min (cffdrs)
+    carries = params.fuel & (params.head > CARRY_ROS)  # FBP floors ROS at 1e-6 m/min (cffdrs)
     in_ellipse = tg <= t0
     inside = in_ellipse & carries
     burned = _connected_to(inside, carries, r0, c0)
