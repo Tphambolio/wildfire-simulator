@@ -11,7 +11,13 @@ By Huygens' principle the front moves with velocity U = dH/dp, where
 H(p) = c (p.h) + sqrt(a^2 (p.h)^2 + b^2 (p.k)^2) is the support function of
 the elliptical wavelet (a = (ROS + BROS)/2, b = FROS, c = (ROS - BROS)/2, h the
 head direction, k across it). phi is advected along U with upwind differences
-(second-order ENO, first-order next to non-fuel), the approach of ELMFIRE.
+(second-order ENO, first-order next to non-fuel). The Eulerian level-set framework (phi on
+the raster, advection eq. 1, front at phi = 0) is that of ELMFIRE (Lautenberger 2013, Fire
+Safety J. 62: 289-298, Sec. 2.1, p. 290); the discretisation and the spread-rate rule are not:
+ELMFIRE uses a Superbee flux limiter (eqs 6-9), second-order Runge-Kutta in time (eqs 10a-b)
+and a cosine projection of the wind/slope spread rate on the front normal (eqs 13-14), where
+FireSim uses ENO2 with rotated upwinding, forward Euler and the FBP ellipse's Huygens
+velocity (docs/verification.md, "Level set vs Lautenberger 2013").
 Until the head has run a few cells the front is the exact FBP point-ignition
 ellipse of the ignition cell, restricted to cells connected to the ignition
 through fuel. On uniform fuel the burned area reproduces the FBP ellipse to

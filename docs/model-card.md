@@ -48,9 +48,9 @@ head fire intensity and FWI codes mean.
 | Fire behaviour | FBP System, 18 fuel types | ST-X-3 (1992), GLC-X-10 (2009); `cffdrs` |
 | Weather / moisture | FWI System; hourly FFMC | Van Wagner & Pickett (1985); Van Wagner (1977) PS-X-69; `cffdrs` |
 | Diurnal burning (opt-in in the API, on by default in the UI) | Hourly FFMC spin-up from 17:00 local before the start; burning period (spread only between set hours, 10-20 h validated; a point ignition outside it waits for it) | Beck et al. (2002); Lawson et al. (1996); Tymstra et al. (2010) |
-| Growth (spatial fuel) | Level set advected with the Huygens velocity of each cell's FBP ellipse | Richards (1990); Lautenberger (2013) |
+| Growth (spatial fuel) | Level set advected with the Huygens velocity of each cell's FBP ellipse | Richards (1990); Lautenberger (2013) (level-set framework only; discretisation differs, `docs/verification.md`) |
 | Growth (uniform fuel) | Huygens wavelets (convex front) | Richards (1990) |
-| Crown fire | Van Wagner (1977) initiation; CFB eq 58; C-6 crown rate | ST-X-3 |
+| Crown fire | Van Wagner (1977) initiation; CFB eq 58; C-6 crown rate | ST-X-3; Cruz et al. (2006) found foliar moisture matters much less than Van Wagner assumes (context, not implemented) |
 | Flame length | Byram (surface), Thomas (CFB >= 0.1) | Alexander & Cruz (2012) |
 | Spotting (opt-in) | Albini/Chase/Morris maximum distance; heuristic emission and landing | USDA FS INT reports 1979-1987 |
 | Building exposure | Distance bands; Cohen solid-flame radiant flux; flux-time index | Cohen (2004); NRC (2021) |

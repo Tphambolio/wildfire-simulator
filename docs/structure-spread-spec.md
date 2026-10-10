@@ -47,6 +47,9 @@ Background notes (owner's internal reports, not peer reviewed):
 | **NRC21** | National Research Council Canada (2021). *National Guide for Wildland-Urban Interface Fires.* | PDF |
 | **Hamada51** | Hamada M. (1951). On the rate of fire spread. (Cited by HT08 [4,5], FSJ104651 [15], Qin25 [33].) | **Not read**; known only through the three papers above |
 | **Scawthorn / Hazus** | Low-wind correction to Hamada, attributed to Scawthorn and the FEMA Hazus model by FSJ104651 SI and Qin25 p.39 | **Not read**; used as printed in FSJ104651 SI |
+| **CAT17** | Caton S.E., Hakes R.S.P., Gorham D.J., Zhou A., Gollner M.J. (2017). Review of pathways for building fire spread in the wildland urban interface Part I: exposure conditions. *Fire Technol.* 53: 429-473. doi:10.1007/s10694-016-0589-z | PDF (read 2026-10-10). Background for the three pathways; no equations used |
+| **LD10** | Lee S.W., Davidson R.A. (2010). Physics-based simulation model of post-earthquake fire spread. *J. Earthquake Eng.* 14(5): 670-687. doi:10.1080/13632460903336928 | PDF (read 2026-10-10). Model lineage and caveats; no equations used |
+| **SBK14** | Syphard A.D., Brennan T.J., Keeley J.E. (2014). The role of defensible space for residential structure protection during wildfires. *Int. J. Wildland Fire* 23: 1165-1175. doi:10.1071/WF13158 | Letter-paged online-early PDF (pp. A-K) |
 
 Labels used below: **[P]** primary source read; **[H]** FireSim heuristic or adaptation (not
 published; stated reason); **[T]** tuned, not measured (calibrated to California fires or chosen
@@ -54,6 +57,26 @@ by the authors to fit an outcome); **[U]** unverified or not published.
 
 PDFs and text extractions: `~/dev/wildfire/references/structure-ignition/` (`text/` holds the
 extractions used for this file).
+
+**Pathways and lineage (CAT17, LD10; read 2026-10-10).**
+- CAT17 (p.436) groups WUI exposure into three pathways: radiant exposure, direct flame
+  contact and firebrands. Here they map to stage 4 (WU-E radiation and flame contact, §5) and
+  stages 6-7 (embers, §6); the Hamada stage lumps all three into one empirical rate (§4).
+  CAT17 calls firebrands "one of the primary sources of ignition" with no consensus on their
+  share (pp.440, 442), and records flame-contact fluxes of 20-40 kW/m² (turbulent) to 50-70 kW/m²
+  (laminar) (p.438).
+- LD10 (p.671) describes Hamada (1951) as assuming "equally spaced, equal-size square
+  buildings" and an elliptical fire, with empirical upwind, downwind and crosswind speeds; it
+  says later models to about 2000 (Scawthorn et al. 1981; FEMA 2006, i.e. Hazus) adapted
+  Hamada's equations, and that Hamada gave "fair agreement" when hindcasting losses in five US
+  earthquakes (Scawthorn 1987). This is a secondary confirmation of the Scawthorn / Hazus
+  lineage above; the Hazus correction itself is still used as printed in FSJ104651 SI.
+- LD10 is the physics-based alternative (room-by-room fires, window-flame impingement,
+  configuration-factor radiation from window flames, room gas and roof flames, branding). Its
+  ignition rule is a critical flux of 12.5 kW/m² with an ignition delay of 1 / 7 / 10 / 25 /
+  30 min at 30 / 20 / 17.5 / 15 / 12.5 kW/m² (p.677, after Quintiere 2006). It needs room
+  layouts, window areas and fire loads that FireSim does not have, so it is not a FireSim
+  option.
 
 ## 2. Building representation
 
@@ -313,6 +336,13 @@ start from fixed values.
 | Wildland source | `HRR = HFI · Δx`; flame reach from a wildland cell `3((3/5)v + 3) + d/2` | — | PROCI24 eq 8; IJWF24 eq 15 (after Jiang et al. 2021) [P] |
 | Point source position | unit centroid; distance R centroid to target footprint edge | — | [H], after Qin25 §6.3.1 single-unit treatment |
 
+Caveat on the radiation row: LD10 (p.672) notes that treating emitted radiation as a point
+source "performs poorly when ignition of combustibles is of concern" (citing Beyler 2002) and
+uses configuration factors instead. The WU-E point source is kept because it is the published
+coupled model, but its near-field fluxes (separations of a few metres, typical in Edmonton)
+must be checked against a view-factor calculation (e.g. `exposure.py`'s panel model) before
+stage 4 outputs are shown.
+
 The flux-time product here is the **heat dose** form of PROCI24/IJWF24 (kJ/m², no critical flux),
 not Cohen04's `∫(q − 13.1)^1.828 dt ≥ 11,501` used in `exposure.py`. The two must not be mixed in
 one output; the WU-E output must say which it uses.
@@ -361,6 +391,7 @@ model.
 | C12 | Wind height | 6.1 m / 20 ft (FSJ104686 p.3; Qin25 p.78), 10 m (RTMA, FSJ104651), unstated for Hamada | 10 m open wind for Hamada; explicit reduction for embers | §3 |
 | C13 | WU-E coefficients PROCI24 does not print | α_c, absorptivity and FTP are not in PROCI24; Qin25 (p.227) attributes defaults to it | IJWF24 baseline (α_c 0.95, absorptivity 0.89, FTP 10,500); α_c 0.5 scenario | Values printed in a peer-reviewed source |
 | C14 | Structure firebrand generation | 5.68 → 10 pcs/(MW·s) (Qin25 p.147; FSJ104686 p.4) | **10 [T]**, 5.68 scenario | The tuned value is the one the authors carry forward; both are labelled |
+| C15 | Himoto crosswind ember spread | HT08 eq 39: σ_Y/D = 0.92 (author manuscript); LD10 p.682 reproduces the same model with p_Y ~ N(0, 0.092 R_f) | **HT08 (0.92)** | Primary source; LD10's 0.092 is a factor of 10 smaller and is taken as a transcription error. Matters only if the structure-ember stage (§6) uses the crosswind spread |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500
 kJ/m² (IJWF24, "qualitative" combustibility scale); structure GR' 10 pcs/(MW·s); FSJ104651's 10
