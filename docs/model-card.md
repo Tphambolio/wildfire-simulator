@@ -54,6 +54,7 @@ head fire intensity and FWI codes mean.
 | Flame length | Byram (surface), Thomas (CFB >= 0.1; approximate for crown fires) | Byram's form: Alexander & Cruz (2012) Table 1, p.98; Thomas for crown fires suggested by Rothermel (1991), via Alexander & Cruz (2012) p.99 |
 | Spotting (opt-in) | Albini/Chase/Morris maximum distance; heuristic emission and landing | USDA FS INT reports 1979-1987 |
 | Building exposure | Distance bands; Cohen solid-flame radiant flux; flux-time index | Cohen (2004); NRC (2021) |
+| Ember ignition of buildings (opt-in under house-to-house spread, app option "Ember ignition", API `structure_embers`; **illustrative — not validated in Canada**) | Design fire per building (150 kW/m² default, 400 scenario), ember generation proportional to heat release, Himoto lognormal transport between buildings and Sardoy from the burning grid cells, embers pooled per footprint, ignition past the ψ criterion (pressure-treated wood) after 42 s + 300 s; deterministic | Qin et al. (2026) FSJ 104686; Qin (2025); Himoto & Tanaka (2008); Purnomo et al. (2024) PROCI; `docs/structure-spread-spec.md` §6.1 |
 | Structure-to-structure spread (opt-in, app option "House-to-house spread"; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); `docs/structure-spread-spec.md` |
 | Burn probability | Monte Carlo over ignition point, wind speed and RH | (method, not a validated product) |
 | Classes | HFI classes 1-6; FWI classes | Cole & Alexander (1995) and CWFIS HFI map; CWFIS FWI map |
@@ -101,6 +102,7 @@ EOC summary and ICS-209) is labelled as Monte Carlo/ensemble model output.
 | Head / flank / back | Fastest head cell = FBP ROS; rearmost back cell = BROS; head direction within 2° of RAZ incl. slope | engine/tests/spread/test_deployment_data.py |
 | Spotting maximum distance | Reproduces published worked examples | engine/tests/spread/test_albini.py |
 | Radiant exposure | Reproduces Cohen (2004) worked values within 3.5 % | engine/tests/test_exposure.py |
+| Ember ignition | Reproduces the published check values: X_max 65 / 84 / 109 m, ψ* 0.059 g/cm² and 2.95 × 10⁵ embers, 33 % on the next structure, second-structure ignition 2,703 s vs 2,705 s, ROS ≈ 0.01 m/s (Qin et al. 2026 pp.3-6); Sardoy μ 2.18 / σ 1.23 (Qin 2025 p.124). Two wind heights inferred from these values (spec C17, C18). Jasper 2024: ignited no building in 17 pre-registered runs; no change to the Hamada result (κ 0.47 vs 0.52 distance band) | engine/tests/structures/test_embers.py; `docs/structure-spread-spec.md` §6.1, §8 item 7 |
 | Structure spread (Hamada) | Equations and coefficients as published (hand-checked values, zero-wind isotropy, monotone in wind); Qin (2025)'s worked rate of 0.34 m/s is **not** reproduced (equations give 0.197 m/s; unexplained). No validation against observed structure losses anywhere in Canada | engine/tests/structures/; `docs/structure-spread-spec.md` §4.5, §8 |
 | **Observed fires (first results)** | 143 fire-days, 32 Alberta fires 2014-2024 (CFSDS), one burn day from the observed perimeter, Bennett et al. (2026) protocol. F1 at the default 06-23 h window: 0.15 started from the whole perimeter (operational), 0.24 with Bennett's ignition (WISE: 0.26); best burn hour 0.22 / 0.38 (WISE 0.50). Growth over-predicted on 73-93 % of days (normalised area difference +0.29 to +0.67); head direction error median about 50°; spread distance within ±35 % on about 20 % of days. Head runs on the largest Horse River days under-predicted. | docs/validation.md |
 | **Observed fires, held-out test (second round)** | Fires split in half by fire; settings chosen on 16 calibration fires, scored on 16 unseen fires (79 fire-days). Marking active edges (previous days' growth, as an RPAS thermal flight would), FFMC spin-up from the previous afternoon and a 10-20 h burning period: one-day F1 0.118 -> 0.208 (+0.091, 95 % CI +0.056 to +0.125, bootstrap by fire); area difference +0.72 -> +0.27; spread distance within ±35 % on 24 % of days. Oracle start (Bennett ignition): 0.245. The biggest wind-driven runs are under-predicted further. Deterministic skill; RPAS mid-day restarts not yet measured. | docs/validation.md |
@@ -144,8 +146,11 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
 - Edmonton fuel grid: urban trees are non-fuel. Structure-to-structure spread is only an
   opt-in, illustrative Hamada layer (API `structure_spread`): Japanese empirical coefficients,
   California-only published tests (recall 78-97 %, precision 9-77 %), FireSim's own 10 m
-  contact and 30 m cutoff choices, no embers, no construction classes, no suppression; not
-  validated in Canada. Front contact is measured from the building's own grid cells, so on the
+  contact and 30 m cutoff choices, no construction classes, no suppression; not validated in
+  Canada. Ember ignition is a separate opt-in (`structure_embers`): the published short-range
+  firebrand model (≲ 100 m), one target material, California-tuned generation; at the 150 kW/m²
+  default design fire it almost never ignites a building, and at Jasper 2024 it ignited none, so
+  it does not explain the destroyed groups 250-500 m from the first ignitions. Front contact is measured from the building's own grid cells, so on the
   50 m grid it happens when the front reaches a cell next to the building's cells (typically
   20-40 m, up to ~70 m from the footprint); this removed a grid artefact of the first rule
   (contact 5 / 20 m had changed counts by −71 % to +557 %) and raised involved buildings by

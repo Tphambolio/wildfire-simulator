@@ -179,3 +179,57 @@ def test_building_index_footprint_source(files):
     first = (lat - 0.001, lat + 0.001, lng, lng + 301 * m_lng)
     assert bidx.count_intersecting(first) == 1
     assert bidx.count_in_box(first) == 0  # its centroid is further east
+
+
+# ------------------------------------------------------------------ ember ignition (spec §6)
+
+
+def test_ember_flags_default_off_and_need_structure_spread():
+    from pydantic import ValidationError
+
+    from firesim_api.schemas.simulation import SimulationCreate
+
+    base = dict(ignition_lat=53.5, ignition_lng=-113.5,
+                weather={"wind_speed": 10.0, "wind_direction": 270.0})
+    req = SimulationCreate(**base)
+    assert req.structure_embers is False and req.structure_design_fire_kw_m2 == 150
+    with pytest.raises(ValidationError):
+        SimulationCreate(**base, structure_embers=True)
+    with pytest.raises(ValidationError):
+        SimulationCreate(**base, structure_spread=True, structure_design_fire_kw_m2=250)
+    ok = SimulationCreate(**base, structure_spread=True, structure_embers=True,
+                          structure_design_fire_kw_m2=400)
+    assert ok.structure_embers is True and ok.structure_design_fire_kw_m2 == 400
+
+
+async def test_embers_without_structure_spread_is_422(client, files):
+    resp = await client.post("/api/v1/simulations", json=_payload(files, structure_embers=True))
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("design_fire", [150, 400])
+async def test_structure_embers_on_reports_ember_counts_and_detail(client, files, design_fire):
+    data = await _finish(client, _payload(files, structure_spread=True, structure_embers=True,
+                                          structure_design_fire_kw_m2=design_fire))
+    assert data["status"] == "completed", data
+    assert data["config"]["structure_embers"] is True
+    last = data["frames"][-1]
+    c = last["structure_spread"]
+    assert c["label"] == LABEL and c["embers"] is True
+    assert c["design_fire_kw_m2"] == design_fire
+    assert c["ember_generation_pcs_per_mw_s"] == 10.0 and c["embers_from_wildland"] is True
+    assert c["units_involved"] == (c["units_front_contact"] + c["units_structure_to_structure"]
+                                   + c["units_ember"])
+    assert 0 <= c["units_ember_from_wildland"] <= c["units_ember"]
+    detail = last["structure_spread_detail"]
+    assert len(detail) == c["units_involved"]
+    assert sum(u["mechanism"] == "ember" for u in detail) == c["units_ember"]
+    assert {u["mechanism"] for u in detail} <= {"front", "b2b", "ember"}
+    for f in data["frames"]:
+        assert "units_ember" in f["structure_spread"]
+
+
+async def test_structure_spread_without_embers_has_no_ember_fields(client, files):
+    data = await _finish(client, _payload(files, structure_spread=True))
+    c = data["frames"][-1]["structure_spread"]
+    assert "units_ember" not in c and "embers" not in c

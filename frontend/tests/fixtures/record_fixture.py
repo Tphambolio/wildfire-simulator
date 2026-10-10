@@ -20,7 +20,8 @@ Usage (from the repo root, with engine + api installed or on PYTHONPATH):
 
 ``--structure`` records only ``structure_spread_4h.json``: a 4 h run beside the Mill Creek
 ravine (Ritchie) with ``structure_spread: true`` (the request that OOM-killed the API on
-2026-10-10), for the house-to-house spread e2e test.
+2026-10-10) and, since 2026-10-10, ``structure_embers: true``, for the house-to-house spread
+e2e test.
 
 or ``npm run fixture:record`` from frontend/ (uses ``python3`` on PATH; set PYTHON to override).
 """
@@ -112,6 +113,8 @@ STRUCT_REQUEST = {
     "buildings_path": str(DATA / "edmonton_buildings.geojson.gz"),
     "dem_path": str(DATA / "edmonton_dem.tif"),
     "structure_spread": True,
+    # Ember ignition on (2026-10-10, spec §6; the app's "Ember ignition" box, default design fire)
+    "structure_embers": True,
     # As the app sends it: its default burning period (10:00-20:00) and the e2e test's start
     # (structure.spec.ts sets 2026-08-08 13:00), so the replayed run, the timeline's burning
     # period shading and the popup clock times agree; 13:00-17:00 is inside the period
@@ -179,7 +182,7 @@ def record_structure() -> int:
     data = _round_floats(data)
     data["_fixture"] = {
         "description": "Ritchie / Mill Creek ravine, 4 h, 30 min snapshots, SSW 30 km/h, FFMC 93 "
-                       "DMC 60 DC 400, structure_spread on (illustrative)",
+                       "DMC 60 DC 400, structure_spread and structure_embers on (illustrative)",
         "regenerate": "PYTHONPATH=engine/src:api/src python frontend/tests/fixtures/record_fixture.py --structure",
     }
     STRUCT_OUT.write_text(json.dumps(data, separators=(",", ":")) + "\n")
