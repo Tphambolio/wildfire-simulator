@@ -455,8 +455,14 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into â€
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-10 | `206e9bd` | test: independent front-contact check; structure fixture on the app's clock |
+| 2026-10-10 | `67ac021` | Merge pull request #42 from Tphambolio/analysis/jasper-structure-validation |
+| 2026-10-10 | `143ec13` | docs: record the structure-spread memory fix and the house-to-house UI |
 | 2026-10-10 | `48776b5` | feat(frontend): house-to-house spread option, counts, chart and map layer |
 | 2026-10-10 | `f5666a6` | fix(engine+api): build structure units only where the spread can reach |
+| 2026-10-10 | `1b81a95` | docs: record the pre-registered Jasper 2024 structure check and its result |
+| 2026-10-10 | `4e37d41` | fix(scripts): correct after-action review and FPI page citations in the Jasper pre-registration |
+| 2026-10-09 | `ae33a21` | feat(scripts): pre-registered Jasper 2024 structure validation (Hamada, structure-only) |
 | 2026-10-10 | `022032d` | Merge pull request #41 from Tphambolio/fix/structure-front-contact |
 | 2026-10-09 | `97ebb69` | docs: record the building-cell front contact rule and its sensitivity rerun |
 | 2026-10-09 | `11c1230` | fix(engine): measure structure front contact from the building's own grid cells |
