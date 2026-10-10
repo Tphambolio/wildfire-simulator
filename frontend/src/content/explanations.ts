@@ -100,7 +100,8 @@ export const TIPS = {
     "building exposure counts.",
   structureOption:
     "Fire passing from building to building (Hamada model), from the buildings the modelled front " +
-    "reaches. Illustrative, not validated in Canada. Needs the Edmonton grid and buildings.",
+    "reaches; a building stops passing fire when its 66 min design fire ends (burnt out). " +
+    "Illustrative, not validated in Canada. Needs the Edmonton grid and buildings.",
   structureEmbers:
     "Buildings also ignited by short-range embers from burning buildings and the front (published " +
     "Californian firebrand model, 150 kW/m² design fire). Illustrative. Needs house-to-house spread.",

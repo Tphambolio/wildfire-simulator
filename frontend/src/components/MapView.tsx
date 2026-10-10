@@ -16,7 +16,26 @@ import { isochronesToGeoJSON, isochroneLabelsGeoJSON } from "../utils/isochrones
 import { PROB_STOPS, probCss, ringsFeature, type EnsembleMapLayers } from "../utils/ensemble";
 import { ASSET_CATEGORIES, CATEGORY_ORDER, type AssetCategory } from "../utils/assets";
 import { symbolImage } from "../utils/assetSymbols";
-import { MECHANISM_LABEL, STRUCT_B2B, STRUCT_EMBER, STRUCT_FRONT, describeUnit } from "../utils/structureSpread";
+import {
+  MECHANISM_LABEL,
+  STRUCT_B2B,
+  STRUCT_BURNT,
+  STRUCT_EMBER,
+  STRUCT_FRONT,
+  describeBurnout,
+  describeUnit,
+} from "../utils/structureSpread";
+
+/** House-to-house layer colour by mechanism */
+const STRUCT_COLOR: maplibregl.ExpressionSpecification = [
+  "match", ["get", "mechanism"], "front", STRUCT_FRONT, "ember", STRUCT_EMBER, STRUCT_B2B,
+];
+const STRUCT_EDGE = "#0e1217";
+/** Burnt out by hour `t` (design fire ended): charcoal fill, mechanism-coloured outline */
+function structPaint(t: number): { fill: maplibregl.ExpressionSpecification; line: maplibregl.ExpressionSpecification } {
+  const out: maplibregl.ExpressionSpecification = ["<=", ["get", "t_out_h"], t + 1e-6];
+  return { fill: ["case", out, STRUCT_BURNT, STRUCT_COLOR], line: ["case", out, STRUCT_COLOR, STRUCT_EDGE] };
+}
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
 import { BADGES, TIPS } from "../content/explanations";
@@ -879,22 +898,19 @@ export default function MapView({
     for (const id of ["struct-units-fill", "struct-units-line"]) if (m.getLayer(id)) m.removeLayer(id);
     if (m.getSource("struct-units")) m.removeSource("struct-units");
     m.addSource("struct-units", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    const structColor: maplibregl.ExpressionSpecification = [
-      "match", ["get", "mechanism"], "front", STRUCT_FRONT, "ember", STRUCT_EMBER, STRUCT_B2B,
-    ];
     m.addLayer({
       id: "struct-units-fill",
       type: "fill",
       source: "struct-units",
       layout: { visibility: "none" },
-      paint: { "fill-color": structColor, "fill-opacity": 0.85 },
+      paint: { "fill-color": STRUCT_COLOR, "fill-opacity": 0.85 },
     });
     m.addLayer({
       id: "struct-units-line",
       type: "line",
       source: "struct-units",
       layout: { visibility: "none" },
-      paint: { "line-color": "#0e1217", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.4, 17, 1.2] },
+      paint: { "line-color": STRUCT_EDGE, "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.4, 17, 1.2] },
     });
     const structPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: "240px" });
     const structContent = (p: Record<string, unknown>) => {
@@ -911,6 +927,14 @@ export default function MapView({
       d.className = "map-popup-muted";
       d.textContent = describeUnit(tH, String(p.mechanism), clock?.(tH)).split(" · ")[1];
       el.appendChild(d);
+      const tOut = Number(p.t_out_h);
+      const out = describeBurnout(Number.isFinite(tOut) ? tOut : null, Number.isFinite(tOut) ? clock?.(tOut) : undefined);
+      if (out) {
+        const o = document.createElement("div");
+        o.className = "map-popup-muted";
+        o.textContent = out.charAt(0).toUpperCase() + out.slice(1);
+        el.appendChild(o);
+      }
       const l = document.createElement("div");
       l.className = "struct-popup-label";
       l.textContent = label.charAt(0).toUpperCase() + label.slice(1);
@@ -1944,12 +1968,15 @@ export default function MapView({
     const m = map.current;
     const t = frames[currentFrameIndex]?.time_hours ?? 0;
     const filter: maplibregl.FilterSpecification = ["<=", ["get", "t_h"], t + 1e-6];
+    const paint = structPaint(t);
     for (const id of ["struct-units-fill", "struct-units-line"]) {
       if (m.getLayer(id)) {
         m.setFilter(id, filter);
         m.setLayoutProperty(id, "visibility", structureVisible && structureUnits ? "visible" : "none");
       }
     }
+    if (m.getLayer("struct-units-fill")) m.setPaintProperty("struct-units-fill", "fill-color", paint.fill);
+    if (m.getLayer("struct-units-line")) m.setPaintProperty("struct-units-line", "line-color", paint.line);
   }, [structureUnits, structureVisible, frames, currentFrameIndex, mapReady, fireLayersVersion]);
 
   // Isochrone layer visibility
@@ -2190,6 +2217,12 @@ export default function MapView({
               <div className="burn-prob-legend-row">
                 <div className="burn-prob-legend-swatch" style={{ background: STRUCT_EMBER }} />
                 <span>Ember ignition</span>
+              </div>
+            )}
+            {structureUnits.features.some((f) => Number(f.properties?.t_out_h) < 1e8) && (
+              <div className="burn-prob-legend-row">
+                <div className="burn-prob-legend-swatch struct-swatch-burnt" style={{ background: STRUCT_BURNT }} />
+                <span>Burnt out</span>
               </div>
             )}
           </div>

@@ -29,6 +29,11 @@
   vertical-align: -1px;
 }
 
+/* Burnt out: charcoal, outlined so it reads on the dark surfaces */
+.struct-swatch-burnt {
+  box-shadow: inset 0 0 0 1px var(--text-3);
+}
+
 .struct-chart {
   display: block;
   margin: var(--sp-2) 0 var(--sp-1);
