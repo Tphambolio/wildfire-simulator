@@ -124,6 +124,26 @@ the cell size; the new stencil makes grid runs about 1.3-1.5× slower. Effect on
 fire-days): held-out F1 at 17 h 0.208 → 0.212 (active edges + spin-up + 10-20 h) and
 0.245 → 0.250 (Bennett start), within noise ([validation.md](validation.md)).
 
+### 20 m WUI window and majority-class coarsening (2026-10-10, M5)
+
+Near buildings a grid run is repeated on the fuel raster's native 20 m cells in a crop around the
+50 m fire (`spread/wui_window.py`; design and guards in `docs/PROJECT_RECORD.md` §3). The level set
+is unchanged, so the checks above apply at 20 m; convergence on uniform fuel (1 h, no acceleration,
+`engine/tests/spread/test_wui_window.py`), burned area relative to the FBP ellipse:
+
+| Fuel, wind from | 50 m | 20 m |
+|---|---|---|
+| C-2, 270° / 225° | −4.4 % / −6.3 % | −4.3 % / −3.8 % |
+| O-1a 100 %, 270° / 200° / 225° | −9.5 % / −10.1 % / −7.8 % | −6.5 % / −7.8 % / −5.8 % |
+
+The error shrinks with the cell size (less smoothing of narrow grass fronts); head runs agree with
+FBP within about one cell. With acceleration (C-2, 1 h) 48.2 ha at 50 m vs 50.5 ha at 20 m. The
+crop is kept only if no burned cell lies within 6 cells of an inner crop edge and no spot fire
+lands off it; otherwise the margin doubles (3 attempts) and then the 50 m run is returned. Peak
+traced memory of the grid run is ~265 bytes per cell (test bound 320), so the 600,000-cell guard
+keeps the crop near the 50 m whole-Edmonton run (502,090 cells). Coarsening of fuel rasters is
+now the majority class (GDAL mode) instead of nearest neighbour (`data/test_resample_mode.py`).
+
 ### Level set vs Lautenberger (2013)
 
 FireSim's grid model is often described as "ELMFIRE-style". Checked against the published paper
@@ -285,7 +305,10 @@ could not catch the errors.
   max difference 3e-11). DMC and DC are held fixed within a run, and the forecast option depends
   on Open-Meteo's forecast quality. Without a stream, weather is constant.
 - **Huygens perimeters are convex**; heterogeneous landscapes should use the grid model.
-- **Fuel grids**: the Edmonton grid is the City canopy-LiDAR product at 20 m (simulated at 50 m).
+- **Fuel grids**: the Edmonton grid is the City canopy-LiDAR product at 20 m, simulated at 50 m
+  (majority class per cell since 2026-10-10) and, for fires near buildings that fit the guards, at
+  its native 20 m in a window around the fire. Areas on six Edmonton runs were 0-410 % larger at
+  20 m (fuel detail; [R19] in the record); which resolution better matches observed fires is untested.
   Outside Edmonton only a uniform fuel type or a synthetic demo landscape is available.
 - Urban trees in the Edmonton grid are non-fuel; structure-to-structure spread is not modelled.
 - **Time zone**: times are America/Edmonton. Alberta moved to permanent UTC-6 on 2026-06-18
