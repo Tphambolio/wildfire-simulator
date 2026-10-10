@@ -72,9 +72,17 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
   const api = await mockApi(page, { structure: true });
   await openApp(page);
   await setIgnitionAtMapCentre(page);
+  // The fixture's start (record_fixture.py STRUCT_REQUEST), so clock times and the burning
+  // period shading on the timeline match the replayed run
+  await page.getByLabel("Date", { exact: true }).fill("2026-08-08");
+  await page.getByLabel(/^Time \(/).fill("13:00");
   await enableStructureSpread(page);
   await runToCompletion(page);
   expect(api.posts[0].structure_spread).toBe(true);
+  expect(api.posts[0].start_time).toBe(structureFixture.config!.start_time);
+  expect(api.posts[0].burning_period).toEqual(structureFixture.config!.burning_period);
+  // 13:00-17:00 is inside the burning period: no "No spread" marker on the timeline
+  await expect(page.locator(".ts-now-off")).toHaveCount(0);
 
   // Situation card: final frame selected
   const card = page.getByTestId("structure-panel");
@@ -132,7 +140,8 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
     const popup = page.getByTestId("structure-popup");
     if (await popup.isVisible().catch(() => false) || (await popup.waitFor({ timeout: 800 }).then(() => true).catch(() => false))) {
       await expect(popup).toContainText(/Front contact|Building to building/);
-      await expect(popup).toContainText("involved at");
+      // Clock time on the run's own clock: 13:00 + t_h, within the 4 h run
+      await expect(popup).toContainText(/involved at 1[3-7]:\d\d /);
       await expect(popup).toContainText("Illustrative — not validated in Canada");
       hovered = true;
       break;

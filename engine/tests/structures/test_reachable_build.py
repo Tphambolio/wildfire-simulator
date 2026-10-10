@@ -159,3 +159,44 @@ def test_involved_detail_only_involved_units_with_time_and_mechanism():
         else:
             # The source was involved first
             assert u["source_id"] is not None and d[u["source_id"]]["t_h"] <= u["t_h"]
+
+
+def test_front_contact_matches_an_independent_all_touched_raster_check():
+    """Front contact time = earliest arrival over the 3x3 neighbourhood of the cells the
+    footprint touches (rasterio all_touched, as the building mask), never from unburned cells
+    (inf), and a unit is reached at time 0 only next to the ignition cell (2026-10-10 check of
+    the house-to-house fixture)."""
+    from rasterio import features
+    from rasterio.transform import from_bounds
+
+    rng = np.random.default_rng(7)
+    arrival = np.full((N, N), np.inf)
+    rr, cc = np.mgrid[0:N, 0:N]
+    blob = np.hypot(rr - 40, cc - 30) < 9
+    arrival[blob] = np.hypot(rr - 40, cc - 30)[blob] * 7.0  # ignition cell (40, 30) at 0
+    houses = []
+    for _ in range(400):
+        x, y = rng.uniform(-HALF_M + 20, HALF_M - 40, 2)
+        w, h = rng.uniform(6, 30, 2)
+        la, ln = FRAME.to_latlng(np.array([y, y + h]), np.array([x, x + w]))
+        houses.append(shapely.box(float(ln[0]), float(la[0]), float(ln[1]), float(la[1])))
+    units = build_units(houses, bbox=BBOX, frame=FRAME)
+    t_front = building_cell_contact_times(units, arrival, BBOX, 10.0)
+
+    pad = np.pad(arrival, 1, constant_values=np.inf)
+    near = np.min([pad[1 + dr:1 + dr + N, 1 + dc:1 + dc + N] for dr in (-1, 0, 1) for dc in (-1, 0, 1)], axis=0)
+    tr = from_bounds(BBOX[2], BBOX[0], BBOX[3], BBOX[1], N, N)
+    cent = shapely.centroid(np.asarray(houses, dtype=object))
+    kept = [g for g, c in zip(houses, cent)
+            if BBOX[0] <= c.y <= BBOX[1] and BBOX[2] <= c.x <= BBOX[3]]
+    assert len(kept) == len(units)
+    reached = 0
+    for i, g in enumerate(kept):
+        m = features.rasterize([(g, 1)], out_shape=(N, N), transform=tr, all_touched=True).astype(bool)
+        expect = near[m].min() if m.any() else np.inf
+        assert t_front[i] == pytest.approx(expect) or (np.isinf(expect) and np.isinf(t_front[i])), i
+        reached += np.isfinite(expect)
+        if t_front[i] == 0.0:
+            rows, cols = np.nonzero(m)
+            assert np.min(np.maximum(np.abs(rows - 40), np.abs(cols - 30))) <= 1
+    assert reached > 10

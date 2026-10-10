@@ -112,6 +112,10 @@ STRUCT_REQUEST = {
     "buildings_path": str(DATA / "edmonton_buildings.geojson.gz"),
     "dem_path": str(DATA / "edmonton_dem.tif"),
     "structure_spread": True,
+    # As the app sends it: its default burning period (10:00-20:00) and the e2e test's start
+    # (structure.spec.ts sets 2026-08-08 13:00), so the replayed run, the timeline's burning
+    # period shading and the popup clock times agree; 13:00-17:00 is inside the period
+    "burning_period": {"start_hour": 10, "end_hour": 20},
     "seed": 20261009,
 }
 
