@@ -55,7 +55,7 @@ head fire intensity and FWI codes mean.
 | Spotting (opt-in) | Albini/Chase/Morris maximum distance; heuristic emission and landing | USDA FS INT reports 1979-1987 |
 | Building exposure | Distance bands; Cohen solid-flame radiant flux; flux-time index | Cohen (2004); NRC (2021) |
 | Ember ignition of buildings (opt-in under house-to-house spread, app option "Ember ignition", API `structure_embers`; **illustrative — not validated in Canada**) | Design fire per building (150 kW/m² default, 400 scenario), ember generation proportional to heat release, Himoto lognormal transport between buildings and Sardoy from the burning grid cells, embers pooled per footprint, ignition past the ψ criterion (pressure-treated wood) after 42 s + 300 s; deterministic | Qin et al. (2026) FSJ 104686; Qin (2025); Himoto & Tanaka (2008); Purnomo et al. (2024) PROCI; `docs/structure-spread-spec.md` §6.1 |
-| Structure-to-structure spread (opt-in, app option "House-to-house spread"; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); `docs/structure-spread-spec.md` |
+| Structure-to-structure spread (opt-in, app option "House-to-house spread"; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff; a building stops passing fire when its design fire ends, 66 min after involvement (burn-out, 2026-10-10; API `structure_burnout`, default on; a FireSim extension, Hamada has none) | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); Purnomo et al. (2024) PROCI p.3 (design fire); `docs/structure-spread-spec.md` §4.3 |
 | Burn probability | Monte Carlo over ignition point, wind speed and RH | (method, not a validated product) |
 | Classes | HFI classes 1-6; FWI classes | Cole & Alexander (1995) and CWFIS HFI map; CWFIS FWI map |
 
@@ -155,6 +155,11 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   when footprints under 40 m² are dropped. Units are built only for the area the spread can
   reach (identical counts; 2026-10-10 fix for an out-of-memory crash on the API), and a run
   whose reachable area holds more than 60,000 buildings reports "not computed" instead.
+  Burn-out (2026-10-10, on by default): a building stops passing fire when its design fire ends
+  (66 min; 70 min at 400 kW/m²). It removes only crossings longer than that, so it changed
+  nothing in the Jasper 2024 end state (κ 0.472 in 11 of 12 pre-registered runs; −0.008 at the
+  45 m cutoff) and 0 % to −10 % of involved buildings at 6 h on the Edmonton sites; it does not
+  stop the counts from growing with run length.
 - Building exposure uses worst-case radiant assumptions and ignores embers, burning buildings
   and yard fuels (usually the main causes of loss).
 - WUI zone modifiers in the repository have no source and are off by default.

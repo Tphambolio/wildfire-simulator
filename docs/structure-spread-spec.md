@@ -1,7 +1,7 @@
 # Structure-to-structure spread: specification
 
 Status: **specification, 2026-10-09**; built so far: units (§2), Hamada (§4) and, since
-2026-10-10, ember ignition (§6.1). Nothing here is validated in Canada. Every output built
+2026-10-10, ember ignition (§6.1) and building burn-out (§4.3). Nothing here is validated in Canada. Every output built
 from it must be labelled **"illustrative — not validated in Canada"**.
 
 This is the specification for adding structure-to-structure fire spread to FireSim. It fixes one
@@ -280,9 +280,35 @@ the downwind direction:
 - First ignition times over the graph: Dijkstra from all units ignited by the wildland front
   (`t_front`). The crossing times are non-negative and a later start never arrives earlier, so
   the label-setting search is exact.
-- **No burnout** in Hamada (FSJ104651 pp.3, 17) [P]: a burning unit stays a source. FireSim
-  reports first ignition times only, so burnout would matter only if a source burned out before
-  a crossing finished; not modelled, stated as a limit.
+- **Burn-out (built 2026-10-10; API `structure_burnout`, default on).** Hamada itself has none:
+  "Since there is no mechanism of burn out incorporated into the ELMFIRE or Hamada models, these
+  simulation times are the only constraint to stop the fire propagation" (FSJ104651 p.3) [P].
+  FireSim gives every involved unit the building design fire of §5 and makes it **burnt out when
+  that fire ends**: `t_out = t_inv + D`, D = growth + full + decay = **66 min** at 150 kW/m²
+  (5 / 1 / 60 min, PROCI24 p.3) and **70 min** at 400 kW/m² (300 / 3600 / 300 s, FSJ104686 p.2).
+  The end of the curve is the end of combustion: HRR "decreases linearly to zero when all fuel is
+  consumed" (PROCI24 p.2), t_decay "denotes the end of combustion" (Qin25 eq 6.2, p.146), and the
+  curve describes structure fires "from ignition to burnout and without a suppression response"
+  (FSJ104686 p.2) [P]. A burnt-out unit passes no more fire: a Hamada crossing from j that has not
+  reached k by `t_out(j)` never arrives **[H]**, and j's ember emission ends then too, as it
+  already did ("firebrand emission … ceases when HRR returns to zero", Qin25 p.67) [P]. One design
+  fire per run sets both (`structure_design_fire_kw_m2`), so the Hamada and ember stages agree.
+  - *Why the design-fire end and not another time.* It is the only building burning duration the
+    coupled papers print; Qin25 p.67 says the Hamada implementation "implies" no design fire and
+    assigns one "solely for the purpose of modeling firebrand generation", so using it for
+    Hamada's source duration is FireSim's extension [H]. Not adopted: (a) LD10's rule that a room
+    spreads fire "only if it is in the fully developed phase" (p.673, after Law 1978): with the
+    PROCI24 curve that is a 1 min window, far shorter than any Hamada crossing (T_d ≥ 1.7 min at
+    17.8 m/s), and a room-scale rule; (b) Hamada51's own burning-duration tables, which were
+    not read (§1).
+  - *Effect.* Burn-out removes only crossings longer than D. At 15 km/h with a₀ = 12 m, crossings
+    take 8-19 min downwind and 15-58 min crosswind / upwind for d = 3-30 m (§4.5 equations), so
+    within the 30 m cutoff it rarely binds; it binds at higher wind (crosswind T grows with V
+    under the Hazus blend: 16-78 min at 30 km/h for d = 3-30 m) and at the 45 m cutoff. Jasper and Edmonton
+    results: §8 item 8.
+  - Dijkstra stays exact: a unit is involved once, at its earliest time, and burns from then.
+    The reachable-box argument (§2) is unchanged because burn-out only removes crossings.
+- **Published Hamada** (no burn-out): `structure_burnout: false`.
 - **Ignition from the front**: a unit is involved at `t_front` (§3) [H].
 
 ### 4.4 Defaults
@@ -334,7 +360,7 @@ start from fixed values.
 | Flame reach ellipse | a (downwind), b (side), c (upwind) linear in v for v < 10 or > 17.3 m/s, quadratic for 10-17.3 m/s; coefficients linear in house size d and separation s | PROCI24 SI eqs S1-S21 (C3) | PROCI24 SI; = Qin25 Table 2.3 [P] |
 | Heat received | `q_t = α_c q_c + α_r q_r'' Δx²`; `α_c = (S_b + S_v)/S_t`; `α_r = absorptivity · α_c` | **α_c = 0.95, absorptivity 0.89** (IJWF24 baseline), α_c 0.5 as a scenario (Qin25 p.227) | PROCI24 eqs 4-5, p.3 (no values printed); IJWF24 eqs 11-12 and scenarios [P] |
 | Ignition | `Σ q_t Δt / A ≥ FTP` (per unit: A = footprint area) | **FTP = 10,500 kJ/m²** [T] | IJWF24 eq 13 and baseline; Qin25 p.227. PROCI24 (p.3) says "a uniform threshold is used" without the value [P] |
-| Design fire (per unit) | linear growth → plateau → linear decay; `HRR = HRRPUA · area` | **150 kW/m², 5 min growth, 1 min full, 60 min decay** (C1) | PROCI24 p.3, after Maranghides & Johnsson (NIST TN 1600) [P] |
+| Design fire (per unit) | linear growth → plateau → linear decay; `HRR = HRRPUA · area`; ends at burn-out (66 / 70 min, §4.3) | **150 kW/m², 5 min growth, 1 min full, 60 min decay** (C1) | PROCI24 pp.2-3, after Maranghides & Johnsson (NIST TN 1600) [P]; end of combustion: Qin25 eq 6.2, p.146 [P] |
 | Wildland source | `HRR = HFI · Δx`; flame reach from a wildland cell `3((3/5)v + 3) + d/2` | — | PROCI24 eq 8; IJWF24 eq 15 (after Jiang et al. 2021) [P] |
 | Point source position | unit centroid; distance R centroid to target footprint edge | — | [H], after Qin25 §6.3.1 single-unit treatment |
 
@@ -450,6 +476,7 @@ choice under D1, recorded as open item (owner decision needed).
 | C17 | Wind in the Himoto PDF | FSJ104686 p.3 quotes X_max 65 / 84 / 109 m "in a 40-mph wind, u_wind = 17.9 m/s" (the 6.1 m wind of p.3) | **10 m wind** (= 1.15 × 6.1 m) in B* | With 17.9 m/s in B* the published equations give 62 / 80 / 103 m; with 1.15 × 17.9 = 20.6 m/s they give 65.2 / 84.4 / 108.8 m. Qin25 p.72 says the PDFs use the 10 m wind. Inferred, not stated |
 | C18 | Wind in the Sardoy PDF | Qin25 p.72: "ambient wind velocity measured at 10-meter elevation"; Qin25 p.124 worked case: μ = 2.18, σ = 1.23 at 6.71 m/s "measured at 6.1 m" | **6.1 m wind** | Only the 6.1 m wind reproduces the worked values (2.215 with the 10 m wind) |
 | C19 | Sardoy fireline-intensity unit | FSJ104651 SI: I_f in kW/m; Qin25 eq 4.2: I_B in MW/m | **MW/m** | With kW/m the p.124 case gives μ ≈ 13 (flight distances of e^13 m); MW/m reproduces μ = 2.18 |
+| C21 | Building burn-out | None in Hamada (FSJ104651 p.3); design fire ends when the fuel is consumed (PROCI24 p.2; Qin25 eq 6.2 p.146; FSJ104686 p.2); spread only in the fully developed phase (LD10 p.673, room scale) | **Burn-out at the design-fire end (66 / 70 min) for Hamada crossings and embers** [H] | One burning duration for both stages; the fully-developed-only rule gives a 1 min window with the PROCI24 curve and is a room-scale rule (§4.3) |
 | C20 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500
@@ -551,6 +578,28 @@ FireSim's plan:
      wildland-front ember source of a coupled run (§6.1), longer-range spotting, or are outside this
      model.
 
+8. **Burn-out at Jasper and in Edmonton (2026-10-10; `--burnout`, `PREREG_BURNOUT`, committed
+   `5753b8a` before scoring).** Same units, seeds, wind, window and baselines as item 6; burn-out
+   at the 150 kW/m² design-fire end (66 min), each run against its own Hamada-only twin.
+   - **Primary: identical to Hamada alone** (396 involved, precision 63.1 %, recall 67.6 %,
+     **κ 0.472**; distance band (a) 0.516; κ − (a) −0.044, −0.157 to +0.045). No unit changed.
+   - **Sensitivity (12 runs):** 11 identical to their Hamada twins; only cutoff 45 m changed
+     (593 → 579 involved, 14 removed of which 8 destroyed; κ 0.508 → 0.500, difference −0.008,
+     −0.035 to +0.010). The 70 min burn-out (400 kW/m²) and Hamada + embers + burn-out also equal
+     the primary. **The decision rule is not met; burn-out does not help on this test.**
+   - Why (model only): at 30 m the longest crossing that set an involvement time took 62.8 min
+     (median 17.5), below 66 min; at 45 m, 39 of 578 took longer, and most of those units were
+     reached another way.
+   - Edmonton (`scripts/structure_sensitivity.py --burnout`, the [R8] sites and days; involved at
+     6 h): moderate days unchanged (199 / 83 / 308); extreme days 315 → 314, 454 → 407 (−10 %),
+     653 → 640 (−2 %). Cutoff 20 m unchanged; cutoff 45 m −0.5 % to −7 %; 400 kW/m² (70 min)
+     0 % to −6 %. By 6 h 59-88 % of involved units are burnt out. Live-request reproduction
+     (Mill Creek, SSW 30 km/h, 4 h): 93 → 68 involved (−27 %), peak RSS 1,088 MB with and
+     without burn-out.
+   - So burn-out does not explain counts that keep growing: within the cutoff, nearly every
+     crossing finishes before its source burns out, and the spread continues as a percolation
+     over the neighbour graph. The cutoff and the run length, not burn-out, bound the counts.
+
 ## 9. Limits
 
 - Not validated in Canada. The only validations are on three Californian fires with Rothermel,
@@ -560,7 +609,12 @@ FireSim's plan:
   pre-specified runs (§8 item 6, [R10]).
 - Hamada is a homogeneous-community model applied here pair by pair (§4.3 [H]); a₀ and d are
   per pair, not area averages as Hamada intended (HT08 p.25).
-- Hamada has no construction, no topography (FSJ104651 p.17), no suppression, no burnout.
+- Hamada has no construction, no topography (FSJ104651 p.17), no suppression and no burnout.
+  FireSim's burn-out (§4.3) is the end of the building design fire, a FireSim extension [H]; it
+  binds only for crossings longer than 66 min (70 at 400 kW/m²), so it changes few results and
+  did not change the Jasper end state (§8 item 8). Real building fire durations vary (Qin25
+  p.146: a model house burned about 50 min; FSJ104686 p.2: "several tens of minutes up to several
+  hours") and are not measured for Edmonton construction.
 - The neighbour cutoff (30 m) and the front-contact distance (10 m) are FireSim choices, not
   published (confirmed by the owner's delegation 2026-10-09, D2); results depend on them. On
   three Edmonton sites (2026-10-09) involved buildings at 6 h changed by −58 % to +170 % over
@@ -594,10 +648,13 @@ FireSim's plan:
 
 - **Counts per frame** (`structure_spread`): units involved by the frame's time, by mechanism
   (front contact, building to building and, with `structure_embers`, `units_ember` /
-  `units_ember_from_wildland`), with `label` "illustrative — not validated in Canada".
+  `units_ember_from_wildland`), with `label` "illustrative — not validated in Canada". Since
+  2026-10-10 also `units_burning` + `units_burnt_out` (= `units_involved`), `burnout`,
+  `burnout_min` (66 / 70) and `design_fire_kw_m2`.
 - **Involved units on the final frame** (`structure_spread_detail`, owner decision 2026-10-10,
   D3 reversed): for each involved unit only its footprint (simplified 0.5 m), involvement time
-  (h), mechanism, and the unit that passed the fire on (building to building). No address,
+  (h), burn-out time `t_out_h` (h; `null` when burn-out is off), mechanism, and the unit that
+  passed the fire on (building to building). No address,
   owner or parcel data. 20-160 kB on the 2026-10-09 sensitivity runs (83-653 units).
 - **App** (map display only): Setup → Fuel & landscape "House-to-house spread" (off by default;
   needs the Edmonton grid with buildings). Situation card: counts at the selected time and a
@@ -609,6 +666,11 @@ FireSim's plan:
   (not validated in Canada; modelled involvement, not a prediction of which buildings will
   burn; 30 m neighbour cutoff; front contact on the ~50 m grid) is in an info tooltip on hover
   or keyboard focus. Per-building results are not put in any export, ICS 209 or report.
+- **Burn-out in the app (2026-10-10):** the card adds "Still burning" and "Burnt out" rows; the
+  chart darkens the burnt-out share of each bar from its base; on the map a unit turns charcoal
+  (`--struct-burnt`) with a mechanism-coloured outline when the timeline passes its burn-out time,
+  and the legend adds "Burnt out"; the footprint tooltip adds the burn-out clock time; the caveat
+  says a building stops passing fire 66 min after it is involved. Map display only, as above.
 - **Ember ignition in the app (2026-10-10):** an "Ember ignition" checkbox under House-to-house
   spread (off by default, enabled only with it; sends `structure_embers`, default design fire
   150 kW/m²). When the run had embers the card adds an "Ember ignition" row, the chart a third
