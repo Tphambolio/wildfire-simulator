@@ -467,6 +467,8 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into â€
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-10 | `5016884` | docs: verify the UNBC-sourced citations; spread-skill diagnostics after Fortin et al. (2014) |
+| 2026-10-10 | `cbbffe2` | Merge pull request #43 from Tphambolio/fix/structure-memory-ui |
 | 2026-10-10 | `206e9bd` | test: independent front-contact check; structure fixture on the app's clock |
 | 2026-10-10 | `67ac021` | Merge pull request #42 from Tphambolio/analysis/jasper-structure-validation |
 | 2026-10-10 | `143ec13` | docs: record the structure-spread memory fix and the house-to-house UI |
