@@ -14,6 +14,15 @@ import math
 
 from firesim.types import FWIResult
 
+# FFMC moisture-content scale coefficient (Van Wagner 1987, FTR-35, eqs 2a/2b, printed p. 4,
+# PDF p. 15; ST-X-3 eq 46, printed p. 30). The printed value 147.2 is used everywhere in
+# FireSim (engine and frontend). cffdrs uses the exact 250 * 59.5 / 101 = 147.27723. For a given
+# FFMC the ISI moves by at most 0.1 %, but through the daily FFMC recursion the codes differ by up
+# to 0.12 FFMC, 0.26 ISI and 0.25 FWI on the cffdrs 48-day sequence and by up to 0.67 ISI /
+# 0.52 FWI on single days near FFMC 97 (engine/tests/fwi/test_cffdrs_fwi_reference.py;
+# docs/PROJECT_RECORD.md section 4.1).
+FFMC_COEFFICIENT = 147.2
+
 
 # Day length factors for DMC calculation by month.
 # Values for ~46°N latitude (standard FWI tables).
@@ -66,7 +75,7 @@ class FWICalculator:
         Returns:
             FFMC value (0-101 scale)
         """
-        mo = 147.2 * (101.0 - ffmc_prev) / (59.5 + ffmc_prev)
+        mo = FFMC_COEFFICIENT * (101.0 - ffmc_prev) / (59.5 + ffmc_prev)
 
         # Rain adjustment
         if rain > 0.5:
@@ -115,7 +124,7 @@ class FWICalculator:
             else:
                 m = mo
 
-        ffmc = 59.5 * (250.0 - m) / (147.2 + m)
+        ffmc = 59.5 * (250.0 - m) / (FFMC_COEFFICIENT + m)
         return max(0.0, min(101.0, ffmc))
 
     def calculate_dmc(
@@ -190,13 +199,16 @@ class FWICalculator:
 
         lf = _DC_DAY_LENGTH[month]
 
-        if temp > -2.8:
-            v = 0.36 * (temp + 2.8) + lf
-            if v < 0.0:
-                v = 0.0
-            dc = dc_prev + 0.5 * v
-        else:
-            dc = dc_prev
+        # Potential evapotranspiration V = 0.36 (T + 2.8) + Lf, halved and added (Van Wagner
+        # 1987, FTR-35, eqs 25-26, printed p. 14, PDF p. 25; Lf from Table 3, printed p. 15).
+        # Below -2.8 C the temperature is floored at -2.8, so the day-length term still counts
+        # (V = Lf); a negative V adds nothing. This is the Van Wagner & Pickett (1985) program
+        # rule as carried by cffdrs (R drought_code.r, Python fwi.drought_code); FTR-33 itself
+        # is not on disk. Before 2026-10-10 FireSim added nothing at T <= -2.8 C, which lost
+        # 0.45-3.2 DC per cold day in April-October.
+        t = max(temp, -2.8)
+        v = max(0.0, 0.36 * (t + 2.8) + lf)
+        dc = dc_prev + 0.5 * v
 
         return max(0.0, dc)
 
@@ -213,7 +225,7 @@ class FWICalculator:
         Returns:
             ISI value (0+ scale)
         """
-        m = 147.2 * (101.0 - ffmc) / (59.5 + ffmc)
+        m = FFMC_COEFFICIENT * (101.0 - ffmc) / (59.5 + ffmc)
         ff = 91.9 * math.exp(-0.1386 * m) * (1.0 + m**5.31 / 4.93e7)
         fw = math.exp(0.05039 * wind)
         return 0.208 * fw * ff
@@ -316,7 +328,7 @@ def hourly_ffmc(
     FFMC after ``hours`` of constant weather, from the FFMC at the start of the period.
     Drying and wetting rates are those of the hourly model (a pine-needle litter layer), not
     the daily FFMC's; rain is the amount in the period (mm). Uses the ST-X-3 / FWI moisture
-    coefficient 147.2 like the rest of FireSim (cffdrs uses 147.27723).
+    coefficient ``FFMC_COEFFICIENT`` (147.2) like the rest of FireSim (cffdrs uses 147.27723).
 
     Args:
         temp: Temperature (C)
@@ -327,7 +339,7 @@ def hourly_ffmc(
         hours: Length of the period (h)
     """
     rh = min(max(rh, 0.0), 100.0)
-    mo = 147.2 * (101.0 - ffmc_prev) / (59.5 + ffmc_prev)
+    mo = FFMC_COEFFICIENT * (101.0 - ffmc_prev) / (59.5 + ffmc_prev)
     if rain > 0.0:
         mr = mo + 42.5 * rain * math.exp(-100.0 / (251.0 - mo)) * (1.0 - math.exp(-6.93 / rain))
         if mo > 150.0:
@@ -351,4 +363,4 @@ def hourly_ffmc(
         m = ew - (ew - mo) * 10.0 ** (-kw * hours)
     else:
         m = mo
-    return max(59.5 * (250.0 - m) / (147.2 + m), 0.0)
+    return max(59.5 * (250.0 - m) / (FFMC_COEFFICIENT + m), 0.0)

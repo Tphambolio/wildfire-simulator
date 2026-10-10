@@ -80,6 +80,8 @@ describe("decoding", () => {
     expect(areaByMinutes(g, "p10", 15)).toBeCloseTo(g.cellAreaHa, 9);
     expect(areaByMinutes(g, "p10", 60)).toBeCloseTo(2 * g.cellAreaHa, 9);
     expect(decodeEnsemble({ status: "running", done: 2, total: 5 })).toBeNull();
+    expect(g.membersFailed).toBe(0);
+    expect(decodeEnsemble({ ...resp, members_ok: 4, members_failed: 1, failed: [{ member: 2, error: "x" }] })!.membersFailed).toBe(1);
   });
 });
 

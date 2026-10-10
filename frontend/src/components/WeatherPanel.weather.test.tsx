@@ -66,7 +66,8 @@ describe("WeatherPanel station weather", () => {
     rerender(FAR);
     await act(async () => {});
     expect(screen.getByTestId("weather-far")).toHaveTextContent(/Weather set 4\d km away/);
-    // The run carries the user's values at the new point
+    // The run carries the user's values at the new point (curing has no default outside spring, M1)
+    fireEvent.change(screen.getByLabelText(/^Grass curing/), { target: { value: "60" } });
     fireEvent.click(screen.getByRole("button", { name: "Run Simulation" }));
     await waitFor(() => expect(onStart).toHaveBeenCalled());
     const req = onStart.mock.calls[0][0];

@@ -56,8 +56,16 @@ class FWIOverrides(BaseModel):
 class FuelModifiers(BaseModel):
     """FBP fuel and foliage inputs (ST-X-3 / Wotton et al. 2009)."""
 
-    grass_cure: float = Field(
-        default=60.0, ge=0, le=100, description="Degree of grass curing (%) for O-1a/O-1b"
+    grass_cure: float | None = Field(
+        default=None, ge=0, le=100,
+        description=(
+            "Degree of grass curing (%) for O-1a/O-1b (GLC-X-10 eqs 35a/b). If omitted: 95 % "
+            "when the run's date (day_of_year, else start_time) is in the pre-green-up window "
+            "(day of year 60-149, about 1 March to 29 May; firesim.fbp.curing). Outside that "
+            "window, or with no date, there is no default: the request is rejected (422) when "
+            "O-1 grass can burn (uniform O1a/O1b fuel or any fuel-grid run). An explicit value "
+            "is always used as given."
+        ),
     )
     grass_fuel_load: float = Field(
         default=0.35, gt=0, le=5, description="Grass fuel load (kg/m2) for O-1a/O-1b"
@@ -77,8 +85,29 @@ class FuelModifiers(BaseModel):
     elevation_m: float | None = Field(default=None, description="Elevation (m) for the foliar moisture model")
 
     def config_kwargs(self) -> dict:
-        """Keyword arguments for firesim.types.SimulationConfig."""
-        return self.model_dump()
+        """Keyword arguments for firesim.types.SimulationConfig (an unresolved grass_cure is
+        left out: it is None only when no O-1 grass can burn, so it has no effect)."""
+        kw = self.model_dump()
+        if kw.get("grass_cure") is None:
+            kw.pop("grass_cure", None)
+        return kw
+
+    def resolve_grass_cure(self, day_of_year: int | None, grass_in_play: bool) -> None:
+        """Fill grass_cure with the date-aware default (decision M1), or raise ValueError
+        (a 422) when O-1 grass can burn and there is no default for the date."""
+        from firesim.fbp.curing import curing_required_message, default_grass_cure
+
+        if self.grass_cure is not None:
+            return
+        doy = self.day_of_year if self.day_of_year is not None else day_of_year
+        default = default_grass_cure(doy)
+        if default is not None:
+            self.grass_cure = default
+        elif grass_in_play:
+            raise ValueError(curing_required_message(doy))
+
+
+GRASS_FUEL_TYPES = ("O1a", "O1b")
 
 
 class BurningPeriod(BaseModel):
@@ -102,6 +131,11 @@ class BurningPeriod(BaseModel):
 
     def as_tuple(self) -> tuple[float, float]:
         return (self.start_hour, self.end_hour)
+
+
+def _start_doy(start_time: datetime | None) -> int | None:
+    """Day of year of ``start_time``'s local date (its own UTC offset), or None."""
+    return start_time.timetuple().tm_yday if start_time is not None else None
 
 
 def burning_period_from_list(v):
@@ -308,6 +342,13 @@ class SimulationCreate(BaseModel):
             self.engine_hourly_weather()  # ValueError (422) if the stream cannot spin up
         return self
 
+    @model_validator(mode="after")
+    def _grass_curing(self) -> SimulationCreate:
+        grass = (self.fuel_type in GRASS_FUEL_TYPES or self.fuel_grid_path is not None
+                 or self.use_ca_mode)
+        self.fuel_modifiers.resolve_grass_cure(_start_doy(self.start_time), grass)
+        return self
+
     def start_hour(self) -> float | None:
         """Local clock hour of the start (start_time's own offset)."""
         return local_start_hour(self.start_time)
@@ -450,6 +491,12 @@ class MultiDaySimulationCreate(BaseModel):
             raise ValueError("burning_period needs start_time (its local clock sets the hours)")
         return self
 
+    @model_validator(mode="after")
+    def _grass_curing(self) -> MultiDaySimulationCreate:
+        grass = self.fuel_type in GRASS_FUEL_TYPES or self.fuel_grid_path is not None
+        self.fuel_modifiers.resolve_grass_cure(_start_doy(self.start_time), grass)
+        return self
+
 
 class PerimeterOverrideRequest(BaseModel):
     """Request to restart a simulation from an observed (e.g. drone) fire perimeter.
@@ -558,6 +605,13 @@ class BurnProbabilityRequest(BaseModel):
         default=None,
         description="Path to DEM GeoTIFF for slope-adjusted spread (ST-X-3 net effective wind)",
     )
+
+    @model_validator(mode="after")
+    def _grass_curing(self) -> BurnProbabilityRequest:
+        # Always a fuel grid (real or synthetic), so grass can burn; the date is
+        # fuel_modifiers.day_of_year (this request has no start_time)
+        self.fuel_modifiers.resolve_grass_cure(None, True)
+        return self
 
 
 class BurnProbabilityResponse(BaseModel):

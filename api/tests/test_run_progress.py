@@ -25,6 +25,7 @@ def _params(**kw) -> SimulationCreate:
         snapshot_interval_minutes=30.0,
         fuel_type="O1a",
         use_ca_mode=True,  # no fuel grid configured: synthetic demo grid, grid model
+        fuel_modifiers={"grass_cure": 60.0},  # O-1a burns: curing has no default in summer (M1)
     )
     base.update(kw)
     return SimulationCreate(**base)

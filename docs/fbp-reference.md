@@ -20,7 +20,10 @@ implementation is checked. Code: `engine/src/firesim/fbp/` (`calculator.py`, `cr
 All 18 ST-X-3 fuel types (`constants.py`), with Table 6 spread parameters, Table 7 buildup
 parameters and Table 8 default crown base height (CBH) and crown fuel load (CFL), plus the
 GLC-X-10 revisions (M-4 `c` = 1.48). D-2 spreads at 0.2 x D-1 and not at all below BUI 80
-(as in cffdrs, which cites Alexander 2010).
+(as in cffdrs, which cites Alexander 2010: "Surface fire spread potential in trembling aspen
+during summer in the Boreal Forest Region of Canada", For. Chron. 86(2): 200-212,
+doi:10.5558/tfc86200-2; reference as listed in de Groot et al. 2022 and CFS NOR-X-433, the
+paper itself not read).
 
 | Code | Name | Code | Name |
 |------|------|------|------|
@@ -38,7 +41,9 @@ GLC-X-10 revisions (M-4 `c` = 1.48). D-2 spreads at 0.2 x D-1 and not at all bel
 
 1. **ISI** from FFMC and wind (eqs 52-53). Above 40 km/h the wind function is
    `12 (1 - exp(-0.0818 (WS - 28)))` (eq 53a). FFMC moisture coefficient 147.2 (eq 46; cffdrs
-   uses the exact 147.27723, which moves ISI by at most 1e-3).
+   uses the exact 147.27723, which moves ISI by at most 0.1 % for a given FFMC; in the daily
+   FWI chain the FFMC itself shifts too, by up to 0.12 FFMC / 0.67 ISI / 0.52 FWI, see
+   `docs/PROJECT_RECORD.md` §4.1).
 2. **BUI** from DMC and DC; **buildup effect** `BE = exp(50 ln(q) (1/BUI - 1/BUI0))` (eq 54) for
    every fuel with q < 1, including D-1 and the M types.
 3. **Surface spread**: `RSI = a (1 - exp(-b ISI))^c` (eq 26) with the fuel-specific forms:
@@ -68,8 +73,11 @@ GLC-X-10 revisions (M-4 `c` = 1.48). D-2 spreads at 0.2 x D-1 and not at all bel
     `LB(t) = (LB - 1)(1 - exp(-alpha t)) + 1` (eq 81).
 
 Flame length is not an FBP output. FireSim uses Byram (1959), `L = 0.0775 I^0.46`, for surface
-fires and Thomas (1963), `L = 0.0266 I^(2/3)`, when CFB >= 0.1, following the recommendation in
-Alexander & Cruz (2012, IJWF 21: 95-113); both forms taken from that review.
+fires and Thomas (1963), `L = 0.0266 I^(2/3)`, when CFB >= 0.1. Using Thomas' relation for crown
+fires was suggested by Rothermel (1991), as reported by Alexander & Cruz (2012, IJWF 21: 95-113,
+p.99), who also found that none of the methods "seem to work consistently well" against
+experimental crown fires, so crown-fire flame lengths are approximate. Both forms are taken from
+that review (Byram: their Table 1, p.98).
 
 Fire type: surface (CFB = 0), surface with torching (0 < CFB < 0.1), intermittent / passive
 crown (0.1 to 0.9), continuous / active crown (>= 0.9). ST-X-3's classes are surface (< 0.1),
@@ -103,4 +111,9 @@ replaced by the cffdrs comparison.
 - Buildup effect and SFC use the daily BUI. FFMC is hourly only when an hourly weather stream
   is given (hourly FFMC: Van Wagner 1977, Information Report PS-X-69, as in cffdrs `hffmc`);
   otherwise the daily value applies all day.
-- Grass fuel load defaults to 0.35 kg/m2 and curing to 60 % unless set.
+- Grass fuel load defaults to 0.35 kg/m2 unless set. Grass curing (2026-10-10, decision M1):
+  the API and UI default to 95 % only in the pre-green-up window (day of year 60-149, about
+  1 March to 29 May; `firesim/fbp/curing.py`) and require a value outside it when O-1 grass can
+  burn. The engine's low-level functions and `SimulationConfig` keep a 60 % keyword default
+  for direct library use and the `cffdrs` comparison tests; the API never relies on it when
+  grass can burn.

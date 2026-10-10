@@ -298,6 +298,10 @@ async def get_ensemble(sim_id: str) -> dict:
     members reached the cell. P10 is the early end of the modelled range (reached by 1 in 10
     members), not a worst case (docs/validation.md "Ensemble calibration").
     ``burn_probability`` is base64 uint8 percent (0-100).
+    Statistics are over the members that finished (``members_ok``); members that raised are
+    left out and listed in ``failed`` (count ``members_failed``). Members that burned nothing
+    are finished members with 0 ha and count in every statistic. The ensemble fails when
+    fewer than half the members finish.
     """
     import base64
 
@@ -334,6 +338,9 @@ async def get_ensemble(sim_id: str) -> dict:
                 "min": areas[0], "p50": areas[len(areas) // 2], "max": areas[-1],
             },
             "members": res.members,
+            "members_ok": len(res.members),
+            "members_failed": len(res.failed),
+            "failed": res.failed,
             "note": "Perturbation sizes are defaults until calibrated on observed fires.",
         })
     return out

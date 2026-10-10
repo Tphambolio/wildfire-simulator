@@ -29,8 +29,8 @@ preparedness and training in the wildland-urban interface.
 - **FBP fire behaviour** for all 18 fuel types: rate of spread (head, flank, back), fuel
   consumption, crown fraction burned, head fire intensity, fire type, length-to-breadth,
   slope through net effective wind, point-ignition acceleration, foliar moisture from date.
-- **Fire growth** on spatial fuel grids with a deterministic level-set model (ELMFIRE-style
-  Huygens velocity from the FBP ellipse; wraps around water, roads and buildings), or Huygens
+- **Fire growth** on spatial fuel grids with a deterministic Eulerian level-set model (the
+  framework of ELMFIRE, Lautenberger 2013, driven by the Huygens velocity of the FBP ellipse; wraps around water, roads and buildings), or Huygens
   wavelets on uniform fuel. Hourly weather streams with hourly FFMC; Open-Meteo forecast
   aligned to a scenario start time.
 - **Deployment data**: per-cell front speed and head / flank / back, the head's speed,
@@ -146,7 +146,7 @@ Fire growth
 - Tymstra, C., Bryce, R.W., Wotton, B.M., Taylor, S.W., Armitage, O.B. (2010). *Development and
   structure of Prometheus: the Canadian Wildland Fire Growth Simulation Model.* NOR-X-417.
 - Lautenberger, C. (2013). Wildland fire modeling with an Eulerian level set method and
-  automated calibration. *Fire Safety Journal* 62: 289-298.
+  automated calibration. *Fire Safety Journal* 62: 289-298. doi:10.1016/j.firesaf.2013.08.014
 
 Spotting
 - Albini, F.A. (1979). *Spot fire distance from burning trees: a predictive model.* GTR INT-56;

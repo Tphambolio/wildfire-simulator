@@ -4,7 +4,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent,
 import { createPortal } from "react-dom";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
-import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast } from "../services/api";
+import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast, FORECAST_MODEL_LABEL } from "../services/api";
 import MultiDayPanel from "./MultiDayPanel";
 import SetupSection from "./SetupSection";
 import { edmontonDayOfYear, formatClock, formatDate, roundToMinute, toDateTimeInputs, toEdmontonIso, zonedWallTimeToMs, zoneAbbrev } from "../utils/time";
@@ -23,6 +23,7 @@ import { BADGES, TIPS } from "../content/explanations";
 import Badge from "./Badge";
 import InfoTip, { TipButton } from "./InfoTip";
 import FwiClassChip from "./FwiClassChip";
+import { SPRING_WINDOW_LABEL, curingFactor, defaultGrassCure } from "../utils/curing";
 
 /** Moving the ignition this far from where the weather was set shows a notice. */
 const FAR_KM = 25;
@@ -47,6 +48,17 @@ export function shortWeatherStatus(msg: string): { text: string; ok: boolean } {
   return { text: `Fire weather loaded${spin}`, ok: true };
 }
 
+/** Last curing the user entered (a suggestion outside the spring window; per browser). */
+const LAST_CURE_KEY = "firesim.lastGrassCure";
+function readLastCure(): number | null {
+  try {
+    const v = localStorage.getItem(LAST_CURE_KEY);
+    return v === null || !Number.isFinite(Number(v)) ? null : Number(v);
+  } catch {
+    return null;
+  }
+}
+
 /** Setup's skill options as they apply to a restart from an observed perimeter */
 export interface SkillOptionsState {
   /** Burning period to apply (null = off or invalid) */
@@ -56,8 +68,10 @@ export interface SkillOptionsState {
 }
 
 // ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
+// FFMC coefficient 147.2 as printed (Van Wagner 1987 eq 2b; ST-X-3 eq 46), the same as the
+// engine (engine/src/firesim/fwi/calculator.py FFMC_COEFFICIENT); cffdrs uses 147.27723.
 function computeISI(ffmc: number, windSpeedKmh: number): number {
-  const m = 147.27723 * (101 - ffmc) / (59.5 + ffmc);
+  const m = 147.2 * (101 - ffmc) / (59.5 + ffmc);
   const fW = Math.exp(0.05039 * windSpeedKmh);
   const fF = 91.9 * Math.exp(-0.1386 * m) * (1 + Math.pow(m, 5.31) / 49300000);
   return 0.208 * fW * fF;
@@ -124,7 +138,8 @@ interface Preset {
   note: string;
   weather: WeatherParams;
   fwi: FWIOverrides;
-  grassCure: number;
+  /** null = the date-aware default (95 % from 1 Mar to 29 May, none outside) */
+  grassCure: number | null;
   percentConifer: number;
   durationHours: number;
   snapshotMinutes: number;
@@ -159,7 +174,7 @@ const PRESETS: Preset[] = [
     note: "The values FireSim opens with.",
     weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
     fwi: { ffmc: 90, dmc: 45, dc: 300 },
-    grassCure: 60,
+    grassCure: null,
     percentConifer: 50,
     durationHours: 4,
     snapshotMinutes: 30,
@@ -308,7 +323,9 @@ function WeatherPanel({
     dc: 300,
   });
   const [fuelType, setFuelType] = useState("C2");
-  const [grassCure, setGrassCure] = useState(60);
+  // Grass curing as entered (null = not entered: the date-aware default applies, decision M1)
+  const [grassCure, setGrassCure] = useState<number | null>(null);
+  const [lastCure, setLastCure] = useState<number | null>(readLastCure);
   const [percentConifer, setPercentConifer] = useState(50);
   const [useHourlyForecast, setUseHourlyForecast] = useState(false);
   const [useEdmontonGrid, setUseEdmontonGrid] = useState(true);
@@ -541,17 +558,46 @@ function WeatherPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Grass curing: the entry, else 95 % before green-up (1 Mar-29 May), else required when
+  // grass can burn (decision M1; utils/curing.ts, engine firesim/fbp/curing.py)
+  const cureDefault = defaultGrassCure(startMs !== null ? edmontonDayOfYear(startMs) : null);
+  const cure = grassCure ?? cureDefault;
+  const grassInPlay = useEdmontonGrid || useSyntheticCA || fuelType === "O1a" || fuelType === "O1b";
+  const curingRequired = grassInPlay && cureDefault === null;
+  const curingError = grassInPlay && cure === null
+    ? `Enter grass curing (no default outside ${SPRING_WINDOW_LABEL})`
+    : null;
+  const setCure = (raw: string) => {
+    if (raw.trim() === "") {
+      setGrassCure(null);
+      return;
+    }
+    const v = Math.min(100, Math.max(0, Number(raw)));
+    if (!Number.isFinite(v)) return;
+    setGrassCure(v);
+    setLastCure(v);
+    try {
+      localStorage.setItem(LAST_CURE_KEY, String(v));
+    } catch {
+      // storage unavailable: the suggestion is a convenience only
+    }
+  };
+
   // FBP fuel modifiers; foliar moisture is computed server-side from the scenario start's
   // Edmonton calendar date (ST-X-3 eqs 1-8)
-  const fuelModifiers = (atMs: number): FuelModifiers => ({
-    grass_cure: grassCure,
-    percent_conifer: percentConifer,
-    day_of_year: edmontonDayOfYear(atMs),
-  });
+  const fuelModifiers = (atMs: number): FuelModifiers => {
+    const doy = edmontonDayOfYear(atMs);
+    const c = grassCure ?? defaultGrassCure(doy);
+    return {
+      ...(c !== null ? { grass_cure: c } : {}),
+      percent_conifer: percentConifer,
+      day_of_year: doy,
+    };
+  };
 
   const handleMonteCarlo = () => {
     const atMs = runStartMs();
-    if (!ignitionPoint || !onComputeBurnProbability || hasErrors || atMs === null) return;
+    if (!ignitionPoint || !onComputeBurnProbability || hasErrors || curingError || atMs === null) return;
     onRunParams?.({
       weather,
       fwi,
@@ -580,7 +626,7 @@ function WeatherPanel({
 
   const handleSubmit = async () => {
     const atMs = runStartMs();
-    if (!ignitionPoint || hasErrors || atMs === null) return;
+    if (!ignitionPoint || hasErrors || curingError || atMs === null) return;
     let hourly = null;
     const spinWanted = spinUpOn && useHourlyForecast;
     if (useHourlyForecast) {
@@ -593,7 +639,7 @@ function WeatherPanel({
         );
         const at = new Date(atMs);
         const nRun = hourly.filter((r) => r.hours_from_start > -1).length;
-        setWeatherMessage(`Hourly forecast: ${nRun} h from Open-Meteo, from ${formatClock(at)} ${zoneAbbrev(at)}`);
+        setWeatherMessage(`Hourly forecast: ${nRun} h from ${FORECAST_MODEL_LABEL}, from ${formatClock(at)} ${zoneAbbrev(at)}`);
       } catch (err) {
         setWeatherMessage(`Hourly forecast unavailable (${(err as Error).message}); using constant weather`);
       }
@@ -644,7 +690,7 @@ function WeatherPanel({
 
   const handleMultiDaySubmit = () => {
     const atMs = runStartMs();
-    if (!ignitionPoint || !onStartMultiDaySimulation || atMs === null) return;
+    if (!ignitionPoint || !onStartMultiDaySimulation || curingError || atMs === null) return;
     onStartMultiDaySimulation({
       ignition_lat: ignitionPoint.lat,
       ignition_lng: ignitionPoint.lng,
@@ -732,6 +778,8 @@ function WeatherPanel({
       ? "Set an ignition point: click the map or enter coordinates."
       : startError
         ? `Fix the start time: ${startError}`
+        : curingError
+          ? curingError
         : simMode === "single" && hasErrors
           ? `Fix the inputs: ${errorList.join("; ")}`
           : burningError
@@ -1126,7 +1174,7 @@ function WeatherPanel({
               </span>
             )}
             {weatherSource && !stationName && <span>{weatherSource} · </span>}
-            {weatherTimestamp ?? ""}
+            {weatherTimestamp ? `as of noon LST ${weatherTimestamp.slice(0, 10)}` : ""}
           </div>
         )}
       </SetupSection>
@@ -1137,9 +1185,10 @@ function WeatherPanel({
         title="Fuel & landscape"
         summary={
           useEdmontonGrid
-            ? `Edmonton grid · curing ${grassCure}%${enableSpotting ? " · spotting on" : ""}`
-            : `${fuelType} uniform${useSyntheticCA ? " · synthetic mosaic" : ""} · curing ${grassCure}%`
+            ? `Edmonton grid · curing ${cure !== null ? `${cure}%` : "required"}${enableSpotting ? " · spotting on" : ""}`
+            : `${fuelType} uniform${useSyntheticCA ? " · synthetic mosaic" : ""} · curing ${cure !== null ? `${cure}%` : "required"}`
         }
+        attention={curingError !== null}
       >
         <div className="with-tip">
           <label>
@@ -1156,15 +1205,22 @@ function WeatherPanel({
           <InfoTip label="About the Edmonton fuel grid" text={TIPS.edmontonGrid(fuelType)} />
         </div>
         <label>
-          Grass curing (%)
+          Grass curing (%){curingRequired ? " · required" : grassCure === null && cureDefault !== null ? " · spring default" : ""}
           <input
             type="number"
             min={0}
             max={100}
             step={5}
-            value={grassCure}
-            onChange={(e) => setGrassCure(Math.min(100, Math.max(0, Number(e.target.value))))}
-            title="Degree of curing for O-1a/O-1b grass (Wotton et al. 2009). 100 = fully cured."
+            value={cure ?? ""}
+            placeholder={lastCure !== null ? `last ${lastCure}` : undefined}
+            required={curingRequired}
+            aria-invalid={curingError !== null}
+            onChange={(e) => setCure(e.target.value)}
+            title={
+              `Degree of curing for O-1a/O-1b grass; 100 = fully cured. Curing factor ${cure !== null ? curingFactor(cure).toFixed(2) : "–"} ` +
+              `(Wotton et al. 2009, eq 35b). Default 95 % from ${SPRING_WINDOW_LABEL}, before green-up; ` +
+              `outside that window enter the observed value.`
+            }
           />
         </label>
         <label>
@@ -1493,7 +1549,7 @@ function WeatherPanel({
           <TipButton
             className="btn-secondary"
             onClick={handleMonteCarlo}
-            disabled={!ignitionPoint || burnProbRunning || isRunning || (!useEdmontonGrid && !useSyntheticCA) || hasErrors}
+            disabled={!ignitionPoint || burnProbRunning || isRunning || (!useEdmontonGrid && !useSyntheticCA) || hasErrors || curingError !== null}
             tip={TIPS.burnProbability}
           >
             {burnProbRunning ? `Running ${mcIterations} iterations...` : "Apply & Run Burn Probability"}
@@ -1503,9 +1559,9 @@ function WeatherPanel({
               <div className="burn-prob-progress-bar" />
             </div>
           )}
-          {(hasErrors || !ignitionPoint || (!useEdmontonGrid && !useSyntheticCA)) && (
-            <div className={`status-line${hasErrors ? " text-danger" : ""}`} data-testid="burnprob-reason">
-              {hasErrors ? "Fix input errors" : !ignitionPoint ? "Set an ignition point" : "Needs a fuel grid"}
+          {(hasErrors || curingError !== null || !ignitionPoint || (!useEdmontonGrid && !useSyntheticCA)) && (
+            <div className={`status-line${hasErrors || curingError !== null ? " text-danger" : ""}`} data-testid="burnprob-reason">
+              {hasErrors ? "Fix input errors" : curingError !== null ? curingError : !ignitionPoint ? "Set an ignition point" : "Needs a fuel grid"}
             </div>
           )}
         </SetupSection>

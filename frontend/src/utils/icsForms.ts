@@ -22,7 +22,8 @@
  * References:
  *   CrisisKit AI — github.com/Tphambolio/crisiskitAI (forms.py)
  *   ICS Canada forms and instructions — icscanada.ca/resources/ics-forms/
- *   Alexander & de Groot (1988) — FBP intensity class thresholds
+ *   Head fire intensity classes: utils/fireClasses.ts (Cole & Alexander 1995; CWFIS HFI map
+ *   limits). An earlier "Alexander & de Groot (1988)" reference here described no code in use.
  */
 
 import type { SimulationFrame } from "../types/simulation";

@@ -96,6 +96,11 @@ function EnsemblePanel({ state, selectedMinutes, scenarioStart, toggles, onToggl
             <div className="ens-sub">
               Median {fmtHa(areas.p50)} ha (P50) · {g.members.length || state.total} members
             </div>
+            {(g.membersFailed ?? 0) > 0 && (
+              <div className="ens-sub" data-testid="ensemble-failed-note">
+                {g.membersFailed} of {state.total} members failed and are left out
+              </div>
+            )}
           </div>
           <dl className="ens-range" data-testid="ensemble-area-range">
             <dt className="with-tip">

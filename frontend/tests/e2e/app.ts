@@ -8,11 +8,26 @@ declare global {
   }
 }
 
-/** Open the app and wait for the map to load. */
-export async function openApp(page: Page): Promise<void> {
+/**
+ * Open the app and wait for the map to load. Grass curing has no default outside the spring
+ * window (decision M1), so by default the tests enter 60 % (the old fixed default, which the
+ * fixture was recorded with) to stay independent of today's date; `curing: null` leaves the
+ * field as the app opens it (tests/e2e/curing.spec.ts).
+ */
+export async function openApp(page: Page, opts: { curing?: number | null } = {}): Promise<void> {
   await page.goto("/");
   await expect(page.locator("canvas.maplibregl-canvas").first()).toBeVisible();
   await page.waitForLoadState("networkidle");
+  const curing = opts.curing === undefined ? 60 : opts.curing;
+  if (curing !== null) await enterGrassCuring(page, curing);
+}
+
+/** Enter grass curing in Setup → Fuel & landscape, leaving the section as it was (closed). */
+export async function enterGrassCuring(page: Page, value: number): Promise<void> {
+  const toggle = page.locator(".setup-section-toggle", { hasText: "Fuel & landscape" });
+  await toggle.click();
+  await page.getByLabel(/^Grass curing/).fill(String(value));
+  await toggle.click();
 }
 
 /** Click the centre of the map to set the ignition point; resolves when Run is enabled. */
