@@ -9,19 +9,27 @@ import type { SimulationFrame, StructureUnitDetail } from "../types/simulation";
  * (tokens.css --struct-front / --struct-b2b) */
 export const STRUCT_FRONT = "#e94ccf";
 export const STRUCT_B2B = "#2fd9c5";
+/** Ember ignition: chartreuse (tokens.css --struct-ember), outside the same colour families */
+export const STRUCT_EMBER = "#c6f432";
 
 export const MECHANISM_LABEL: Record<StructureUnitDetail["mechanism"], string> = {
   front: "Front contact",
   b2b: "Building to building",
+  ember: "Ember ignition",
 };
 
-/** Full caveat (tooltip text). `cutoffM` / `cellM` come from the run when known. */
-export function structureCaveat(label: string, cutoffM = 30, cellM = 50): string {
+/** Full caveat (tooltip text). `cutoffM` / `cellM` come from the run when known; with
+ * `designFireKwM2` the run included ember ignition. */
+export function structureCaveat(label: string, cutoffM = 30, cellM = 50, designFireKwM2?: number): string {
   const l = label.charAt(0).toUpperCase() + label.slice(1);
   return (
     `${l}. Shows modelled involvement, not a prediction of which buildings will burn. ` +
     `Fire passes between buildings up to ${cutoffM} m apart; front contact is measured on the ` +
-    `~${cellM} m fire grid.`
+    `~${cellM} m fire grid.` +
+    (designFireKwM2
+      ? ` Ember ignition: short-range embers (about 100 m at most) from burning buildings and the ` +
+        `front, published Californian model, ${designFireKwM2} kW/m² design fire.`
+      : "")
   );
 }
 
@@ -29,6 +37,7 @@ export interface StructurePoint {
   t: number; // hours
   front: number;
   b2b: number;
+  ember: number;
 }
 
 /** Involved units per frame (frames without computed counts are skipped). */
@@ -37,7 +46,12 @@ export function structureSeries(frames: SimulationFrame[]): StructurePoint[] {
   for (const f of frames) {
     const s = f.structure_spread;
     if (!s || s.computed === false || s.units_involved == null) continue;
-    out.push({ t: f.time_hours, front: s.units_front_contact ?? 0, b2b: s.units_structure_to_structure ?? 0 });
+    out.push({
+      t: f.time_hours,
+      front: s.units_front_contact ?? 0,
+      b2b: s.units_structure_to_structure ?? 0,
+      ember: s.units_ember ?? 0,
+    });
   }
   return out;
 }

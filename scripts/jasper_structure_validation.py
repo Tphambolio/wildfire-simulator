@@ -30,6 +30,13 @@ Usage (from the repo root):
 
     PYTHONPATH=engine/src python3 scripts/jasper_structure_validation.py \\
         --out ~/dev/wildfire/validation-data/jasper2024/results-2026-10-10
+
+Ember ignition (``--embers``, second pre-registration ``PREREG_EMBERS``, 2026-10-10): the same
+units, seeds, wind, window and baselines, with ember ignition of buildings added to Hamada
+(``firesim.structures.embers``, spec §6), parameters fixed from the literature:
+
+    PYTHONPATH=engine/src python3 scripts/jasper_structure_validation.py --embers \\
+        --out ~/dev/wildfire/validation-data/jasper2024/results-embers-2026-10-10
 """
 
 from __future__ import annotations
@@ -49,7 +56,13 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "engine" / "src"))
 
-from firesim.structures.spread import WindPeriod, hamada_spread  # noqa: E402
+from firesim.structures.embers import EmberOptions  # noqa: E402
+from firesim.structures.spread import (  # noqa: E402
+    SOURCE_EMBER,
+    WindPeriod,
+    hamada_spread,
+    spread_with_embers,
+)
 from firesim.structures.units import build_units  # noqa: E402
 
 LAYER_URL = ("https://services7.arcgis.com/1glZz4XajYW77W8H/arcgis/rest/services/"
@@ -136,6 +149,73 @@ PREREG = {
     "random_draws": 1000,
     "distance_bands_m": [0, 100, 250, 500, 1000, 1e9],
 }
+
+
+# --------------------------------------------------------------------------------------------
+# Second pre-registration: ember ignition (fixed 2026-10-10, committed before the ember runs
+# were scored; PREREG above is unchanged and its primary run is repeated here as the
+# Hamada-only reference). All ember parameters are the specified values of
+# docs/structure-spread-spec.md §6, taken from the papers; nothing is chosen on Jasper.
+# --------------------------------------------------------------------------------------------
+PREREG_EMBERS = {
+    "date_fixed": "2026-10-10",
+    "question": "Does adding ember ignition between buildings to Hamada improve the building-"
+                "level end state at Jasper (the R10 misses were destroyed clusters 250-500 m "
+                "from the seeds, NOR-X-433 p.35, FPI pp.14-15)?",
+    "base": "PREREG primary: I0 seeds (15) at 18:00, 1,119 townsite units, wind 15 km/h from "
+            "225 deg (10 m), window 360 min, cutoff 30 m, f_b 1, Destroyed = 1",
+    "embers": {
+        "design_fire_kw_m2": 150,  # PROCI24 p.3; owner decision D1 (spec C1)
+        "gr_structure_pcs_per_mw_s": 10.0,  # [T] Qin25 p.147; FSJ104686 p.4 (spec C14)
+        "ember_mass_g": 0.2,  # FSJ104686 p.3
+        "transport": "Himoto lognormal (HT08 eqs 38-40), D = sqrt(footprint area), "
+                     "truncated at the 99th percentile; crosswind normal sigma_Y = 0.92 D",
+        "pdf_wind": "10 m wind (spec C17)",
+        "flight_wind": "10 m wind / 1.15 (6.1 m; Andrews 2009 p.58) [H]",
+        "v_air": "0.064 x 6.1 m wind (Qin25 p.157)",
+        "ignition": "psi* = 0.211 / ((v + 0.073)(4.111 - v)) g/cm2 (FSJ104686 eq 1), "
+                    "delays TOA + 42 s + 300 s",
+        "wildland_embers": "none (structure-only run; no fuel grid)",
+        "seeds_burn_design_fire_from_min": 0.0,
+        "dt_min": 0.5,
+    },
+    "runs": {
+        "E0_primary": "Hamada + embers, values above",
+        "H0_hamada_only": "PREREG primary repeated (reference, expected kappa 0.472)",
+        "E1_gr_5.68": "GR' = 5.68 pcs/(MW s) (Qin25 eq 3.17, reference value)",
+        "E2_design_fire_400": "400 kW/m2, 300/3600/300 s (FSJ104686 p.2)",
+        "E3_cutoff_20": "cutoff 20 m with embers (H at 20 m reported alongside)",
+        "E4_cutoff_45": "cutoff 45 m with embers (H at 45 m reported alongside)",
+        "E5_embers_only": "embers without Hamada (diagnostic: what embers alone do)",
+        "E6_embers_only_400": "embers without Hamada, 400 kW/m2 (diagnostic)",
+        "E7_wind_x1.25": "wind 18.75 km/h with embers",
+        "E8_wind_x0.75": "wind 11.25 km/h with embers",
+        # Added after a model-only dry run (geometry with random statuses; no observed status
+        # read) showed no ember ignition at all at 15 km/h in E0-E8. Chosen from a documented
+        # value, not tuned: the Tangle station gust of 27 km/h at 20:00 (NOR-X-433 p.36),
+        # held for the whole window (an upper case for the documented evening wind).
+        "E9_gust_27": "wind 27 km/h with embers (H9: Hamada at 27 km/h alongside)",
+        "E10_gust_27_400": "wind 27 km/h, 400 kW/m2 with embers",
+    },
+    "metrics": "as PREREG; plus kappa difference E - H (same cutoff) with the 250 m block "
+               "bootstrap; units ignited by embers, by distance band from the seeds, and "
+               "how many of them were destroyed",
+    "decision_rule": "Embers help on this test only if kappa(E0) - kappa(H0) > 0 with the 95 % "
+                     "block-bootstrap interval excluding zero, AND kappa(E0) > kappa of the "
+                     "count-matched distance band (a). Otherwise reported as no improvement.",
+    "expectation_from_the_equations_only": "Before scoring (model quantities only, no status "
+        "read): at 15 km/h (v_air = 0.23 m/s) psi* = 0.178 g/cm2, i.e. ~1.37 million embers "
+        "on a median 154 m2 footprint, while one 154 m2 building emits 0.46 million embers in "
+        "its whole 150 kW/m2 design fire (2.4 million at 400). Himoto X_max is 46 m (150) / "
+        "57 m (400). Ember ignition at the default therefore needs several burning neighbours "
+        "within ~50 m and is not expected to reach the 250-500 m clusters.",
+}
+
+
+def run_embers(units, seed, wind_kmh, wind_from, window, fb, opts):
+    t_front = np.where(seed, PREREG["ignition_time_min"], np.inf)
+    return spread_with_embers(units, t_front, [WindPeriod(0.0, wind_kmh, wind_from)],
+                              duration_min=window, fb=fb, embers=opts)
 
 
 # ---------------------------------------------------------------------------------- data
@@ -358,7 +438,11 @@ def main() -> None:
     ap.add_argument("--features", type=Path, default=None,
                     help="use this GeoJSON instead of the cache (testing)")
     ap.add_argument("--no-maps", action="store_true")
+    ap.add_argument("--embers", action="store_true",
+                    help="run the ember-ignition pre-registration (PREREG_EMBERS)")
     args = ap.parse_args()
+    if args.embers:
+        return main_embers(args)
     out_dir = args.out or (args.data_dir / "results")
     if REPO in out_dir.resolve().parents or REPO in args.data_dir.resolve().parents:
         sys.exit("refusing to write Jasper data inside the repository")
@@ -529,6 +613,144 @@ def draw_map(units, seed, pred, obs, path: Path, title: str) -> None:
     ax.legend(handles=[Patch(color=v, label=k) for k, v in colours.items()], loc="lower right")
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
+
+
+
+# ---------------------------------------------------------------------------------- embers
+
+
+def main_embers(args) -> None:
+    """PREREG_EMBERS: Hamada + ember ignition against the same observed end state."""
+    out_dir = args.out or (args.data_dir / "results-embers")
+    if REPO in out_dir.resolve().parents or REPO in args.data_dir.resolve().parents:
+        sys.exit("refusing to write Jasper data inside the repository")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = args.features or args.data_dir / CACHE_NAME
+    if args.features is None and (args.refresh or not path.exists()):
+        path = fetch_layer(args.data_dir)
+    geoms, status, _oid = load_features(path)
+    assessed = np.isin(status, ["Destroyed", "Visible Damage", "No Visible Damage"])
+    obs = status[assessed] == "Destroyed"
+    P, PE = PREREG, PREREG_EMBERS
+    cache = {}
+
+    def units_at(cutoff):
+        if cutoff not in cache:
+            u = build_units(geoms[assessed], neighbour_cutoff_m=cutoff)
+            assert len(u) == int(assessed.sum())
+            cache[cutoff] = u
+        return cache[cutoff]
+
+    base = dict(cutoff=P["neighbour_cutoff_m"], wind=P["wind_speed_kmh"], dfire=150, gr=10.0,
+                hamada=True, embers=True)
+    runs = {
+        "H0_hamada_only": dict(base, embers=False),
+        "E0_primary": dict(base),
+        "E1_gr_5.68": dict(base, gr=5.68),
+        "E2_design_fire_400": dict(base, dfire=400),
+        "H3_hamada_cutoff_20": dict(base, cutoff=20.0, embers=False),
+        "E3_cutoff_20": dict(base, cutoff=20.0),
+        "H4_hamada_cutoff_45": dict(base, cutoff=45.0, embers=False),
+        "E4_cutoff_45": dict(base, cutoff=45.0),
+        "E5_embers_only": dict(base, hamada=False),
+        "E6_embers_only_400": dict(base, hamada=False, dfire=400),
+        "H7_hamada_wind_x1.25": dict(base, wind=P["wind_speed_kmh"] * 1.25, embers=False),
+        "E7_wind_x1.25": dict(base, wind=P["wind_speed_kmh"] * 1.25),
+        "H8_hamada_wind_x0.75": dict(base, wind=P["wind_speed_kmh"] * 0.75, embers=False),
+        "E8_wind_x0.75": dict(base, wind=P["wind_speed_kmh"] * 0.75),
+        "H9_hamada_gust_27": dict(base, wind=27.0, embers=False),
+        "E9_gust_27": dict(base, wind=27.0),
+        "E10_gust_27_400": dict(base, wind=27.0, dfire=400),
+    }
+    results = {"prereg": P, "prereg_embers": PE, "units_scored": int(assessed.sum()), "runs": {}}
+    preds = {}
+    for name, c in runs.items():
+        u = units_at(c["cutoff"])
+        seed = seeds_for(u, P["ignition_sets"]["I0_primary"], P["wind_from_deg"])
+        if c["embers"]:
+            opts = EmberOptions(design_fire_kw_m2=c["dfire"], gr_structure=c["gr"],
+                                from_wildland=False, hamada=c["hamada"])
+            res = run_embers(u, seed, c["wind"], P["wind_from_deg"], P["window_min"],
+                             P["combustible_fraction"], opts)
+        else:
+            res = hamada_spread(u, np.where(seed, 0.0, np.inf),
+                                [WindPeriod(0.0, c["wind"], P["wind_from_deg"])],
+                                duration_min=P["window_min"], fb=P["combustible_fraction"])
+        t = res.t_min
+        pred = t <= P["window_min"]
+        preds[name] = (u, seed, pred)
+        dist = edge_distance_to_seeds(u, seed)
+        bl = baselines(u, seed, obs, int(pred.sum()), dist)
+        ember = pred & (res.source == SOURCE_EMBER)
+        bands = P["distance_bands_m"]
+        run = {"config": c, "seeds": int(seed.sum()), "predicted": int(pred.sum()),
+               "ember_units": int(ember.sum()),
+               "ember_units_destroyed": int(np.sum(ember & obs)),
+               "ember_by_distance_band": [
+                   {"band_m": [lo, hi if hi < 1e8 else None],
+                    "ember_units": int(np.sum(ember & (dist >= lo) & (dist < hi))),
+                    "ember_destroyed": int(np.sum(ember & obs & (dist >= lo) & (dist < hi)))}
+                   for lo, hi in zip(bands[:-1], bands[1:])],
+               "involved_by_min": {str(m): int(np.sum(t <= m)) for m in (30, 60, 120, 240, 360)},
+               "scores": {"firesim": score(pred, obs),
+                          **{k: score(v, obs) for k, v in bl.items()}},
+               "kappa_diff_vs_a": block_bootstrap_kappa_diff(
+                   u, pred, bl["a_distance_band_count_matched"], obs),
+               "kappa_diff_vs_d": block_bootstrap_kappa_diff(u, pred, bl["d_seeds_only"], obs)}
+        if name.startswith("E") and c["hamada"]:
+            ref = {30.0: "H0_hamada_only", 20.0: "H3_hamada_cutoff_20",
+                   45.0: "H4_hamada_cutoff_45"}[c["cutoff"]]
+            if c["wind"] != P["wind_speed_kmh"]:
+                ref = {P["wind_speed_kmh"] * 1.25: "H7_hamada_wind_x1.25",
+                       P["wind_speed_kmh"] * 0.75: "H8_hamada_wind_x0.75",
+                       27.0: "H9_hamada_gust_27"}[c["wind"]]
+            hu, _, hpred = preds[ref]
+            assert hu is u
+            run["reference_hamada"] = ref
+            run["kappa_diff_vs_hamada"] = block_bootstrap_kappa_diff(u, pred, hpred, obs)
+            run["changed_vs_hamada"] = {"added": int(np.sum(pred & ~hpred)),
+                                        "added_destroyed": int(np.sum(pred & ~hpred & obs)),
+                                        "removed": int(np.sum(~pred & hpred))}
+        results["runs"][name] = run
+        f = run["scores"]["firesim"]
+        print(f"{name:24s} pred={run['predicted']:4d} ember={run['ember_units']:3d} "
+              f"kappa={f['kappa']:+.3f} P={f['precision']:.3f} R={f['recall']:.3f}", flush=True)
+    (out_dir / "results_embers.json").write_text(json.dumps(results, indent=2, default=float))
+    (out_dir / "tables_embers.md").write_text(tables_embers_md(results))
+    if not args.no_maps:
+        u, seed, pred = preds["E0_primary"]
+        draw_map(u, seed, pred, obs, out_dir / "map_embers_primary.png", "Hamada + embers")
+    print(f"wrote {out_dir}")
+
+
+def tables_embers_md(r: dict) -> str:
+    L = ["# Jasper 2024: ember ignition (PREREG_EMBERS)", "",
+         "| Run | Pred | Ember units (destroyed) | TP | FP | FN | TN | Precision | Recall | F1 | κ |"
+         " κ (a) | κ − (a) [95 %] | κ − Hamada [95 %] |",
+         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for name, run in r["runs"].items():
+        s = run["scores"]["firesim"]
+        a = run["scores"]["a_distance_band_count_matched"]
+        da = run["kappa_diff_vs_a"]
+        dh = run.get("kappa_diff_vs_hamada")
+        dh_txt = f"{dh['point']:+.3f} [{dh['p2.5']:+.3f}, {dh['p97.5']:+.3f}]" if dh else "—"
+        L.append(f"| {name} | {s['predicted']} | {run['ember_units']} ({run['ember_units_destroyed']})"
+                 f" | {s['TP']} | {s['FP']} | {s['FN']} | {s['TN']} | {_f(s['precision'], True)}"
+                 f" | {_f(s['recall'], True)} | {_f(s['F1'], True)} | {_f(s['kappa'])} | {_f(a['kappa'])}"
+                 f" | {da['point']:+.3f} [{da['p2.5']:+.3f}, {da['p97.5']:+.3f}] | {dh_txt} |")
+    L += ["", "## Ember-ignited units by distance band from the seeds", "",
+          "| Run | " + " | ".join(f"{b['band_m'][0]:g}-{b['band_m'][1]:g} m" if b['band_m'][1] else
+                                 f"≥ {b['band_m'][0]:g} m"
+                                 for b in next(iter(r['runs'].values()))['ember_by_distance_band']) + " |",
+          "|---|" + "---|" * len(r["prereg"]["distance_bands_m"][:-1])]
+    for name, run in r["runs"].items():
+        L.append(f"| {name} | " + " | ".join(f"{b['ember_units']} ({b['ember_destroyed']})"
+                                            for b in run["ember_by_distance_band"]) + " |")
+    L += ["", "Ember units (destroyed among them) per band.", ""]
+    for name, run in r["runs"].items():
+        if "changed_vs_hamada" in run:
+            L.append(f"- {name} vs {run['reference_hamada']}: {run['changed_vs_hamada']}")
+    return "\n".join(L) + "\n"
 
 
 if __name__ == "__main__":

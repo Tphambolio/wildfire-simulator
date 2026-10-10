@@ -45,6 +45,11 @@
   stroke-dasharray: 3 2;
 }
 
+/* Setup: "Ember ignition" sits one step further in, under "House-to-house spread" */
+.struct-suboption {
+  padding-left: calc(var(--sp-5) * 2);
+}
+
 .struct-toggle {
   display: flex;
   align-items: center;

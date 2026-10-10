@@ -339,6 +339,8 @@ function WeatherPanel({
   const [includeBuildings, setIncludeBuildings] = useState(true);
   // Opt-in, off by default: Hamada house-to-house spread (illustrative; needs the buildings)
   const [structureSpread, setStructureSpread] = useState(false);
+  // Opt-in under house-to-house spread: ember ignition of buildings (illustrative)
+  const [structureEmbers, setStructureEmbers] = useState(false);
   const structureAvailable = useEdmontonGrid && includeBuildings;
   // Off by default: the bundled WUI multipliers have no documented source (see docs/verification.md)
   const [includeWUI, setIncludeWUI] = useState(false);
@@ -685,6 +687,7 @@ function WeatherPanel({
       burning_period: skill.burning_period,
       ffmc_spin_up: skill.ffmc_spin_up,
       structure_spread: structureAvailable && structureSpread,
+      structure_embers: structureAvailable && structureSpread && structureEmbers,
     });
   };
 
@@ -1324,6 +1327,18 @@ function WeatherPanel({
                 House-to-house spread
               </label>
               <Badge tone="warn" tip={TIPS.structureOption}>{BADGES.illustrative}</Badge>
+            </div>
+            <div className="with-tip check-row-indent struct-suboption">
+              <label className="struct-option">
+                <input
+                  type="checkbox"
+                  checked={structureAvailable && structureSpread && structureEmbers}
+                  disabled={!(structureAvailable && structureSpread)}
+                  onChange={(e) => setStructureEmbers(e.target.checked)}
+                />
+                Ember ignition
+              </label>
+              <InfoTip label="About embers between buildings" text={TIPS.structureEmbers} />
             </div>
             <div className="with-tip check-row-indent">
               <label>
