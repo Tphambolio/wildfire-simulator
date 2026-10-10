@@ -1,7 +1,8 @@
 /**
  * House-to-house (structure) spread, opt-in and illustrative (docs/structure-spread-spec.md §9):
  * - Setup → Fuel & landscape: "House-to-house spread", off by default, only with the Edmonton
- *   grid and buildings; on = the request carries structure_spread: true;
+ *   grid and buildings; on = the request carries structure_spread: true; "Ember ignition"
+ *   under it (off, enabled only with it) adds structure_embers: true;
  * - Situation card: counts at the selected time, "Illustrative" badge, caveat in a tooltip on
  *   hover/focus (not a paragraph), stacked chart with the timeline cursor;
  * - map layer: involved footprints by mechanism, legend with the badge and caveat tooltip,
@@ -22,13 +23,14 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 interface Unit {
   id: number;
   t_h: number;
-  mechanism: "front" | "b2b";
+  mechanism: "front" | "b2b" | "ember";
   polygon: number[][][];
 }
 interface Counts {
   units_involved: number;
   units_front_contact: number;
   units_structure_to_structure: number;
+  units_ember: number;
 }
 const last = structureFixture.frames[structureFixture.frames.length - 1] as unknown as {
   structure_spread: Counts;
@@ -50,7 +52,13 @@ async function enableStructureSpread(page: Page) {
   await page.getByLabel(/^Buildings/).uncheck();
   await expect(box).toBeDisabled();
   await page.getByLabel(/^Buildings/).check();
+  // Ember ignition: under house-to-house spread, off, enabled only with it
+  const embers = page.getByLabel("Ember ignition");
+  await expect(embers).not.toBeChecked();
+  await expect(embers).toBeDisabled();
   await box.check();
+  await expect(embers).toBeEnabled();
+  await embers.check();
 }
 
 /** Pixel of a [lng, lat] point in the map canvas, from the bounds MapView publishes (Mercator). */
@@ -79,6 +87,7 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
   await enableStructureSpread(page);
   await runToCompletion(page);
   expect(api.posts[0].structure_spread).toBe(true);
+  expect(api.posts[0].structure_embers).toBe(true);
   expect(api.posts[0].start_time).toBe(structureFixture.config!.start_time);
   expect(api.posts[0].burning_period).toEqual(structureFixture.config!.burning_period);
   // 13:00-17:00 is inside the burning period: no "No spread" marker on the timeline
@@ -93,6 +102,8 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
   await expect(row("Buildings involved")).toContainText(String(last.structure_spread.units_involved));
   await expect(row("Front contact")).toContainText(String(last.structure_spread.units_front_contact));
   await expect(row("Building to building")).toContainText(String(last.structure_spread.units_structure_to_structure));
+  // The fixture run had embers on (none ignited a building there): the ember row is shown
+  await expect(row("Ember ignition")).toContainText(String(last.structure_spread.units_ember));
   await expect(card.getByTestId("structure-chart")).toBeVisible();
   // The caveat is not a paragraph: hidden until hover or focus
   const cardTip = card.getByRole("tooltip");
@@ -101,6 +112,7 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
   await expect(cardTip).toBeVisible();
   await expect(cardTip).toContainText("Illustrative — not validated in Canada");
   await expect(cardTip).toContainText("not a prediction of which buildings will burn");
+  await expect(cardTip).toContainText("150 kW/m² design fire");
   await page.mouse.move(5, 5);
   await expect(cardTip).toBeHidden();
 
@@ -139,7 +151,7 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
     await page.mouse.move(px.x, px.y);
     const popup = page.getByTestId("structure-popup");
     if (await popup.isVisible().catch(() => false) || (await popup.waitFor({ timeout: 800 }).then(() => true).catch(() => false))) {
-      await expect(popup).toContainText(/Front contact|Building to building/);
+      await expect(popup).toContainText(/Front contact|Building to building|Ember ignition/);
       // Clock time on the run's own clock: 13:00 + t_h, within the 4 h run
       await expect(popup).toContainText(/involved at 1[3-7]:\d\d /);
       await expect(popup).toContainText("Illustrative — not validated in Canada");
@@ -180,6 +192,7 @@ test("house-to-house spread is off by default: not sent, no card or layer", asyn
   await setIgnitionAtMapCentre(page);
   await runToCompletion(page);
   expect(api.posts[0].structure_spread).toBe(false);
+  expect(api.posts[0].structure_embers).toBe(false);
   await expect(page.getByTestId("structure-panel")).toHaveCount(0);
   await expect(page.getByTestId("structure-legend")).toHaveCount(0);
 });
