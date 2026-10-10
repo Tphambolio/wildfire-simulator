@@ -84,10 +84,27 @@ Per unit (`engine/src/firesim/structures/units.py`):
 | separation | edge-to-edge distance to each neighbour (shapely `distance`, metres); nearest-neighbour separation per unit | Hamada's d is the "average separation of buildings" (HT08 p.25) [P]; FireSim uses the pair's own separation [H] |
 | neighbour graph | all pairs with separation ≤ `neighbour_cutoff_m` | cutoff: §4.4 |
 
-Local metres: an equirectangular frame centred on the run area (`x = (lng − lng0) · 111,320 ·
-cos(lat0)`, `y = (lat − lat0) · 111,320`). Over a run area of a few tens of km the distortion is
-well below the footprint accuracy. Footprints that are invalid are repaired with
-`make_valid`; empty ones are dropped.
+Local metres: an equirectangular frame centred on the run area (the fuel grid box; `x = (lng −
+lng0) · 111,320 · cos(lat0)`, `y = (lat − lat0) · 111,320`). Over a run area of a few tens of km
+the distortion is well below the footprint accuracy. Footprints that are invalid are repaired
+with `make_valid`; empty ones are dropped.
+
+**Units are built only where the spread can reach** (2026-10-10; the API run that built all
+334,213 Edmonton footprints in the grid box peaked at 1.76 GB and was OOM-killed on the 2 GB API
+machine). After the grid run, units are built for the footprints whose bounds intersect a
+*reachable box* R: the box of the burned cells grown by the front-contact reach (contact-offset
+radius + 2 cells) and a spread margin (first 2 × cutoff + 250 m). The result is exact for the
+whole run area when no involved unit lies within the cutoff (+ 1 m) of R's edge: a footprint not
+built lies wholly outside R, so it is farther than the cutoff from every involved unit (not a
+graph neighbour) and too far from the burned cells for front contact; it can never be involved
+and cannot change any built unit's time. Otherwise the margin is doubled and the build repeated.
+The frame is fixed at the grid box centre, so results do not depend on R. On the six 2026-10-09
+sensitivity runs the counts are identical to the whole-area build, with 1,376-7,219 units built
+instead of 334,192. A memory guard stops the build when R would hold more than 60,000 footprints
+(frames then say `computed: false`, "not computed: too many buildings in run area").
+`units_in_run` counts the footprints whose centroid is in the grid box (the building index's
+ring-average centroid in the API: 334,213; before 2026-10-10 it counted valid units by shapely
+centroid, 334,192).
 
 The footprint attributes `type`, `height`, `material` and `roof_type` in the data file have no
 documented source (every footprint is `wood_frame` / `asphalt_shingle`) and are **not used**.
@@ -411,6 +428,29 @@ FireSim's plan:
   buildings by −8 % to 0 % and left the city-wide median nearest separation at 2.6 m [R7].
 - Outputs are counts and times of **modelled involvement**. They are not predictions of which
   buildings burn and must not be used for evacuation tiers or per-building loss.
+
+### Outputs and display (2026-10-10)
+
+- **Counts per frame** (`structure_spread`): units involved by the frame's time, by mechanism
+  (front contact, building to building), with `label` "illustrative — not validated in Canada".
+- **Involved units on the final frame** (`structure_spread_detail`, owner decision 2026-10-10,
+  D3 reversed): for each involved unit only its footprint (simplified 0.5 m), involvement time
+  (h), mechanism, and the unit that passed the fire on (building to building). No address,
+  owner or parcel data. 20-160 kB on the 2026-10-09 sensitivity runs (83-653 units).
+- **App** (map display only): Setup → Fuel & landscape "House-to-house spread" (off by default;
+  needs the Edmonton grid with buildings). Situation card: counts at the selected time and a
+  stacked chart of involved buildings over the run (front contact / building to building) with
+  the timeline cursor. Map: involved footprints coloured by mechanism (magenta front contact,
+  aqua building to building; outside the fire, fuel, evac and isochrone colour families),
+  appearing as the timeline reaches their involvement time; hover or click shows the time,
+  mechanism and the label. Legend and card carry an "Illustrative" badge; the full caveat
+  (not validated in Canada; modelled involvement, not a prediction of which buildings will
+  burn; 30 m neighbour cutoff; front contact on the ~50 m grid) is in an info tooltip on hover
+  or keyboard focus. Per-building results are not put in any export, ICS 209 or report.
+- D3's concern (building-level precision 9-77 % in FSJ104651, §8; a per-house map can read as
+  a loss forecast) is handled by labelling, not by hiding: the owner's reasons are that
+  aggregated blocks can look more catastrophic than the modelled result and that firefighters
+  work a fire house by house, then block by block.
 
 ## 10. Build order
 

@@ -64,13 +64,17 @@ Start a new fire spread simulation.
   (docs/verification.md, "Spotting is repeatable").
 - `structure_spread` (optional, default `false`): **illustrative — not validated in Canada.**
   Grid runs with building footprints (`buildings_path` or `FIRESIM_BUILDINGS_PATH`, and
-  `FIRESIM_NEIGHBOURHOODS_PATH`): every footprint in the run area becomes a building unit,
-  a unit is involved when the front reaches a grid cell its footprint touches or one of their
+  `FIRESIM_NEIGHBOURHOODS_PATH`): every footprint in the run area can become a building unit
+  (units are built only for the area the spread can reach, which gives the same result as
+  building them all; spec §2), a unit is involved when the front reaches a grid cell its footprint touches or one of their
   8 neighbours (10 m contact measured from the building's grid cells), and fire passes
   between units up to 30 m apart in the Hamada crossing time under the run's 10 m wind
-  (`docs/structure-spread-spec.md` §3-4). Frames then carry `structure_spread`. Counts of
-  modelled involvement, not a prediction of which buildings burn; building exposure is
-  unchanged. Ignored by uniform-fuel (Huygens) runs, multi-day, perimeter-override and
+  (`docs/structure-spread-spec.md` §3-4). Frames then carry `structure_spread` (counts) and
+  the final frame `structure_spread_detail` (the involved units, for the map). Modelled
+  involvement, not a prediction of which buildings burn; building exposure is unchanged. If
+  the reachable area holds more than 60,000 footprints the run still completes and frames say
+  `computed: false` with `note: "not computed: too many buildings in run area"` (memory guard
+  for the 2 GB API machine). Ignored by uniform-fuel (Huygens) runs, multi-day, perimeter-override and
   ensemble members.
 - `cells_mode` (grid runs): `"cumulative"` (default) repeats every burned cell in each frame;
   `"incremental"` sends only the cells burned since the previous frame (a 24 h run: about
@@ -126,7 +130,8 @@ Status values: `running`, `completed`, `failed`
 | `head_ros_m_min` | the head fire's front speed: the fastest head cell reached since the previous frame |
 | `head` | that cell: `{lat, lng, ros, raz (deg, direction of spread), hfi, cfb, fuel, t, max_spot_distance_m}`; the spotting distance is Albini's maximum (surface-fire or torching-tree model) with the 10 m wind at that time; `null` when no head cell was reached |
 | `building_exposure`, `building_exposure_detail` | see `docs/building-exposure.md` |
-| `structure_spread` | only with the request flag `structure_spread`, else `null`: counts by this frame `{model: "hamada", label: "illustrative — not validated in Canada", units_in_run, units_front_contact, units_structure_to_structure, units_involved, combustible_fraction, neighbour_cutoff_m, wildland_contact_m, front_contact_rule}`. `units_front_contact`: units reached by the wildland front (a burned cell within `wildland_contact_m` of a grid cell the footprint touches; `front_contact_rule: "building_cells"`); `units_structure_to_structure`: units reached from another unit (Hamada). Any display must carry `label` (`docs/structure-spread-spec.md`) |
+| `structure_spread` | only with the request flag `structure_spread`, else `null`: counts by this frame `{model: "hamada", label: "illustrative — not validated in Canada", computed: true, units_in_run, units_built, units_front_contact, units_structure_to_structure, units_involved, combustible_fraction, neighbour_cutoff_m, wildland_contact_m, front_contact_rule}`. `units_in_run`: buildings whose centroid is in the run area (fuel grid box); `units_built`: units built for the area the spread can reach (spec §2); `units_front_contact`: units reached by the wildland front (a burned cell within `wildland_contact_m` of a grid cell the footprint touches; `front_contact_rule: "building_cells"`); `units_structure_to_structure`: units reached from another unit (Hamada). When the memory guard stops the build: `{model, label, computed: false, note: "not computed: too many buildings in run area", units_in_run, units_needed, max_units, ...}` with the three counts `null`. Any display must carry `label` (`docs/structure-spread-spec.md`) |
+| `structure_spread_detail` | final frame only, with `structure_spread` (else `null`; `[]` when not computed): one entry per **involved** unit, in involvement order, `{id, t_h, mechanism, source_id, polygon}`. `t_h`: hours from the start; `mechanism`: `"front"` (wildland front contact) or `"b2b"` (building to building); `source_id`: the `id` of the unit that passed the fire on (`b2b` only, else `null`); `polygon`: the footprint ring `[[[lng, lat], ...]]`, simplified (0.5 m) and rounded to 6 decimals, largest part of a multi-part footprint. No other attributes (no address, owner or parcel data). About 200-250 bytes per unit (20-160 kB on the 2026-10-09 sensitivity runs). **Map display only** (owner decision 2026-10-10): the app does not put it in any export, ICS 209 or report. Illustrative — not validated in Canada |
 
 ### GET /api/v1/simulations/{id}/arrival
 
