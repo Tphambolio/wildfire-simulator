@@ -115,7 +115,17 @@ PREREG = {
                              "bog/fen/peat; non-fuel in the harness).",
 }
 
-GRIDS = ("nat2014", "open_masked", "cfs2026_masked", "open_unmasked", "cfs2026_unmasked", "open_prefire")
+# Disclosed extra, added 2026-10-11 AFTER the pre-registration (not part of the verdict): the
+# Alberta Wildfire FBP fuel-type grid (dataset date 2025-07-16, 100 m, EPSG:3400; Government of
+# Alberta, OGL-Alberta), coded as in PR #55 (31 O-1 -> O-1b, 6xx M-1/M-2 -> M-1, 13 -> D-1,
+# 101/102/104/105 non-fuel). It maps post-fire states inside past scars, so it gets the same scar
+# mask and nearest-cell fill as the other modern grids.
+AB2025 = Path(os.environ.get("AB_WILDFIRE_FUEL",
+                             Path.home() / "dev/wildfire/reference-layers/ab_wildfire_fbp_fueltype/"
+                                           "ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif"))
+EXTRAS = ("ab2025_masked",)
+GRIDS = ("nat2014", "open_masked", "cfs2026_masked", "open_unmasked", "cfs2026_unmasked", "open_prefire",
+         *EXTRAS)
 RUN_ARGS = ("--ignition active --active-days 2 --ffmc-spinup --burning-period 10 20 "
             "--windows 4 6 8 10 12 14 17 24")
 
@@ -163,6 +173,16 @@ def grid_codes(fire_id: str, grid: str) -> tuple[np.ndarray, object]:
         for k, v in INTERNAL_TO_CIFFC.items():
             lut[k] = v
         codes = lut[z["cls"]]
+    elif grid.startswith("ab2025"):
+        from rasterio.enums import Resampling
+        raw = FA._warp_remote(str(AB2025), g, Resampling.nearest, dtype=np.int32)
+        codes = np.zeros(raw.shape, np.int16)
+        for c in (1, 2, 3, 4, 5, 6, 7, 13, 21, 22, 23, 101, 102, 104, 105):
+            codes[raw == c] = c
+        codes[raw == 31] = 32
+        codes[(raw >= 610) & (raw <= 690)] = 60
+        # outside the Alberta extent (BC / NWT parts of a few areas): no code (non-fuel)
+        codes[codes == 0] = 101
     else:
         with rasterio.open(FA.shared_dir(a) / "cfs_fbp_2026.tif") as src:
             codes = collapse_cfs(src.read(1))
@@ -367,7 +387,6 @@ def rule_shares() -> dict:
     for variant in ("current", "prefire"):
         rules = np.zeros(9)
         classes = np.zeros(10)
-        stands_in_scar = []
         for a in FA.load_areas():
             p = FA.area_dir(a, variant) / "opendata_grid.npz"
             if not p.exists():

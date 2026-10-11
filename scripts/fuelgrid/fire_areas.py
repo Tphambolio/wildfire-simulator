@@ -413,51 +413,62 @@ def sentinel2(a: dict, variant: str, workers: int = 10) -> None:
             _wt(dest, comp, grid, nodata=np.nan, band_names=C.S2_BANDS + ["n_dates"],
                 tags={"source": "sentinel2", "season": season, "windows": wins, "scenes": []})
             continue
-        with ThreadPoolExecutor(workers) as ex:
-            scls = list(ex.map(lambda it: _read_s2(it["assets"]["scl"]["href"], grid, Resampling.nearest, None), items))
-        valid = [np.isin(s, C.S2_VALID_SCL_WINTER if winter else C.S2_VALID_SCL) for s in scls]
-        del scls
-        by_date = defaultdict(list)
-        for i, it in enumerate(items):
-            by_date[it["properties"]["datetime"][:10]].append(i)
-        dates = sorted(by_date)
         comp = np.full((len(C.S2_BANDS) + 1,) + grid.shape, np.nan, np.float32)
-        for bi, band in enumerate(C.S2_BANDS):
-            ten_m = band in ("blue", "green", "red", "nir")
-            with ThreadPoolExecutor(workers) as ex:
-                raw = list(ex.map(lambda it: _read_s2(it["assets"][band]["href"], grid, Resampling.average,
-                                                      0 if ten_m else None), items))
-            scales = [_scale(it, band) for it in items]
-            step = 256
-            for r0 in range(0, grid.height, step):
-                rs = slice(r0, min(r0 + step, grid.height))
-                per_date = []
-                for d in dates:
-                    acc = np.zeros((rs.stop - rs.start, grid.width), np.float64)
-                    n = np.zeros(acc.shape, np.int16)
-                    for i in by_date[d]:
-                        s, o = scales[i]
-                        r = raw[i][rs]
-                        ok = valid[i][rs] & (r > 0)
-                        acc[ok] += r[ok] * s + o
-                        n[ok] += 1
-                    with np.errstate(invalid="ignore", divide="ignore"):
-                        per_date.append(np.where(n > 0, acc / n, np.nan).astype(np.float32))
-                stack = np.stack(per_date)
-                with np.errstate(all="ignore"):
-                    import warnings
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore", RuntimeWarning)
-                        comp[bi, rs] = np.nanmedian(stack, axis=0)
-                if bi == 0:
-                    comp[-1, rs] = np.isfinite(stack).sum(0)
-            del raw
+        # row blocks of <= ~6 M cells keep a large area's per-scene arrays under ~1 GB
+        block_rows = max(256, int(6e6 // grid.width))
+        for b0 in range(0, grid.height, block_rows):
+            b1 = min(b0 + block_rows, grid.height)
+            bg = Grid(grid.x0, grid.y0 - b0 * CELL, grid.width, b1 - b0, CELL, CRS)
+            comp[:, b0:b1] = _s2_block(items, bg, winter, workers)
         _wt(dest, comp, grid, nodata=np.nan, band_names=C.S2_BANDS + ["n_dates"],
             tags={"source": "sentinel2", "season": season, "windows": wins,
                   "max_dates_per_tile": S2_MAX_DATES_PER_TILE,
                   "scenes": sorted(it["id"] for it in items)})
         log.info("%s %s S2 %s done in %.0f s; median dates per cell %.0f", a["fire_id"], variant, season,
                  time.time() - t0, float(np.median(comp[-1])))
+
+
+def _s2_block(items: list[dict], grid: Grid, winter: bool, workers: int) -> np.ndarray:
+    """Per-date mean of overlapping tiles, then per-cell median over dates (as the pipeline)."""
+    import warnings
+    with ThreadPoolExecutor(workers) as ex:
+        scls = list(ex.map(lambda it: _read_s2(it["assets"]["scl"]["href"], grid, Resampling.nearest, None), items))
+    valid = [np.isin(s, C.S2_VALID_SCL_WINTER if winter else C.S2_VALID_SCL) for s in scls]
+    del scls
+    by_date = defaultdict(list)
+    for i, it in enumerate(items):
+        by_date[it["properties"]["datetime"][:10]].append(i)
+    dates = sorted(by_date)
+    comp = np.full((len(C.S2_BANDS) + 1,) + grid.shape, np.nan, np.float32)
+    for bi, band in enumerate(C.S2_BANDS):
+        ten_m = band in ("blue", "green", "red", "nir")
+        with ThreadPoolExecutor(workers) as ex:
+            raw = list(ex.map(lambda it: _read_s2(it["assets"][band]["href"], grid, Resampling.average,
+                                                  0 if ten_m else None), items))
+        scales = [_scale(it, band) for it in items]
+        step = 256
+        for r0 in range(0, grid.height, step):
+            rs = slice(r0, min(r0 + step, grid.height))
+            per_date = []
+            for d in dates:
+                acc = np.zeros((rs.stop - rs.start, grid.width), np.float64)
+                n = np.zeros(acc.shape, np.int16)
+                for i in by_date[d]:
+                    s, o = scales[i]
+                    r = raw[i][rs]
+                    ok = valid[i][rs] & (r > 0)
+                    acc[ok] += r[ok] * s + o
+                    n[ok] += 1
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    per_date.append(np.where(n > 0, acc / n, np.nan).astype(np.float32))
+            stack = np.stack(per_date)
+            with np.errstate(all="ignore"), warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                comp[bi, rs] = np.nanmedian(stack, axis=0)
+            if bi == 0:
+                comp[-1, rs] = np.isfinite(stack).sum(0)
+        del raw
+    return comp
 
 
 # ── Meta CHM (shared by both variants; imagery <= 2020) ──────────────────────
@@ -672,10 +683,10 @@ def scar_mask(a: dict) -> None:
     years_hit = {}
     for y in range(a["year"], 2026):
         z = _download(NBAC_URL.format(y=y), NBAC_DIR / f"NBAC_{y}_20260513.zip")
-        df = pyogrio.read_dataframe(f"/vsizip/{z}/NBAC_{y}_20260513.shp", bbox=None, columns=[])
-        # NBAC is in Canada Lambert; filter by the area box in that CRS
-        bb = transform_bounds("EPSG:4326", df.crs, *a["lonlat"], densify_pts=41)
-        df = df.cx[bb[0]:bb[2], bb[1]:bb[3]]
+        src = f"/vsizip/{z}/NBAC_{y}_20260513.shp"
+        # NBAC is in Canada Lambert; read only features whose envelope meets the area box
+        bb = transform_bounds("EPSG:4326", pyogrio.read_info(src)["crs"], *a["lonlat"], densify_pts=41)
+        df = pyogrio.read_dataframe(src, bbox=bb, columns=[])
         years_hit[y] = len(df)
         if len(df):
             # clip the (sometimes enormous) NBAC polygons to the area box before reprojecting
@@ -781,7 +792,7 @@ def build(a: dict, variant: str) -> Path:
         return out
     g = area_grid(a)
     vdir, sdir = area_dir(a, variant), shared_dir(a)
-    wc = _read(vdir / "worldcover_frac.tif").astype(np.float32) / 100.0
+    wc = _read(vdir / "worldcover_frac.tif").astype(np.float16) / np.float16(100.0)  # memory
     chm = _read(sdir / "meta_chm.tif")
     cover = np.clip(np.where(chm[0] < 0, 0, chm[0]), 0, 1)
     del chm
