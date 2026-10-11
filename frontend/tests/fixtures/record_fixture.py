@@ -23,6 +23,11 @@ ravine (Ritchie) with ``structure_spread: true`` (the request that OOM-killed th
 2026-10-10) and, since 2026-10-10, ``structure_embers: true``, for the house-to-house spread
 e2e test.
 
+``--multiday`` records only ``terwillegar_multiday_3d.json``: the same Terwillegar-like grass
+fire as a 3-day POST /simulations/multiday run (dry, drier and windier, then 6 mm of rain), as
+the app sends it (incremental cells, the default 10:00-20:00 burning period), for the multi-day
+e2e tests (frames carry ``day`` and the day's carried-over FWI codes ``day_fwi``).
+
 or ``npm run fixture:record`` from frontend/ (uses ``python3`` on PATH; set PYTHON to override).
 """
 
@@ -123,6 +128,76 @@ STRUCT_REQUEST = {
 }
 
 
+MD_OUT = HERE / "terwillegar_multiday_3d.json"
+MD_SIM_ID = "fixture-multiday-3d"
+MD_MAX_BYTES = 1_500_000
+MD_REQUEST = {
+    "ignition_lat": REQUEST["ignition_lat"],
+    "ignition_lng": REQUEST["ignition_lng"],
+    "days": [
+        {"wind_speed": 15, "wind_direction": 270, "temperature": 24, "relative_humidity": 35, "precipitation_24h": 0},
+        {"wind_speed": 25, "wind_direction": 250, "temperature": 28, "relative_humidity": 22, "precipitation_24h": 0},
+        {"wind_speed": 10, "wind_direction": 300, "temperature": 18, "relative_humidity": 55, "precipitation_24h": 6},
+    ],
+    "fwi_overrides": {"ffmc": 88, "dmc": 30, "dc": 250},
+    "fuel_modifiers": {"grass_cure": 80, "percent_conifer": 50, "day_of_year": 135},
+    "month": 5,
+    "snapshot_interval_minutes": 120,
+    "fuel_type": "O1a",
+    "fuel_grid_path": REQUEST["fuel_grid_path"],
+    "water_path": None,
+    "buildings_path": REQUEST["buildings_path"],
+    "dem_path": REQUEST["dem_path"],
+    "start_time": "2026-05-15T13:00:00-06:00",
+    "burning_period": {"start_hour": 10, "end_hour": 20},
+    "cells_mode": "incremental",
+}
+
+
+def record_multiday() -> int:
+    """The 3-day multi-day fixture (frames tagged with day and day_fwi)."""
+    t0 = time.time()
+    with TestClient(app) as client:
+        r = client.post("/api/v1/simulations/multiday", json=MD_REQUEST)
+        r.raise_for_status()
+        sim_id = r.json()["simulation_id"]
+        while True:
+            data = client.get(f"/api/v1/simulations/{sim_id}").json()
+            if data["status"] not in ("running", "pending", "paused"):
+                break
+            if time.time() - t0 > 900:
+                print("timed out waiting for the simulation", file=sys.stderr)
+                return 1
+            time.sleep(0.5)
+    if data["status"] != "completed":
+        print(f"simulation {data['status']}: {data.get('error')}", file=sys.stderr)
+        return 1
+    data["simulation_id"] = MD_SIM_ID
+    data = _round_floats(data)
+    frames = data["frames"]
+    k = 1
+    while True:
+        trial = json.loads(json.dumps(frames))
+        _thin(trial, k)
+        if len(json.dumps({**data, "frames": trial}, separators=(",", ":"))) <= MD_MAX_BYTES or k >= 64:
+            break
+        k *= 2
+    data["frames"] = trial
+    data["_fixture"] = {
+        "description": "Terwillegar-like grass fire, 3 days x 24 h, 120 min snapshots, burning period 10-20, "
+                       "day 3 with 6 mm rain; start FFMC 88 DMC 30 DC 250",
+        "request": {k2: v for k2, v in MD_REQUEST.items() if not k2.endswith("_path")},
+        "regenerate": "PYTHONPATH=engine/src:api/src python frontend/tests/fixtures/record_fixture.py --multiday",
+        "burned_cells_thinning": k,
+    }
+    MD_OUT.write_text(json.dumps(data, separators=(",", ":")) + "\n")
+    days = sorted({f.get("day") for f in trial if f.get("day") is not None})
+    print(f"wrote {MD_OUT.relative_to(REPO)}: {len(trial)} frames, days {days}, final area "
+          f"{trial[-1]['area_ha']} ha, day_fwi {[f.get('day_fwi') for f in trial[::12]]}, "
+          f"{MD_OUT.stat().st_size / 1e6:.2f} MB (thinning k={k}), {time.time() - t0:.0f} s")
+    return 0
+
+
 def _thin(frames: list[dict], k: int) -> None:
     """Keep every k-th cell. Incremental frames keep every k-th new cell and get their
     cells_offset recomputed, so the client's rebuild (useSimulation.withAllCells) stays valid."""
@@ -196,6 +271,8 @@ def record_structure() -> int:
 def main() -> int:
     if "--structure" in sys.argv[1:]:
         return record_structure()
+    if "--multiday" in sys.argv[1:]:
+        return record_multiday()
     t0 = time.time()
     with TestClient(app) as client:
         r = client.post("/api/v1/simulations", json=REQUEST)

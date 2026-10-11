@@ -244,7 +244,7 @@ export function useSimulation() {
     setState(IDLE);
   }, []);
 
-  const pollForResults = useCallback(async (simId: string, token: number) => {
+  const pollForResults = useCallback(async (simId: string, token: number, lostMessage?: string) => {
     const poll = async () => {
       if (token !== runTokenRef.current) return;
       try {
@@ -274,7 +274,7 @@ export function useSimulation() {
           setState((prev) => ({
             ...prev,
             status: "failed",
-            error: "Simulation lost — the server restarted. Please run the simulation again.",
+            error: lostMessage ?? "Simulation lost — the server restarted. Please run the simulation again.",
             isRunning: false,
           }));
         }
@@ -283,6 +283,22 @@ export function useSimulation() {
     };
     poll();
   }, []);
+
+  /**
+   * Load a finished run from the server by ID (e.g. an operational period's run after a
+   * reload). The server keeps runs in memory only, so it may be gone (restart, deploy, or
+   * dropped after newer runs): the run then ends "failed" with a message saying so.
+   */
+  const restoreRun = useCallback((simId: string) => {
+    const token = beginRun(null);
+    setState((prev) => ({ ...prev, simulationId: simId }));
+    pollForResults(
+      simId,
+      token,
+      "This run is no longer on the server (restarted, redeployed or replaced by newer runs). " +
+        "The period keeps its summary and final perimeter; run it again to see the full run.",
+    );
+  }, [beginRun, pollForResults]);
 
   const setFrameIndex = useCallback((index: number) => {
     setState((prev) => ({
@@ -320,6 +336,7 @@ export function useSimulation() {
     startPerimeterOverride,
     prepareRun,
     clearResults,
+    restoreRun,
     setFrameIndex,
     pauseSimulation,
     resumeSimulation,

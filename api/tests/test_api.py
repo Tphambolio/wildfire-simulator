@@ -532,3 +532,70 @@ def test_cancel_before_the_ensemble_starts_skips_it():
     assert run.ensemble_status == "cancelled"
     SimulationRunner._run_ensemble(run, None, None, None, None, params.ensemble)
     assert run.ensemble_status == "cancelled" and run.ensemble is None
+
+
+def test_run_store_drops_oldest_finished_runs_beyond_the_cap(monkeypatch):
+    """QA 2026-10-11: the in-memory run store had no bound (every run's frames kept until the
+    machine restarts). Beyond MAX_STORED_RUNS the oldest finished runs are dropped; runs still
+    computing, and runs whose ensemble is, are kept."""
+    from firesim_api.schemas.simulation import SimulationStatus
+    from firesim_api.services import runner as runner_mod
+    from firesim_api.services.runner import SimulationRun, SimulationRunner
+
+    monkeypatch.setattr(runner_mod, "MAX_STORED_RUNS", 3)
+    r = SimulationRunner()
+
+    def add(sim_id, status, ensemble=None):
+        run = SimulationRun(sim_id, None)
+        run.status = status
+        run.ensemble_status = ensemble
+        r._store(sim_id, run)
+
+    add("live", SimulationStatus.RUNNING)
+    add("ens", SimulationStatus.COMPLETED, ensemble="running")
+    add("old", SimulationStatus.COMPLETED)
+    add("new", SimulationStatus.COMPLETED)
+    assert r.get("old") is None
+    assert all(r.get(k) is not None for k in ("live", "ens", "new"))
+    add("newer", SimulationStatus.FAILED)
+    assert r.get("new") is None and r.get("newer") is not None and r.get("live") is not None
+
+
+async def _wait_done(client, sim_id: str, tries: int = 240) -> dict:
+    for _ in range(tries):
+        data = (await client.get(f"/api/v1/simulations/{sim_id}")).json()
+        if data["status"] in ("completed", "failed"):
+            return data
+        time.sleep(0.25)
+    return data
+
+
+async def test_multiday_get_keeps_day_and_carried_over_fwi(client):
+    """QA 2026-10-11: GET /simulations/{id} dropped each multi-day frame's ``day`` (only the
+    live WebSocket stream had it), so a client that polled or restored the run lost the day
+    boundaries. GET now tags every frame with its day and that day's FWI codes after the
+    CFFDRS daily carry-over (``day_fwi``); single-day runs have neither."""
+    dry = {"wind_speed": 2.0, "wind_direction": 270.0, "temperature": 26.0,
+           "relative_humidity": 30.0, "precipitation_24h": 0.0}
+    wet = dict(dry, relative_humidity=70.0, precipitation_24h=12.0)
+    payload = {"ignition_lat": 53.0, "ignition_lng": -114.0, "days": [dry, wet],
+               "fwi_overrides": {"ffmc": 88.0, "dmc": 30.0, "dc": 250.0}, "month": 7,
+               "snapshot_interval_minutes": 120.0, "fuel_type": "C2"}
+    sim_id = (await client.post("/api/v1/simulations/multiday", json=payload)).json()["simulation_id"]
+    data = await _wait_done(client, sim_id)
+    assert data["status"] == "completed", data.get("error")
+    frames = data["frames"]
+    assert [f["time_hours"] for f in frames] == list(range(0, 49, 2))
+    # Day 1 is 0-24 h (t = 0 included); day 2 drops its own t = 0 (the end of day 1)
+    assert [f["day"] for f in frames] == [1] * 13 + [2] * 12
+    d1, d2 = frames[0]["day_fwi"], frames[-1]["day_fwi"]
+    assert set(d1) == {"ffmc", "dmc", "dc", "isi", "bui", "fwi"}
+    assert all(f["day_fwi"] == d1 for f in frames if f["day"] == 1)
+    # 12 mm of rain on day 2 lowers the carried-over fine fuel and duff codes
+    assert d2["ffmc"] < d1["ffmc"] and d2["dmc"] < d1["dmc"]
+
+    single = {"ignition_lat": 53.0, "ignition_lng": -114.0,
+              "weather": {"wind_speed": 5.0, "wind_direction": 270.0}, "duration_hours": 0.5}
+    sid = (await client.post("/api/v1/simulations", json=single)).json()["simulation_id"]
+    one = await _wait_done(client, sid)
+    assert one["frames"] and all(f["day"] is None and f["day_fwi"] is None for f in one["frames"])
