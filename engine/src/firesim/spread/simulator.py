@@ -85,6 +85,7 @@ class Simulator:
         structure_combustible_roof_share: float = 0.0,
         structure_long_range_embers: bool = False,
         structure_long_range_members: int = 20,
+        structure_long_range_model: str = "v2",
         progress=None,
         fine_fuel=None,
         fine_building_mask: list | None = None,
@@ -149,6 +150,9 @@ class Simulator:
                 ignition from torching/crowning grid cells (``structures.long_range``, spec
                 §6.3): an ensemble of ``structure_long_range_members`` structure runs gives each
                 involved building an ignition probability (illustrative).
+                ``structure_long_range_model``: "v2" (default, spec §6.4: burning buildings
+                are ember sources too, per-ember ignition after Himoto & Tanaka 2008,
+                published parameter ranges drawn per member) or "v1" (spec §6.3).
             progress: Optional callable(phase, fraction) for progress display only (no
                 effect on results). Grid model: ("spread", 0-1) while the front advances,
                 then ("structures", None) before house-to-house spread when it is on, and
@@ -193,6 +197,7 @@ class Simulator:
         self.structure_combustible_roof_share = float(structure_combustible_roof_share or 0.0)
         self.structure_long_range_embers = bool(structure_long_range_embers)
         self.structure_long_range_members = int(structure_long_range_members)
+        self.structure_long_range_model = str(structure_long_range_model)
         self.progress = progress
         self.fine_fuel = fine_fuel
         self.fine_building_mask = fine_building_mask
@@ -622,7 +627,9 @@ class Simulator:
             from firesim.structures.long_range import LongRangeOptions
 
             long_range = LongRangeOptions(members=self.structure_long_range_members,
-                                          seed=int(self.seed or 0))
+                                          seed=int(self.seed or 0),
+                                          model=self.structure_long_range_model,
+                                          design_fire_kw_m2=int(self.structure_design_fire_kw_m2))
         g, area = self._run_grid, self.fuel_grid
         return structure_spread.structure_spread_for_grid_run(
             footprints, arrival, self._schedule, duration_min,

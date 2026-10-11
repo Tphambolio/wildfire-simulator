@@ -162,7 +162,8 @@ def _setup():
 
 def _run(**kw):
     arrival, em, houses = _setup()
-    opts = LR.LongRangeOptions(members=kw.pop("members", 8), p_building=kw.pop("p_b", 0.001))
+    opts = LR.LongRangeOptions(members=kw.pop("members", 8), p_building=kw.pop("p_b", 0.001),
+                               model=kw.pop("model", "v1"))
     return structure_spread_for_grid_run(ListFootprintSource(houses), arrival,
                                          [(0.0, _Cond(40.0, 270.0))], 120.0, bbox=BBOX,
                                          emitters=em, long_range=opts, ffmc=93.0, seed=7, **kw)

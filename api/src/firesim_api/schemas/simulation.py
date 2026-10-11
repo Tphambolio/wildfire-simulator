@@ -405,6 +405,19 @@ class SimulationCreate(BaseModel):
         default=20, ge=1, le=50,
         description="Ensemble members for `structure_long_range_embers` (1-50, default 20).",
     )
+    structure_long_range_model: Literal["v1", "v2"] = Field(
+        default="v2",
+        description=(
+            "Long-range ember model (illustrative — not validated). `v2` (default, "
+            "docs/structure-spread-spec.md §6.4): burning buildings are ember sources too "
+            "(Qin 2025 generation, Himoto & Tanaka 2008 transport), iterated every 10 min so "
+            "ember-ignited buildings become sources; embers landing on one 1.44 m² receptive "
+            "bed per building ignite it with the per-brand probability measured under "
+            "firebrand showers (Suzuki & Manzello) × a bed-to-building probability p_b (FireSim "
+            "hypothesis); p_b, the bed probability and the 250-640 embers/kg yield are drawn "
+            "per member. `v1`: the §6.3 chain (wildland source only, receptive ring, p_e · p_b)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _embers_need_structure_spread(self):

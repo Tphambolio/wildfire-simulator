@@ -228,6 +228,7 @@ class LongRangeResult(StructureSpreadResult):
     t_members: np.ndarray | None = None
     source_members: np.ndarray | None = None
     p_direct: np.ndarray | None = None
+    urban_reach_m: float = 0.0  # v2: farthest urban ember landing from a footprint (reach guard)
 
     def p_involved(self, t_min: float | None = None) -> np.ndarray:
         t = self.t_members
@@ -885,6 +886,8 @@ def structure_spread_for_grid_run(
         guard = cutoff + 1.0
         if embers is not None:
             guard = np.maximum(structure_ember_reach(units, embers, u10_max), cutoff) + 1.0
+        if getattr(result, "urban_reach_m", 0.0):
+            guard = np.maximum(guard, result.urban_reach_m + 1.0)
         if whole_grid or _inside_reach(units, result, reach, frame, guard, bbox):
             break
         margin_m *= 2.0
@@ -912,6 +915,9 @@ def _long_range_run(units, t_front, wind, duration_min, fb, embers, wildland, bu
     from firesim.structures import long_range as lr_mod
 
     opts = replace(opts, seed=int(opts.seed) or int(seed))
+    if opts.model == "v2":
+        return _long_range_run_v2(units, t_front, wind, duration_min, fb, embers, wildland,
+                                  burnout_min, links, psi, fld, opts, roof)
     hazard = lr_mod.building_hazard(units, fld, opts, 90.0 if ffmc is None else float(ffmc),
                                     combustible_roof=roof)
 
@@ -928,6 +934,40 @@ def _long_range_run(units, t_front, wind, duration_min, fb, embers, wildland, bu
                            t_front_min=np.asarray(t_front, float), params={},
                            burnout_min=burnout_min, t_members=t_all, source_members=s_all,
                            p_direct=p_direct)
+
+
+def _long_range_run_v2(units, t_front, wind, duration_min, fb, embers, wildland, burnout_min,
+                       links, psi, fld, opts, roof) -> "LongRangeResult":
+    """The v2 long-range ensemble (spec §6.4): wildland and urban embers, per-ember ignition."""
+    from firesim.structures import long_range as lr_mod
+
+    lr_wind = [(w.start_min, w.wind_speed_kmh, w.wind_direction_deg) for w in wind]
+    landed = lr_mod.landed_on_buildings(units, fld, opts)
+    urban = (lr_mod.UrbanSource.build(units, lr_wind, opts, lr_mod.URBAN_RASTER_M)
+             if opts.urban_source and len(units) else None)
+    alpha_factor = None
+    if roof is not None:
+        alpha_factor = np.where(np.asarray(roof, bool), opts.roof_factor, 1.0)
+
+    if embers is None:
+        stage = lr_mod.IncrementalHamada(units, wind, duration_min=duration_min, fb=fb,
+                                         burnout_min=burnout_min, link_filter=links)
+    else:
+        def spread_fn(t0, horizon):
+            return spread_with_embers(units, t0, wind, duration_min=horizon, fb=fb, embers=embers,
+                                      wildland=wildland, burnout_min=burnout_min,
+                                      link_filter=links, psi_factor=psi)
+
+        stage = lr_mod.RerunStage(spread_fn, duration_min)
+    t_all, s_all, _, p_ember = lr_mod.run_ensemble_v2(units, t_front, landed, fld.edges, opts,
+                                                      stage, duration_min, urban, lr_wind,
+                                                      alpha_factor)
+    t_any = np.min(t_all, axis=0).astype(float) if len(t_all) else np.full(len(units), np.inf)
+    return LongRangeResult(t_min=t_any, source=np.zeros(len(units), dtype=np.int8),
+                           parent=np.full(len(units), -1, dtype=np.int64),
+                           t_front_min=np.asarray(t_front, float), params={},
+                           burnout_min=burnout_min, t_members=t_all, source_members=s_all,
+                           p_direct=p_ember, urban_reach_m=urban.reach_m if urban is not None else 0.0)
 
 
 def _inside_reach(units, result, reach, frame, guard_m, grid_bbox) -> bool:

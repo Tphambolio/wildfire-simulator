@@ -147,9 +147,41 @@ def cap_distance(kind: str, hfi_kw_m: float, cfb: float, u10_ms: float, fuel: st
     return max_spot_distance(fuel, hfi_kw_m, cfb, u10_ms * 3.6)
 
 
+# --- v2 (spec §6.4): urban ember source, per-ember building ignition from Himoto & Tanaka,
+# parameter uncertainty in the ensemble ---------------------------------------------------
+GR_STRUCTURE = 10.0  # pcs/(MW·s) = embers per MJ released: Qin 2025 Table 6.1 p.153 [T]
+BETA_B_PER_KJ = GR_STRUCTURE / 1000.0  # HT08 eq 41 β_B in embers per kJ (from Qin) [D]
+ALPHA_BETA_RANGE = (0.0, 2.0e-6)  # HT08 Table 3: α_B·β_B ∈ {0, 1, 2}×10⁻⁶ kJ⁻¹ [V, sensitivity set]
+ALPHA_BETA_MID = 1.0e-6
+ALPHA_PER_EMBER = ALPHA_BETA_MID / BETA_B_PER_KJ  # 1e-4 per ember landed on a building [D]
+N_PER_KG_RANGE = (N_PER_KG_LOW, N_PER_KG_THOMPSON)  # published values 250-640 /kg [V]
+COUPLE_STEP_MIN = 10.0  # urban coupling step and landing-field bin (v2) [H]
+HIMOTO_TAIL_Q = 0.999  # numerical end of the untruncated Himoto kernel (0.1 % dropped) [H]
+# Receptive-bed ignition (v2 primary, spec §6.4): a building is ignited through one receptive
+# near-home fuel bed of the tested size; per-ember bed ignition from firebrand-shower tests
+BED_AREA_M2 = 1.44  # 1.2 m × 1.2 m mulch bed (Suzuki, Manzello et al. 2015 Fire Technol., Fig. 5) [V size; H as receptor]
+P_BED_RANGE = (2.0e-4, 7.0e-3)  # 1 / brands to first sustained flaming per ~1.4 m² bed: mulch 980-3,800,
+#   pine bark 1,508-2,624, deck 140-5,700 (0.05 g brands; Suzuki/Manzello 2015 Table 1 × times;
+#   firebrand-structures review 2026-10-11) [D]; drawn per building, log-uniform [H]
+P_BED_MULCH = 5.5e-4  # dry mulch, 6-8 m/s: 7.36 m⁻²s⁻¹ × 1.44 m² × 172 s ≈ 1,823 → 1/1,823 [D]
+MASS_FACTOR = 4.0  # model ember 0.2 g (Qin) / tested brand 0.05 g (Suzuki 2015 p.5): mass-equivalent [D]
+P_B_RANGE = (0.1, 1.0)  # bed fire → building fire; no published value; lab corner tests (Fire
+#   Technol. 53:535) span no ignition to 6/6 [H]; drawn per member, uniform
+P_B_FIXED = 0.5
+URBAN_SIZE_CLASSES = 4  # building-size classes for the urban kernels (quartiles) [H]
+URBAN_RASTER_M = 10.0  # urban landing raster (Himoto medians are ~4-12 m) [H]
+
+
 @dataclass(frozen=True)
 class LongRangeOptions:
-    """Long-range ember settings (spec §6.3). Defaults are the primary [V]/[H] values."""
+    """Long-range ember settings (spec §6.3 v1, §6.4 v2). Defaults are the primary values.
+
+    ``model``: ``"v2"`` (default since 2026-10-11, spec §6.4) adds burning buildings as ember
+    sources (iterated every ``step_min``), ignites a building per ember landed on its
+    footprint with α = α_B (Himoto & Tanaka 2008) and draws α_B·β_B and the per-kg yield per
+    member from their published ranges; ``"v1"`` is the 2026-10-11 chain of §6.3 (receptive
+    ring, p_e · k_g · p_b, wildland source only, fixed parameters).
+    """
 
     n_per_kg: float = N_PER_KG
     f_surface: float = F_SURFACE
@@ -166,19 +198,58 @@ class LongRangeOptions:
     delay_s: float = DELAY_S
     raster_m: float | None = None  # None: the source cell size
     seed: int = 0
+    # v2
+    model: str = "v2"
+    urban_source: bool = True
+    param_draws: bool = True  # draw p_b, n_kg (per member) and p_bed (per building)
+    receptive: str = "bed"  # "bed" (primary), "footprint" (HT08 α), "ring" (v1 A_r with α)
+    bed_area_m2: float = BED_AREA_M2
+    p_bed_range: tuple = P_BED_RANGE
+    p_bed: float = P_BED_MULCH  # without draws
+    mass_factor: float = MASS_FACTOR
+    p_b_range: tuple = P_B_RANGE
+    p_b: float = P_B_FIXED  # without draws
+    alpha: float = ALPHA_PER_EMBER  # HT08 per-ember probability ("footprint"/"ring") without draws
+    alpha_beta_range: tuple = ALPHA_BETA_RANGE
+    n_per_kg_range: tuple = N_PER_KG_RANGE
+    step_min: float = COUPLE_STEP_MIN
+    gr_structure: float = GR_STRUCTURE
+    structure_tail_q: float = HIMOTO_TAIL_Q
+    design_fire_kw_m2: int = 150
 
     def __post_init__(self):
         if self.tail not in ("cap", "q99", "x2"):
             raise ValueError("tail must be 'cap', 'q99' or 'x2'")
         if not 1 <= int(self.members) <= MAX_MEMBERS:
             raise ValueError(f"members must be 1-{MAX_MEMBERS}")
+        if self.model not in ("v1", "v2"):
+            raise ValueError("model must be 'v1' or 'v2'")
+        if self.receptive not in ("bed", "footprint", "ring"):
+            raise ValueError("receptive must be 'bed', 'footprint' or 'ring'")
+        if not self.step_min > 0:
+            raise ValueError("step_min must be > 0")
+
+    @property
+    def field_bin_min(self) -> float:
+        """Landing-field bin: the coupling step in v2, ``bin_min`` in v1."""
+        return float(self.step_min if self.model == "v2" else self.bin_min)
 
     def params(self) -> dict:
-        return {"long_range_embers": True, "long_range_members": int(self.members),
-                "long_range_embers_per_kg": float(self.n_per_kg),
-                "long_range_p_building": float(self.p_building),
-                "long_range_glowing_factor": float(self.k_glowing),
-                "long_range_tail": self.tail}
+        out = {"long_range_embers": True, "long_range_members": int(self.members),
+               "long_range_model": self.model,
+               "long_range_embers_per_kg": float(self.n_per_kg),
+               "long_range_tail": self.tail}
+        if self.model == "v1":
+            out.update({"long_range_p_building": float(self.p_building),
+                        "long_range_glowing_factor": float(self.k_glowing)})
+        else:
+            out.update({"long_range_urban_source": bool(self.urban_source),
+                        "long_range_parameter_draws": bool(self.param_draws),
+                        "long_range_receptive": self.receptive,
+                        "long_range_embers_per_kg_range": list(self.n_per_kg_range)
+                        if self.param_draws else float(self.n_per_kg),
+                        "long_range_step_min": float(self.step_min)})
+        return out
 
 
 @dataclass
@@ -259,12 +330,14 @@ class Raster:
 
 
 def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_deg: float,
-           tail: str = "cap", subsample: int = 4) -> np.ndarray:
+           tail: str = "cap", subsample: int = 4, offset_m: float = 0.0) -> np.ndarray:
     """Share of one source cell's embers landing in each raster cell (odd-sized, centred on
     the source). Downwind lognormal (μ, σ of ln x) × crosswind normal (σ_Y); embers beyond the
     cap are dropped (``tail='cap'``); ``'q99'`` truncates at the 99th percentile and
     renormalises (Qin 2025 eq 4.9); ``'x2'`` stretches distances beyond the median ×2 (and
-    the cap ×2) [H, Thurston 2017 [A]]."""
+    the cap ×2) [H, Thurston 2017 [A]]. ``offset_m``: flight distances are measured from a
+    point ``offset_m`` downwind of the source centre (a building's downwind edge, Qin 2025
+    §6.3.1; v2 urban source)."""
     to = math.radians(to_deg)
     ux, uy = math.sin(to), math.cos(to)
     med = math.exp(mu)
@@ -275,8 +348,8 @@ def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_d
     else:
         length = cap_m
     hw = 4.0 * sigma_y + h
-    ex = abs(ux) * length + abs(uy) * hw + h
-    ey = abs(uy) * length + abs(ux) * hw + h
+    ex = abs(ux) * (length + offset_m) + abs(uy) * hw + h
+    ey = abs(uy) * (length + offset_m) + abs(ux) * hw + h
     nc, nr = int(math.ceil(ex / h)), int(math.ceil(ey / h))
     out = np.zeros((2 * nr + 1, 2 * nc + 1))
     cols = np.arange(-nc, nc + 1)
@@ -287,7 +360,7 @@ def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_d
             py = (-r_off + qy) * h  # north-up: row offset +1 = 1 cell south
             for qx in q:
                 px = (cols + qx) * h
-                a = px * ux + py * uy
+                a = px * ux + py * uy - offset_m
                 c = -px * uy + py * ux
                 if tail == "x2":
                     a_eff = np.where(a > med, med + (a - med) / 2.0, a)
@@ -347,7 +420,7 @@ def landing_field(sources: EmberSourceCells, wind, duration_min: float, opts: Lo
         xs = sources.x[keep] if keep.any() else sources.x
         ys = sources.y[keep] if keep.any() else sources.y
         raster = Raster.around(xs, ys, pad_m, h)
-    edges = np.unique(np.concatenate([np.arange(0.0, duration_min, opts.bin_min), [duration_min],
+    edges = np.unique(np.concatenate([np.arange(0.0, duration_min, opts.field_bin_min), [duration_min],
                                       starts[(starts > 0) & (starts < duration_min)]]))
     nb = len(edges) - 1
     dens = np.zeros((nb, raster.rows, raster.cols), dtype=np.float32)
@@ -481,3 +554,375 @@ def run_ensemble(units, t_front_min, hazard, edges, opts: LongRangeOptions, spre
         lr_all[m] = lr
     p_direct = 1.0 - np.exp(-hazard.sum(axis=0)) if hazard.size else np.zeros(n)
     return t_all, s_all, lr_all, p_direct
+
+
+# ----------------------------------------------------------------------------- v2 (spec §6.4)
+
+
+def receptive_m2(units, opts: LongRangeOptions) -> np.ndarray:
+    """Receptive area per unit (m²): one receptive bed of the tested size (``"bed"``), the
+    footprint (``"footprint"``, HT08 eq 37: the brand "lands on the building"), or footprint +
+    ring (``"ring"``, v1)."""
+    if opts.receptive == "bed":
+        return np.full(len(units), float(opts.bed_area_m2))
+    if opts.receptive == "footprint":
+        return np.asarray(units.area_m2, float)
+    return receptive_area(units, opts.ring_m)
+
+
+def landed_on_buildings(units, fld: LandingField, opts: LongRangeOptions) -> np.ndarray:
+    """(bins, units) expected wildland embers landing on each building's receptive area
+    (λ_b at its centroid × ``receptive_m2``). Scales linearly with ``n_per_kg``."""
+    n = len(units)
+    r, c, ok = fld.raster.index(units.x, units.y)
+    lam = np.zeros((len(fld.edges) - 1, n))
+    if ok.any():
+        lam[:, ok] = fld.density[:, r[ok], c[ok]]
+    return lam * receptive_m2(units, opts)[None, :]
+
+
+def weighted_hrrpua(design_fire) -> float:
+    """Emission-weighted mean HRR per area of a design fire, ∫q²dt / ∫q dt (kW/m²) [D]: the
+    HRR at which an average ember is emitted (embers ∝ HRR, Qin 2025 eq 3.1)."""
+    t = np.linspace(0.0, design_fire.duration_s, 4001)
+    q = design_fire.hrrpua(t)
+    trap = getattr(np, "trapezoid", None) or np.trapz
+    return float(trap(q * q, t) / max(trap(q, t), 1e-12))
+
+
+@dataclass
+class UrbanSource:
+    """Burning buildings as ember sources (v2, spec §6.4).
+
+    Embers per unit and step: GR' · ∫HRR dt (Qin 2025 eq 3.1, Table 6.1: GR' = 10 per MJ),
+    carried with the Himoto & Tanaka (2008) lognormal flight distance from the source's
+    downwind edge (eqs 38-40; ``embers.himoto_lognormal`` at the 10 m wind, spec C17) and a
+    normal crosswind spread σ_Y = 0.92 D (eq 39), **not** truncated at Qin's 99th percentile
+    (the kernel ends at the 99.9th [H]). One kernel per building-size class (quartiles of D
+    [H]) at the class's emission-weighted HRR and per wind period, on a 10 m raster [H]; the
+    landing density at a target is the kernel value at the target's cell offset from the
+    source's cell (the raster convolution evaluated only at building cells, as a sparse
+    source → target matrix).
+    """
+
+    weights: dict  # period -> scipy.sparse csr (targets × sources), embers/m² per ember
+    area: np.ndarray
+    design_fire: object
+    gr: float
+    reach: float
+
+    @classmethod
+    def build(cls, units, wind, opts: LongRangeOptions, h: float = URBAN_RASTER_M) -> "UrbanSource":
+        """``wind``: list of (start_min, wind_speed_kmh, wind_from_deg)."""
+        from scipy.sparse import csr_matrix
+        from scipy.spatial import cKDTree
+
+        from firesim.structures.embers import DESIGN_FIRES, himoto_lognormal
+
+        df = DESIGN_FIRES[int(opts.design_fire_kw_m2)]
+        n = len(units)
+        area = np.asarray(units.area_m2, float)
+        q_w = weighted_hrrpua(df)
+        d = np.asarray(units.size_m, float)
+        if n == 0:
+            return cls({}, area, df, float(opts.gr_structure), 0.0)
+        qs = np.quantile(d, np.linspace(0, 1, URBAN_SIZE_CLASSES + 1))
+        cl = np.clip(np.searchsorted(qs[1:-1], d, side="right"), 0, URBAN_SIZE_CLASSES - 1)
+        kernels, reach = {}, 0.0
+        for k in range(URBAN_SIZE_CLASSES):
+            m = cl == k
+            if not m.any():
+                continue
+            dk = float(np.median(d[m]))
+            for p, (_, kmh, wfrom) in enumerate(wind):
+                u10 = float(kmh) / 3.6
+                if u10 <= 0:
+                    continue
+                mu, sg = himoto_lognormal(q_w * dk * dk, u10, dk)
+                mu, sg = float(mu), float(sg)
+                cap = math.exp(mu + sg * float(ndtri(opts.structure_tail_q)))
+                ker = kernel(mu, sg, HIMOTO_SIGMA_Y * dk, cap, h, float(wfrom) + 180.0, "cap",
+                             offset_m=dk / 2.0)
+                kernels[(k, p)] = ker
+                reach = max(reach, math.hypot(ker.shape[0] // 2, ker.shape[1] // 2) * h)
+        # cells of every unit on a common 10 m lattice
+        cr = np.floor(-np.asarray(units.y, float) / h).astype(np.int64)
+        cc = np.floor(np.asarray(units.x, float) / h).astype(np.int64)
+        tree = cKDTree(np.column_stack([units.x, units.y]))
+        pairs = tree.query_pairs(reach + h, output_type="ndarray")
+        src = np.concatenate([pairs[:, 0], pairs[:, 1], np.arange(n)])
+        tgt = np.concatenate([pairs[:, 1], pairs[:, 0], np.arange(n)])
+        del pairs
+        dr, dc = cr[tgt] - cr[src], cc[tgt] - cc[src]
+        weights = {}
+        for p in range(len(wind)):
+            val = np.zeros(len(src), dtype=np.float32)
+            for k in range(URBAN_SIZE_CLASSES):
+                ker = kernels.get((k, p))
+                if ker is None:
+                    continue
+                hr, hc = ker.shape[0] // 2, ker.shape[1] // 2
+                m = (cl[src] == k) & (np.abs(dr) <= hr) & (np.abs(dc) <= hc)
+                val[m] = ker[hr + dr[m], hc + dc[m]] / (h * h)
+            keep = (val > 0) & (src != tgt)  # nothing lands on the emitting footprint (Qin25 p.170)
+            weights[p] = csr_matrix((val[keep], (tgt[keep], src[keep])), shape=(n, n))
+        return cls(weights, area, df, float(opts.gr_structure), reach)
+
+    def emitted(self, t_inv, a: float, b: float) -> np.ndarray:
+        """Embers emitted by each unit in [a, b) minutes (0 if not burning)."""
+        t = np.asarray(t_inv, float)
+        fin = np.isfinite(t) & (t < b)
+        out = np.zeros(len(t))
+        if fin.any():
+            ti = t[fin]
+            e = (self.design_fire.energy_per_area((b - ti) * 60.0)
+                 - self.design_fire.energy_per_area((np.maximum(a, ti) - ti) * 60.0))
+            out[fin] = self.gr * e * self.area[fin] / 1000.0  # kJ/m² × m² / 1000 = MJ
+        return out
+
+    def density_at_units(self, counts: np.ndarray, period: int) -> np.ndarray:
+        """Landed embers per m² at each unit from ``counts`` emitted by the units."""
+        w = self.weights.get(int(period))
+        if w is None:
+            return np.zeros(len(counts))
+        return np.asarray(w @ np.asarray(counts, float)).ravel()
+
+    @property
+    def reach_m(self) -> float:
+        return float(self.reach)
+
+
+class IncrementalHamada:
+    """``spread.hamada_spread`` advanced in time steps, with seeds added between steps (v2).
+
+    Same event loop, crossing function, burn-out and link filter as ``hamada_spread``; events
+    are processed only up to ``advance(t_end)``. A seed added later than events already
+    processed is still propagated from its own time, but units already involved keep their
+    times (coupling resolution = the step, spec §6.4 [H]).
+    """
+
+    def __init__(self, units, wind, *, duration_min: float, fb: float, burnout_min=None,
+                 link_filter=None):
+        from firesim.structures.spread import WindPeriod  # noqa: F401  (type of ``wind``)
+
+        self.units, self.fb, self.burnout_min = units, fb, burnout_min
+        self.link_filter, self.duration_min = link_filter, float(duration_min)
+        self.starts = np.array([w.start_min for w in wind], dtype=float)
+        self.speed = np.array([w.wind_speed_kmh / 3.6 for w in wind])
+        to = np.radians(np.array([w.wind_direction_deg for w in wind]) + 180.0)
+        self.sx, self.sy = np.sin(to), np.cos(to)
+
+    def reset(self, t_front_min) -> None:
+        from firesim.structures.spread import SOURCE_FRONT, SOURCE_NONE
+
+        n = len(self.units)
+        t = np.asarray(t_front_min, dtype=float).copy()
+        t[t > self.duration_min] = np.inf
+        self.t = t
+        self.source = np.where(np.isfinite(t), SOURCE_FRONT, SOURCE_NONE).astype(np.int8)
+        self.done = np.zeros(n, dtype=bool)
+        self.heap = [(float(t[i]), int(i)) for i in np.nonzero(np.isfinite(t))[0]]
+        import heapq
+
+        heapq.heapify(self.heap)
+
+    def add_seeds(self, idx, times) -> None:
+        import heapq
+
+        from firesim.structures.spread import SOURCE_FRONT
+
+        for i, ti in zip(np.asarray(idx, int), np.asarray(times, float)):
+            if self.done[i] or not ti < self.t[i] or ti > self.duration_min:
+                continue
+            self.t[i] = ti
+            self.source[i] = SOURCE_FRONT
+            heapq.heappush(self.heap, (float(ti), int(i)))
+
+    def advance(self, t_end: float) -> np.ndarray:
+        import heapq
+
+        from firesim.structures.spread import SOURCE_STRUCTURE, _cross
+
+        u, t, done = self.units, self.t, self.done
+        while self.heap and self.heap[0][0] <= t_end:
+            ti, i = heapq.heappop(self.heap)
+            if done[i] or ti > t[i]:
+                continue
+            done[i] = True
+            nb, sep = u.neighbours(i)
+            if len(nb) == 0:
+                continue
+            keep = ~done[nb]
+            nb, sep = nb[keep], sep[keep]
+            if len(nb) and self.link_filter is not None:
+                keep = self.link_filter(i, nb, sep)
+                nb, sep = nb[keep], sep[keep]
+            if len(nb) == 0:
+                continue
+            a0 = (u.size_m[i] + u.size_m[nb]) / 2.0
+            dx, dy = u.x[nb] - u.x[i], u.y[nb] - u.y[i]
+            dist = np.hypot(dx, dy)
+            safe = np.where(dist > 0, dist, 1.0)
+            arrive = _cross(ti, a0, sep, dx / safe, dy / safe, dist > 0, self.starts, self.speed,
+                            self.sx, self.sy, self.fb, self.duration_min,
+                            burnout_at=math.inf if self.burnout_min is None else ti + self.burnout_min)
+            better = arrive < t[nb]
+            for j, tj in zip(nb[better], arrive[better]):
+                t[j] = tj
+                self.source[j] = SOURCE_STRUCTURE
+                heapq.heappush(self.heap, (float(tj), int(j)))
+        return t
+
+    def final(self):
+        self.advance(self.duration_min)
+        return self.t.copy(), self.source.copy()
+
+
+class RerunStage:
+    """Stage adapter for a structure-stage function ``spread_fn(seed_times, horizon_min)``
+    (e.g. ``spread_with_embers`` with short-range embers): re-run after every new seed."""
+
+    def __init__(self, spread_fn, duration_min: float):
+        self.fn, self.duration_min = spread_fn, float(duration_min)
+
+    def reset(self, t_front_min) -> None:
+        self.seeds = np.asarray(t_front_min, float).copy()
+        self.seeds[self.seeds > self.duration_min] = np.inf
+        self._res, self._h = None, -1.0
+
+    def add_seeds(self, idx, times) -> None:
+        idx = np.asarray(idx, int)
+        times = np.asarray(times, float)
+        better = (times < self.seeds[idx]) & (times <= self.duration_min)
+        if better.any():
+            self.seeds[idx[better]] = times[better]
+            self._res = None
+
+    def advance(self, t_end: float) -> np.ndarray:
+        if self._res is None or t_end > self._h:
+            self._h = min(self.duration_min, max(t_end, self._h) + 60.0)
+            self._res = self.fn(self.seeds, self._h)
+        return np.asarray(self._res.t_min, float)
+
+    def final(self):
+        res = self.fn(self.seeds, self.duration_min)
+        return np.asarray(res.t_min, float), np.asarray(res.source).astype(np.int8)
+
+
+@dataclass
+class MemberDraw:
+    q: np.ndarray  # per-unit probability that one ember landed on the receptive area ignites the building
+    n_scale: float  # n_kg / opts.n_per_kg (the landing field was built with opts.n_per_kg)
+    p_b: float = float("nan")
+    alpha: float = float("nan")
+    info: dict = field(default_factory=dict)  # filled by run_member_v2 (diagnostics)
+
+
+def member_draw(opts: LongRangeOptions, rng, n: int) -> MemberDraw:
+    """Per-member parameters (v2) [H: uniform over published values / ranges].
+
+    ``receptive="bed"``: q_i = mass_factor · p_bed,i · p_b, with p_bed,i ~ log-uniform over
+    ``p_bed_range`` per building (bed material varies between buildings) and p_b ~ U(p_b_range)
+    per member (no published value). ``"footprint"``/``"ring"``: q = α = α_B·β_B / β_B with
+    α_B·β_B ~ U(HT08 range) per member. n_kg ~ U(250, 640) per member. Fixed values when
+    ``param_draws`` is False. The draw order is fixed (n_kg, p_b or α, then p_bed)."""
+    draws = opts.model == "v2" and opts.param_draws
+    nk = float(rng.uniform(*opts.n_per_kg_range)) if draws else float(opts.n_per_kg)
+    if opts.receptive == "bed":
+        p_b = float(rng.uniform(*opts.p_b_range)) if draws else float(opts.p_b)
+        if draws:
+            lo, hi = np.log(opts.p_bed_range[0]), np.log(opts.p_bed_range[1])
+            p_bed = np.exp(rng.uniform(lo, hi, size=n))
+        else:
+            p_bed = np.full(n, float(opts.p_bed))
+        q = np.minimum(opts.mass_factor * p_bed * p_b, 1.0)
+        return MemberDraw(q, nk / opts.n_per_kg, p_b=p_b)
+    a = float(rng.uniform(*opts.alpha_beta_range)) / BETA_B_PER_KJ if draws else float(opts.alpha)
+    return MemberDraw(np.full(n, a), nk / opts.n_per_kg, alpha=a)
+
+
+def run_member_v2(units, t_front_min, wild_landed, edges, opts: LongRangeOptions, stage,
+                  duration_min: float, rng, urban: UrbanSource | None, wind_periods=None,
+                  alpha_factor=None, draw: MemberDraw | None = None):
+    """One v2 member: wildland + urban embers, per-ember building ignition, structure stage.
+
+    Every unit draws E ~ Exp(1); its hazard H(t) = q Σ (embers landed on its receptive
+    area, ``receptive_m2``) grows bin by bin; it ignites when H crosses E (time interpolated inside the bin), becomes
+    involved ``delay_s`` later and, once involved (by front, Hamada or embers), emits embers
+    for its design fire's length. ``stage``: ``IncrementalHamada`` or ``RerunStage``.
+
+    ``wild_landed``: (bins, n) wildland embers landed per unit (``landed_on_buildings``) or
+    None. ``alpha_factor``: per-unit factor on q (roof scenario). The draw (``member_draw``) is
+    taken from ``rng`` first, then the thresholds. Returns (t_min, source, ember_seeded,
+    landed, draw); ``draw.info`` counts ember ignitions by dominant source (urban / wildland)."""
+    from firesim.structures.spread import SOURCE_EMBER, SOURCE_FRONT
+
+    n = len(units)
+    draw = draw or member_draw(opts, rng, n)
+    a_unit = (draw.q if alpha_factor is None
+              else np.minimum(draw.q * np.asarray(alpha_factor, float), 1.0))
+    a_rec = receptive_m2(units, opts)
+    e_thr = rng.exponential(1.0, size=n)
+    hz = np.zeros(n)
+    landed = np.zeros(n)
+    tf = np.asarray(t_front_min, float).copy()
+    tf[tf > duration_min] = np.inf
+    stage.reset(tf)
+    ember_t = np.full(n, np.inf)
+    nb = len(edges) - 1
+    starts = np.array([float(w[0]) for w in wind_periods]) if wind_periods else np.zeros(1)
+    delay = opts.delay_s / 60.0
+    n_urb = n_wild = 0
+    for b in range(nb):
+        a, e = float(edges[b]), float(edges[b + 1])
+        t_inv = stage.advance(e)
+        add = (np.asarray(wild_landed[b], float) * draw.n_scale if wild_landed is not None
+               else np.zeros(n))
+        add_u = None
+        if urban is not None and opts.urban_source:
+            cnt = urban.emitted(t_inv, a, e)
+            if cnt.any():
+                p = max(int(np.searchsorted(starts, a, side="right")) - 1, 0)
+                add_u = urban.density_at_units(cnt, p) * a_rec
+                add = add + add_u
+        landed += add
+        inc = a_unit * add
+        new = hz + inc
+        cross = (hz < e_thr) & (new >= e_thr) & ~np.isfinite(ember_t)
+        if cross.any():
+            idx = np.nonzero(cross)[0]
+            frac = np.clip((e_thr[idx] - hz[idx]) / np.maximum(inc[idx], 1e-300), 0.0, 1.0)
+            ti = a + frac * (e - a) + delay
+            ember_t[idx] = ti
+            ok = (ti <= duration_min) & (ti < t_inv[idx])
+            by_urban = (add_u[idx] > 0.5 * add[idx]) if add_u is not None else np.zeros(len(idx), bool)
+            n_urb += int(np.sum(ok & by_urban))
+            n_wild += int(np.sum(ok & ~by_urban))
+            stage.add_seeds(idx[ok], ti[ok])
+        hz = new
+    t, src = stage.final()
+    src = src.copy()
+    lr = np.isfinite(ember_t) & (ember_t < tf) & np.isclose(t, ember_t)
+    src[lr] = SOURCE_EMBER
+    src[(src == SOURCE_FRONT) & ~lr & ~np.isfinite(tf)] = SOURCE_EMBER  # seeded, time shifted
+    draw.info = {"ember_ignitions_urban": n_urb, "ember_ignitions_wildland": n_wild,
+                 "involved": int(np.sum(np.isfinite(t)))}
+    return t, src, lr, landed, draw
+
+
+def run_ensemble_v2(units, t_front_min, wild_landed, edges, opts: LongRangeOptions, stage,
+                    duration_min: float, urban: UrbanSource | None, wind_periods, alpha_factor=None):
+    """M v2 members (seeded ``default_rng([seed, m])``). Returns (t (M, n) float32,
+    source (M, n) int8, ember_seeded (M, n) bool, p_ember (n,) = share of members in which the
+    unit was ember-ignited)."""
+    n = len(units)
+    m_count = int(opts.members)
+    t_all = np.full((m_count, n), np.inf, dtype=np.float32)
+    s_all = np.zeros((m_count, n), dtype=np.int8)
+    lr_all = np.zeros((m_count, n), dtype=bool)
+    for m in range(m_count):
+        rng = np.random.default_rng([int(opts.seed), m])
+        t, s, lr, _, _ = run_member_v2(units, t_front_min, wild_landed, edges, opts, stage,
+                                       duration_min, rng, urban, wind_periods, alpha_factor)
+        t_all[m], s_all[m], lr_all[m] = t, s, lr
+    return t_all, s_all, lr_all, (lr_all.mean(axis=0) if m_count else np.zeros(n))

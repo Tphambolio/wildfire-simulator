@@ -101,6 +101,8 @@ export interface SimulationCreate {
   structure_long_range_embers?: boolean;
   /** Ensemble members for structure_long_range_embers (1-50, API default 20) */
   structure_long_range_members?: number;
+  /** Long-range ember model: "v2" (API default; urban ember source, spec §6.4) or "v1" (§6.3) */
+  structure_long_range_model?: "v1" | "v2";
 }
 
 /**
@@ -210,6 +212,8 @@ export interface StructureSpreadSummary {
   roof_scenario?: RoofScenario;
   /** Long-range embers (request structure_long_range_embers): counts are member means */
   long_range_embers?: boolean;
+  /** Long-range ember model used ("v1" | "v2") */
+  long_range_model?: "v1" | "v2";
   units_involved_expected?: number;
   long_range?: { label: string; members: number; units_p_ge_0_5: number };
 }
