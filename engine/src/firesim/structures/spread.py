@@ -73,6 +73,7 @@ SOURCE_FRONT = 1  # reached by the wildland front
 SOURCE_STRUCTURE = 2  # building-to-building (Hamada)
 SOURCE_EMBER = 3  # ember ignition (spec §6)
 MECHANISM = {SOURCE_FRONT: "front", SOURCE_STRUCTURE: "b2b", SOURCE_EMBER: "ember"}
+LONG_RANGE_LABEL = "ignition probability — illustrative, not validated in Canada"
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,89 @@ class StructureSpreadResult:
             if self.combustible_roof is not None and bool(self.combustible_roof[u]):
                 entry["combustible_roof_scenario"] = True
             out.append(entry)
+        return out
+
+
+@dataclass
+class LongRangeResult(StructureSpreadResult):
+    """Structure spread with long-range ember ignition: an ensemble (spec §6.3).
+
+    ``t_members`` / ``source_members``: (members, units) involvement minute and mechanism per
+    member. ``t_min`` is the earliest involvement over members (inf when never involved), so
+    the reachable-box guard and ``involved_detail`` see every unit any member involved.
+    ``p_direct``: probability of long-range ember ignition by the end (1 − exp(−Σ hazard)).
+    Counts are member means (expected counts). Illustrative — not validated in Canada.
+    """
+
+    t_members: np.ndarray | None = None
+    source_members: np.ndarray | None = None
+    p_direct: np.ndarray | None = None
+
+    def p_involved(self, t_min: float | None = None) -> np.ndarray:
+        t = self.t_members
+        if t_min is None:
+            return np.mean(np.isfinite(t), axis=0)
+        return np.mean(t <= t_min, axis=0)
+
+    def counts_at(self, t_min: float) -> dict:
+        tm, sm = self.t_members, self.source_members
+        by = tm <= t_min
+        mean = lambda m: float(np.mean(np.sum(m, axis=1))) if len(m) else 0.0  # noqa: E731
+        front = mean(by & (sm == SOURCE_FRONT))
+        struct = mean(by & (sm == SOURCE_STRUCTURE))
+        ember = mean(by & (sm == SOURCE_EMBER))
+        out_by = (tm + self.burnout_min <= t_min) if self.burnout_min is not None else np.zeros_like(by)
+        involved = front + struct + ember
+        burnt = mean(by & out_by)
+        out = {"model": MODEL, "label": LABEL, "computed": True,
+               "units_in_run": int(len(self.t_min) if self.units_in_run is None else self.units_in_run),
+               "units_built": int(len(self.t_min)),
+               "units_front_contact": int(round(front)),
+               "units_structure_to_structure": int(round(struct)),
+               "units_ember": int(round(ember)), "units_ember_from_wildland": int(round(ember)),
+               "units_involved": int(round(involved)),
+               "units_involved_expected": round(involved, 2),
+               "units_burnt_out": int(round(burnt)),
+               "units_burning": int(round(involved)) - int(round(burnt)),
+               **self.params, "burnout": self.burnout_min is not None,
+               "burnout_min": self.burnout_min,
+               "long_range": {"label": LONG_RANGE_LABEL, "members": int(tm.shape[0]),
+                              "units_p_ge_0_5": int(np.sum(self.p_involved(t_min) >= 0.5))}}
+        if self.roof_scenario is not None:
+            roof = (self.combustible_roof if self.combustible_roof is not None
+                    else np.zeros(len(self.t_min), dtype=bool))
+            out["roof_scenario"] = {**self.roof_scenario,
+                                    "units_combustible_roof_built": int(np.sum(roof)),
+                                    "units_involved_combustible_roof": int(round(mean(by & roof[None, :])))}
+        return out
+
+    def involved_detail(self, simplify_m: float = DETAIL_SIMPLIFY_M) -> list[dict]:
+        """As ``StructureSpreadResult.involved_detail`` for every unit involved in any member,
+        with ``p_involved`` (share of members, by the run end), ``p_ember`` (probability of
+        long-range ember ignition) and ``t_h`` the median involvement time over the members
+        that involved it; ``mechanism`` is the most frequent one."""
+        tm = self.t_members
+        p = self.p_involved()
+        t_med = np.full(tm.shape[1], np.inf)
+        anyv = p > 0
+        if anyv.any():
+            masked = np.where(np.isfinite(tm[:, anyv]), tm[:, anyv], np.nan)
+            t_med[anyv] = np.nanmedian(masked, axis=0)
+        counts = np.stack([np.sum(self.source_members == c, axis=0)
+                           for c in (SOURCE_FRONT, SOURCE_STRUCTURE, SOURCE_EMBER)])
+        src = np.array([SOURCE_FRONT, SOURCE_STRUCTURE, SOURCE_EMBER], dtype=np.int8)[np.argmax(counts, axis=0)]
+        base = StructureSpreadResult(t_min=t_med, source=src, parent=np.full(len(src), -1),
+                                     t_front_min=self.t_front_min, params=self.params,
+                                     footprints=self.footprints, frame=self.frame,
+                                     burnout_min=self.burnout_min,
+                                     combustible_roof=self.combustible_roof, veg=self.veg)
+        out = base.involved_detail(simplify_m)
+        inv = np.nonzero(np.isfinite(t_med))[0]
+        inv = inv[np.lexsort((inv, t_med[inv]))]
+        for e, u in zip(out, inv):
+            e["p_involved"] = round(float(p[u]), 3)
+            e["p_ember"] = round(float(self.p_direct[u]), 3) if self.p_direct is not None else None
+            e["source_id"] = None
         return out
 
 
@@ -598,6 +682,8 @@ def structure_spread_for_grid_run(
     combustible_roof_share: float = 0.0,
     roof_psi_factor: float | None = None,
     seed: int = 0,
+    long_range=None,
+    ffmc: float | None = None,
 ):
     """Hamada structure spread coupled to a finished grid run, built only where it can reach.
 
@@ -653,7 +739,13 @@ def structure_spread_for_grid_run(
             none, or no data in the run area, no link is bridged (plain 20 m cutoff).
         combustible_roof_share: roof scenario (spec §6.2), share of buildings assigned a
             combustible roof (seeded by ``seed``); they ignite from embers at
-            ``roof_psi_factor`` × ψ* (default ``roofs.ROOF_PSI_FACTOR``). Needs ``embers``.
+            ``roof_psi_factor`` × ψ* (default ``roofs.ROOF_PSI_FACTOR``) and, with
+            ``long_range``, with p_b × 1/0.375 (spec §6.3). Needs ``embers`` or ``long_range``.
+        long_range: a ``long_range.LongRangeOptions`` (opt-in, spec §6.3): long-range ember
+            ignition from the torching/crowning grid cells (``emitters`` with ``cfb``/``sfc``/
+            ``cfc``), an ensemble of ``members`` structure runs; returns a
+            ``LongRangeResult`` (per-unit involvement probability). ``ffmc``: the run's FFMC,
+            the DFFMC of the per-ember ignition probability unless the options set one.
 
     Burn-out only removes crossings, so the exactness argument above is unchanged; the
     vegetation bridge only removes graph links (the guard uses the 45 m graph cutoff), and the
@@ -676,8 +768,8 @@ def structure_spread_for_grid_run(
     from firesim.structures import roofs as roofs_mod
 
     roof_share = float(combustible_roof_share or 0.0)
-    if roof_share and embers is None:
-        raise ValueError("combustible_roof_share needs ember ignition (embers)")
+    if roof_share and embers is None and long_range is None:
+        raise ValueError("combustible_roof_share needs ember ignition (embers or long_range)")
     roof_k = roofs_mod.ROOF_PSI_FACTOR if roof_psi_factor is None else float(roof_psi_factor)
     burnout_min = burnout_minutes(design_fire_kw_m2) if burnout else None
     source = footprints if hasattr(footprints, "footprints_intersecting") else ListFootprintSource(footprints)
@@ -701,6 +793,8 @@ def structure_spread_for_grid_run(
               "vegetation_attributes": vegetation is not None}
     if embers is not None:
         params.update(embers.params())
+    if long_range is not None:
+        params.update(long_range.params())
     roof_params = None
     if roof_share:
         roof_params = {"combustible_roof_share": roof_share, "psi_factor": roof_k,
@@ -739,6 +833,23 @@ def structure_spread_for_grid_run(
                 margin_m += wildland.safe_reach_m(speeds, duration_min, embers.gr_vegetation,
                                                   psi_factor_min=roof_k if roof_share else 1.0)
 
+    lr_sources = lr_field = None
+    if long_range is not None:
+        from firesim.structures import long_range as lr_mod
+
+        lr_sources = lr_mod.EmberSourceCells.from_emitters(emitters, frame)
+        if lr_sources is not None and np.any(lr_sources.emitted(long_range) > 0):
+            lr_wind = [(w.start_min, w.wind_speed_kmh, w.wind_direction_deg) for w in wind]
+            lr_field = lr_mod.landing_field(lr_sources, lr_wind, duration_min, long_range)
+            # every landing point lies inside the field's raster: grow the box to cover it
+            r_ = lr_field.raster
+            xs = np.array([r_.x0, r_.x0 + r_.cols * r_.h])
+            ys = np.array([r_.y_top - r_.rows * r_.h, r_.y_top])
+            bx0, by0 = frame.to_local(b_lat[0], b_lng[0])
+            bx1, by1 = frame.to_local(b_lat[1], b_lng[1])
+            margin_m += max(0.0, float(bx0) - xs[0], xs[1] - float(bx1),
+                            float(by0) - ys[0], ys[1] - float(by1))
+
     while True:
         mlat, mlng = margin_m / M_PER_DEG_LAT, margin_m / frame.m_per_deg_lng
         reach = (max(lat_min, b_lat[0] - mlat), min(lat_max, b_lat[1] + mlat),
@@ -761,9 +872,16 @@ def structure_spread_for_grid_run(
             roof = roofs_mod.assign_combustible_roofs(roofs_mod.building_keys(units),
                                                       roof_share, seed)
             psi = roofs_mod.psi_factors(roof, roof_k)
-        result = spread_with_embers(units, t_front, wind, duration_min=duration_min, fb=fb,
-                                    embers=embers, wildland=wildland, burnout_min=burnout_min,
-                                    link_filter=links, psi_factor=psi)
+        if roof_share and embers is None:
+            psi = None  # long-range only: the roof acts on p_b, not on ψ*
+        if lr_field is not None:
+            result = _long_range_run(units, t_front, wind, duration_min, fb, embers, wildland,
+                                     burnout_min, links, psi, lr_field, long_range, roof,
+                                     ffmc, seed)
+        else:
+            result = spread_with_embers(units, t_front, wind, duration_min=duration_min, fb=fb,
+                                        embers=embers, wildland=wildland, burnout_min=burnout_min,
+                                        link_filter=links, psi_factor=psi)
         guard = cutoff + 1.0
         if embers is not None:
             guard = np.maximum(structure_ember_reach(units, embers, u10_max), cutoff) + 1.0
@@ -784,6 +902,32 @@ def structure_spread_for_grid_run(
     result.footprints = np.where(inv, units.footprints, None)  # keep only involved geometry
     result.frame = frame
     return result
+
+
+def _long_range_run(units, t_front, wind, duration_min, fb, embers, wildland, burnout_min,
+                    links, psi, fld, opts, roof, ffmc, seed) -> "LongRangeResult":
+    """The long-range ensemble on built units (spec §6.3)."""
+    from dataclasses import replace
+
+    from firesim.structures import long_range as lr_mod
+
+    opts = replace(opts, seed=int(opts.seed) or int(seed))
+    hazard = lr_mod.building_hazard(units, fld, opts, 90.0 if ffmc is None else float(ffmc),
+                                    combustible_roof=roof)
+
+    def spread_fn(t0):
+        return spread_with_embers(units, t0, wind, duration_min=duration_min, fb=fb,
+                                  embers=embers, wildland=wildland, burnout_min=burnout_min,
+                                  link_filter=links, psi_factor=psi)
+
+    t_all, s_all, _, p_direct = lr_mod.run_ensemble(units, t_front, hazard, fld.edges, opts,
+                                                    spread_fn, duration_min)
+    t_any = np.min(t_all, axis=0).astype(float) if len(t_all) else np.full(len(units), np.inf)
+    return LongRangeResult(t_min=t_any, source=np.zeros(len(units), dtype=np.int8),
+                           parent=np.full(len(units), -1, dtype=np.int64),
+                           t_front_min=np.asarray(t_front, float), params={},
+                           burnout_min=burnout_min, t_members=t_all, source_members=s_all,
+                           p_direct=p_direct)
 
 
 def _inside_reach(units, result, reach, frame, guard_m, grid_bbox) -> bool:

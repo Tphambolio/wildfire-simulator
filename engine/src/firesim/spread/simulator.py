@@ -83,6 +83,8 @@ class Simulator:
         structure_vegetation_bridge: bool = False,
         structure_canopy=None,
         structure_combustible_roof_share: float = 0.0,
+        structure_long_range_embers: bool = False,
+        structure_long_range_members: int = 20,
         progress=None,
         fine_fuel=None,
         fine_building_mask: list | None = None,
@@ -141,7 +143,12 @@ class Simulator:
                 ``structure_canopy``, a ``vegetation.CanopyCover``; spec §4.6 [H]).
             structure_combustible_roof_share: with ``structure_embers``, roof scenario share
                 (0, 0.05, 0.15, 0.30): seeded random buildings ignite from embers at 0.375 ψ*
-                (spec §6.2; a scenario, not observed roofs).
+                (spec §6.2; a scenario, not observed roofs). With long-range embers, roof units
+                have p_b × 1/0.375 (spec §6.3).
+            structure_long_range_embers: with ``structure_spread``, opt-in long-range ember
+                ignition from torching/crowning grid cells (``structures.long_range``, spec
+                §6.3): an ensemble of ``structure_long_range_members`` structure runs gives each
+                involved building an ignition probability (illustrative).
             progress: Optional callable(phase, fraction) for progress display only (no
                 effect on results). Grid model: ("spread", 0-1) while the front advances,
                 then ("structures", None) before house-to-house spread when it is on, and
@@ -184,6 +191,8 @@ class Simulator:
         self.structure_vegetation_bridge = bool(structure_vegetation_bridge)
         self.structure_canopy = structure_canopy
         self.structure_combustible_roof_share = float(structure_combustible_roof_share or 0.0)
+        self.structure_long_range_embers = bool(structure_long_range_embers)
+        self.structure_long_range_members = int(structure_long_range_members)
         self.progress = progress
         self.fine_fuel = fine_fuel
         self.fine_building_mask = fine_building_mask
@@ -608,6 +617,12 @@ class Simulator:
             from firesim.structures.embers import EmberOptions
 
             embers = EmberOptions(design_fire_kw_m2=self.structure_design_fire_kw_m2)
+        long_range = None
+        if self.structure_long_range_embers:
+            from firesim.structures.long_range import LongRangeOptions
+
+            long_range = LongRangeOptions(members=self.structure_long_range_members,
+                                          seed=int(self.seed or 0))
         g, area = self._run_grid, self.fuel_grid
         return structure_spread.structure_spread_for_grid_run(
             footprints, arrival, self._schedule, duration_min,
@@ -624,6 +639,8 @@ class Simulator:
             canopy=self.structure_canopy,
             combustible_roof_share=self.structure_combustible_roof_share,
             seed=self.seed,
+            long_range=long_range,
+            ffmc=self._schedule[0][1].ffmc if self._schedule else None,
         )
 
     def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:

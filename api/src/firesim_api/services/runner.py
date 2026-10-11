@@ -749,6 +749,8 @@ class SimulationRunner:
                                   else None),
                 structure_combustible_roof_share=getattr(
                     params, "structure_combustible_roof_share", 0.0),
+                structure_long_range_embers=getattr(params, "structure_long_range_embers", False),
+                structure_long_range_members=getattr(params, "structure_long_range_members", 20),
                 progress=run.set_phase,
                 # 20 m WUI window (mechanics decision M5): tried when buildings are near the
                 # fire, kept only within the memory guards (firesim.spread.wui_window)

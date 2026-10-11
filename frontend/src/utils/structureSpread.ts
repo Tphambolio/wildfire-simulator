@@ -125,6 +125,7 @@ export function structureUnitsGeoJSON(detail: StructureUnitDetail[] | null): Geo
           t_out_h: u.t_out_h ?? NEVER_H,
           mechanism: u.mechanism,
           roof: u.combustible_roof_scenario ? 1 : 0,
+          p: u.p_involved ?? -1,
         },
       })),
   };
@@ -139,6 +140,12 @@ function elapsed(tH: number): string {
 export function describeUnit(tH: number, mechanism: string, clock?: string): string {
   const mech = MECHANISM_LABEL[mechanism as StructureUnitDetail["mechanism"]] ?? mechanism;
   return `${mech} · involved at ${clock ? `${clock} (+${elapsed(tH)})` : `+${elapsed(tH)}`}`;
+}
+
+/** Tooltip line for a unit's ignition probability (long-range embers), or null. */
+export function describeProbability(p: number | null | undefined): string | null {
+  if (p == null || !(p >= 0)) return null;
+  return `ignition probability ${Math.round(p * 100)} % (illustrative)`;
 }
 
 /** Tooltip line for a unit's burn-out time, or null without one. */

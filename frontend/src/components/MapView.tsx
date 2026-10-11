@@ -23,6 +23,7 @@ import {
   STRUCT_EMBER,
   STRUCT_FRONT,
   describeBurnout,
+  describeProbability,
   describeUnit,
 } from "../utils/structureSpread";
 
@@ -31,6 +32,10 @@ const STRUCT_COLOR: maplibregl.ExpressionSpecification = [
   "match", ["get", "mechanism"], "front", STRUCT_FRONT, "ember", STRUCT_EMBER, STRUCT_B2B,
 ];
 const STRUCT_EDGE = "#0e1217";
+/** Long-range embers: fill opacity rises with the building's ignition probability */
+const STRUCT_OPACITY: maplibregl.ExpressionSpecification = [
+  "case", [">=", ["get", "p"], 0], ["interpolate", ["linear"], ["get", "p"], 0, 0.2, 1, 0.95], 0.85,
+];
 /** Roof scenario outline (dashed): light amber, reads over every mechanism fill */
 const STRUCT_ROOF = "#ffd166";
 /** Burnt out by hour `t` (design fire ended): charcoal fill, mechanism-coloured outline */
@@ -914,7 +919,8 @@ export default function MapView({
       type: "fill",
       source: "struct-units",
       layout: { visibility: "none" },
-      paint: { "fill-color": STRUCT_COLOR, "fill-opacity": 0.85 },
+      // Long-range embers: opacity by ignition probability (p >= 0); else solid
+      paint: { "fill-color": STRUCT_COLOR, "fill-opacity": STRUCT_OPACITY },
     });
     m.addLayer({
       id: "struct-units-line",
@@ -957,6 +963,14 @@ export default function MapView({
         o.className = "map-popup-muted";
         o.textContent = out.charAt(0).toUpperCase() + out.slice(1);
         el.appendChild(o);
+      }
+      const prob = describeProbability(Number(p.p));
+      if (prob) {
+        const q = document.createElement("div");
+        q.className = "map-popup-muted";
+        q.setAttribute("data-testid", "structure-popup-probability");
+        q.textContent = prob.charAt(0).toUpperCase() + prob.slice(1);
+        el.appendChild(q);
       }
       if (Number(p.roof) === 1) {
         const r = document.createElement("div");
@@ -2259,6 +2273,12 @@ export default function MapView({
               <div className="burn-prob-legend-row">
                 <div className="burn-prob-legend-swatch struct-swatch-burnt" style={{ background: STRUCT_BURNT }} />
                 <span>Burnt out</span>
+              </div>
+            )}
+            {structureUnits.features.some((f) => Number(f.properties?.p) >= 0) && (
+              <div className="burn-prob-legend-row" data-testid="structure-legend-probability">
+                <span>Ignition probability: faint low, solid high</span>
+                <InfoTip text={TIPS.structureLongRange} label="About ignition probability" />
               </div>
             )}
             {structureRoofLabel && structureRoofOutline && (

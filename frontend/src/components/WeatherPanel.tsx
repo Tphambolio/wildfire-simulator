@@ -353,6 +353,7 @@ function WeatherPanel({
   // combustible-roof scenario (needs embers; a scenario, not observed roofs)
   const [structureVegBridge, setStructureVegBridge] = useState(false);
   const [structureRoofShare, setStructureRoofShare] = useState(0);
+  const [structureLongRange, setStructureLongRange] = useState(false);
   const structureAvailable = useEdmontonGrid && includeBuildings;
   // Off by default: the bundled WUI multipliers have no documented source (see docs/verification.md)
   const [includeWUI, setIncludeWUI] = useState(false);
@@ -703,7 +704,8 @@ function WeatherPanel({
       structure_embers: structureAvailable && structureSpread && structureEmbers,
       structure_vegetation_bridge: structureAvailable && structureSpread && structureVegBridge,
       structure_combustible_roof_share:
-        structureAvailable && structureSpread && structureEmbers ? structureRoofShare : 0,
+        structureAvailable && structureSpread && (structureEmbers || structureLongRange) ? structureRoofShare : 0,
+      structure_long_range_embers: structureAvailable && structureSpread && structureLongRange,
     });
   };
 
@@ -1376,10 +1378,23 @@ function WeatherPanel({
             </div>
             <div className="with-tip check-row-indent struct-suboption">
               <label className="struct-option">
+                <input
+                  type="checkbox"
+                  checked={structureAvailable && structureSpread && structureLongRange}
+                  disabled={!(structureAvailable && structureSpread)}
+                  onChange={(e) => setStructureLongRange(e.target.checked)}
+                  data-testid="structure-long-range"
+                />
+                Long-range embers
+              </label>
+              <InfoTip label="About long-range embers" text={TIPS.structureLongRange} />
+            </div>
+            <div className="with-tip check-row-indent struct-suboption">
+              <label className="struct-option">
                 Combustible roofs
                 <select
-                  value={structureAvailable && structureSpread && structureEmbers ? structureRoofShare : 0}
-                  disabled={!(structureAvailable && structureSpread && structureEmbers)}
+                  value={structureAvailable && structureSpread && (structureEmbers || structureLongRange) ? structureRoofShare : 0}
+                  disabled={!(structureAvailable && structureSpread && (structureEmbers || structureLongRange))}
                   onChange={(e) => setStructureRoofShare(Number(e.target.value))}
                   data-testid="structure-roof-share"
                 >
