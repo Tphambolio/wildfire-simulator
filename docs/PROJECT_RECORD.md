@@ -720,6 +720,8 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into â€
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-11 | `17246fd` | fix(frontend): EOC new operational period no longer blacks out the app (branch `fix/eoc-operational-period-crash`) |
+| 2026-10-11 | `b5d6771` | Merge pull request #58 from Tphambolio/feat/alberta-buildings |
 | 2026-10-11 | `a0690d8` | Merge pull request #54 from Tphambolio/feat/fuelgrid-full-fbp-key |
 | 2026-10-11 | `ca9f7f1` | docs: work log for the Alberta buildings branch |
 | 2026-10-11 | `f221548` | feat(engine+api+frontend): buildings for all of Alberta, read by window |
