@@ -75,6 +75,7 @@ class StructureUnits:
     indptr: np.ndarray
     indices: np.ndarray
     separation_m: np.ndarray
+    building_id: np.ndarray | None = None  # source building ids (-1 = unknown), when given
 
     def __len__(self) -> int:
         return len(self.x)
@@ -100,7 +101,7 @@ def _empty(frame: LocalFrame, cutoff: float) -> StructureUnits:
         frame=frame, footprints=np.zeros(0, dtype=object), x=z, y=z, lat=z, lng=z,
         area_m2=z, size_m=z, nearest_separation_m=z, neighbour_cutoff_m=cutoff,
         indptr=np.zeros(1, dtype=np.int64), indices=np.zeros(0, dtype=np.int64),
-        separation_m=z,
+        separation_m=z, building_id=None,
     )
 
 
@@ -110,6 +111,7 @@ def build_units(
     neighbour_cutoff_m: float = DEFAULT_NEIGHBOUR_CUTOFF_M,
     bbox: tuple[float, float, float, float] | None = None,
     frame: LocalFrame | None = None,
+    ids=None,
 ) -> StructureUnits:
     """Building units from footprints, clipped to the run area.
 
@@ -120,6 +122,8 @@ def build_units(
         bbox: ``(lat_min, lat_max, lng_min, lng_max)``: keep footprints whose centroid is
             inside (the run area). ``None`` keeps all.
         frame: local metric frame; default centred on the kept footprints.
+        ids: optional building ids, one per footprint (e.g. the FireSim footprint ``id``);
+            kept as ``building_id`` for the units (vegetation attributes, roof scenario).
 
     Returns:
         ``StructureUnits``. Unit ids are positions in the kept list, in input order.
@@ -131,14 +135,22 @@ def build_units(
     geoms = np.asarray(list(footprints), dtype=object)
     if len(geoms) == 0:
         return _empty(frame or LocalFrame(0.0, 0.0), neighbour_cutoff_m)
+    bid = None
+    if ids is not None:
+        bid = np.asarray(list(ids), dtype=np.int64)
+        if len(bid) != len(geoms):
+            raise ValueError("ids must have one entry per footprint")
 
     ok = ~(shapely.is_missing(geoms) | shapely.is_empty(geoms))
     geoms = geoms[ok]
+    bid = bid[ok] if bid is not None else None
     bad = ~shapely.is_valid(geoms)
     if bad.any():
         # make_valid can return collections; keep the areal part
         geoms[bad] = [_areal(g) for g in shapely.make_valid(geoms[bad])]
-    geoms = geoms[~shapely.is_empty(geoms) & (shapely.area(geoms) > 0)]
+    ok = ~shapely.is_empty(geoms) & (shapely.area(geoms) > 0)
+    geoms = geoms[ok]
+    bid = bid[ok] if bid is not None else None
 
     cent = shapely.centroid(geoms)
     clng, clat = shapely.get_x(cent), shapely.get_y(cent)
@@ -146,6 +158,7 @@ def build_units(
         lat_min, lat_max, lng_min, lng_max = bbox
         keep = (clat >= lat_min) & (clat <= lat_max) & (clng >= lng_min) & (clng <= lng_max)
         geoms, clat, clng = geoms[keep], clat[keep], clng[keep]
+        bid = bid[keep] if bid is not None else None
     if len(geoms) == 0:
         return _empty(frame or LocalFrame(0.0, 0.0), neighbour_cutoff_m)
 
@@ -189,6 +202,7 @@ def build_units(
         area_m2=area, size_m=np.sqrt(area), nearest_separation_m=nearest,
         neighbour_cutoff_m=float(neighbour_cutoff_m),
         indptr=indptr, indices=j.astype(np.int64), separation_m=np.asarray(sep, dtype=float),
+        building_id=bid,
     )
 
 

@@ -7,6 +7,8 @@
  *   hover/focus (not a paragraph), stacked chart with the timeline cursor;
  * - map layer: involved footprints by mechanism, legend with the badge and caveat tooltip,
  *   toggled from the card; hovering a footprint shows its involvement time and mechanism;
+ * - burn-out (default on, spec §4.3): "Still burning" / "Burnt out" rows, a "Burnt out" legend
+ *   entry, and the burn-out clock time in the footprint tooltip;
  * - no serious/critical axe violations in the new card and legend.
  * Replays tests/fixtures/structure_spread_4h.json (record_fixture.py --structure).
  * Screenshots go to $SHOT_DIR when set.
@@ -23,6 +25,7 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 interface Unit {
   id: number;
   t_h: number;
+  t_out_h: number | null;
   mechanism: "front" | "b2b" | "ember";
   polygon: number[][][];
 }
@@ -31,6 +34,8 @@ interface Counts {
   units_front_contact: number;
   units_structure_to_structure: number;
   units_ember: number;
+  units_burning: number;
+  units_burnt_out: number;
 }
 const last = structureFixture.frames[structureFixture.frames.length - 1] as unknown as {
   structure_spread: Counts;
@@ -109,6 +114,11 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
   await expect(row("Building to building")).toContainText(String(last.structure_spread.units_structure_to_structure));
   // The fixture run had embers on (none ignited a building there): the ember row is shown
   await expect(row("Ember ignition")).toContainText(String(last.structure_spread.units_ember));
+  // Burn-out (default on): the fixture's 4 h run has buildings burnt out by its end
+  expect(last.structure_spread.units_burnt_out).toBeGreaterThan(0);
+  await expect(row("Still burning")).toContainText(String(last.structure_spread.units_burning));
+  await expect(row("Burnt out")).toContainText(String(last.structure_spread.units_burnt_out));
+  await expect(card.getByTestId("structure-chart-burnt").first()).toBeAttached();
   await expect(card.getByTestId("structure-chart")).toBeVisible();
   // The caveat is not a paragraph: hidden until hover or focus
   const cardTip = card.getByRole("tooltip");
@@ -118,6 +128,7 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
   await expect(cardTip).toContainText("Illustrative — not validated in Canada");
   await expect(cardTip).toContainText("not a prediction of which buildings will burn");
   await expect(cardTip).toContainText("150 kW/m² design fire");
+  await expect(cardTip).toContainText("66 min after it is involved");
   await page.mouse.move(5, 5);
   await expect(cardTip).toBeHidden();
 
@@ -127,6 +138,7 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
   await expect(legend.locator(".struct-badge")).toHaveText("Illustrative");
   await expect(legend).toContainText("Front contact");
   await expect(legend).toContainText("Building to building");
+  await expect(legend).toContainText("Burnt out");
   await legend.getByRole("button", { name: "About the house-to-house layer" }).focus();
   const legendTip = legend.getByRole("tooltip");
   await expect(legendTip).toBeVisible();
@@ -159,6 +171,8 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
       await expect(popup).toContainText(/Front contact|Building to building|Ember ignition/);
       // Clock time on the run's own clock: 13:00 + t_h, within the 4 h run
       await expect(popup).toContainText(/involved at 1[3-7]:\d\d /);
+      // The earliest units are burnt out by the end: burn-out time on the run's clock
+      if (u.t_out_h != null && u.t_out_h <= 4) await expect(popup).toContainText(/Burnt out at 1[4-7]:\d\d /);
       await expect(popup).toContainText("Illustrative — not validated in Canada");
       hovered = true;
       break;

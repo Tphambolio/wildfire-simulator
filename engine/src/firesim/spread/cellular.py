@@ -112,6 +112,7 @@ class CellularFrame:
     # was reached.
     head: dict | None = None
     arrival: np.ndarray | None = None  # arrival minutes per cell, inf = unburned (last frame only)
+    spots_off_grid: int = 0  # spot fires that landed outside the grid (last frame only)
 
 
 def wavelet_normal_speed(a, b, c, nh, nk):
@@ -150,6 +151,7 @@ def run_cellular_simulation(
     active_edge_buffer_m: float | None = None,
     seed: int | str | None = None,
     progress=None,
+    spot_sample_spacing_m: float | None = None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -198,6 +200,10 @@ def run_cellular_simulation(
             ``config`` and the first weather period (``derive_seed``), so a run is repeatable
             either way; the global ``random`` module is never used. A string is hashed by
             ``random.Random`` deterministically (SHA-512, seeding version 2).
+        spot_sample_spacing_m: Spacing (m) of the front cells sampled as ember sources.
+            None = every 3rd newly burned cell (the original rule, 150 m on a 50 m grid);
+            the 20 m WUI window passes 150 m so the number of sources per metre of front does
+            not grow with resolution.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -227,6 +233,9 @@ def run_cellular_simulation(
     arrival = np.full((rows, cols), np.inf)
     cross_ros = np.zeros((rows, cols))
     spot_events: list[tuple[float, SpotFire]] = []
+    spots_off_grid = 0
+    spot_stride = 3 if spot_sample_spacing_m is None else max(
+        1, int(round(spot_sample_spacing_m / math.sqrt(dx * dy))))
 
     start = _initial_region(fuel_grid, fuel, initial_perimeter, initial_burned, cell_lat, cell_lng)
     snapped_m = 0.0
@@ -335,11 +344,14 @@ def run_cellular_simulation(
                     newly = np.argwhere((arrival > slice_start) & (arrival <= t))
                     for spot in _spot_from_front(
                         newly, center, conditions, fuel_grid, spread_modifier_grid,
-                        default_fuel, t - slice_start, spotting_intensity, rng,
+                        default_fuel, t - slice_start, spotting_intensity, rng, spot_stride,
                     ):
                         r = int((lat_max - spot.lat) / cell_lat)
                         c = int((spot.lng - lng_min) / cell_lng)
-                        if 0 <= r < rows and 0 <= c < cols and fuel[r, c] and arrival[r, c] == np.inf:
+                        if not (0 <= r < rows and 0 <= c < cols):
+                            spots_off_grid += 1
+                            continue
+                        if fuel[r, c] and arrival[r, c] == np.inf:
                             phi[r, c] = -0.5 * h_min
                             arrival[r, c] = t
                             cross_ros[r, c] = params.head[r, c]
@@ -353,6 +365,7 @@ def run_cellular_simulation(
     )
     if frames:
         frames[-1].arrival = np.where(arrival <= duration, arrival, np.inf)
+        frames[-1].spots_off_grid = spots_off_grid
     if compute_perimeter and frames:
         frames[-1].emitters = flame_emitters(arrival, cross_ros, params, duration, dx, dy)
         frames[-1].emitters.lat0, frames[-1].emitters.lng0 = lat_max, lng_min
@@ -937,12 +950,13 @@ def _spot_from_front(
     dt_minutes: float,
     spotting_intensity: float,
     rng: random.Random,
+    stride: int = 3,
 ) -> list[SpotFire]:
     """Ember spotting (Albini 1979) from cells the front reached in the last interval."""
     if len(front) == 0:
         return []
-    # Cap the sample for performance — every 3rd front cell
-    vertices = [FireVertex(*center(int(r), int(c))) for r, c in front[::3]]
+    # Cap the sample for performance — every ``stride``-th front cell (3 on the 50 m grid)
+    vertices = [FireVertex(*center(int(r), int(c))) for r, c in front[::stride]]
     return check_ember_spotting(
         front=vertices,
         conditions=conditions,

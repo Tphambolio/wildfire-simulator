@@ -105,7 +105,8 @@ test("tooltips work from the keyboard (focus opens, Esc closes) and axe stays cl
   const grid = page.getByRole("button", { name: "About the Edmonton fuel grid" });
   await grid.focus();
   await expect(await popOf(page, grid)).toContainText("20 m cells");
-  await expect(await popOf(page, grid)).toContainText("50 m cells for the run");
+  await expect(await popOf(page, grid)).toContainText("The run uses 50 m cells");
+  await expect(await popOf(page, grid)).toContainText("native 20 m cells");
 });
 
 test("main-run progress: phase labels, an advancing bar, gone on completion", async ({ page }) => {

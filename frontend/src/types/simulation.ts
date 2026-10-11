@@ -77,8 +77,20 @@ export interface SimulationCreate {
   structure_spread?: boolean;
   /** With structure_spread: also ember ignition of buildings (spec §6). API default: off */
   structure_embers?: boolean;
-  /** Design fire for the ember stage, kW/m² (150 default, 400 scenario) */
+  /** Building design fire, kW/m² (150 default, 400 scenario): ember HRR curve and burn-out time */
   structure_design_fire_kw_m2?: 150 | 400;
+  /** Units stop passing fire when their design fire ends (spec §4.3). API default: on */
+  structure_burnout?: boolean;
+  /**
+   * With structure_spread: vegetation-bridged cutoff (spec §4.6, FireSim heuristic): links
+   * ≤ 20 m as usual, 20-45 m only across ≥ 20 % gap woody cover. API default: off
+   */
+  structure_vegetation_bridge?: boolean;
+  /**
+   * With structure_embers: roof scenario, share of buildings given a combustible roof at random
+   * (0, 0.05, 0.15, 0.30; spec §6.2). A scenario, not observed roofs. API default: 0
+   */
+  structure_combustible_roof_share?: number;
 }
 
 /**
@@ -123,6 +135,21 @@ export interface SimulationFrame {
   // Opt-in structure spread (request structure_spread): modelled involvement counts
   structure_spread?: StructureSpreadSummary | null;
   structure_spread_detail?: StructureUnitDetail[] | null; // final frame only
+  // Grid runs: the grid the frame is on (20 m WUI window or 50 m; mechanics decision M5)
+  grid?: GridInfo | null;
+}
+
+/**
+ * The grid a grid-model frame is on. `cell_m` is 20 near buildings when the fuel grid's
+ * native 20 m window was used (`wui_window`), else 50; `reason` and `note` say why.
+ */
+export interface GridInfo {
+  cell_m: number;
+  wui_window: boolean;
+  reason: string; // "used" | "no_buildings" | "too_large" | "edge" | "no_native_grid"
+  note: string;
+  window?: number[]; // [lat_min, lat_max, lng_min, lng_max] when used
+  window_cells?: number;
 }
 
 /**
@@ -148,12 +175,49 @@ export interface StructureSpreadSummary {
   design_fire_kw_m2?: number;
   ember_generation_pcs_per_mw_s?: number;
   embers_from_wildland?: boolean;
+  /** Burn-out (spec §4.3): units stop passing fire when their design fire ends */
+  burnout?: boolean;
+  burnout_min?: number | null; // involvement -> burn-out, minutes (66 at 150 kW/m², 70 at 400)
+  units_burning?: number | null; // involved and still burning by this frame
+  units_burnt_out?: number | null; // involved and burnt out by this frame (still counted as involved)
   combustible_fraction: number;
   neighbour_cutoff_m: number;
   wildland_contact_m: number;
   front_contact_rule?: string; // "building_cells": contact measured from the footprint's grid cells
   units_needed?: number; // guard: units the reachable box would need
   max_units?: number; // guard: the limit
+  /** Per-building open-data vegetation attributes were available for the detail */
+  vegetation_attributes?: boolean;
+  /** Vegetation-bridged cutoff (request structure_vegetation_bridge); absent when off */
+  vegetation_bridged_cutoff?: boolean;
+  bridge_base_cutoff_m?: number; // 20
+  bridge_max_cutoff_m?: number; // 45
+  bridge_min_gap_cover?: number; // 0.2
+  bridge_canopy_data?: boolean; // false: no canopy data in the run area (no link bridged)
+  links_tested?: number; // 20-45 m links whose gap cover was computed
+  links_bridged?: number; // of which gap cover >= 20 %
+  /** Roof scenario (request structure_combustible_roof_share > 0); absent when off */
+  roof_scenario?: RoofScenario;
+}
+
+/** Combustible-roof scenario (spec §6.2). Any display must show `label`. */
+export interface RoofScenario {
+  combustible_roof_share: number;
+  psi_factor: number; // ember threshold factor on combustible roofs (0.375)
+  seed: number;
+  label: string; // "scenario: 15 % combustible roofs (not observed roofs)"
+  units_combustible_roof_built: number;
+  units_involved_combustible_roof: number;
+}
+
+/** Open-data vegetation around a building (Meta 1 m canopy height, CC BY 4.0); context only */
+export interface BuildingVegetation {
+  cc_0_5?: number; // canopy cover 0-5 m from the footprint (0-1)
+  cc_5_10?: number;
+  cc_10_30?: number;
+  cc_0_10?: number;
+  overhang_frac?: number; // share of the roof under tree crowns
+  dist_stand_1ha_m?: number; // distance to a >= 1 ha stand
 }
 
 /**
@@ -163,9 +227,12 @@ export interface StructureSpreadSummary {
 export interface StructureUnitDetail {
   id: number; // involvement order
   t_h: number; // hours from the start
+  t_out_h?: number | null; // burn-out, hours from the start (null when burn-out is off)
   mechanism: "front" | "b2b" | "ember"; // wildland front contact / building to building / embers
   source_id: number | null; // b2b or ember: id of the unit that passed the fire on (null: wildland embers)
   polygon: number[][][]; // footprint ring(s), [lng, lat]
+  veg?: BuildingVegetation; // open-data vegetation attributes, when available
+  combustible_roof_scenario?: boolean; // roof scenario assigned a combustible roof (not observed)
 }
 
 export interface BuildingExposureSummary {
@@ -216,6 +283,8 @@ export interface MultiDaySimulationCreate {
   /** Scenario start (ISO with offset); each day runs 24 h from its clock time */
   start_time?: string | null;
   burning_period?: BurningPeriod | null;
+  /** Grid runs: "incremental" streams only new cells (frame.cells_offset; whole at day starts) */
+  cells_mode?: "cumulative" | "incremental";
 }
 
 export type SimulationStatus = "pending" | "running" | "paused" | "completed" | "cancelled" | "failed";
@@ -308,12 +377,40 @@ export interface CurrentWeather {
   distance_km: number | null;
   /** Date (YYYY-MM-DD, noon LST) the FWI codes are valid for */
   codes_date?: string | null;
-  /** "today" | "yesterday" | "older" (station codes) | "estimate" (cold-start estimate) */
-  codes_status?: "today" | "yesterday" | "older" | "estimate" | null;
+  /** "today" | "yesterday" | "older" (station codes) | "estimate" (cold-start estimate) |
+   *  "forecast" (Pyra, before noon LST) | "stepped" (Pyra, after noon LST, carried + stepped) */
+  codes_status?: "today" | "yesterday" | "older" | "estimate" | "forecast" | "stepped" | null;
   /** Age of the codes in words (also in `message`) */
   codes_label?: string | null;
   /** Open-Meteo model used for any value (null = station data only) */
   weather_model?: string | null;
+  /** Tier that answered: "pyra" | "cwfis" | "cwfis_archive" | "gem_estimate" (null = unavailable) */
+  source_tier?: "pyra" | "cwfis" | "cwfis_archive" | "gem_estimate" | null;
+  /** Details of the "pyra" tier (Pyra station, carried chain, step, peak-burn indices) */
+  pyra?: PyraDetails | null;
+}
+
+/** How the API's "pyra" tier got its codes (docs/api-reference.md). */
+export interface PyraDetails {
+  station_name: string;
+  station_lat: number;
+  station_lng: number;
+  station_distance_km: number;
+  page_url: string;
+  chain_source: "cwfis_live" | "pyra_cwfis_prev";
+  chain_station_name: string | null;
+  chain_station_id: string | null;
+  chain_distance_km: number | null;
+  chain_date: string | null;
+  step: "none" | "gem_noon_forecast" | "gem_noon" | "cwfis_obs";
+  rain_24h: number | null;
+  peak_wind_speed: number | null;
+  peak_isi: number | null;
+  peak_fwi: number | null;
+  carry_over_generated: string | null;
+  carry_over_url: string | null;
+  pyra_commit: string;
+  notes: string[];
 }
 
 export interface ScenarioConfig {

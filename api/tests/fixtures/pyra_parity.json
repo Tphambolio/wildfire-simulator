@@ -1,0 +1,878 @@
+{
+ "about": "FireSim vs Pyra parity fixture. Inputs captured read-only at captured_at; synthetic variants are marked in each case's 'what'. 'pyra' holds the results of Pyra's own engine (run_pyra_parity.mjs) at pyra_commit; FireSim must reproduce them.",
+ "captured_at": "2026-10-10T09:57:47Z",
+ "sources": {
+  "cwfis_prev": "https://raw.githubusercontent.com/Tphambolio/FWI/main/data/cwfis_prev.json",
+  "cwfis": "https://cwfis.cfs.nrcan.gc.ca/geoserver/public/ows public:firewx_stns_current (Alberta box \u00b12\u00b0)",
+  "gem": "Open-Meteo forecast API, Pyra fetchWeather URL (models=gem_seamless)"
+ },
+ "today": "2026-10-10",
+ "transforms": {
+  "cwfis_transform": {
+   "rep_date_today": "every feature's rep_date set to today's date (T12:00:00Z)",
+   "strip_codes": "ffmc/dmc/dc/isi/bui/fwi set to null (weather-only stations)"
+  },
+  "prev_rep_date": "every carry-over entry's repDate set to this date (T12:00:00Z)"
+ },
+ "cases": [
+  {
+   "id": "prenoon_live_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-10-10T15:00:00Z",
+   "cwfis": "live",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "real inputs; 08:00 MST: CWFIS holds yesterday's codes, stepped with the GEM noon forecast"
+  },
+  {
+   "id": "prenoon_live_calgary",
+   "lat": 51.0447,
+   "lng": -114.0719,
+   "now": "2026-10-10T15:00:00Z",
+   "cwfis": "live",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "real inputs; 08:00 MST: CWFIS holds yesterday's codes, stepped with the GEM noon forecast"
+  },
+  {
+   "id": "prenoon_live_grande_prairie",
+   "lat": 55.1707,
+   "lng": -118.7947,
+   "now": "2026-10-10T15:00:00Z",
+   "cwfis": "live",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "real inputs; 08:00 MST: CWFIS holds yesterday's codes, stepped with the GEM noon forecast"
+  },
+  {
+   "id": "prenoon_live_fort_mcmurray",
+   "lat": 56.7267,
+   "lng": -111.381,
+   "now": "2026-10-10T15:00:00Z",
+   "cwfis": "live",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "real inputs; 08:00 MST: CWFIS holds yesterday's codes, stepped with the GEM noon forecast"
+  },
+  {
+   "id": "postnoon_cwfis_today_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-10-10T21:00:00Z",
+   "cwfis": "live",
+   "cwfis_transform": "rep_date_today",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "synthetic rep_date=today; 14:00 MST: CWFIS codes shown as published"
+  },
+  {
+   "id": "postnoon_cwfis_yesterday_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-10-10T19:30:00Z",
+   "cwfis": "live",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "real inputs; 12:30 MST before the CWFIS refresh: yesterday's codes shown as published"
+  },
+  {
+   "id": "postnoon_cwfis_today_calgary",
+   "lat": 51.0447,
+   "lng": -114.0719,
+   "now": "2026-10-10T21:00:00Z",
+   "cwfis": "live",
+   "cwfis_transform": "rep_date_today",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "synthetic rep_date=today; 14:00 MST: CWFIS codes shown as published"
+  },
+  {
+   "id": "postnoon_cwfis_yesterday_calgary",
+   "lat": 51.0447,
+   "lng": -114.0719,
+   "now": "2026-10-10T19:30:00Z",
+   "cwfis": "live",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "real inputs; 12:30 MST before the CWFIS refresh: yesterday's codes shown as published"
+  },
+  {
+   "id": "postnoon_cwfis_empty_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-10-10T19:30:00Z",
+   "cwfis": "empty",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "CWFIS empty (refresh window), SWOB empty: cwfis_prev stepped with GEM noon"
+  },
+  {
+   "id": "postnoon_cwfis_empty_grande_prairie",
+   "lat": 55.1707,
+   "lng": -118.7947,
+   "now": "2026-10-10T19:30:00Z",
+   "cwfis": "empty",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "CWFIS empty (refresh window), SWOB empty: cwfis_prev stepped with GEM noon"
+  },
+  {
+   "id": "postnoon_wx_only_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-10-10T20:00:00Z",
+   "cwfis": "live",
+   "cwfis_transform": "strip_codes",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "synthetic: CWFIS weather-only stations; cwfis_prev stepped with the CWFIS obs"
+  },
+  {
+   "id": "prenoon_cwfis_down_2day_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-10-10T16:00:00Z",
+   "cwfis": "error",
+   "prev": "captured",
+   "prev_rep_date": "2026-10-08",
+   "gem": "captured",
+   "what": "synthetic: carry-over 2 days old, stepped once"
+  },
+  {
+   "id": "prenoon_cwfis_down_final_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-10-10T17:00:00Z",
+   "cwfis": "error",
+   "prev": "captured",
+   "prev_rep_date": "2026-10-10",
+   "gem": "captured",
+   "what": "synthetic: carry-over already today's (final), not stepped"
+  },
+  {
+   "id": "spring_dc_floor_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-05-12T16:00:00Z",
+   "cwfis": "error",
+   "prev": "spring",
+   "gem": "spring",
+   "what": "synthetic: May, cold-start DC 15 raised to the regional floor 300"
+  },
+  {
+   "id": "stale_file_edmonton",
+   "lat": 53.5461,
+   "lng": -113.4938,
+   "now": "2026-10-13T15:00:00Z",
+   "cwfis": "error",
+   "prev": "captured",
+   "gem": "captured",
+   "what": "file generated > 48 h before: Pyra shows no codes (inactive)"
+  }
+ ],
+ "equations": [
+  {
+   "id": "ftr33_day1",
+   "prev": {
+    "ffmc": 85.0,
+    "dmc": 6.0,
+    "dc": 15.0
+   },
+   "temp": 17,
+   "rh": 42,
+   "wind": 25,
+   "rain": 0,
+   "month": 4
+  },
+  {
+   "id": "hot_dry_windy",
+   "prev": {
+    "ffmc": 90.0,
+    "dmc": 60.0,
+    "dc": 400.0
+   },
+   "temp": 32,
+   "rh": 12,
+   "wind": 40,
+   "rain": 0,
+   "month": 7
+  },
+  {
+   "id": "heavy_rain",
+   "prev": {
+    "ffmc": 92.0,
+    "dmc": 80.0,
+    "dc": 500.0
+   },
+   "temp": 14,
+   "rh": 85,
+   "wind": 10,
+   "rain": 25,
+   "month": 8
+  },
+  {
+   "id": "light_rain",
+   "prev": {
+    "ffmc": 88.0,
+    "dmc": 30.0,
+    "dc": 250.0
+   },
+   "temp": 20,
+   "rh": 50,
+   "wind": 15,
+   "rain": 0.6,
+   "month": 6
+  },
+  {
+   "id": "rh100_calm",
+   "prev": {
+    "ffmc": 80.0,
+    "dmc": 20.0,
+    "dc": 200.0
+   },
+   "temp": 8,
+   "rh": 100,
+   "wind": 0,
+   "rain": 0,
+   "month": 9
+  },
+  {
+   "id": "cold_day_may",
+   "prev": {
+    "ffmc": 85.0,
+    "dmc": 10.0,
+    "dc": 200.0
+   },
+   "temp": -5,
+   "rh": 60,
+   "wind": 10,
+   "rain": 0,
+   "month": 5
+  },
+  {
+   "id": "cold_day_july",
+   "prev": {
+    "ffmc": 85.0,
+    "dmc": 10.0,
+    "dc": 300.0
+   },
+   "temp": -3,
+   "rh": 60,
+   "wind": 10,
+   "rain": 0,
+   "month": 7
+  },
+  {
+   "id": "clamp_rh_over_100",
+   "prev": {
+    "ffmc": 86.0,
+    "dmc": 25.0,
+    "dc": 280.0
+   },
+   "temp": 5,
+   "rh": 104,
+   "wind": 5,
+   "rain": 2.0,
+   "month": 10
+  }
+ ],
+ "pyra": {
+  "pyra_commit": "38aee4f1b9e3fdd30f0c33e2f97fa2bf67541113",
+  "cases": {
+   "prenoon_live_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": false,
+    "ffmc": 24.996191808787046,
+    "dmc": 30.327554271364136,
+    "dc": 310.120667365782,
+    "isi": 0.002013919544595301,
+    "bui": 48.73924580168888,
+    "fwi": 0.0033276797350711815,
+    "peak": {
+     "wind": 18,
+     "isi": 0.0019053273773335672,
+     "fwi": 0.00314824855801443
+    },
+    "weather": {
+     "temp": 1,
+     "rh": 90,
+     "wind": 19.1,
+     "rain": 7.300000000000002,
+     "source": "Open-Meteo NWP (noon LST forecast, pre-noon)",
+     "preNoonForecast": true,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "holding",
+     "obsDate": "2026-10-09",
+     "ageDays": 1,
+     "final": false,
+     "stationName": "EDMONTON BLATCHFORD"
+    }
+   },
+   "prenoon_live_calgary": {
+    "station": {
+     "name": "Calgary Int'l CS",
+     "lat": 51.117,
+     "lng": -114,
+     "distKm": 9.479358609145281
+    },
+    "inactive": false,
+    "ffmc": 86.01799845041619,
+    "dmc": 47.974551039999994,
+    "dc": 510.882,
+    "isi": 9.275004949641746,
+    "bui": 77.70646973750208,
+    "fwi": 26.406739736714684,
+    "peak": {
+     "wind": 27,
+     "isi": 9.463848723630065,
+     "fwi": 26.776315088682722
+    },
+    "weather": {
+     "temp": 2.1,
+     "rh": 64,
+     "wind": 26.6,
+     "rain": 0.4,
+     "source": "Open-Meteo NWP (noon LST forecast, pre-noon)",
+     "preNoonForecast": true,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "holding",
+     "obsDate": "2026-10-09",
+     "ageDays": 1,
+     "final": false,
+     "stationName": "CALGARY INT'L CS"
+    }
+   },
+   "prenoon_live_grande_prairie": {
+    "station": {
+     "name": "Grande Prairie A",
+     "lat": 55.183,
+     "lng": -118.883,
+     "distKm": 5.771218922449941
+    },
+    "inactive": false,
+    "ffmc": 12.024871004491853,
+    "dmc": 4.254869042751718,
+    "dc": 208.13192567372306,
+    "isi": 6.809180568108823e-06,
+    "bui": 8.09597053987535,
+    "fwi": 3.6763443996237717e-06,
+    "peak": {
+     "wind": 7.9,
+     "isi": 5.679526037697871e-06,
+     "fwi": 3.0664326687120188e-06
+    },
+    "weather": {
+     "temp": -0.4,
+     "rh": 87,
+     "wind": 11.5,
+     "rain": 18.299999999999997,
+     "source": "Open-Meteo NWP (noon LST forecast, pre-noon)",
+     "preNoonForecast": true,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "holding",
+     "obsDate": "2026-10-09",
+     "ageDays": 1,
+     "final": false,
+     "stationName": "GRANDE PRAIRIE A"
+    }
+   },
+   "prenoon_live_fort_mcmurray": {
+    "station": {
+     "name": "Fort McMurray A",
+     "lat": 56.65,
+     "lng": -111.217,
+     "distKm": 13.154435542360293
+    },
+    "inactive": false,
+    "ffmc": 32.93442132550948,
+    "dmc": 11.21168038269522,
+    "dc": 420.5137475401211,
+    "isi": 0.012525377970556471,
+    "bui": 21.022137343809966,
+    "fwi": 0.011718281143515702,
+    "peak": {
+     "wind": 9.7,
+     "isi": 0.012091271441322863,
+     "fwi": 0.0113121471036685
+    },
+    "weather": {
+     "temp": 3.1,
+     "rh": 71,
+     "wind": 10.4,
+     "rain": 8,
+     "source": "Open-Meteo NWP (noon LST forecast, pre-noon)",
+     "preNoonForecast": true,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "holding",
+     "obsDate": "2026-10-09",
+     "ageDays": 1,
+     "final": false,
+     "stationName": "FORT MCMURRAY CS"
+    }
+   },
+   "postnoon_cwfis_today_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": false,
+    "ffmc": 50.7,
+    "dmc": 52.7,
+    "dc": 330.2,
+    "isi": 0.2,
+    "bui": 75.3,
+    "fwi": 0.6,
+    "peak": null,
+    "weather": {
+     "temp": 9.1,
+     "rh": 77,
+     "wind": 6.3,
+     "rain": 4,
+     "source": "CWFIS \u00b7 EDMONTON BLATCHFORD",
+     "preNoonForecast": false,
+     "fwiFromCWFIS": true,
+     "stationName": "EDMONTON BLATCHFORD",
+     "repDate": "2026-10-10T12:00:00Z"
+    },
+    "carry": null
+   },
+   "postnoon_cwfis_yesterday_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": false,
+    "ffmc": 50.7,
+    "dmc": 52.7,
+    "dc": 330.2,
+    "isi": 0.2,
+    "bui": 75.3,
+    "fwi": 0.6,
+    "peak": null,
+    "weather": {
+     "temp": 9.1,
+     "rh": 77,
+     "wind": 6.3,
+     "rain": 4,
+     "source": "CWFIS \u00b7 EDMONTON BLATCHFORD",
+     "preNoonForecast": false,
+     "fwiFromCWFIS": true,
+     "stationName": "EDMONTON BLATCHFORD",
+     "repDate": "2026-10-09T12:00:00Z"
+    },
+    "carry": null
+   },
+   "postnoon_cwfis_today_calgary": {
+    "station": {
+     "name": "Calgary Int'l CS",
+     "lat": 51.117,
+     "lng": -114,
+     "distKm": 9.479358609145281
+    },
+    "inactive": false,
+    "ffmc": 90.3,
+    "dmc": 47.8,
+    "dc": 509.8,
+    "isi": 9,
+    "bui": 77.4,
+    "fwi": 25.8,
+    "peak": null,
+    "weather": {
+     "temp": 19.7,
+     "rh": 32,
+     "wind": 13.8,
+     "rain": 0,
+     "source": "CWFIS \u00b7 CALGARY INT'L CS",
+     "preNoonForecast": false,
+     "fwiFromCWFIS": true,
+     "stationName": "CALGARY INT'L CS",
+     "repDate": "2026-10-10T12:00:00Z"
+    },
+    "carry": null
+   },
+   "postnoon_cwfis_yesterday_calgary": {
+    "station": {
+     "name": "Calgary Int'l CS",
+     "lat": 51.117,
+     "lng": -114,
+     "distKm": 9.479358609145281
+    },
+    "inactive": false,
+    "ffmc": 90.3,
+    "dmc": 47.8,
+    "dc": 509.8,
+    "isi": 9,
+    "bui": 77.4,
+    "fwi": 25.8,
+    "peak": null,
+    "weather": {
+     "temp": 19.7,
+     "rh": 32,
+     "wind": 13.8,
+     "rain": 0,
+     "source": "CWFIS \u00b7 CALGARY INT'L CS",
+     "preNoonForecast": false,
+     "fwiFromCWFIS": true,
+     "stationName": "CALGARY INT'L CS",
+     "repDate": "2026-10-09T12:00:00Z"
+    },
+    "carry": null
+   },
+   "postnoon_cwfis_empty_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": false,
+    "ffmc": 24.996191808787046,
+    "dmc": 30.327554271364136,
+    "dc": 310.120667365782,
+    "isi": 0.002013919544595301,
+    "bui": 48.73924580168888,
+    "fwi": 0.0033276797350711815,
+    "peak": {
+     "wind": 18,
+     "isi": 0.0019053273773335672,
+     "fwi": 0.00314824855801443
+    },
+    "weather": {
+     "temp": 1,
+     "rh": 90,
+     "wind": 19.1,
+     "rain": 7.300000000000002,
+     "source": "Open-Meteo NWP (noon LST)",
+     "preNoonForecast": false,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "daily",
+     "obsDate": "2026-10-09",
+     "ageDays": 1,
+     "final": false,
+     "stationName": null
+    }
+   },
+   "postnoon_cwfis_empty_grande_prairie": {
+    "station": {
+     "name": "Grande Prairie A",
+     "lat": 55.183,
+     "lng": -118.883,
+     "distKm": 5.771218922449941
+    },
+    "inactive": false,
+    "ffmc": 12.024871004491853,
+    "dmc": 4.254869042751718,
+    "dc": 208.13192567372306,
+    "isi": 6.809180568108823e-06,
+    "bui": 8.09597053987535,
+    "fwi": 3.6763443996237717e-06,
+    "peak": {
+     "wind": 7.9,
+     "isi": 5.679526037697871e-06,
+     "fwi": 3.0664326687120188e-06
+    },
+    "weather": {
+     "temp": -0.4,
+     "rh": 87,
+     "wind": 11.5,
+     "rain": 18.299999999999997,
+     "source": "Open-Meteo NWP (noon LST)",
+     "preNoonForecast": false,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "daily",
+     "obsDate": "2026-10-09",
+     "ageDays": 1,
+     "final": false,
+     "stationName": null
+    }
+   },
+   "postnoon_wx_only_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": false,
+    "ffmc": 40.377051976307754,
+    "dmc": 38.034422684489755,
+    "dc": 323.43353286356796,
+    "isi": 0.05122620569351938,
+    "bui": 58.786293429031325,
+    "fwi": 0.09682390304633291,
+    "peak": null,
+    "weather": {
+     "temp": 9.1,
+     "rh": 77,
+     "wind": 6.3,
+     "rain": 4,
+     "source": "CWFIS \u00b7 EDMONTON BLATCHFORD \u00b7 FWI calc",
+     "preNoonForecast": false,
+     "fwiFromCWFIS": false,
+     "stationName": "EDMONTON BLATCHFORD",
+     "repDate": "2026-10-09T12:00:00Z"
+    },
+    "carry": {
+     "src": "daily",
+     "obsDate": "2026-10-09",
+     "ageDays": 1,
+     "final": false,
+     "stationName": null
+    }
+   },
+   "prenoon_cwfis_down_2day_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": false,
+    "ffmc": 24.996191808787046,
+    "dmc": 30.327554271364136,
+    "dc": 310.120667365782,
+    "isi": 0.002013919544595301,
+    "bui": 48.73924580168888,
+    "fwi": 0.0033276797350711815,
+    "peak": {
+     "wind": 18,
+     "isi": 0.0019053273773335672,
+     "fwi": 0.00314824855801443
+    },
+    "weather": {
+     "temp": 1,
+     "rh": 90,
+     "wind": 19.1,
+     "rain": 7.300000000000002,
+     "source": "Open-Meteo NWP (noon LST forecast, pre-noon)",
+     "preNoonForecast": true,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "daily",
+     "obsDate": "2026-10-08",
+     "ageDays": 2,
+     "final": false,
+     "stationName": null
+    }
+   },
+   "prenoon_cwfis_down_final_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": false,
+    "ffmc": 50.7,
+    "dmc": 52.7,
+    "dc": 330.2,
+    "isi": 0.46707667354641075,
+    "bui": 75.33949561640868,
+    "fwi": 1.2806900051487995,
+    "peak": {
+     "wind": 18,
+     "isi": 0.44189152233521944,
+     "fwi": 1.0209937536215186
+    },
+    "weather": {
+     "temp": 1,
+     "rh": 90,
+     "wind": 19.1,
+     "rain": 7.300000000000002,
+     "source": "Open-Meteo NWP (noon LST forecast, pre-noon)",
+     "preNoonForecast": true,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "daily",
+     "obsDate": "2026-10-10",
+     "ageDays": 0,
+     "final": true,
+     "stationName": null
+    }
+   },
+   "spring_dc_floor_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": false,
+    "ffmc": 81.66022238136462,
+    "dmc": 11.001179412971135,
+    "dc": 305.716,
+    "isi": 2.9142909047402696,
+    "bui": 20.18634642614619,
+    "fwi": 4.76652449593046,
+    "peak": {
+     "wind": 17.8,
+     "isi": 3.3558951072638625,
+     "fwi": 5.495825026085242
+    },
+    "weather": {
+     "temp": 18.4,
+     "rh": 37,
+     "wind": 15,
+     "rain": 2,
+     "source": "Open-Meteo NWP (noon LST forecast, pre-noon)",
+     "preNoonForecast": true,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": {
+     "src": "daily",
+     "obsDate": "2026-05-11",
+     "ageDays": 1,
+     "final": false,
+     "stationName": null
+    }
+   },
+   "stale_file_edmonton": {
+    "station": {
+     "name": "Edmonton Blatchford",
+     "lat": 53.567,
+     "lng": -113.517,
+     "distKm": 2.7837379356032277
+    },
+    "inactive": true,
+    "ffmc": null,
+    "dmc": null,
+    "dc": null,
+    "isi": null,
+    "bui": null,
+    "fwi": null,
+    "peak": null,
+    "weather": {
+     "temp": 3.1,
+     "rh": 74,
+     "wind": 7.2,
+     "rain": 2.2,
+     "source": "Open-Meteo NWP (noon LST forecast, pre-noon)",
+     "preNoonForecast": true,
+     "fwiFromCWFIS": false,
+     "stationName": null,
+     "repDate": null
+    },
+    "carry": null
+   }
+  },
+  "equations": [
+   {
+    "id": "ftr33_day1",
+    "ffmc": 87.69298009277445,
+    "dmc": 8.545051136,
+    "dc": 19.014,
+    "isi": 10.85366107365507,
+    "bui": 8.490426535837184,
+    "fwi": 10.09637139238237
+   },
+   {
+    "id": "hot_dry_windy",
+    "ffmc": 97.0028699685214,
+    "dmc": 66.840885568,
+    "dc": 409.464,
+    "isi": 85.20291683440885,
+    "bui": 94.93770431721155,
+    "fwi": 114.19962129764107
+   },
+   {
+    "id": "heavy_rain",
+    "ffmc": 32.49901905373288,
+    "dmc": 35.05871037821869,
+    "dc": 390.06983981105884,
+    "isi": 0.011010293226164543,
+    "bui": 57.25296165198322,
+    "fwi": 0.020417167289285797
+   },
+   {
+    "id": "light_rain",
+    "ffmc": 86.99490031082256,
+    "dmc": 32.7774563,
+    "dc": 257.004,
+    "isi": 5.935651539629252,
+    "bui": 49.70642285802782,
+    "fwi": 15.099422709437404
+   },
+   {
+    "id": "rh100_calm",
+    "ffmc": 75.78941621000538,
+    "dmc": 20,
+    "dc": 203.144,
+    "isi": 0.8021790652473908,
+    "bui": 32.09935846790759,
+    "fwi": 0.9914361625680368
+   },
+   {
+    "id": "cold_day_may",
+    "ffmc": 84.21141205373941,
+    "dmc": 10,
+    "dc": 201.9,
+    "isi": 3.1332876066824737,
+    "bui": 17.796386073159983,
+    "fwi": 4.735940350922317
+   },
+   {
+    "id": "cold_day_july",
+    "ffmc": 84.31956882302426,
+    "dmc": 10,
+    "dc": 303.2,
+    "isi": 3.17921890643451,
+    "bui": 18.476538695917124,
+    "fwi": 4.923699672236787
+   },
+   {
+    "id": "clamp_rh_over_100",
+    "ffmc": 56.53091696319015,
+    "dmc": 22.27525020862555,
+    "dc": 281.604,
+    "isi": 0.4098889966063505,
+    "bui": 37.19505488039481,
+    "fwi": 0.5603469039134927
+   }
+  ]
+ },
+ "feature_sets": {"live":[{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5fa0","properties":{"name":"Duck Lake AGCM                                    ","prov":"AB","lat":54.6864,"lon":-113.9389,"elev":650,"temp":16.5,"rh":64.8,"ws":8.1,"wdir":249,"precip":0.01,"ffmc":81.5,"dmc":3.1,"dc":184.3,"isi":2,"bui":5.9,"fwi":0.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f8c","properties":{"name":"BUFFALO HILLS                                     ","prov":"SA","lat":55.981,"lon":-109.296,"elev":646,"temp":4.6,"rh":92,"ws":20.8,"wdir":105,"precip":1.75,"ffmc":65.3,"dmc":23.9,"dc":287.4,"isi":1.5,"bui":39.6,"fwi":3.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f8b","properties":{"name":"CLUFF LAKE                                        ","prov":"SA","lat":58.35,"lon":-109.539,"elev":348,"temp":4.9,"rh":65,"ws":14,"wdir":70,"precip":0.25,"ffmc":82.3,"dmc":6.7,"dc":157,"isi":3,"bui":12.1,"fwi":3.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f86","properties":{"name":"GARSON                                            ","prov":"SA","lat":56.232,"lon":-109.668,"elev":496,"temp":5.9,"rh":82,"ws":9.7,"wdir":72,"precip":1,"ffmc":76.7,"dmc":18.9,"dc":347,"isi":1.4,"bui":33.2,"fwi":3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f84","properties":{"name":"GRYGAT LAKE                                       ","prov":"SA","lat":57.778,"lon":-109.436,"elev":535,"temp":4.8,"rh":69,"ws":12.7,"wdir":89,"precip":0,"ffmc":84.2,"dmc":9.8,"dc":254.5,"isi":3.6,"bui":17.9,"fwi":5.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f7b","properties":{"name":"WATAPI                                            ","prov":"SA","lat":55.331,"lon":-109.491,"elev":689,"temp":4,"rh":96,"ws":19.9,"wdir":75,"precip":2.28,"ffmc":56.7,"dmc":40.3,"dc":744.4,"isi":0.9,"bui":70.9,"fwi":3.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f79","properties":{"name":"                                       CRANBROOK+A","prov":"BC","lat":49.617,"lon":-115.783,"elev":940,"temp":16.2,"rh":37,"ws":9.7,"wdir":212,"precip":0,"ffmc":89.7,"dmc":48.2,"dc":700.9,"isi":6.7,"bui":82.2,"fwi":21.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f78","properties":{"name":"CRANBROOK AIRPORT AUTO                            ","prov":"BC","lat":49.6177,"lon":-115.789,"elev":930,"temp":15.8,"rh":39,"ws":9.7,"wdir":212,"precip":0,"ffmc":90,"dmc":45.2,"dc":698.9,"isi":7,"bui":77.8,"fwi":21.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f77","properties":{"name":"                                       SPARWOOD+CS","prov":"BC","lat":49.75,"lon":-114.883,"elev":1137,"temp":16.5,"rh":32,"ws":18.1,"wdir":155,"precip":0,"ffmc":90.1,"dmc":42.2,"dc":417.1,"isi":10.9,"bui":67.4,"fwi":27.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f74","properties":{"name":"                                    DAWSON+CREEK+A","prov":"BC","lat":55.75,"lon":-120.183,"elev":655,"temp":2.5,"rh":94,"ws":22.3,"wdir":9,"precip":25.3,"ffmc":18.7,"dmc":9.6,"dc":441.8,"isi":0,"bui":18.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f73","properties":{"name":"                                   FORT+ST.+JOHN+A","prov":"BC","lat":56.233,"lon":-120.733,"elev":695,"temp":3,"rh":91,"ws":34.5,"wdir":8,"precip":22.6,"ffmc":26,"dmc":9.4,"dc":357.2,"isi":0,"bui":17.6,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f72","properties":{"name":"FORT ST JOHN AIRPORT                              ","prov":"BC","lat":56.2475,"lon":-120.7501,"elev":693,"temp":3,"rh":93,"ws":34.5,"wdir":8,"precip":22.1,"ffmc":23.6,"dmc":11.1,"dc":398.4,"isi":0,"bui":20.7,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f65","properties":{"name":"Andrew AGDM                                       ","prov":"AB","lat":53.9176,"lon":-112.2783,"elev":632,"temp":9.2,"rh":77,"ws":29.4,"wdir":103,"precip":3.78,"ffmc":58.7,"dmc":27,"dc":347.1,"isi":1.6,"bui":45.2,"fwi":4.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f62","properties":{"name":"Breton Plots                                      ","prov":"AB","lat":53.0893,"lon":-114.4428,"elev":853,"temp":7.4,"rh":81,"ws":6.6,"wdir":338,"precip":1.99,"ffmc":62.9,"dmc":46.5,"dc":348.2,"isi":0.7,"bui":69.7,"fwi":2.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f61","properties":{"name":"Busby AGCM                                        ","prov":"AB","lat":53.9309,"lon":-113.9216,"elev":714,"temp":7.9,"rh":91,"ws":10.9,"wdir":79,"precip":5.76,"ffmc":36.7,"dmc":24.8,"dc":301.4,"isi":0,"bui":41.1,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f5f","properties":{"name":"                                           CAMROSE","prov":"AB","lat":53.05,"lon":-112.817,"elev":739,"temp":7.9,"rh":79,"ws":11.4,"wdir":74,"precip":0.9,"ffmc":64.8,"dmc":28.4,"dc":406.2,"isi":0.9,"bui":48.3,"fwi":2.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f5c","properties":{"name":"Crestomere AGCM                                   ","prov":"AB","lat":52.7329,"lon":-113.9029,"elev":855,"temp":7.8,"rh":78,"ws":10.2,"wdir":4,"precip":0.63,"ffmc":81.9,"dmc":63.1,"dc":488.6,"isi":2.4,"bui":95.4,"fwi":10.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f5b","properties":{"name":"Delburne AGCM                                     ","prov":"AB","lat":52.1828,"lon":-113.1757,"elev":889,"temp":9.9,"rh":60,"ws":15.5,"wdir":316,"precip":0.11,"ffmc":86.5,"dmc":56.1,"dc":568.8,"isi":5.7,"bui":90,"fwi":20.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f58","properties":{"name":"                                  EDMONTON+INT'L+A","prov":"AB","lat":53.317,"lon":-113.583,"elev":723,"temp":9.2,"rh":79,"ws":9.6,"wdir":63,"precip":1,"ffmc":69.1,"dmc":57.8,"dc":348.1,"isi":1,"bui":81.7,"fwi":4.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f57","properties":{"name":"                         EDMONTON+INTERNATIONAL+CS","prov":"AB","lat":53.3,"lon":-113.6,"elev":715,"temp":9,"rh":76,"ws":9.7,"wdir":63,"precip":0.9,"ffmc":74.8,"dmc":66.5,"dc":384.6,"isi":1.2,"bui":92.8,"fwi":5.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f56","properties":{"name":"                               EDMONTON+BLATCHFORD","prov":"AB","lat":53.567,"lon":-113.517,"elev":671,"temp":9.1,"rh":77,"ws":6.3,"wdir":83,"precip":4,"ffmc":50.7,"dmc":52.7,"dc":330.2,"isi":0.2,"bui":75.3,"fwi":0.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f55","properties":{"name":"Edmonton Villeneuve                               ","prov":"AB","lat":53.6683,"lon":-113.856,"elev":688,"temp":9,"rh":80,"ws":16.6,"wdir":72,"precip":5.5,"ffmc":48.5,"dmc":31.9,"dc":302.4,"isi":0.3,"bui":50.5,"fwi":0.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f54","properties":{"name":"                               ELK+ISLAND+NAT+PARK","prov":"AB","lat":53.683,"lon":-112.867,"elev":716,"temp":8.5,"rh":80,"ws":11,"wdir":118,"precip":4.6,"ffmc":47.7,"dmc":8.7,"dc":184.3,"isi":0.2,"bui":15.6,"fwi":0.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f53","properties":{"name":"Ferintosh AGCM                                    ","prov":"AB","lat":52.7438,"lon":-112.858,"elev":744,"temp":8.2,"rh":77,"ws":10.2,"wdir":87,"precip":1.19,"ffmc":68.3,"dmc":46.4,"dc":424.9,"isi":1,"bui":72.9,"fwi":3.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f52","properties":{"name":"Forestburg AGCM                                   ","prov":"AB","lat":52.5484,"lon":-112.1234,"elev":721,"temp":10.8,"rh":63,"ws":9.7,"wdir":89,"precip":0.94,"ffmc":78.7,"dmc":55.8,"dc":505.5,"isi":1.6,"bui":87.4,"fwi":7.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f50","properties":{"name":"Glenevis AGCM                                     ","prov":"AB","lat":53.8326,"lon":-114.539,"elev":670,"temp":8.5,"rh":85.6,"ws":9.4,"wdir":77,"precip":7.29,"ffmc":37.4,"dmc":19.2,"dc":324.3,"isi":0,"bui":33.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f4f","properties":{"name":"Halkirk AGCM                                      ","prov":"AB","lat":52.1166,"lon":-112.1641,"elev":843,"temp":12.2,"rh":58,"ws":3.9,"wdir":294,"precip":0.32,"ffmc":87,"dmc":51.4,"dc":487.8,"isi":3.4,"bui":81.4,"fwi":12.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f4d","properties":{"name":"Holden AGDM                                       ","prov":"AB","lat":53.1852,"lon":-112.2462,"elev":688,"temp":8.4,"rh":81,"ws":22.6,"wdir":95,"precip":2.26,"ffmc":61.8,"dmc":44.1,"dc":454.3,"isi":1.4,"bui":71,"fwi":5.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f4b","properties":{"name":"Killam AGDM                                       ","prov":"AB","lat":52.8475,"lon":-111.8723,"elev":687,"temp":9.6,"rh":75,"ws":18.2,"wdir":111,"precip":1.72,"ffmc":69.5,"dmc":47.6,"dc":485.2,"isi":1.5,"bui":76.4,"fwi":6.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f48","properties":{"name":"Legal AGCM                                        ","prov":"AB","lat":54.003,"lon":-113.4744,"elev":680,"temp":8.2,"rh":88,"ws":11.2,"wdir":73,"precip":4.97,"ffmc":42.2,"dmc":27.5,"dc":292.4,"isi":0.1,"bui":44.5,"fwi":0.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f44","properties":{"name":"Mundare AGDM                                      ","prov":"AB","lat":53.5606,"lon":-112.2961,"elev":690,"temp":9.1,"rh":78,"ws":27.7,"wdir":99,"precip":2.68,"ffmc":63.2,"dmc":47.8,"dc":396.8,"isi":2,"bui":73.5,"fwi":7.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f42","properties":{"name":"New Sarepta AGCM                                  ","prov":"AB","lat":53.2624,"lon":-113.1651,"elev":765,"temp":8.2,"rh":80,"ws":9.7,"wdir":72,"precip":1.98,"ffmc":60.5,"dmc":52,"dc":351.3,"isi":0.7,"bui":75.9,"fwi":2.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f41","properties":{"name":"Oliver AGDM                                       ","prov":"AB","lat":53.6466,"lon":-113.3546,"elev":665,"temp":8.8,"rh":81,"ws":4,"wdir":74,"precip":3.68,"ffmc":48.4,"dmc":43.6,"dc":317.3,"isi":0.2,"bui":65,"fwi":0.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f40","properties":{"name":"Radway LITE                                       ","prov":"AB","lat":54.0181,"lon":-112.9767,"elev":638,"temp":8.4,"rh":88,"ws":15.5,"wdir":90,"precip":3.76,"ffmc":48.7,"dmc":18.9,"dc":275.2,"isi":0.3,"bui":32.3,"fwi":0.4,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f3f","properties":{"name":"                                     RANFURLY+AUTO","prov":"AB","lat":53.417,"lon":-111.733,"elev":687,"temp":8.8,"rh":78,"ws":16.2,"wdir":90,"precip":3.2,"ffmc":56.9,"dmc":40.9,"dc":450.1,"isi":0.7,"bui":66.6,"fwi":2.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f3c","properties":{"name":"                               ROCKY+MTN+HOUSE+AUT","prov":"AB","lat":52.417,"lon":-114.917,"elev":988,"temp":10.7,"rh":59,"ws":4.6,"wdir":309,"precip":0,"ffmc":86.9,"dmc":44.4,"dc":441.3,"isi":3.5,"bui":71,"fwi":12.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f3b","properties":{"name":"Rosalind AGCM                                     ","prov":"AB","lat":52.7922,"lon":-112.4222,"elev":708,"temp":9.1,"rh":76,"ws":14.7,"wdir":101,"precip":1.47,"ffmc":67.1,"dmc":48.4,"dc":477.4,"isi":1.2,"bui":77.2,"fwi":5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f37","properties":{"name":"Shonts AGCM                                       ","prov":"AB","lat":53.3325,"lon":-112.5395,"elev":679,"temp":8.3,"rh":81,"ws":19.3,"wdir":97,"precip":2.51,"ffmc":58.9,"dmc":40.3,"dc":399.7,"isi":1,"bui":64.3,"fwi":3.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f36","properties":{"name":"Smoky Lake AGDM                                   ","prov":"AB","lat":54.2648,"lon":-112.5041,"elev":675,"temp":6.7,"rh":90,"ws":17.1,"wdir":63,"precip":7.65,"ffmc":35.4,"dmc":21.9,"dc":312.1,"isi":0,"bui":37.3,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f35","properties":{"name":"Spondin AGCM                                      ","prov":"AB","lat":51.816,"lon":-111.6826,"elev":804,"temp":12.3,"rh":55,"ws":6.2,"wdir":225,"precip":0.08,"ffmc":87.7,"dmc":61.3,"dc":439.7,"isi":4.2,"bui":90.9,"fwi":16.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f34","properties":{"name":"Stettler AGDM                                     ","prov":"AB","lat":52.347,"lon":-112.5955,"elev":795,"temp":10.7,"rh":62,"ws":9.9,"wdir":315,"precip":0.39,"ffmc":83.8,"dmc":55.8,"dc":526.1,"isi":3,"bui":88.2,"fwi":12.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f33","properties":{"name":"Thorsby AGCM                                      ","prov":"AB","lat":53.2174,"lon":-113.8948,"elev":754,"temp":8,"rh":82,"ws":7.1,"wdir":49,"precip":1.81,"ffmc":62.4,"dmc":61.1,"dc":346.5,"isi":0.7,"bui":84.8,"fwi":2.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f32","properties":{"name":"Tomahawk AGDM                                     ","prov":"AB","lat":53.4394,"lon":-114.7183,"elev":814,"temp":7.8,"rh":82,"ws":4.6,"wdir":31,"precip":4.38,"ffmc":44.7,"dmc":28,"dc":290.5,"isi":0.1,"bui":45.2,"fwi":0.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f30","properties":{"name":"Two Hills AGDM                                    ","prov":"AB","lat":53.6252,"lon":-111.6781,"elev":678,"temp":9.1,"rh":78,"ws":21.9,"wdir":95,"precip":2.88,"ffmc":60.8,"dmc":43.9,"dc":467.6,"isi":1.3,"bui":71.1,"fwi":5.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f2e","properties":{"name":"Viking AGCM                                       ","prov":"AB","lat":53.1822,"lon":-111.7316,"elev":711,"temp":8.4,"rh":78,"ws":22,"wdir":99,"precip":2.59,"ffmc":62.3,"dmc":43.5,"dc":487.4,"isi":1.4,"bui":71.2,"fwi":5.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f2d","properties":{"name":"                                        VEGREVILLE","prov":"AB","lat":53.5,"lon":-112.1,"elev":639,"temp":9.4,"rh":75,"ws":22.7,"wdir":103,"precip":2.4,"ffmc":66.1,"dmc":76.8,"dc":505.5,"isi":1.7,"bui":111.3,"fwi":8.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f2c","properties":{"name":"Wetaskiwin AGCM                                   ","prov":"AB","lat":52.9804,"lon":-113.4442,"elev":774,"temp":8.1,"rh":78,"ws":7.7,"wdir":18,"precip":1.64,"ffmc":64.8,"dmc":60.9,"dc":387.8,"isi":0.8,"bui":87.4,"fwi":3.4,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f2b","properties":{"name":"                           EDMONTON+STONY+PLAIN+CS","prov":"AB","lat":53.55,"lon":-114.117,"elev":766,"temp":8.5,"rh":79,"ws":3.8,"wdir":96,"precip":3.2,"ffmc":52.1,"dmc":32.3,"dc":279.5,"isi":0.3,"bui":50.1,"fwi":0.4,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f26","properties":{"name":"Beiseker AGCM                                     ","prov":"AB","lat":51.3788,"lon":-113.3572,"elev":896,"temp":20.9,"rh":29,"ws":37.5,"wdir":260,"precip":0.01,"ffmc":91.3,"dmc":52.2,"dc":582.9,"isi":34.1,"bui":85.3,"fwi":63.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f25","properties":{"name":"Big Valley AGCM                                   ","prov":"AB","lat":51.9979,"lon":-112.8026,"elev":870,"temp":12.1,"rh":48,"ws":12.9,"wdir":301,"precip":0.07,"ffmc":87.8,"dmc":59,"dc":570.2,"isi":6,"bui":93.8,"fwi":21.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f24","properties":{"name":"Craigmyle AGCM                                    ","prov":"AB","lat":51.775,"lon":-112.2523,"elev":845,"temp":16.7,"rh":38,"ws":15,"wdir":276,"precip":0.05,"ffmc":89,"dmc":59.2,"dc":554.2,"isi":7.9,"bui":93.4,"fwi":25.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f23","properties":{"name":"                                   DRUMHELLER+EAST","prov":"AB","lat":51.45,"lon":-112.683,"elev":678,"temp":15.9,"rh":47,"ws":5.5,"wdir":108,"precip":0,"ffmc":89.2,"dmc":77.1,"dc":644.4,"isi":5.1,"bui":118.7,"fwi":21.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f22","properties":{"name":"Hespero AGCM                                      ","prov":"AB","lat":52.2468,"lon":-114.4465,"elev":965,"temp":8,"rh":69,"ws":4,"wdir":328,"precip":0.05,"ffmc":85.7,"dmc":48.6,"dc":490.4,"isi":2.8,"bui":77.9,"fwi":10.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f21","properties":{"name":"Hussar AGDM                                       ","prov":"AB","lat":51.1911,"lon":-112.5027,"elev":971,"temp":20.2,"rh":27,"ws":33.2,"wdir":248,"precip":0,"ffmc":91.6,"dmc":56.4,"dc":589,"isi":28.5,"bui":91,"fwi":59,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f20","properties":{"name":"                                     LACOMBE+CDA+2","prov":"AB","lat":52.45,"lon":-113.75,"elev":860,"temp":8.6,"rh":69,"ws":8.3,"wdir":332,"precip":0,"ffmc":85.6,"dmc":63.4,"dc":518.6,"isi":3.5,"bui":97.1,"fwi":14.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f1f","properties":{"name":"Leedale AGDM                                      ","prov":"AB","lat":52.5531,"lon":-114.4725,"elev":947,"temp":9.8,"rh":65,"ws":9.5,"wdir":351,"precip":0.21,"ffmc":85.3,"dmc":24.6,"dc":308.9,"isi":null,"bui":null,"fwi":null,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f1e","properties":{"name":"Linden AGCM                                       ","prov":"AB","lat":51.6191,"lon":-113.6558,"elev":914,"temp":17.5,"rh":37,"ws":20.9,"wdir":311,"precip":0,"ffmc":89.2,"dmc":52.8,"dc":576.7,"isi":11,"bui":85.9,"fwi":31.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f1d","properties":{"name":"Morrin AGDM                                       ","prov":"AB","lat":51.66,"lon":-112.6746,"elev":836,"temp":14.8,"rh":43,"ws":7.6,"wdir":297,"precip":0,"ffmc":89.4,"dmc":66,"dc":627.5,"isi":5.8,"bui":104.5,"fwi":22.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f1c","properties":{"name":"Olds College AGDM                                 ","prov":"AB","lat":51.7586,"lon":-114.0846,"elev":1046,"temp":12,"rh":51,"ws":12.4,"wdir":322,"precip":0,"ffmc":87.8,"dmc":52.3,"dc":532.5,"isi":5.9,"bui":83.9,"fwi":19.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f19","properties":{"name":"                                        RED+DEER+A","prov":"AB","lat":52.183,"lon":-113.9,"elev":905,"temp":9.1,"rh":66,"ws":7.6,"wdir":314,"precip":0,"ffmc":85.9,"dmc":52.2,"dc":521.5,"isi":3.5,"bui":83.5,"fwi":13.4,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f17","properties":{"name":"Three Hills AGCM                                  ","prov":"AB","lat":51.7673,"lon":-113.2058,"elev":857,"temp":15.9,"rh":42,"ws":21.9,"wdir":292,"precip":0,"ffmc":88.9,"dmc":61.5,"dc":614.3,"isi":11.1,"bui":98.4,"fwi":33.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f16","properties":{"name":"                                          SUNDRE+A","prov":"AB","lat":51.783,"lon":-114.683,"elev":1114,"temp":18,"rh":31,"ws":21.1,"wdir":265,"precip":0,"ffmc":90.1,"dmc":51.8,"dc":568.6,"isi":12.7,"bui":84.4,"fwi":34,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f15","properties":{"name":"Wimborne AGCM                                     ","prov":"AB","lat":51.936,"lon":-113.5908,"elev":940,"temp":10.8,"rh":56,"ws":15.2,"wdir":303,"precip":0.03,"ffmc":87.1,"dmc":59.4,"dc":600.5,"isi":6.1,"bui":95.2,"fwi":21.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f14","properties":{"name":"Azure AGCM                                        ","prov":"AB","lat":50.5119,"lon":-114.013,"elev":1143,"temp":18.1,"rh":32,"ws":15.6,"wdir":251,"precip":0.11,"ffmc":90.1,"dmc":49.4,"dc":318.3,"isi":9.5,"bui":71.2,"fwi":25.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f13","properties":{"name":"Barnwell AGDM                                     ","prov":"AB","lat":49.8017,"lon":-112.3022,"elev":824,"temp":20.9,"rh":32,"ws":22.1,"wdir":215,"precip":0,"ffmc":90.6,"dmc":58.8,"dc":414.9,"isi":14.2,"bui":86.8,"fwi":37.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f12","properties":{"name":"Barons AGCM                                       ","prov":"AB","lat":50.0223,"lon":-113.2214,"elev":967,"temp":22.5,"rh":19,"ws":47.2,"wdir":237,"precip":0,"ffmc":93.6,"dmc":54.8,"dc":368,"isi":77.5,"bui":79.9,"fwi":100.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f11","properties":{"name":"Bassano AGCM                                      ","prov":"AB","lat":50.8926,"lon":-112.4652,"elev":807,"temp":22.6,"rh":22,"ws":36.9,"wdir":246,"precip":0,"ffmc":93,"dmc":55.3,"dc":550.5,"isi":42,"bui":88.4,"fwi":73.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f10","properties":{"name":"Black Diamond AGCM                                ","prov":"AB","lat":50.7068,"lon":-114.1517,"elev":1156,"temp":17.2,"rh":37,"ws":19,"wdir":297,"precip":0.1,"ffmc":89.2,"dmc":45.6,"dc":354.4,"isi":10,"bui":69,"fwi":26.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f0f","properties":{"name":"Blood Tribe Ag. Project IMCIN                     ","prov":"AB","lat":49.5592,"lon":-113.0638,"elev":998,"temp":22.8,"rh":23,"ws":33.7,"wdir":244,"precip":0,"ffmc":92.6,"dmc":53.9,"dc":369.6,"isi":34,"bui":79,"fwi":61.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f0d","properties":{"name":"Brocket AGDM                                      ","prov":"AB","lat":49.6107,"lon":-113.7591,"elev":1073,"temp":21.7,"rh":22,"ws":42.4,"wdir":3,"precip":0,"ffmc":92.8,"dmc":52.6,"dc":278.9,"isi":54.2,"bui":71.5,"fwi":78,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f0b","properties":{"name":"Calgary International                             ","prov":"  ","lat":51.1226,"lon":-114.013,"elev":1099,"temp":19.6,"rh":32.2,"ws":13.8,"wdir":205,"precip":0,"ffmc":90.3,"dmc":43.4,"dc":451.5,"isi":8.9,"bui":70,"fwi":24.4,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f0a","properties":{"name":"                                  CALGARY+INT'L+CS","prov":"AB","lat":51.117,"lon":-114,"elev":1082,"temp":19.7,"rh":32,"ws":13.8,"wdir":205,"precip":0,"ffmc":90.3,"dmc":47.8,"dc":509.8,"isi":9,"bui":77.4,"fwi":25.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f09","properties":{"name":"                                          CARDSTON","prov":"AB","lat":49.2,"lon":-113.283,"elev":1136,"temp":19.8,"rh":28,"ws":17.8,"wdir":188,"precip":0,"ffmc":91.1,"dmc":51.4,"dc":247.5,"isi":12.4,"bui":67.7,"fwi":30,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f07","properties":{"name":"Champion AGDM                                     ","prov":"AB","lat":50.2953,"lon":-113.3467,"elev":995,"temp":22,"rh":22,"ws":33.6,"wdir":226,"precip":0.02,"ffmc":92.9,"dmc":53.2,"dc":339.5,"isi":34.9,"bui":76.5,"fwi":61.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f06","properties":{"name":"                                        CLARESHOLM","prov":"AB","lat":50,"lon":-113.633,"elev":1009,"temp":20.7,"rh":24,"ws":38.8,"wdir":275,"precip":0,"ffmc":92.2,"dmc":46.7,"dc":411,"isi":41.2,"bui":72.8,"fwi":66.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f05","properties":{"name":"Enchant 2 AGCM                                    ","prov":"AB","lat":50.179,"lon":-112.4137,"elev":798,"temp":22.3,"rh":26,"ws":27.8,"wdir":237,"precip":0,"ffmc":92,"dmc":54.6,"dc":443.4,"isi":23.1,"bui":83.5,"fwi":49.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f03","properties":{"name":"Fincastle IMCIN                                   ","prov":"AB","lat":49.8023,"lon":-112.0459,"elev":803,"temp":20.9,"rh":32,"ws":14.1,"wdir":213,"precip":0,"ffmc":90.4,"dmc":58.3,"dc":452,"isi":9.2,"bui":88.2,"fwi":28,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f01","properties":{"name":"Fort Macleod AGCM                                 ","prov":"AB","lat":49.7858,"lon":-113.3796,"elev":978,"temp":22.4,"rh":19,"ws":55.9,"wdir":241,"precip":0,"ffmc":93.6,"dmc":51,"dc":342.1,"isi":119.6,"bui":74.3,"fwi":124.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5f00","properties":{"name":"Gleichen AGCM                                     ","prov":"AB","lat":50.9345,"lon":-112.9408,"elev":907,"temp":22.5,"rh":23,"ws":24,"wdir":245,"precip":0.02,"ffmc":92.7,"dmc":51,"dc":492.3,"isi":21,"bui":81,"fwi":46.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5efd","properties":{"name":"                                        LETHBRIDGE","prov":"AB","lat":49.633,"lon":-112.8,"elev":929,"temp":21.1,"rh":27,"ws":22.8,"wdir":218,"precip":0,"ffmc":91.4,"dmc":55.6,"dc":347.7,"isi":16.5,"bui":79.4,"fwi":39.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5efc","properties":{"name":"                                    LETHBRIDGE+CDA","prov":"AB","lat":49.7,"lon":-112.767,"elev":910,"temp":21.8,"rh":30,"ws":17.9,"wdir":193,"precip":0,"ffmc":91,"dmc":59.2,"dc":404.5,"isi":12.1,"bui":86.6,"fwi":33.4,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5efb","properties":{"name":"Lethbridge Demo Farm IMCIN                        ","prov":"AB","lat":49.6867,"lon":-112.7449,"elev":906,"temp":21.8,"rh":29.5,"ws":18.2,"wdir":196,"precip":0,"ffmc":91,"dmc":60.3,"dc":401.9,"isi":12.4,"bui":87.7,"fwi":34.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ef8","properties":{"name":"Mossleigh AGCM                                    ","prov":"AB","lat":50.6726,"lon":-113.3487,"elev":965,"temp":21.1,"rh":24,"ws":30.1,"wdir":155,"precip":0.04,"ffmc":92.3,"dmc":51.1,"dc":419,"isi":27,"bui":78.3,"fwi":53.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ef7","properties":{"name":"Nier AGDM                                         ","prov":"AB","lat":51.3693,"lon":-114.0994,"elev":1145,"temp":17,"rh":37,"ws":39.7,"wdir":255,"precip":0.02,"ffmc":89.1,"dmc":45.9,"dc":485.8,"isi":28,"bui":74.3,"fwi":53.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ef6","properties":{"name":"                                     PINCHER+CREEK","prov":"AB","lat":49.517,"lon":-114,"elev":1190,"temp":19.9,"rh":22,"ws":57.6,"wdir":243,"precip":0,"ffmc":92.6,"dmc":47.6,"dc":280.7,"isi":112.8,"bui":66.9,"fwi":115.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ef5","properties":{"name":"                             PINCHER+CREEK+CLIMATE","prov":"AB","lat":49.517,"lon":-114,"elev":1190,"temp":19.8,"rh":23,"ws":56.1,"wdir":246,"precip":0,"ffmc":92.3,"dmc":46.7,"dc":229.1,"isi":100.6,"bui":61.8,"fwi":105,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ef4","properties":{"name":"Raymond IMCIN                                     ","prov":"AB","lat":49.4871,"lon":-112.6754,"elev":950,"temp":20.4,"rh":25,"ws":32.9,"wdir":227,"precip":0,"ffmc":91.8,"dmc":60,"dc":372.4,"isi":29.1,"bui":85.5,"fwi":58.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ef2","properties":{"name":"Rosemary IMCIN                                    ","prov":"AB","lat":50.8344,"lon":-112.0573,"elev":729,"temp":21.9,"rh":26,"ws":28.1,"wdir":224,"precip":0,"ffmc":92.1,"dmc":63.1,"dc":556.8,"isi":23.9,"bui":98.3,"fwi":54.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ef0","properties":{"name":"Standard AGCM                                     ","prov":"AB","lat":51.2284,"lon":-112.9821,"elev":901,"temp":18.8,"rh":34,"ws":19.9,"wdir":233,"precip":0,"ffmc":90.1,"dmc":59.3,"dc":609.5,"isi":11.9,"bui":95.4,"fwi":34.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eef","properties":{"name":"                                      STAVELY+AAFC","prov":"AB","lat":50.183,"lon":-113.883,"elev":1364,"temp":18,"rh":28.5,"ws":30.2,"wdir":265,"precip":0,"ffmc":90.6,"dmc":43.2,"dc":222.5,"isi":21.3,"bui":58.2,"fwi":40,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eee","properties":{"name":"Strathmore IMCIN                                  ","prov":"AB","lat":51.0387,"lon":-113.2897,"elev":976,"temp":18.8,"rh":32,"ws":22.2,"wdir":273,"precip":0.02,"ffmc":90.1,"dmc":40.8,"dc":479,"isi":13.4,"bui":67.2,"fwi":31.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eed","properties":{"name":"Travers AGCM                                      ","prov":"AB","lat":50.3038,"lon":-112.8626,"elev":955,"temp":23.2,"rh":19,"ws":36.6,"wdir":246,"precip":0.02,"ffmc":93.7,"dmc":51.5,"dc":383.8,"isi":46.1,"bui":77.1,"fwi":73.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eec","properties":{"name":"VAUXHALL CDA CS                                   ","prov":"AB","lat":50.05,"lon":-112.1333,"elev":779,"temp":21,"rh":33,"ws":24,"wdir":317,"precip":0,"ffmc":90.4,"dmc":28.6,"dc":68.1,"isi":15.2,"bui":28.5,"fwi":22.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eeb","properties":{"name":"Wrentham AGDM                                     ","prov":"AB","lat":49.4952,"lon":-112.1116,"elev":944,"temp":20.7,"rh":23,"ws":29.3,"wdir":226,"precip":0,"ffmc":92.3,"dmc":64.3,"dc":414.7,"isi":25.9,"bui":92.6,"fwi":56.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ee7","properties":{"name":"                                        MILK+RIVER","prov":"AB","lat":49.133,"lon":-112.05,"elev":1050,"temp":19.6,"rh":27,"ws":25.2,"wdir":241,"precip":0,"ffmc":91.5,"dmc":66.5,"dc":387.5,"isi":18.9,"bui":93.1,"fwi":46.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ee4","properties":{"name":"                                          BANFF+CS","prov":"AB","lat":51.2,"lon":-115.55,"elev":1397,"temp":10.4,"rh":75,"ws":6.5,"wdir":228,"precip":0.6,"ffmc":84.2,"dmc":40.5,"dc":398.4,"isi":2.6,"bui":64.6,"fwi":9.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ee3","properties":{"name":"                                      BEAVER+MINES","prov":"AB","lat":49.467,"lon":-114.183,"elev":1257,"temp":19.6,"rh":24,"ws":35.5,"wdir":246,"precip":0,"ffmc":92,"dmc":46.1,"dc":175.6,"isi":33.9,"bui":55.7,"fwi":52.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ee2","properties":{"name":"                                        BOW+VALLEY","prov":"AB","lat":51.083,"lon":-115.067,"elev":1298,"temp":13.9,"rh":50,"ws":11.7,"wdir":234,"precip":0,"ffmc":88,"dmc":33.2,"dc":281.4,"isi":5.8,"bui":51.3,"fwi":15.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ee1","properties":{"name":"                                         CROWSNEST","prov":"AB","lat":49.633,"lon":-114.483,"elev":1303,"temp":16.8,"rh":30,"ws":25,"wdir":281,"precip":0,"ffmc":91.9,"dmc":54.5,"dc":330.9,"isi":19.9,"bui":77.2,"fwi":43.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ede","properties":{"name":"PEKISKO                                           ","prov":"  ","lat":50.3685,"lon":-114.4155,"elev":1408,"temp":14.7,"rh":41,"ws":13.9,"wdir":237,"precip":0.3,"ffmc":88,"dmc":36.5,"dc":244,"isi":6.5,"bui":53.2,"fwi":16.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5edd","properties":{"name":"                                WATERTON+PARK+GATE","prov":"AB","lat":49.133,"lon":-113.817,"elev":1289,"temp":20.1,"rh":21,"ws":34,"wdir":226,"precip":0,"ffmc":93,"dmc":49.2,"dc":288,"isi":36.5,"bui":68.9,"fwi":60.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5edc","properties":{"name":"                                  NAKISKA+RIDGETOP","prov":"AB","lat":50.95,"lon":-115.183,"elev":2543,"temp":1.3,"rh":94,"ws":32.8,"wdir":203,"precip":0.15,"ffmc":79.1,"dmc":14.4,"dc":206.4,"isi":5.4,"bui":24.6,"fwi":9.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5edb","properties":{"name":"Athabasca AGCM                                    ","prov":"AB","lat":54.6348,"lon":-113.3821,"elev":635,"temp":6.9,"rh":96,"ws":20.6,"wdir":75,"precip":16.95,"ffmc":20.9,"dmc":12.2,"dc":275.1,"isi":0,"bui":21.9,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eda","properties":{"name":"Atmore AGDM                                       ","prov":"AB","lat":54.7802,"lon":-112.8248,"elev":583,"temp":6.6,"rh":96,"ws":14.9,"wdir":64,"precip":14.51,"ffmc":21.6,"dmc":17.1,"dc":315.1,"isi":0,"bui":30.1,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ed9","properties":{"name":"BARRHEAD CS                                       ","prov":"  ","lat":54.0953,"lon":-114.4513,"elev":647,"temp":8.5,"rh":89,"ws":15.8,"wdir":89,"precip":10.1,"ffmc":32.8,"dmc":13.6,"dc":299,"isi":0,"bui":24.5,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ed8","properties":{"name":"                                      CAMPSIE+AUTO","prov":"AB","lat":54.133,"lon":-114.683,"elev":647,"temp":8.4,"rh":91,"ws":8.6,"wdir":92,"precip":10.4,"ffmc":28.4,"dmc":14.8,"dc":323,"isi":0,"bui":26.5,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ed5","properties":{"name":"Evansburg 2 AGCM                                  ","prov":"AB","lat":53.6381,"lon":-115.0624,"elev":788,"temp":7.6,"rh":84,"ws":3.8,"wdir":31,"precip":6.15,"ffmc":36.2,"dmc":17.9,"dc":280,"isi":0,"bui":30.9,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ed4","properties":{"name":"Fort Assiniboine AGCM                             ","prov":"AB","lat":54.4104,"lon":-114.7692,"elev":676,"temp":7.4,"rh":97,"ws":14.6,"wdir":55,"precip":11.69,"ffmc":21.5,"dmc":12.1,"dc":316.3,"isi":0,"bui":22.1,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ed3","properties":{"name":"                                  FORT+MCMURRAY+CS","prov":"AB","lat":56.65,"lon":-111.217,"elev":369,"temp":6.4,"rh":85,"ws":14.3,"wdir":68,"precip":3.7,"ffmc":50.1,"dmc":20.8,"dc":450.6,"isi":0.3,"bui":37.3,"fwi":0.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ed2","properties":{"name":"                                   FORT+MCMURRAY+A","prov":"AB","lat":56.65,"lon":-111.217,"elev":369,"temp":6.4,"rh":88,"ws":16.6,"wdir":70,"precip":4.3,"ffmc":45.8,"dmc":14.8,"dc":404.4,"isi":0.2,"bui":27.1,"fwi":0.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ed1","properties":{"name":"                                 HENDRICKSON+CREEK","prov":"AB","lat":53.8,"lon":-118.45,"elev":1448,"temp":2.7,"rh":92,"ws":8.9,"wdir":309,"precip":6.2,"ffmc":19.1,"dmc":7.2,"dc":107.2,"isi":0,"bui":12.3,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ecf","properties":{"name":"                                 ISLAND+LAKE+SOUTH","prov":"AB","lat":54.817,"lon":-113.55,"elev":619,"temp":6.8,"rh":94,"ws":16,"wdir":77,"precip":18.4,"ffmc":22.6,"dmc":12.5,"dc":250.7,"isi":0,"bui":22.3,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ece","properties":{"name":"                              LAC+LA+BICHE+CLIMATE","prov":"AB","lat":54.767,"lon":-112.017,"elev":567,"temp":7.1,"rh":92,"ws":13.1,"wdir":84,"precip":10.1,"ffmc":29.5,"dmc":32.4,"dc":391.5,"isi":0,"bui":53.7,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ecd","properties":{"name":"                                      MILDRED+LAKE","prov":"AB","lat":57.033,"lon":-111.567,"elev":310,"temp":6.2,"rh":100,"ws":12.6,"wdir":25,"precip":1,"ffmc":73,"dmc":48.2,"dc":473.2,"isi":1.3,"bui":76.8,"fwi":5.4,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ecc","properties":{"name":"Rich Lake AGDM                                    ","prov":"AB","lat":54.5012,"lon":-111.6914,"elev":616,"temp":6.7,"rh":91,"ws":28.6,"wdir":95,"precip":8.42,"ffmc":35.8,"dmc":28.8,"dc":347.7,"isi":0.1,"bui":47.7,"fwi":0.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ecb","properties":{"name":"                                        SLAVE+LAKE","prov":"AB","lat":55.3,"lon":-114.783,"elev":583,"temp":7.1,"rh":94,"ws":16.6,"wdir":87,"precip":27.6,"ffmc":20.4,"dmc":7.7,"dc":289.9,"isi":0,"bui":14.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eca","properties":{"name":"                                    SLAVE+LAKE+RCS","prov":"AB","lat":55.3,"lon":-114.783,"elev":583,"temp":7.3,"rh":93,"ws":14.9,"wdir":94,"precip":26.7,"ffmc":21.4,"dmc":8.3,"dc":311.5,"isi":0,"bui":15.5,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ec9","properties":{"name":"Tawatinaw AGCM                                    ","prov":"AB","lat":54.2999,"lon":-113.5203,"elev":611,"temp":7.4,"rh":90,"ws":15,"wdir":74,"precip":9.48,"ffmc":32.3,"dmc":15.8,"dc":291.2,"isi":0,"bui":27.9,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ec7","properties":{"name":"                                    WILLOW+CREEK+1","prov":"AB","lat":53.383,"lon":-118.35,"elev":1370,"temp":8.4,"rh":87,"ws":3.3,"wdir":76,"precip":0.7,"ffmc":77.7,"dmc":93,"dc":697.2,"isi":1.1,"bui":139.5,"fwi":6.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ec6","properties":{"name":"                                   BEAVERLODGE+RCS","prov":"AB","lat":55.2,"lon":-119.4,"elev":745,"temp":0.4,"rh":100,"ws":13.9,"wdir":322,"precip":24.7,"ffmc":10.9,"dmc":10.9,"dc":386.5,"isi":0,"bui":20.3,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ec5","properties":{"name":"Brownvale AGCM                                    ","prov":"AB","lat":56.1177,"lon":-117.8866,"elev":748,"temp":1.2,"rh":96,"ws":32.7,"wdir":15,"precip":22.77,"ffmc":18.7,"dmc":8,"dc":332.6,"isi":0,"bui":15,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ec4","properties":{"name":"Eaglesham AGCM                                    ","prov":"AB","lat":55.8081,"lon":-117.8866,"elev":563,"temp":2.6,"rh":92,"ws":29.7,"wdir":28,"precip":22.98,"ffmc":23.9,"dmc":9.3,"dc":345.3,"isi":0,"bui":17.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ec2","properties":{"name":"Fairview AGDM                                     ","prov":"AB","lat":56.0815,"lon":-118.4395,"elev":655,"temp":2,"rh":92,"ws":39.8,"wdir":31,"precip":23.04,"ffmc":25,"dmc":8.6,"dc":362.5,"isi":0,"bui":16.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ebe","properties":{"name":"                                  GRANDE+PRAIRIE+A","prov":"AB","lat":55.183,"lon":-118.883,"elev":669,"temp":1.6,"rh":96,"ws":19,"wdir":5,"precip":23,"ffmc":14.7,"dmc":10,"dc":256.4,"isi":0,"bui":18.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eba","properties":{"name":"Jean Cote AGCM                                    ","prov":"AB","lat":55.9129,"lon":-117.1198,"elev":638,"temp":1.7,"rh":98,"ws":28.7,"wdir":27,"precip":23.04,"ffmc":15.6,"dmc":7.9,"dc":337.7,"isi":0,"bui":14.9,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eb8","properties":{"name":"La Glace AGCM                                     ","prov":"AB","lat":55.4219,"lon":-119.2547,"elev":760,"temp":1.6,"rh":99,"ws":20.9,"wdir":8,"precip":23.87,"ffmc":11.8,"dmc":10.8,"dc":338.3,"isi":0,"bui":19.9,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eb7","properties":{"name":"Manning AGDM                                      ","prov":"AB","lat":56.9738,"lon":-117.4508,"elev":457,"temp":3.1,"rh":94,"ws":35.8,"wdir":8,"precip":18.36,"ffmc":23.6,"dmc":7.6,"dc":342.1,"isi":0,"bui":14.3,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eb6","properties":{"name":"Cleardale AGDM                                    ","prov":"AB","lat":56.3203,"lon":-119.7479,"elev":635,"temp":4.1,"rh":86,"ws":21.3,"wdir":13,"precip":23.22,"ffmc":28.8,"dmc":9.9,"dc":447.1,"isi":0,"bui":18.7,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eb5","properties":{"name":"                                     PEACE+RIVER+A","prov":"AB","lat":56.233,"lon":-117.45,"elev":571,"temp":2.4,"rh":94,"ws":29.5,"wdir":16,"precip":21.2,"ffmc":21.7,"dmc":8.2,"dc":364.7,"isi":0,"bui":15.5,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eb4","properties":{"name":"ROMA                                              ","prov":"AB","lat":56.1933,"lon":-117.452,"elev":560,"temp":2.4,"rh":92,"ws":39.6,"wdir":23,"precip":24,"ffmc":24.9,"dmc":8,"dc":305,"isi":0,"bui":15.1,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eb3","properties":{"name":"Peoria AGDM                                       ","prov":"AB","lat":55.6212,"lon":-118.293,"elev":621,"temp":1.7,"rh":95,"ws":30.3,"wdir":15,"precip":22.83,"ffmc":18.6,"dmc":9.3,"dc":335.6,"isi":0,"bui":17.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eb1","properties":{"name":"Savanna AGCM                                      ","prov":"AB","lat":56.0761,"lon":-119.3449,"elev":703,"temp":2.2,"rh":92,"ws":36.2,"wdir":31,"precip":23.6,"ffmc":24.6,"dmc":9.2,"dc":425.3,"isi":0,"bui":17.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eb0","properties":{"name":"Teepee Creek AGCM                                 ","prov":"AB","lat":55.3524,"lon":-118.4076,"elev":670,"temp":1.6,"rh":100,"ws":21.6,"wdir":14,"precip":22.92,"ffmc":10.3,"dmc":9.3,"dc":303.1,"isi":0,"bui":17.3,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5eaf","properties":{"name":"Valleyview AGDM                                   ","prov":"AB","lat":55.0978,"lon":-117.1987,"elev":694,"temp":6.2,"rh":97,"ws":23.2,"wdir":8,"precip":21.03,"ffmc":16.2,"dmc":8.5,"dc":262,"isi":0,"bui":15.8,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e74","properties":{"name":"HIGHWOOD AUTO                                     ","prov":"AB","lat":50.415,"lon":-114.726,"elev":1576,"temp":11.5,"rh":53,"ws":12,"wdir":270,"precip":0,"ffmc":88.7,"dmc":52.2,"dc":354.6,"isi":6.5,"bui":76.3,"fwi":20.4,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e73","properties":{"name":"YAHA TINDA AUTO                                   ","prov":"AB","lat":51.655,"lon":-115.362,"elev":1486,"temp":14,"rh":40,"ws":18,"wdir":270,"precip":0,"ffmc":89.7,"dmc":61.3,"dc":494.9,"isi":10.2,"bui":93.6,"fwi":30.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e72","properties":{"name":"KANANASKI BOUNDARY AUTO                           ","prov":"AB","lat":50.928,"lon":-115.123,"elev":1464,"temp":9,"rh":88,"ws":15,"wdir":135,"precip":0.8,"ffmc":80.3,"dmc":33.8,"dc":388.8,"isi":2.5,"bui":55.5,"fwi":7.9,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e71","properties":{"name":"PETER LOUGHEED PARK                               ","prov":"AB","lat":50.714,"lon":-115.119,"elev":1622,"temp":7.6,"rh":90,"ws":5,"wdir":180,"precip":0.4,"ffmc":83,"dmc":50.3,"dc":450.8,"isi":2.1,"bui":78.7,"fwi":8.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e70","properties":{"name":"ELBOW AUTO                                        ","prov":"AB","lat":50.905,"lon":-114.691,"elev":1413,"temp":15.6,"rh":36,"ws":34,"wdir":225,"precip":0,"ffmc":89.2,"dmc":47.8,"dc":223.4,"isi":21.4,"bui":62.3,"fwi":41.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e6f","properties":{"name":"NORTH GHOST                                       ","prov":"AB","lat":51.574,"lon":-114.855,"elev":1477,"temp":16.1,"rh":32,"ws":17,"wdir":180,"precip":0,"ffmc":89.6,"dmc":45.2,"dc":437.9,"isi":9.6,"bui":71.8,"fwi":26,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e6c","properties":{"name":"OSBORN                                            ","prov":"BC","lat":56.558,"lon":-120.382,"elev":700,"temp":2.6,"rh":95,"ws":30.4,"wdir":322,"precip":12.6,"ffmc":24.6,"dmc":27.8,"dc":646.2,"isi":0,"bui":50.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e4e","properties":{"name":"MCGREGOR 2                                        ","prov":"BC","lat":53.929,"lon":-120.636,"elev":975,"temp":4.9,"rh":98,"ws":6.1,"wdir":112,"precip":61.2,"ffmc":2.1,"dmc":0,"dc":1.6,"isi":0,"bui":0,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e4c","properties":{"name":"MCBRIDE HUB                                       ","prov":"BC","lat":53.295,"lon":-120.153,"elev":716,"temp":8.6,"rh":91,"ws":16.9,"wdir":287,"precip":19,"ffmc":17.9,"dmc":3.8,"dc":367.7,"isi":0,"bui":7.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e4b","properties":{"name":"CATFISH                                           ","prov":"BC","lat":53.576,"lon":-120.858,"elev":866,"temp":4,"rh":98,"ws":5.8,"wdir":315,"precip":36.2,"ffmc":2,"dmc":0,"dc":161.9,"isi":0,"bui":0,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e3d","properties":{"name":"BIGATTINI                                         ","prov":"BC","lat":49.454,"lon":-115.987,"elev":1540,"temp":7.9,"rh":78,"ws":5.8,"wdir":195,"precip":0,"ffmc":84.7,"dmc":26.5,"dc":462.6,"isi":2.7,"bui":46.3,"fwi":7.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e05","properties":{"name":"PALLISER                                          ","prov":"BC","lat":50.495,"lon":-115.666,"elev":1100,"temp":17.7,"rh":42,"ws":18.5,"wdir":178,"precip":0.4,"ffmc":89.7,"dmc":54.1,"dc":643.3,"isi":10.5,"bui":89.4,"fwi":30.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e04","properties":{"name":"ELKO                                              ","prov":"BC","lat":49.288,"lon":-115.155,"elev":775,"temp":16,"rh":41,"ws":9.7,"wdir":276,"precip":0,"ffmc":90.4,"dmc":37.5,"dc":518.3,"isi":7.4,"bui":63.4,"fwi":20.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5e01","properties":{"name":"JOHNSON LAKE                                      ","prov":"BC","lat":49.944,"lon":-115.758,"elev":853,"temp":14.5,"rh":57,"ws":17.1,"wdir":168,"precip":0,"ffmc":87.7,"dmc":70.5,"dc":862.9,"isi":7.2,"bui":117.2,"fwi":27.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dff","properties":{"name":"EMILY CREEK                                       ","prov":"BC","lat":50.145,"lon":-115.977,"elev":1190,"temp":17.2,"rh":36,"ws":9.7,"wdir":165,"precip":0.2,"ffmc":89.7,"dmc":43,"dc":765.8,"isi":6.7,"bui":75.4,"fwi":20.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dfe","properties":{"name":"CRANBROOK FS                                      ","prov":"BC","lat":49.667,"lon":-115.848,"elev":996,"temp":14.2,"rh":50,"ws":9,"wdir":249,"precip":0,"ffmc":88.6,"dmc":55.5,"dc":801.6,"isi":5.5,"bui":94.7,"fwi":20.2,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dfc","properties":{"name":"ROUND PRAIRIE                                     ","prov":"BC","lat":50.087,"lon":-114.9,"elev":1647,"temp":7.8,"rh":82,"ws":3.2,"wdir":94,"precip":0,"ffmc":84.5,"dmc":37,"dc":405.7,"isi":2.3,"bui":60.3,"fwi":7.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dfb","properties":{"name":"WHITE RIVER                                       ","prov":"BC","lat":50.185,"lon":-115.268,"elev":1357,"temp":8.7,"rh":88,"ws":3.6,"wdir":115,"precip":0.8,"ffmc":80.5,"dmc":44.5,"dc":590.3,"isi":1.4,"bui":74.9,"fwi":5.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dfa","properties":{"name":"CHERRY LAKE                                       ","prov":"BC","lat":49.188,"lon":-115.542,"elev":1372,"temp":10.6,"rh":62,"ws":7.3,"wdir":175,"precip":0,"ffmc":87.4,"dmc":44.6,"dc":557.7,"isi":4.3,"bui":74.3,"fwi":14.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5df0","properties":{"name":"GOATHAVEN                                         ","prov":"BC","lat":49.667,"lon":-115.214,"elev":1051,"temp":10.5,"rh":87,"ws":2.1,"wdir":102,"precip":0,"ffmc":84,"dmc":41.5,"dc":545.7,"isi":2.1,"bui":69.8,"fwi":7.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dec","properties":{"name":"BERLAND AUTO                                      ","prov":"AB","lat":54.09,"lon":-117.401,"elev":1230,"temp":2.6,"rh":100,"ws":17,"wdir":315,"precip":17.86,"ffmc":4.3,"dmc":6.3,"dc":138.6,"isi":0,"bui":11.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5deb","properties":{"name":"LIVINGSTON GAP AUTO                               ","prov":"AB","lat":49.879,"lon":-114.383,"elev":1403,"temp":15.9,"rh":31,"ws":39,"wdir":180,"precip":0,"ffmc":91.1,"dmc":48.5,"dc":224.2,"isi":36.1,"bui":62.9,"fwi":57.7,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5de9","properties":{"name":"BLAIRMORE RANGER STATION                          ","prov":"AB","lat":49.609,"lon":-114.451,"elev":1311,"temp":18,"rh":25,"ws":20,"wdir":270,"precip":0,"ffmc":91.8,"dmc":57.2,"dc":232.7,"isi":15.1,"bui":70.8,"fwi":35.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5de7","properties":{"name":"CHISHOLM AUTO                                     ","prov":"AB","lat":54.941,"lon":-114.04,"elev":685,"temp":7.7,"rh":93,"ws":5,"wdir":45,"precip":18.6,"ffmc":21,"dmc":12.5,"dc":272.6,"isi":0,"bui":22.5,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5de6","properties":{"name":"COWPAR LAKE AUTO                                  ","prov":"AB","lat":55.953,"lon":-110.497,"elev":553,"temp":5,"rh":94,"ws":7,"wdir":90,"precip":6.8,"ffmc":31.2,"dmc":19,"dc":351.7,"isi":0,"bui":33.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5de5","properties":{"name":"WILDHAY AUTO                                      ","prov":"AB","lat":53.861,"lon":-117.558,"elev":1041,"temp":4.9,"rh":85,"ws":12,"wdir":225,"precip":10.4,"ffmc":21.3,"dmc":6.7,"dc":254.3,"isi":0,"bui":12.6,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5de4","properties":{"name":"GRANDE CACHE                                      ","prov":"AB","lat":53.916,"lon":-118.867,"elev":1250,"temp":3.3,"rh":92,"ws":13,"wdir":270,"precip":9.2,"ffmc":15.1,"dmc":4.7,"dc":174.5,"isi":0,"bui":8.9,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5de3","properties":{"name":"ENTRANCE AUTO                                     ","prov":"AB","lat":53.38,"lon":-117.701,"elev":1045,"temp":8.7,"rh":89,"ws":4,"wdir":135,"precip":1,"ffmc":56.5,"dmc":27.6,"dc":302.1,"isi":0.4,"bui":44.9,"fwi":0.6,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dde","properties":{"name":"KAKWA AUTO                                        ","prov":"AB","lat":54.175,"lon":-119.059,"elev":1344,"temp":1.4,"rh":91,"ws":7,"wdir":270,"precip":12.6,"ffmc":13.4,"dmc":8.9,"dc":136.4,"isi":0,"bui":15.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5ddc","properties":{"name":"HEART LAKE AUTO                                   ","prov":"AB","lat":54.915,"lon":-111.34,"elev":866,"temp":4.3,"rh":99,"ws":14,"wdir":90,"precip":4.86,"ffmc":31.7,"dmc":13.1,"dc":208.3,"isi":0,"bui":22.7,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dd9","properties":{"name":"KIRBY LAKE AUTO                                   ","prov":"AB","lat":55.358,"lon":-110.645,"elev":690,"temp":3.7,"rh":94,"ws":18,"wdir":90,"precip":11.2,"ffmc":25.3,"dmc":14.6,"dc":244.5,"isi":0,"bui":25.5,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dd8","properties":{"name":"DUNKIRK AUTO                                      ","prov":"AB","lat":56.768,"lon":-112.488,"elev":479,"temp":4.2,"rh":96,"ws":5,"wdir":315,"precip":9.8,"ffmc":23.6,"dmc":28.7,"dc":453.9,"isi":0,"bui":49.6,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dd7","properties":{"name":"KEANE AUTO                                        ","prov":"AB","lat":58.309,"lon":-110.282,"elev":337,"temp":5.3,"rh":61,"ws":18,"wdir":45,"precip":0,"ffmc":83,"dmc":10.8,"dc":212.2,"isi":4,"bui":19.1,"fwi":6.3,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dd6","properties":{"name":"LEISMER AUTO                                      ","prov":"AB","lat":55.69,"lon":-111.285,"elev":583,"temp":4.7,"rh":100,"ws":20,"wdir":45,"precip":14.2,"ffmc":16.4,"dmc":20.3,"dc":296.6,"isi":0,"bui":34.6,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dd5","properties":{"name":"MAY RAWS                                          ","prov":"AB","lat":55.562,"lon":-112.405,"elev":866,"temp":2.1,"rh":100,"ws":23,"wdir":45,"precip":17.6,"ffmc":13.6,"dmc":10.4,"dc":290.1,"isi":0,"bui":19.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dd1","properties":{"name":"CLEARWATER AUTO                                   ","prov":"AB","lat":51.987,"lon":-115.24,"elev":1280,"temp":17.4,"rh":28,"ws":5,"wdir":270,"precip":0,"ffmc":90.5,"dmc":33.8,"dc":160.6,"isi":5.9,"bui":44.3,"fwi":14.1,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dd0","properties":{"name":"RAM FALLS AUTO                                    ","prov":"AB","lat":52.088,"lon":-115.844,"elev":1641,"temp":14.9,"rh":27,"ws":24,"wdir":270,"precip":0,"ffmc":90.5,"dmc":53.2,"dc":419,"isi":15.4,"bui":80.7,"fwi":37.8,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dcf","properties":{"name":"ELK RIVER AUTO                                    ","prov":"AB","lat":52.969,"lon":-115.865,"elev":1067,"temp":5.7,"rh":93,"ws":0,"wdir":0,"precip":2.05,"ffmc":57.7,"dmc":23.2,"dc":179.5,"isi":0.4,"bui":35,"fwi":0.5,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dcd","properties":{"name":"ROUND HILL AUTO                                   ","prov":"AB","lat":55.302,"lon":-111.995,"elev":693,"temp":4.7,"rh":92,"ws":12,"wdir":45,"precip":16.8,"ffmc":23.1,"dmc":19.1,"dc":349.5,"isi":0,"bui":33.6,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dcc","properties":{"name":"ROCK ISLAND LAKE AUTO                             ","prov":"AB","lat":55.326,"lon":-113.46,"elev":722,"temp":4.9,"rh":100,"ws":14,"wdir":90,"precip":27.49,"ffmc":11.2,"dmc":8.8,"dc":284.6,"isi":0,"bui":16.4,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dca","properties":{"name":"SALTEAUX AUTO                                     ","prov":"AB","lat":54.916,"lon":-114.781,"elev":736,"temp":6.5,"rh":96,"ws":5,"wdir":45,"precip":26.8,"ffmc":15.8,"dmc":8.8,"dc":242.2,"isi":0,"bui":16.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dc9","properties":{"name":"KINUSO                                            ","prov":"AB","lat":55.303,"lon":-115.492,"elev":611,"temp":7.8,"rh":96,"ws":5,"wdir":360,"precip":29.2,"ffmc":15.7,"dmc":10.5,"dc":416.7,"isi":0,"bui":19.7,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dc5","properties":{"name":"SWAN DIVE AUTO                                    ","prov":"AB","lat":54.728,"lon":-115.356,"elev":1241,"temp":3.7,"rh":100,"ws":5,"wdir":135,"precip":25.6,"ffmc":10.3,"dmc":5.1,"dc":66,"isi":0,"bui":8.6,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dc2","properties":{"name":"TONY AUTO                                         ","prov":"AB","lat":54.405,"lon":-117.492,"elev":1007,"temp":3.2,"rh":100,"ws":9,"wdir":225,"precip":33.8,"ffmc":9.3,"dmc":7.4,"dc":58.2,"isi":0,"bui":11.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dc1","properties":{"name":"VEGA AUTO                                         ","prov":"AB","lat":54.428,"lon":-114.43,"elev":713,"temp":7.1,"rh":99,"ws":3,"wdir":90,"precip":13,"ffmc":17.3,"dmc":10,"dc":324.7,"isi":0,"bui":18.5,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}},{"type":"Feature","id":"firewx_stns_current.fid--1fd87b0f_1a12534268b_-5dbc","properties":{"name":"WANDERING RIVER AUTO                              ","prov":"AB","lat":55.201,"lon":-112.502,"elev":579,"temp":5.5,"rh":100,"ws":25,"wdir":90,"precip":17,"ffmc":13.5,"dmc":14.9,"dc":274.2,"isi":0,"bui":26.2,"fwi":0,"rep_date":"2026-10-09T12:00:00Z"}}],"empty":[]},
+ "prev_sets": {"captured":{"generated":"2026-10-10T00:03:47.901Z","stations":{"Duck Lake AGCM":{"ffmc":81.5,"dmc":3.1,"dc":184.3,"isi":2,"bui":5.9,"fwi":0.9,"lat":54.6864,"lon":-113.9389,"repDate":"2026-10-09T12:00:00Z"},"WEST BLOCK":{"ffmc":90.7,"dmc":36.9,"dc":364.9,"isi":13.4,"bui":59,"fwi":29.6,"lat":49.635,"lon":-109.92,"repDate":"2026-10-09T12:00:00Z"},"CRANBROOK A":{"ffmc":89.7,"dmc":48.2,"dc":700.9,"isi":6.7,"bui":82.2,"fwi":21.7,"lat":49.617,"lon":-115.783,"repDate":"2026-10-09T12:00:00Z"},"CRANBROOK AIRPORT AUTO":{"ffmc":90,"dmc":45.2,"dc":698.9,"isi":7,"bui":77.8,"fwi":21.8,"lat":49.6177,"lon":-115.789,"repDate":"2026-10-09T12:00:00Z"},"SPARWOOD CS":{"ffmc":90.1,"dmc":42.2,"dc":417.1,"isi":10.9,"bui":67.4,"fwi":27.5,"lat":49.75,"lon":-114.883,"repDate":"2026-10-09T12:00:00Z"},"GOLDEN AIRPORT":{"ffmc":51.1,"dmc":19.4,"dc":386.6,"isi":0.3,"bui":34.5,"fwi":0.4,"lat":51.3,"lon":-116.983,"repDate":"2026-10-09T12:00:00Z"},"YOHO PARK":{"ffmc":50.6,"dmc":5,"dc":213.6,"isi":0.5,"bui":9.4,"fwi":0.3,"lat":51.45,"lon":-116.35,"repDate":"2026-10-09T12:00:00Z"},"FORT SMITH UA":{"ffmc":82.7,"dmc":5.8,"dc":295.9,"isi":2.7,"bui":11.1,"fwi":2.9,"lat":60.033,"lon":-111.933,"repDate":"2026-10-09T12:00:00Z"},"FORT SMITH A":{"ffmc":82.7,"dmc":5.8,"dc":295.9,"isi":2.7,"bui":11.1,"fwi":2.9,"lat":60.017,"lon":-111.967,"repDate":"2026-10-09T12:00:00Z"},"FORT SMITH CLIMATE":{"ffmc":82.6,"dmc":6.4,"dc":327.7,"isi":2.7,"bui":12.2,"fwi":3.1,"lat":60.033,"lon":-111.933,"repDate":"2026-10-09T12:00:00Z"},"Andrew AGDM":{"ffmc":58.7,"dmc":27,"dc":347.1,"isi":1.6,"bui":45.2,"fwi":4.6,"lat":53.9176,"lon":-112.2783,"repDate":"2026-10-09T12:00:00Z"},"Bellshill AGCM":{"ffmc":78.7,"dmc":50.6,"dc":471.5,"isi":2.3,"bui":79.7,"fwi":9.2,"lat":52.5824,"lon":-111.4654,"repDate":"2026-10-09T12:00:00Z"},"Bodo AGDM":{"ffmc":87.4,"dmc":59.9,"dc":484.7,"isi":3.7,"bui":91.5,"fwi":14.7,"lat":52.1242,"lon":-110.1011,"repDate":"2026-10-09T12:00:00Z"},"Breton Plots":{"ffmc":62.9,"dmc":46.5,"dc":348.2,"isi":0.7,"bui":69.7,"fwi":2.3,"lat":53.0893,"lon":-114.4428,"repDate":"2026-10-09T12:00:00Z"},"Busby AGCM":{"ffmc":36.7,"dmc":24.8,"dc":301.4,"isi":0,"bui":41.1,"fwi":0,"lat":53.9309,"lon":-113.9216,"repDate":"2026-10-09T12:00:00Z"},"Cadogan AGCM":{"ffmc":83.6,"dmc":58.4,"dc":494.7,"isi":4.6,"bui":90.2,"fwi":17.2,"lat":52.3343,"lon":-110.51,"repDate":"2026-10-09T12:00:00Z"},"CAMROSE":{"ffmc":64.8,"dmc":28.4,"dc":406.2,"isi":0.9,"bui":48.3,"fwi":2.5,"lat":53.05,"lon":-112.817,"repDate":"2026-10-09T12:00:00Z"},"Consort AGDM":{"ffmc":86.6,"dmc":60.4,"dc":468.6,"isi":3.4,"bui":91.4,"fwi":14,"lat":51.9371,"lon":-110.713,"repDate":"2026-10-09T12:00:00Z"},"CORONATION CLIMATE":{"ffmc":87.2,"dmc":53.3,"dc":364.4,"isi":3.7,"bui":78,"fwi":13.5,"lat":52.067,"lon":-111.45,"repDate":"2026-10-09T12:00:00Z"},"Crestomere AGCM":{"ffmc":81.9,"dmc":63.1,"dc":488.6,"isi":2.4,"bui":95.4,"fwi":10.6,"lat":52.7329,"lon":-113.9029,"repDate":"2026-10-09T12:00:00Z"},"Delburne AGCM":{"ffmc":86.5,"dmc":56.1,"dc":568.8,"isi":5.7,"bui":90,"fwi":20.1,"lat":52.1828,"lon":-113.1757,"repDate":"2026-10-09T12:00:00Z"},"Dewberry AGCM":{"ffmc":68.9,"dmc":49.4,"dc":479.2,"isi":2.2,"bui":78.6,"fwi":8.9,"lat":53.6593,"lon":-110.5876,"repDate":"2026-10-09T12:00:00Z"},"Edgerton AGCM":{"ffmc":77,"dmc":55.8,"dc":512.7,"isi":2.7,"bui":87.7,"fwi":11.2,"lat":52.7778,"lon":-110.4328,"repDate":"2026-10-09T12:00:00Z"},"EDMONTON INT'L A":{"ffmc":69.1,"dmc":57.8,"dc":348.1,"isi":1,"bui":81.7,"fwi":4.2,"lat":53.317,"lon":-113.583,"repDate":"2026-10-09T12:00:00Z"},"EDMONTON INTERNATIONAL CS":{"ffmc":74.8,"dmc":66.5,"dc":384.6,"isi":1.2,"bui":92.8,"fwi":5.9,"lat":53.3,"lon":-113.6,"repDate":"2026-10-09T12:00:00Z"},"EDMONTON BLATCHFORD":{"ffmc":50.7,"dmc":52.7,"dc":330.2,"isi":0.2,"bui":75.3,"fwi":0.6,"lat":53.567,"lon":-113.517,"repDate":"2026-10-09T12:00:00Z"},"Edmonton Villeneuve":{"ffmc":48.5,"dmc":31.9,"dc":302.4,"isi":0.3,"bui":50.5,"fwi":0.5,"lat":53.6683,"lon":-113.856,"repDate":"2026-10-09T12:00:00Z"},"ELK ISLAND NAT PARK":{"ffmc":47.7,"dmc":8.7,"dc":184.3,"isi":0.2,"bui":15.6,"fwi":0.2,"lat":53.683,"lon":-112.867,"repDate":"2026-10-09T12:00:00Z"},"Ferintosh AGCM":{"ffmc":68.3,"dmc":46.4,"dc":424.9,"isi":1,"bui":72.9,"fwi":3.9,"lat":52.7438,"lon":-112.858,"repDate":"2026-10-09T12:00:00Z"},"Forestburg AGCM":{"ffmc":78.7,"dmc":55.8,"dc":505.5,"isi":1.6,"bui":87.4,"fwi":7.3,"lat":52.5484,"lon":-112.1234,"repDate":"2026-10-09T12:00:00Z"},"Gilt Edge North AGCM":{"ffmc":73.5,"dmc":52.2,"dc":508.3,"isi":2.6,"bui":83,"fwi":10.7,"lat":53.071,"lon":-110.621,"repDate":"2026-10-09T12:00:00Z"},"Glenevis AGCM":{"ffmc":37.4,"dmc":19.2,"dc":324.3,"isi":0,"bui":33.4,"fwi":0,"lat":53.8326,"lon":-114.539,"repDate":"2026-10-09T12:00:00Z"},"Halkirk AGCM":{"ffmc":87,"dmc":51.4,"dc":487.8,"isi":3.4,"bui":81.4,"fwi":12.9,"lat":52.1166,"lon":-112.1641,"repDate":"2026-10-09T12:00:00Z"},"Hemaruka AGCM":{"ffmc":88.6,"dmc":61.5,"dc":437.4,"isi":5.8,"bui":91,"fwi":20.7,"lat":51.7799,"lon":-111.212,"repDate":"2026-10-09T12:00:00Z"},"Holden AGDM":{"ffmc":61.8,"dmc":44.1,"dc":454.3,"isi":1.4,"bui":71,"fwi":5.5,"lat":53.1852,"lon":-112.2462,"repDate":"2026-10-09T12:00:00Z"},"Hughenden AGCM":{"ffmc":78.2,"dmc":49.8,"dc":474.2,"isi":2.6,"bui":78.8,"fwi":10.3,"lat":52.5782,"lon":-110.7837,"repDate":"2026-10-09T12:00:00Z"},"Killam AGDM":{"ffmc":69.5,"dmc":47.6,"dc":485.2,"isi":1.5,"bui":76.4,"fwi":6.3,"lat":52.8475,"lon":-111.8723,"repDate":"2026-10-09T12:00:00Z"},"Kessler AGCM":{"ffmc":86,"dmc":55.9,"dc":450.6,"isi":4.4,"bui":85.4,"fwi":16.2,"lat":52.2902,"lon":-111.1132,"repDate":"2026-10-09T12:00:00Z"},"Kitscoty AGCM":{"ffmc":72.7,"dmc":51.4,"dc":499.7,"isi":3.5,"bui":81.8,"fwi":13.3,"lat":53.3534,"lon":-110.4161,"repDate":"2026-10-09T12:00:00Z"},"Legal AGCM":{"ffmc":42.2,"dmc":27.5,"dc":292.4,"isi":0.1,"bui":44.5,"fwi":0.1,"lat":54.003,"lon":-113.4744,"repDate":"2026-10-09T12:00:00Z"},"Lindbergh AGDM":{"ffmc":60.4,"dmc":41.2,"dc":409.6,"isi":1.6,"bui":65.8,"fwi":6,"lat":53.943,"lon":-110.5789,"repDate":"2026-10-09T12:00:00Z"},"LLOYDMINSTER":{"ffmc":75.2,"dmc":58.6,"dc":487.1,"isi":4.6,"bui":90.1,"fwi":17.2,"lat":53.317,"lon":-110.067,"repDate":"2026-10-09T12:00:00Z"},"Mannville AGCM":{"ffmc":63.8,"dmc":44,"dc":492.3,"isi":1.7,"bui":71.9,"fwi":6.7,"lat":53.4557,"lon":-111.2555,"repDate":"2026-10-09T12:00:00Z"},"Mundare AGDM":{"ffmc":63.2,"dmc":47.8,"dc":396.8,"isi":2,"bui":73.5,"fwi":7.7,"lat":53.5606,"lon":-112.2961,"repDate":"2026-10-09T12:00:00Z"},"Myrnam LITE":{"ffmc":62.6,"dmc":43.7,"dc":453.1,"isi":1.5,"bui":70.4,"fwi":5.9,"lat":53.7081,"lon":-111.1331,"repDate":"2026-10-09T12:00:00Z"},"New Sarepta AGCM":{"ffmc":60.5,"dmc":52,"dc":351.3,"isi":0.7,"bui":75.9,"fwi":2.6,"lat":53.2624,"lon":-113.1651,"repDate":"2026-10-09T12:00:00Z"},"Oliver AGDM":{"ffmc":48.4,"dmc":43.6,"dc":317.3,"isi":0.2,"bui":65,"fwi":0.3,"lat":53.6466,"lon":-113.3546,"repDate":"2026-10-09T12:00:00Z"},"Radway LITE":{"ffmc":48.7,"dmc":18.9,"dc":275.2,"isi":0.3,"bui":32.3,"fwi":0.4,"lat":54.0181,"lon":-112.9767,"repDate":"2026-10-09T12:00:00Z"},"RANFURLY AUTO":{"ffmc":56.9,"dmc":40.9,"dc":450.1,"isi":0.7,"bui":66.6,"fwi":2.5,"lat":53.417,"lon":-111.733,"repDate":"2026-10-09T12:00:00Z"},"Ribstone South AGCM":{"ffmc":78.9,"dmc":55,"dc":448.2,"isi":3.1,"bui":84.2,"fwi":12.3,"lat":52.587,"lon":-110.3429,"repDate":"2026-10-09T12:00:00Z"},"Rivercourse AGCM":{"ffmc":73.5,"dmc":52.5,"dc":471.4,"isi":2.5,"bui":82.1,"fwi":10,"lat":53.0189,"lon":-110.102,"repDate":"2026-10-09T12:00:00Z"},"ROCKY MTN HOUSE AUT":{"ffmc":86.9,"dmc":44.4,"dc":441.3,"isi":3.5,"bui":71,"fwi":12.1,"lat":52.417,"lon":-114.917,"repDate":"2026-10-09T12:00:00Z"},"Rosalind AGCM":{"ffmc":67.1,"dmc":48.4,"dc":477.4,"isi":1.2,"bui":77.2,"fwi":5,"lat":52.7922,"lon":-112.4222,"repDate":"2026-10-09T12:00:00Z"},"St. Lina AGCM":{"ffmc":36.6,"dmc":32.4,"dc":361.4,"isi":0.1,"bui":52.9,"fwi":0.1,"lat":54.2823,"lon":-111.4515,"repDate":"2026-10-09T12:00:00Z"},"St. Paul AGDM":{"ffmc":52,"dmc":34.2,"dc":385.7,"isi":0.5,"bui":56,"fwi":0.9,"lat":54.011,"lon":-111.2719,"repDate":"2026-10-09T12:00:00Z"},"Sedalia AGCM":{"ffmc":89.4,"dmc":63.6,"dc":486.6,"isi":9.3,"bui":95.9,"fwi":29.4,"lat":51.5905,"lon":-110.7547,"repDate":"2026-10-09T12:00:00Z"},"Shonts AGCM":{"ffmc":58.9,"dmc":40.3,"dc":399.7,"isi":1,"bui":64.3,"fwi":3.6,"lat":53.3325,"lon":-112.5395,"repDate":"2026-10-09T12:00:00Z"},"Smoky Lake AGDM":{"ffmc":35.4,"dmc":21.9,"dc":312.1,"isi":0,"bui":37.3,"fwi":0,"lat":54.2648,"lon":-112.5041,"repDate":"2026-10-09T12:00:00Z"},"Spondin AGCM":{"ffmc":87.7,"dmc":61.3,"dc":439.7,"isi":4.2,"bui":90.9,"fwi":16.3,"lat":51.816,"lon":-111.6826,"repDate":"2026-10-09T12:00:00Z"},"Stettler AGDM":{"ffmc":83.8,"dmc":55.8,"dc":526.1,"isi":3,"bui":88.2,"fwi":12.1,"lat":52.347,"lon":-112.5955,"repDate":"2026-10-09T12:00:00Z"},"Thorsby AGCM":{"ffmc":62.4,"dmc":61.1,"dc":346.5,"isi":0.7,"bui":84.8,"fwi":2.8,"lat":53.2174,"lon":-113.8948,"repDate":"2026-10-09T12:00:00Z"},"Tomahawk AGDM":{"ffmc":44.7,"dmc":28,"dc":290.5,"isi":0.1,"bui":45.2,"fwi":0.2,"lat":53.4394,"lon":-114.7183,"repDate":"2026-10-09T12:00:00Z"},"Tulliby Lake AGCM":{"ffmc":69.5,"dmc":49,"dc":468,"isi":2.2,"bui":77.6,"fwi":8.8,"lat":53.6644,"lon":-110.0809,"repDate":"2026-10-09T12:00:00Z"},"Two Hills AGDM":{"ffmc":60.8,"dmc":43.9,"dc":467.6,"isi":1.3,"bui":71.1,"fwi":5.1,"lat":53.6252,"lon":-111.6781,"repDate":"2026-10-09T12:00:00Z"},"Vermilion AGDM":{"ffmc":70.2,"dmc":48.3,"dc":512.6,"isi":3.6,"bui":78.2,"fwi":13.3,"lat":53.3438,"lon":-110.8818,"repDate":"2026-10-09T12:00:00Z"},"Viking AGCM":{"ffmc":62.3,"dmc":43.5,"dc":487.4,"isi":1.4,"bui":71.2,"fwi":5.5,"lat":53.1822,"lon":-111.7316,"repDate":"2026-10-09T12:00:00Z"},"VEGREVILLE":{"ffmc":66.1,"dmc":76.8,"dc":505.5,"isi":1.7,"bui":111.3,"fwi":8.9,"lat":53.5,"lon":-112.1,"repDate":"2026-10-09T12:00:00Z"},"Wetaskiwin AGCM":{"ffmc":64.8,"dmc":60.9,"dc":387.8,"isi":0.8,"bui":87.4,"fwi":3.4,"lat":52.9804,"lon":-113.4442,"repDate":"2026-10-09T12:00:00Z"},"EDMONTON STONY PLAIN CS":{"ffmc":52.1,"dmc":32.3,"dc":279.5,"isi":0.3,"bui":50.1,"fwi":0.4,"lat":53.55,"lon":-114.117,"repDate":"2026-10-09T12:00:00Z"},"ESTHER 1":{"ffmc":88.5,"dmc":64.2,"dc":471.1,"isi":7.4,"bui":95.8,"fwi":25.2,"lat":51.667,"lon":-110.2,"repDate":"2026-10-09T12:00:00Z"},"WAINWRIGHT CFB AIRFIELD 21":{"ffmc":78.4,"dmc":43,"dc":442.8,"isi":3.2,"bui":69.2,"fwi":11.3,"lat":52.833,"lon":-111.1,"repDate":"2026-10-09T12:00:00Z"},"Acadia Valley AGCM":{"ffmc":90.1,"dmc":63.7,"dc":522.5,"isi":9.2,"bui":97.6,"fwi":29.3,"lat":51.0664,"lon":-110.3172,"repDate":"2026-10-09T12:00:00Z"},"Atlee AGCM":{"ffmc":91.9,"dmc":64.3,"dc":533.5,"isi":42.3,"bui":98.9,"fwi":77.5,"lat":50.8102,"lon":-111.0056,"repDate":"2026-10-09T12:00:00Z"},"Beiseker AGCM":{"ffmc":91.3,"dmc":52.2,"dc":582.9,"isi":34.1,"bui":85.3,"fwi":63.8,"lat":51.3788,"lon":-113.3572,"repDate":"2026-10-09T12:00:00Z"},"Big Valley AGCM":{"ffmc":87.8,"dmc":59,"dc":570.2,"isi":6,"bui":93.8,"fwi":21.5,"lat":51.9979,"lon":-112.8026,"repDate":"2026-10-09T12:00:00Z"},"Craigmyle AGCM":{"ffmc":89,"dmc":59.2,"dc":554.2,"isi":7.9,"bui":93.4,"fwi":25.9,"lat":51.775,"lon":-112.2523,"repDate":"2026-10-09T12:00:00Z"},"DRUMHELLER EAST":{"ffmc":89.2,"dmc":77.1,"dc":644.4,"isi":5.1,"bui":118.7,"fwi":21.3,"lat":51.45,"lon":-112.683,"repDate":"2026-10-09T12:00:00Z"},"Hespero AGCM":{"ffmc":85.7,"dmc":48.6,"dc":490.4,"isi":2.8,"bui":77.9,"fwi":10.9,"lat":52.2468,"lon":-114.4465,"repDate":"2026-10-09T12:00:00Z"},"Hussar AGDM":{"ffmc":91.6,"dmc":56.4,"dc":589,"isi":28.5,"bui":91,"fwi":59,"lat":51.1911,"lon":-112.5027,"repDate":"2026-10-09T12:00:00Z"},"LACOMBE CDA 2":{"ffmc":85.6,"dmc":63.4,"dc":518.6,"isi":3.5,"bui":97.1,"fwi":14.5,"lat":52.45,"lon":-113.75,"repDate":"2026-10-09T12:00:00Z"},"Leedale AGDM":{"ffmc":85.3,"dmc":24.6,"dc":308.9,"isi":null,"bui":null,"fwi":null,"lat":52.5531,"lon":-114.4725,"repDate":"2026-10-09T12:00:00Z"},"Linden AGCM":{"ffmc":89.2,"dmc":52.8,"dc":576.7,"isi":11,"bui":85.9,"fwi":31.1,"lat":51.6191,"lon":-113.6558,"repDate":"2026-10-09T12:00:00Z"},"Morrin AGDM":{"ffmc":89.4,"dmc":66,"dc":627.5,"isi":5.8,"bui":104.5,"fwi":22.1,"lat":51.66,"lon":-112.6746,"repDate":"2026-10-09T12:00:00Z"},"Olds College AGDM":{"ffmc":87.8,"dmc":52.3,"dc":532.5,"isi":5.9,"bui":83.9,"fwi":19.9,"lat":51.7586,"lon":-114.0846,"repDate":"2026-10-09T12:00:00Z"},"Oyen AGDM":{"ffmc":89.6,"dmc":64.4,"dc":449.1,"isi":11.5,"bui":94.9,"fwi":33.8,"lat":51.3797,"lon":-110.3552,"repDate":"2026-10-09T12:00:00Z"},"Pollockville AGDM":{"ffmc":89.2,"dmc":59.6,"dc":572.6,"isi":6,"bui":94.5,"fwi":21.6,"lat":51.1254,"lon":-111.7052,"repDate":"2026-10-09T12:00:00Z"},"RED DEER A":{"ffmc":85.9,"dmc":52.2,"dc":521.5,"isi":3.5,"bui":83.5,"fwi":13.4,"lat":52.183,"lon":-113.9,"repDate":"2026-10-09T12:00:00Z"},"Schuler AGDM":{"ffmc":92.3,"dmc":58.8,"dc":484.9,"isi":45.5,"bui":90.2,"fwi":77.8,"lat":50.3072,"lon":-110.0905,"repDate":"2026-10-09T12:00:00Z"},"Three Hills AGCM":{"ffmc":88.9,"dmc":61.5,"dc":614.3,"isi":11.1,"bui":98.4,"fwi":33.5,"lat":51.7673,"lon":-113.2058,"repDate":"2026-10-09T12:00:00Z"},"SUNDRE A":{"ffmc":90.1,"dmc":51.8,"dc":568.6,"isi":12.7,"bui":84.4,"fwi":34,"lat":51.783,"lon":-114.683,"repDate":"2026-10-09T12:00:00Z"},"Wimborne AGCM":{"ffmc":87.1,"dmc":59.4,"dc":600.5,"isi":6.1,"bui":95.2,"fwi":21.8,"lat":51.936,"lon":-113.5908,"repDate":"2026-10-09T12:00:00Z"},"Azure AGCM":{"ffmc":90.1,"dmc":49.4,"dc":318.3,"isi":9.5,"bui":71.2,"fwi":25.6,"lat":50.5119,"lon":-114.013,"repDate":"2026-10-09T12:00:00Z"},"Barnwell AGDM":{"ffmc":90.6,"dmc":58.8,"dc":414.9,"isi":14.2,"bui":86.8,"fwi":37.1,"lat":49.8017,"lon":-112.3022,"repDate":"2026-10-09T12:00:00Z"},"Barons AGCM":{"ffmc":93.6,"dmc":54.8,"dc":368,"isi":77.5,"bui":79.9,"fwi":100.7,"lat":50.0223,"lon":-113.2214,"repDate":"2026-10-09T12:00:00Z"},"Bassano AGCM":{"ffmc":93,"dmc":55.3,"dc":550.5,"isi":42,"bui":88.4,"fwi":73.5,"lat":50.8926,"lon":-112.4652,"repDate":"2026-10-09T12:00:00Z"},"Black Diamond AGCM":{"ffmc":89.2,"dmc":45.6,"dc":354.4,"isi":10,"bui":69,"fwi":26.1,"lat":50.7068,"lon":-114.1517,"repDate":"2026-10-09T12:00:00Z"},"Blood Tribe Ag. Project IMCIN":{"ffmc":92.6,"dmc":53.9,"dc":369.6,"isi":34,"bui":79,"fwi":61.6,"lat":49.5592,"lon":-113.0638,"repDate":"2026-10-09T12:00:00Z"},"BOW ISLAND":{"ffmc":91.6,"dmc":65.8,"dc":482.6,"isi":12.4,"bui":98.2,"fwi":36,"lat":49.733,"lon":-111.45,"repDate":"2026-10-09T12:00:00Z"},"Brocket AGDM":{"ffmc":92.8,"dmc":52.6,"dc":278.9,"isi":54.2,"bui":71.5,"fwi":78,"lat":49.6107,"lon":-113.7591,"repDate":"2026-10-09T12:00:00Z"},"BROOKS":{"ffmc":91.8,"dmc":60.6,"dc":540,"isi":23.1,"bui":94.6,"fwi":52.8,"lat":50.5553,"lon":-111.8494,"repDate":"2026-10-09T12:00:00Z"},"Calgary International":{"ffmc":90.3,"dmc":43.4,"dc":451.5,"isi":8.9,"bui":70,"fwi":24.4,"lat":51.1226,"lon":-114.013,"repDate":"2026-10-09T12:00:00Z"},"CALGARY INT'L CS":{"ffmc":90.3,"dmc":47.8,"dc":509.8,"isi":9,"bui":77.4,"fwi":25.8,"lat":51.117,"lon":-114,"repDate":"2026-10-09T12:00:00Z"},"CARDSTON":{"ffmc":91.1,"dmc":51.4,"dc":247.5,"isi":12.4,"bui":67.7,"fwi":30,"lat":49.2,"lon":-113.283,"repDate":"2026-10-09T12:00:00Z"},"CARWAY":{"ffmc":91.9,"dmc":51.1,"dc":351.7,"isi":38.8,"bui":74.9,"fwi":65.2,"lat":49,"lon":-113.383,"repDate":"2026-10-09T12:00:00Z"},"Champion AGDM":{"ffmc":92.9,"dmc":53.2,"dc":339.5,"isi":34.9,"bui":76.5,"fwi":61.7,"lat":50.2953,"lon":-113.3467,"repDate":"2026-10-09T12:00:00Z"},"CLARESHOLM":{"ffmc":92.2,"dmc":46.7,"dc":411,"isi":41.2,"bui":72.8,"fwi":66.8,"lat":50,"lon":-113.633,"repDate":"2026-10-09T12:00:00Z"},"Enchant 2 AGCM":{"ffmc":92,"dmc":54.6,"dc":443.4,"isi":23.1,"bui":83.5,"fwi":49.7,"lat":50.179,"lon":-112.4137,"repDate":"2026-10-09T12:00:00Z"},"Etzikom AGCM":{"ffmc":93.1,"dmc":68.4,"dc":524.1,"isi":23.3,"bui":103.1,"fwi":55,"lat":49.5528,"lon":-111.0543,"repDate":"2026-10-09T12:00:00Z"},"Fincastle IMCIN":{"ffmc":90.4,"dmc":58.3,"dc":452,"isi":9.2,"bui":88.2,"fwi":28,"lat":49.8023,"lon":-112.0459,"repDate":"2026-10-09T12:00:00Z"},"Foremost AGDM":{"ffmc":92.3,"dmc":69.8,"dc":475,"isi":23.7,"bui":102.1,"fwi":55.4,"lat":49.4833,"lon":-111.4861,"repDate":"2026-10-09T12:00:00Z"},"Fort Macleod AGCM":{"ffmc":93.6,"dmc":51,"dc":342.1,"isi":119.6,"bui":74.3,"fwi":124.9,"lat":49.7858,"lon":-113.3796,"repDate":"2026-10-09T12:00:00Z"},"Gleichen AGCM":{"ffmc":92.7,"dmc":51,"dc":492.3,"isi":21,"bui":81,"fwi":46.1,"lat":50.9345,"lon":-112.9408,"repDate":"2026-10-09T12:00:00Z"},"Grassy Lake IMCIN":{"ffmc":90.9,"dmc":62.6,"dc":485.5,"isi":15.7,"bui":94.6,"fwi":41.3,"lat":49.8737,"lon":-111.7328,"repDate":"2026-10-09T12:00:00Z"},"Irvine AGCM":{"ffmc":92.9,"dmc":59.6,"dc":524.6,"isi":51.8,"bui":92.9,"fwi":85,"lat":49.9893,"lon":-110.2615,"repDate":"2026-10-09T12:00:00Z"},"LETHBRIDGE":{"ffmc":91.4,"dmc":55.6,"dc":347.7,"isi":16.5,"bui":79.4,"fwi":39.3,"lat":49.633,"lon":-112.8,"repDate":"2026-10-09T12:00:00Z"},"LETHBRIDGE CDA":{"ffmc":91,"dmc":59.2,"dc":404.5,"isi":12.1,"bui":86.6,"fwi":33.4,"lat":49.7,"lon":-112.767,"repDate":"2026-10-09T12:00:00Z"},"Lethbridge Demo Farm IMCIN":{"ffmc":91,"dmc":60.3,"dc":401.9,"isi":12.4,"bui":87.7,"fwi":34.1,"lat":49.6867,"lon":-112.7449,"repDate":"2026-10-09T12:00:00Z"},"MEDICINE HAT":{"ffmc":92.3,"dmc":68.7,"dc":524.6,"isi":26.2,"bui":103.5,"fwi":59.3,"lat":50.017,"lon":-110.717,"repDate":"2026-10-09T12:00:00Z"},"MEDICINE HAT RCS":{"ffmc":92.3,"dmc":66.7,"dc":553.9,"isi":23,"bui":102.5,"fwi":54.4,"lat":50.033,"lon":-110.717,"repDate":"2026-10-09T12:00:00Z"},"Mossleigh AGCM":{"ffmc":92.3,"dmc":51.1,"dc":419,"isi":27,"bui":78.3,"fwi":53.3,"lat":50.6726,"lon":-113.3487,"repDate":"2026-10-09T12:00:00Z"},"Nier AGDM":{"ffmc":89.1,"dmc":45.9,"dc":485.8,"isi":28,"bui":74.3,"fwi":53.2,"lat":51.3693,"lon":-114.0994,"repDate":"2026-10-09T12:00:00Z"},"PINCHER CREEK":{"ffmc":92.6,"dmc":47.6,"dc":280.7,"isi":112.8,"bui":66.9,"fwi":115.7,"lat":49.517,"lon":-114,"repDate":"2026-10-09T12:00:00Z"},"PINCHER CREEK CLIMATE":{"ffmc":92.3,"dmc":46.7,"dc":229.1,"isi":100.6,"bui":61.8,"fwi":105,"lat":49.517,"lon":-114,"repDate":"2026-10-09T12:00:00Z"},"Raymond IMCIN":{"ffmc":91.8,"dmc":60,"dc":372.4,"isi":29.1,"bui":85.5,"fwi":58.1,"lat":49.4871,"lon":-112.6754,"repDate":"2026-10-09T12:00:00Z"},"Rolling Hills AGCM":{"ffmc":90.7,"dmc":64.2,"dc":541,"isi":17.4,"bui":99,"fwi":45,"lat":50.2651,"lon":-111.7011,"repDate":"2026-10-09T12:00:00Z"},"Rosemary IMCIN":{"ffmc":92.1,"dmc":63.1,"dc":556.8,"isi":23.9,"bui":98.3,"fwi":54.7,"lat":50.8344,"lon":-112.0573,"repDate":"2026-10-09T12:00:00Z"},"Seven Persons IMCIN":{"ffmc":92.2,"dmc":63.9,"dc":563.4,"isi":30.9,"bui":99.6,"fwi":64.5,"lat":49.9183,"lon":-110.9149,"repDate":"2026-10-09T12:00:00Z"},"Standard AGCM":{"ffmc":90.1,"dmc":59.3,"dc":609.5,"isi":11.9,"bui":95.4,"fwi":34.7,"lat":51.2284,"lon":-112.9821,"repDate":"2026-10-09T12:00:00Z"},"STAVELY AAFC":{"ffmc":90.6,"dmc":43.2,"dc":222.5,"isi":21.3,"bui":58.2,"fwi":40,"lat":50.183,"lon":-113.883,"repDate":"2026-10-09T12:00:00Z"},"Strathmore IMCIN":{"ffmc":90.1,"dmc":40.8,"dc":479,"isi":13.4,"bui":67.2,"fwi":31.5,"lat":51.0387,"lon":-113.2897,"repDate":"2026-10-09T12:00:00Z"},"Travers AGCM":{"ffmc":93.7,"dmc":51.5,"dc":383.8,"isi":46.1,"bui":77.1,"fwi":73.2,"lat":50.3038,"lon":-112.8626,"repDate":"2026-10-09T12:00:00Z"},"VAUXHALL CDA CS":{"ffmc":90.4,"dmc":28.6,"dc":68.1,"isi":15.2,"bui":28.5,"fwi":22.8,"lat":50.05,"lon":-112.1333,"repDate":"2026-10-09T12:00:00Z"},"Wrentham AGDM":{"ffmc":92.3,"dmc":64.3,"dc":414.7,"isi":25.9,"bui":92.6,"fwi":56.1,"lat":49.4952,"lon":-112.1116,"repDate":"2026-10-09T12:00:00Z"},"Del Bonita AGDM":{"ffmc":91.2,"dmc":51.6,"dc":334.5,"isi":21.4,"bui":74.5,"fwi":45,"lat":49.05,"lon":-112.8099,"repDate":"2026-10-09T12:00:00Z"},"Manyberries AGCM":{"ffmc":93.6,"dmc":62.9,"dc":515.7,"isi":27.3,"bui":96.4,"fwi":58.9,"lat":49.3638,"lon":-110.6781,"repDate":"2026-10-09T12:00:00Z"},"Masinasin AGDM":{"ffmc":92.6,"dmc":70.5,"dc":436.2,"isi":29.9,"bui":100.5,"fwi":63.3,"lat":49.1368,"lon":-111.6518,"repDate":"2026-10-09T12:00:00Z"},"MILK RIVER":{"ffmc":91.5,"dmc":66.5,"dc":387.5,"isi":18.9,"bui":93.1,"fwi":46.2,"lat":49.133,"lon":-112.05,"repDate":"2026-10-09T12:00:00Z"},"ONEFOUR CDA":{"ffmc":94,"dmc":70.5,"dc":470,"isi":34.5,"bui":102.5,"fwi":69.7,"lat":49.123,"lon":-110.469,"repDate":"2026-10-09T12:00:00Z"},"Pakowki Lake AGCM":{"ffmc":93.8,"dmc":75.6,"dc":515.8,"isi":34.4,"bui":110.6,"fwi":71.7,"lat":49.2248,"lon":-111.1262,"repDate":"2026-10-09T12:00:00Z"},"BANFF CS":{"ffmc":84.2,"dmc":40.5,"dc":398.4,"isi":2.6,"bui":64.6,"fwi":9.1,"lat":51.2,"lon":-115.55,"repDate":"2026-10-09T12:00:00Z"},"BEAVER MINES":{"ffmc":92,"dmc":46.1,"dc":175.6,"isi":33.9,"bui":55.7,"fwi":52.6,"lat":49.467,"lon":-114.183,"repDate":"2026-10-09T12:00:00Z"},"BOW VALLEY":{"ffmc":88,"dmc":33.2,"dc":281.4,"isi":5.8,"bui":51.3,"fwi":15.2,"lat":51.083,"lon":-115.067,"repDate":"2026-10-09T12:00:00Z"},"CROWSNEST":{"ffmc":91.9,"dmc":54.5,"dc":330.9,"isi":19.9,"bui":77.2,"fwi":43.7,"lat":49.633,"lon":-114.483,"repDate":"2026-10-09T12:00:00Z"},"JASPER WARDEN":{"ffmc":52.5,"dmc":32.1,"dc":546.7,"isi":0.4,"bui":56,"fwi":0.7,"lat":52.9265,"lon":-118.0297,"repDate":"2026-10-09T12:00:00Z"},"NORDEGG CS":{"ffmc":89.3,"dmc":29.4,"dc":332.6,"isi":5.8,"bui":48.2,"fwi":14.6,"lat":52.5,"lon":-116.033,"repDate":"2026-10-09T12:00:00Z"},"PEKISKO":{"ffmc":88,"dmc":36.5,"dc":244,"isi":6.5,"bui":53.2,"fwi":16.7,"lat":50.3685,"lon":-114.4155,"repDate":"2026-10-09T12:00:00Z"},"WATERTON PARK GATE":{"ffmc":93,"dmc":49.2,"dc":288,"isi":36.5,"bui":68.9,"fwi":60.5,"lat":49.133,"lon":-113.817,"repDate":"2026-10-09T12:00:00Z"},"NAKISKA RIDGETOP":{"ffmc":79.1,"dmc":14.4,"dc":206.4,"isi":5.4,"bui":24.6,"fwi":9.5,"lat":50.95,"lon":-115.183,"repDate":"2026-10-09T12:00:00Z"},"Athabasca AGCM":{"ffmc":20.9,"dmc":12.2,"dc":275.1,"isi":0,"bui":21.9,"fwi":0,"lat":54.6348,"lon":-113.3821,"repDate":"2026-10-09T12:00:00Z"},"Atmore AGDM":{"ffmc":21.6,"dmc":17.1,"dc":315.1,"isi":0,"bui":30.1,"fwi":0,"lat":54.7802,"lon":-112.8248,"repDate":"2026-10-09T12:00:00Z"},"BARRHEAD CS":{"ffmc":32.8,"dmc":13.6,"dc":299,"isi":0,"bui":24.5,"fwi":0,"lat":54.0953,"lon":-114.4513,"repDate":"2026-10-09T12:00:00Z"},"CAMPSIE AUTO":{"ffmc":28.4,"dmc":14.8,"dc":323,"isi":0,"bui":26.5,"fwi":0,"lat":54.133,"lon":-114.683,"repDate":"2026-10-09T12:00:00Z"},"EDSON":{"ffmc":34.9,"dmc":11,"dc":310.4,"isi":0,"bui":20.2,"fwi":0,"lat":53.583,"lon":-116.467,"repDate":"2026-10-09T12:00:00Z"},"EDSON CLIMATE":{"ffmc":34.1,"dmc":10.3,"dc":285.6,"isi":0,"bui":18.9,"fwi":0,"lat":53.583,"lon":-116.45,"repDate":"2026-10-09T12:00:00Z"},"Evansburg 2 AGCM":{"ffmc":36.2,"dmc":17.9,"dc":280,"isi":0,"bui":30.9,"fwi":0,"lat":53.6381,"lon":-115.0624,"repDate":"2026-10-09T12:00:00Z"},"Fort Assiniboine AGCM":{"ffmc":21.5,"dmc":12.1,"dc":316.3,"isi":0,"bui":22.1,"fwi":0,"lat":54.4104,"lon":-114.7692,"repDate":"2026-10-09T12:00:00Z"},"FORT MCMURRAY CS":{"ffmc":50.1,"dmc":20.8,"dc":450.6,"isi":0.3,"bui":37.3,"fwi":0.5,"lat":56.65,"lon":-111.217,"repDate":"2026-10-09T12:00:00Z"},"FORT MCMURRAY A":{"ffmc":45.8,"dmc":14.8,"dc":404.4,"isi":0.2,"bui":27.1,"fwi":0.2,"lat":56.65,"lon":-111.217,"repDate":"2026-10-09T12:00:00Z"},"HENDRICKSON CREEK":{"ffmc":19.1,"dmc":7.2,"dc":107.2,"isi":0,"bui":12.3,"fwi":0,"lat":53.8,"lon":-118.45,"repDate":"2026-10-09T12:00:00Z"},"High Prairie AGDM":{"ffmc":16.8,"dmc":8.3,"dc":309.7,"isi":0,"bui":15.5,"fwi":0,"lat":55.3949,"lon":-116.4831,"repDate":"2026-10-09T12:00:00Z"},"ISLAND LAKE SOUTH":{"ffmc":22.6,"dmc":12.5,"dc":250.7,"isi":0,"bui":22.3,"fwi":0,"lat":54.817,"lon":-113.55,"repDate":"2026-10-09T12:00:00Z"},"LAC LA BICHE CLIMATE":{"ffmc":29.5,"dmc":32.4,"dc":391.5,"isi":0,"bui":53.7,"fwi":0,"lat":54.767,"lon":-112.017,"repDate":"2026-10-09T12:00:00Z"},"MILDRED LAKE":{"ffmc":73,"dmc":48.2,"dc":473.2,"isi":1.3,"bui":76.8,"fwi":5.4,"lat":57.033,"lon":-111.567,"repDate":"2026-10-09T12:00:00Z"},"Rich Lake AGDM":{"ffmc":35.8,"dmc":28.8,"dc":347.7,"isi":0.1,"bui":47.7,"fwi":0.1,"lat":54.5012,"lon":-111.6914,"repDate":"2026-10-09T12:00:00Z"},"SLAVE LAKE":{"ffmc":20.4,"dmc":7.7,"dc":289.9,"isi":0,"bui":14.4,"fwi":0,"lat":55.3,"lon":-114.783,"repDate":"2026-10-09T12:00:00Z"},"SLAVE LAKE RCS":{"ffmc":21.4,"dmc":8.3,"dc":311.5,"isi":0,"bui":15.5,"fwi":0,"lat":55.3,"lon":-114.783,"repDate":"2026-10-09T12:00:00Z"},"Tawatinaw AGCM":{"ffmc":32.3,"dmc":15.8,"dc":291.2,"isi":0,"bui":27.9,"fwi":0,"lat":54.2999,"lon":-113.5203,"repDate":"2026-10-09T12:00:00Z"},"WHITECOURT A":{"ffmc":23.1,"dmc":10.4,"dc":269.2,"isi":0,"bui":19,"fwi":0,"lat":54.15,"lon":-115.783,"repDate":"2026-10-09T12:00:00Z"},"WILLOW CREEK 1":{"ffmc":77.7,"dmc":93,"dc":697.2,"isi":1.1,"bui":139.5,"fwi":6.6,"lat":53.383,"lon":-118.35,"repDate":"2026-10-09T12:00:00Z"},"BEAVERLODGE RCS":{"ffmc":10.9,"dmc":10.9,"dc":386.5,"isi":0,"bui":20.3,"fwi":0,"lat":55.2,"lon":-119.4,"repDate":"2026-10-09T12:00:00Z"},"Brownvale AGCM":{"ffmc":18.7,"dmc":8,"dc":332.6,"isi":0,"bui":15,"fwi":0,"lat":56.1177,"lon":-117.8866,"repDate":"2026-10-09T12:00:00Z"},"Eaglesham AGCM":{"ffmc":23.9,"dmc":9.3,"dc":345.3,"isi":0,"bui":17.4,"fwi":0,"lat":55.8081,"lon":-117.8866,"repDate":"2026-10-09T12:00:00Z"},"EGG ISLAND":{"ffmc":82.6,"dmc":6.2,"dc":52.8,"isi":6.6,"bui":9.5,"fwi":6.9,"lat":58.9814,"lon":-110.4395,"repDate":"2026-10-09T12:00:00Z"},"Fairview AGDM":{"ffmc":25,"dmc":8.6,"dc":362.5,"isi":0,"bui":16.2,"fwi":0,"lat":56.0815,"lon":-118.4395,"repDate":"2026-10-09T12:00:00Z"},"FORT CHIPEWYAN":{"ffmc":82,"dmc":7.7,"dc":98,"isi":7.7,"bui":12.8,"fwi":9.1,"lat":58.767,"lon":-111.117,"repDate":"2026-10-09T12:00:00Z"},"FORT CHIPEWYAN RCS":{"ffmc":82.4,"dmc":8.2,"dc":79.7,"isi":8.2,"bui":13,"fwi":9.7,"lat":58.767,"lon":-111.117,"repDate":"2026-10-09T12:00:00Z"},"FORT VERMILION":{"ffmc":85.2,"dmc":13.9,"dc":256.4,"isi":5.1,"bui":24.4,"fwi":9,"lat":58.383,"lon":-116.033,"repDate":"2026-10-09T12:00:00Z"},"GRANDE PRAIRIE A":{"ffmc":14.7,"dmc":10,"dc":256.4,"isi":0,"bui":18.2,"fwi":0,"lat":55.183,"lon":-118.883,"repDate":"2026-10-09T12:00:00Z"},"Hawk Hills AGCM":{"ffmc":25.3,"dmc":7.7,"dc":340.3,"isi":0,"bui":14.6,"fwi":0,"lat":57.2647,"lon":-117.2977,"repDate":"2026-10-09T12:00:00Z"},"HIGH LEVEL A":{"ffmc":85.8,"dmc":14.3,"dc":297.3,"isi":5.5,"bui":25.5,"fwi":9.9,"lat":58.617,"lon":-117.167,"repDate":"2026-10-09T12:00:00Z"},"HIGH LEVEL":{"ffmc":86.2,"dmc":16,"dc":356,"isi":5.8,"bui":28.8,"fwi":11.1,"lat":58.6314,"lon":-117.1637,"repDate":"2026-10-09T12:00:00Z"},"Jean Cote AGCM":{"ffmc":15.6,"dmc":7.9,"dc":337.7,"isi":0,"bui":14.9,"fwi":0,"lat":55.9129,"lon":-117.1198,"repDate":"2026-10-09T12:00:00Z"},"La Crete AGCM":{"ffmc":80.5,"dmc":16.2,"dc":293,"isi":2.7,"bui":28.5,"fwi":5.6,"lat":58.1721,"lon":-116.3428,"repDate":"2026-10-09T12:00:00Z"},"La Glace AGCM":{"ffmc":11.8,"dmc":10.8,"dc":338.3,"isi":0,"bui":19.9,"fwi":0,"lat":55.4219,"lon":-119.2547,"repDate":"2026-10-09T12:00:00Z"},"Manning AGDM":{"ffmc":23.6,"dmc":7.6,"dc":342.1,"isi":0,"bui":14.3,"fwi":0,"lat":56.9738,"lon":-117.4508,"repDate":"2026-10-09T12:00:00Z"},"Cleardale AGDM":{"ffmc":28.8,"dmc":9.9,"dc":447.1,"isi":0,"bui":18.7,"fwi":0,"lat":56.3203,"lon":-119.7479,"repDate":"2026-10-09T12:00:00Z"},"PEACE RIVER A":{"ffmc":21.7,"dmc":8.2,"dc":364.7,"isi":0,"bui":15.5,"fwi":0,"lat":56.233,"lon":-117.45,"repDate":"2026-10-09T12:00:00Z"},"ROMA":{"ffmc":24.9,"dmc":8,"dc":305,"isi":0,"bui":15.1,"fwi":0,"lat":56.1933,"lon":-117.452,"repDate":"2026-10-09T12:00:00Z"},"Peoria AGDM":{"ffmc":18.6,"dmc":9.3,"dc":335.6,"isi":0,"bui":17.4,"fwi":0,"lat":55.6212,"lon":-118.293,"repDate":"2026-10-09T12:00:00Z"},"RED EARTH":{"ffmc":22.2,"dmc":7.1,"dc":311.5,"isi":0,"bui":13.4,"fwi":0,"lat":56.552,"lon":-115.2778,"repDate":"2026-10-09T12:00:00Z"},"Savanna AGCM":{"ffmc":24.6,"dmc":9.2,"dc":425.3,"isi":0,"bui":17.4,"fwi":0,"lat":56.0761,"lon":-119.3449,"repDate":"2026-10-09T12:00:00Z"},"Teepee Creek AGCM":{"ffmc":10.3,"dmc":9.3,"dc":303.1,"isi":0,"bui":17.3,"fwi":0,"lat":55.3524,"lon":-118.4076,"repDate":"2026-10-09T12:00:00Z"},"Valleyview AGDM":{"ffmc":16.2,"dmc":8.5,"dc":262,"isi":0,"bui":15.8,"fwi":0,"lat":55.0978,"lon":-117.1987,"repDate":"2026-10-09T12:00:00Z"},"GARDEN RIVER":{"ffmc":84.1,"dmc":11.4,"dc":264.7,"isi":3.6,"bui":20.6,"fwi":5.9,"lat":58.7108,"lon":-113.8665,"repDate":"2026-10-09T12:00:00Z"},"COLD LAKE A":{"ffmc":47.3,"dmc":36.6,"dc":365.4,"isi":0.3,"bui":58.6,"fwi":0.6,"lat":54.417,"lon":-110.283,"repDate":"2026-10-09T12:00:00Z"},"Dupre LITE":{"ffmc":45.6,"dmc":37.5,"dc":358.5,"isi":0.3,"bui":59.4,"fwi":0.5,"lat":54.3628,"lon":-110.88,"repDate":"2026-10-09T12:00:00Z"},"KELOWNA":{"ffmc":84.6,"dmc":29.8,"dc":347.2,"isi":7.4,"bui":49,"fwi":17.6,"lat":49.95,"lon":-119.383,"repDate":"2026-10-09T12:00:00Z"},"KELOWNA UBCO":{"ffmc":85.9,"dmc":31.3,"dc":815.7,"isi":8.3,"bui":57.1,"fwi":20.9,"lat":49.933,"lon":-119.4,"repDate":"2026-10-09T12:00:00Z"},"OSOYOOS CS":{"ffmc":87.6,"dmc":35.1,"dc":739.8,"isi":4.6,"bui":62.7,"fwi":14.1,"lat":49.033,"lon":-119.433,"repDate":"2026-10-09T12:00:00Z"},"PENTICTON A":{"ffmc":89.1,"dmc":40.3,"dc":795.4,"isi":5.4,"bui":71.5,"fwi":17.1,"lat":49.467,"lon":-119.6,"repDate":"2026-10-09T12:00:00Z"},"VERNON AUTO":{"ffmc":50.6,"dmc":25.7,"dc":852.6,"isi":0.2,"bui":47.7,"fwi":0.3,"lat":50.217,"lon":-119.2,"repDate":"2026-10-09T12:00:00Z"},"SUMMERLAND CS":{"ffmc":88.9,"dmc":34.6,"dc":801.2,"isi":7.4,"bui":62.4,"fwi":20.1,"lat":49.567,"lon":-119.65,"repDate":"2026-10-09T12:00:00Z"},"NAKUSP CS":{"ffmc":76.5,"dmc":4.1,"dc":360.6,"isi":1.5,"bui":7.9,"fwi":0.8,"lat":50.267,"lon":-117.817,"repDate":"2026-10-09T12:00:00Z"},"NELSON CS":{"ffmc":82.2,"dmc":15.7,"dc":462.4,"isi":2.5,"bui":28.9,"fwi":5.1,"lat":49.483,"lon":-117.3,"repDate":"2026-10-09T12:00:00Z"},"WARFIELD RCS":{"ffmc":88.1,"dmc":23.3,"dc":617.5,"isi":5.3,"bui":42.6,"fwi":12.7,"lat":49.117,"lon":-117.733,"repDate":"2026-10-09T12:00:00Z"},"CRESTON CAMPBELL SCIENTIFIC":{"ffmc":87.8,"dmc":30.4,"dc":717.3,"isi":5,"bui":55.1,"fwi":14,"lat":49.083,"lon":-116.5,"repDate":"2026-10-09T12:00:00Z"},"BLUE RIVER CS":{"ffmc":63.5,"dmc":2.4,"dc":250.3,"isi":1.1,"bui":4.7,"fwi":0.4,"lat":52.133,"lon":-119.283,"repDate":"2026-10-09T12:00:00Z"},"SALMON ARM CS":{"ffmc":83.5,"dmc":23.7,"dc":669,"isi":1.9,"bui":43.5,"fwi":5.2,"lat":50.7031,"lon":-119.2907,"repDate":"2026-10-09T12:00:00Z"},"REVELSTOKE A":{"ffmc":47.8,"dmc":1.7,"dc":401.6,"isi":0.2,"bui":3.3,"fwi":0.1,"lat":50.967,"lon":-118.183,"repDate":"2026-10-09T12:00:00Z"},"REVELSTOKE AIRPORT AUTO":{"ffmc":33.7,"dmc":1.3,"dc":367,"isi":0,"bui":2.7,"fwi":0,"lat":50.95,"lon":-118.183,"repDate":"2026-10-09T12:00:00Z"},"HIGHWOOD AUTO":{"ffmc":88.7,"dmc":52.2,"dc":354.6,"isi":6.5,"bui":76.3,"fwi":20.4,"lat":50.415,"lon":-114.726,"repDate":"2026-10-09T12:00:00Z"},"YAHA TINDA AUTO":{"ffmc":89.7,"dmc":61.3,"dc":494.9,"isi":10.2,"bui":93.6,"fwi":30.9,"lat":51.655,"lon":-115.362,"repDate":"2026-10-09T12:00:00Z"},"KANANASKI BOUNDARY AUTO":{"ffmc":80.3,"dmc":33.8,"dc":388.8,"isi":2.5,"bui":55.5,"fwi":7.9,"lat":50.928,"lon":-115.123,"repDate":"2026-10-09T12:00:00Z"},"PETER LOUGHEED PARK":{"ffmc":83,"dmc":50.3,"dc":450.8,"isi":2.1,"bui":78.7,"fwi":8.5,"lat":50.714,"lon":-115.119,"repDate":"2026-10-09T12:00:00Z"},"ELBOW AUTO":{"ffmc":89.2,"dmc":47.8,"dc":223.4,"isi":21.4,"bui":62.3,"fwi":41.3,"lat":50.905,"lon":-114.691,"repDate":"2026-10-09T12:00:00Z"},"NORTH GHOST":{"ffmc":89.6,"dmc":45.2,"dc":437.9,"isi":9.6,"bui":71.8,"fwi":26,"lat":51.574,"lon":-114.855,"repDate":"2026-10-09T12:00:00Z"},"KOOCANUSA":{"ffmc":91.9,"dmc":50,"dc":584.9,"isi":7.3,"bui":82.4,"fwi":23.1,"lat":49.047,"lon":-115.225,"repDate":"2026-10-09T12:00:00Z"},"RORY CREEK":{"ffmc":31.8,"dmc":3.7,"dc":197.7,"isi":0,"bui":7,"fwi":0,"lat":50.613,"lon":-116.793,"repDate":"2026-10-09T12:00:00Z"},"BLUE RIVER 2":{"ffmc":63.9,"dmc":2.8,"dc":278.8,"isi":1.2,"bui":5.5,"fwi":0.5,"lat":52.122,"lon":-119.294,"repDate":"2026-10-09T12:00:00Z"},"MUDPIT":{"ffmc":43.2,"dmc":3.3,"dc":354.7,"isi":0.1,"bui":6.4,"fwi":0,"lat":51.313,"lon":-119.392,"repDate":"2026-10-09T12:00:00Z"},"REDSTREAK":{"ffmc":86.5,"dmc":35.4,"dc":661.3,"isi":3.6,"bui":62.4,"fwi":11.7,"lat":50.623,"lon":-116.063,"repDate":"2026-10-09T12:00:00Z"},"VALEMOUNT AIRPORT":{"ffmc":25.9,"dmc":5.1,"dc":207,"isi":0,"bui":9.7,"fwi":0,"lat":52.86,"lon":-119.339,"repDate":"2026-10-09T12:00:00Z"},"DARKWOODS":{"ffmc":88.1,"dmc":18.6,"dc":399.8,"isi":4.4,"bui":33.3,"fwi":9.5,"lat":49.358,"lon":-116.95,"repDate":"2026-10-09T12:00:00Z"},"WEST KELOWNA":{"ffmc":86.9,"dmc":38.2,"dc":1017.6,"isi":4,"bui":69.8,"fwi":13.6,"lat":49.883,"lon":-119.57,"repDate":"2026-10-09T12:00:00Z"},"LARCH HILLS WEST":{"ffmc":69.9,"dmc":10.4,"dc":566.5,"isi":0.7,"bui":19.9,"fwi":0.7,"lat":50.691,"lon":-119.176,"repDate":"2026-10-09T12:00:00Z"},"GRIZZLY EXT":{"ffmc":89.3,"dmc":23.8,"dc":441.4,"isi":6.7,"bui":41.9,"fwi":15.1,"lat":49.27,"lon":-119.22,"repDate":"2026-10-09T12:00:00Z"},"STATION BAY 2":{"ffmc":54.2,"dmc":16,"dc":621.5,"isi":0.3,"bui":30.1,"fwi":0.3,"lat":50.497,"lon":-119.727,"repDate":"2026-10-09T12:00:00Z"},"CARIBOO CREEK":{"ffmc":35.4,"dmc":13.6,"dc":450.8,"isi":0,"bui":25.3,"fwi":0,"lat":51.175,"lon":-117.176,"repDate":"2026-10-09T12:00:00Z"},"EAST BARRIERE":{"ffmc":76,"dmc":15.8,"dc":548,"isi":1.1,"bui":29.4,"fwi":1.9,"lat":51.253,"lon":-119.882,"repDate":"2026-10-09T12:00:00Z"},"BIGATTINI":{"ffmc":84.7,"dmc":26.5,"dc":462.6,"isi":2.7,"bui":46.3,"fwi":7.6,"lat":49.454,"lon":-115.987,"repDate":"2026-10-09T12:00:00Z"},"HARBOUR LAKE":{"ffmc":41.1,"dmc":3.3,"dc":167.6,"isi":0.1,"bui":6.3,"fwi":0,"lat":51.523,"lon":-119.113,"repDate":"2026-10-09T12:00:00Z"},"NORTH ADAMS":{"ffmc":48.6,"dmc":3.5,"dc":393.3,"isi":0.2,"bui":6.9,"fwi":0.1,"lat":51.397,"lon":-119.468,"repDate":"2026-10-09T12:00:00Z"},"CAHILTY":{"ffmc":28.1,"dmc":4.5,"dc":398.7,"isi":0,"bui":8.8,"fwi":0,"lat":50.888,"lon":-119.838,"repDate":"2026-10-09T12:00:00Z"},"BERRY":{"ffmc":37.8,"dmc":1.7,"dc":140.1,"isi":0,"bui":3.3,"fwi":0,"lat":51.979,"lon":-119.413,"repDate":"2026-10-09T12:00:00Z"},"GOSNEL":{"ffmc":13,"dmc":0.2,"dc":86.1,"isi":0,"bui":0.4,"fwi":0,"lat":52.453,"lon":-119.175,"repDate":"2026-10-09T12:00:00Z"},"BRENDA MINES":{"ffmc":83.6,"dmc":15.3,"dc":517.2,"isi":3.9,"bui":28.5,"fwi":7.8,"lat":49.868,"lon":-119.993,"repDate":"2026-10-09T12:00:00Z"},"TURTLE":{"ffmc":78.5,"dmc":22.2,"dc":585,"isi":1.1,"bui":40.5,"fwi":2.7,"lat":50.803,"lon":-119.63,"repDate":"2026-10-09T12:00:00Z"},"FINTRY":{"ffmc":85.7,"dmc":43.9,"dc":847.1,"isi":2.5,"bui":77.8,"fwi":9.9,"lat":50.207,"lon":-119.48,"repDate":"2026-10-09T12:00:00Z"},"PENTICTON RS":{"ffmc":87.1,"dmc":32.1,"dc":726.5,"isi":3.8,"bui":57.8,"fwi":11.6,"lat":49.518,"lon":-119.553,"repDate":"2026-10-09T12:00:00Z"},"MCCUDDY":{"ffmc":88.1,"dmc":23.5,"dc":562.3,"isi":4.7,"bui":42.5,"fwi":11.5,"lat":49.148,"lon":-119.415,"repDate":"2026-10-09T12:00:00Z"},"SEYMOUR ARM":{"ffmc":62.8,"dmc":9.7,"dc":309.9,"isi":0.5,"bui":18,"fwi":0.4,"lat":51.274,"lon":-118.915,"repDate":"2026-10-09T12:00:00Z"},"CURWEN CREEK":{"ffmc":38.9,"dmc":4.3,"dc":305.6,"isi":0,"bui":8.4,"fwi":0,"lat":50.602,"lon":-118.423,"repDate":"2026-10-09T12:00:00Z"},"TSAR CREEK":{"ffmc":27.6,"dmc":4,"dc":379.5,"isi":0,"bui":7.9,"fwi":0,"lat":51.997,"lon":-118.103,"repDate":"2026-10-09T12:00:00Z"},"MABEL LAKE 2":{"ffmc":51,"dmc":10.4,"dc":598.2,"isi":0.3,"bui":19.9,"fwi":0.2,"lat":50.352,"lon":-118.773,"repDate":"2026-10-09T12:00:00Z"},"REVELSTOKE":{"ffmc":43.6,"dmc":0.5,"dc":293,"isi":0.1,"bui":0.9,"fwi":0,"lat":51.06,"lon":-118.217,"repDate":"2026-10-09T12:00:00Z"},"WHISKEY":{"ffmc":71.4,"dmc":26.6,"dc":460.7,"isi":1.2,"bui":46.5,"fwi":3.2,"lat":51.065,"lon":-116.785,"repDate":"2026-10-09T12:00:00Z"},"MARION":{"ffmc":76.7,"dmc":24.4,"dc":550.9,"isi":1.1,"bui":44,"fwi":2.8,"lat":51.042,"lon":-116.364,"repDate":"2026-10-09T12:00:00Z"},"SUCCOUR CREEK":{"ffmc":40.2,"dmc":15.7,"dc":606.1,"isi":0,"bui":29.4,"fwi":0,"lat":51.716,"lon":-117.542,"repDate":"2026-10-09T12:00:00Z"},"GOLD HILL":{"ffmc":57.4,"dmc":6.7,"dc":508.1,"isi":0.4,"bui":12.9,"fwi":0.2,"lat":50.366,"lon":-117.064,"repDate":"2026-10-09T12:00:00Z"},"POWDER CREEK":{"ffmc":84.1,"dmc":9.6,"dc":436.9,"isi":3.4,"bui":18.2,"fwi":5.3,"lat":49.907,"lon":-116.855,"repDate":"2026-10-09T12:00:00Z"},"FALLS CREEK":{"ffmc":67.3,"dmc":2.4,"dc":296.2,"isi":0.8,"bui":4.7,"fwi":0.3,"lat":50.383,"lon":-117.88,"repDate":"2026-10-09T12:00:00Z"},"DUNCAN":{"ffmc":36.1,"dmc":3.5,"dc":222.7,"isi":0,"bui":6.7,"fwi":0,"lat":50.781,"lon":-117.18,"repDate":"2026-10-09T12:00:00Z"},"TROUT LAKE":{"ffmc":72.9,"dmc":7.2,"dc":316.7,"isi":1.1,"bui":13.6,"fwi":0.8,"lat":50.605,"lon":-117.427,"repDate":"2026-10-09T12:00:00Z"},"KETTLE 2":{"ffmc":86.7,"dmc":13.3,"dc":450.1,"isi":3.8,"bui":24.8,"fwi":6.9,"lat":49.96,"lon":-118.626,"repDate":"2026-10-09T12:00:00Z"},"BEAVERDELL":{"ffmc":71.6,"dmc":23.6,"dc":531.5,"isi":0.8,"bui":42.5,"fwi":1.6,"lat":49.456,"lon":-119.089,"repDate":"2026-10-09T12:00:00Z"},"EIGHT MILE":{"ffmc":87,"dmc":15.5,"dc":365.1,"isi":3.6,"bui":28,"fwi":7.2,"lat":49.433,"lon":-118.578,"repDate":"2026-10-09T12:00:00Z"},"GRAND FORKS":{"ffmc":87.7,"dmc":25.4,"dc":680.5,"isi":5,"bui":46.5,"fwi":12.6,"lat":49.031,"lon":-118.416,"repDate":"2026-10-09T12:00:00Z"},"NICOLL":{"ffmc":81.7,"dmc":18.1,"dc":442.3,"isi":2.1,"bui":32.9,"fwi":4.7,"lat":49.527,"lon":-118.36,"repDate":"2026-10-09T12:00:00Z"},"ROCK CREEK":{"ffmc":86.9,"dmc":29.6,"dc":717.6,"isi":3.1,"bui":53.6,"fwi":9.4,"lat":49.052,"lon":-118.937,"repDate":"2026-10-09T12:00:00Z"},"GOATFELL":{"ffmc":86.3,"dmc":27.5,"dc":453.1,"isi":2.8,"bui":47.8,"fwi":8,"lat":49.125,"lon":-116.164,"repDate":"2026-10-09T12:00:00Z"},"PENDOREILLE":{"ffmc":89.2,"dmc":28.1,"dc":621.5,"isi":4.5,"bui":50.6,"fwi":12.3,"lat":49.051,"lon":-117.414,"repDate":"2026-10-09T12:00:00Z"},"SMALLWOOD":{"ffmc":86,"dmc":13.7,"dc":448.5,"isi":3.3,"bui":25.5,"fwi":6.2,"lat":49.497,"lon":-117.448,"repDate":"2026-10-09T12:00:00Z"},"SLOCAN":{"ffmc":83.1,"dmc":8.5,"dc":419.7,"isi":2,"bui":16.1,"fwi":2.6,"lat":49.785,"lon":-117.44,"repDate":"2026-10-09T12:00:00Z"},"NANCY GREEN":{"ffmc":87.5,"dmc":17.9,"dc":368.9,"isi":4.3,"bui":31.9,"fwi":9,"lat":49.255,"lon":-117.994,"repDate":"2026-10-09T12:00:00Z"},"PALLISER":{"ffmc":89.7,"dmc":54.1,"dc":643.3,"isi":10.5,"bui":89.4,"fwi":30.7,"lat":50.495,"lon":-115.666,"repDate":"2026-10-09T12:00:00Z"},"ELKO":{"ffmc":90.4,"dmc":37.5,"dc":518.3,"isi":7.4,"bui":63.4,"fwi":20.3,"lat":49.288,"lon":-115.155,"repDate":"2026-10-09T12:00:00Z"},"TOBY HUB":{"ffmc":87,"dmc":44.3,"dc":777,"isi":3.8,"bui":77.5,"fwi":13.8,"lat":50.513,"lon":-116.055,"repDate":"2026-10-09T12:00:00Z"},"FLATHEAD 2":{"ffmc":90.8,"dmc":38.6,"dc":481.5,"isi":8,"bui":64.3,"fwi":21.6,"lat":49.079,"lon":-114.537,"repDate":"2026-10-09T12:00:00Z"},"JOHNSON LAKE":{"ffmc":87.7,"dmc":70.5,"dc":862.9,"isi":7.2,"bui":117.2,"fwi":27.2,"lat":49.944,"lon":-115.758,"repDate":"2026-10-09T12:00:00Z"},"DEWAR CREEK":{"ffmc":63.1,"dmc":11.4,"dc":383.2,"isi":0.5,"bui":21.1,"fwi":0.5,"lat":49.785,"lon":-116.383,"repDate":"2026-10-09T12:00:00Z"},"EMILY CREEK":{"ffmc":89.7,"dmc":43,"dc":765.8,"isi":6.7,"bui":75.4,"fwi":20.7,"lat":50.145,"lon":-115.977,"repDate":"2026-10-09T12:00:00Z"},"CRANBROOK FS":{"ffmc":88.6,"dmc":55.5,"dc":801.6,"isi":5.5,"bui":94.7,"fwi":20.2,"lat":49.667,"lon":-115.848,"repDate":"2026-10-09T12:00:00Z"},"ROUND PRAIRIE":{"ffmc":84.5,"dmc":37,"dc":405.7,"isi":2.3,"bui":60.3,"fwi":7.8,"lat":50.087,"lon":-114.9,"repDate":"2026-10-09T12:00:00Z"},"WHITE RIVER":{"ffmc":80.5,"dmc":44.5,"dc":590.3,"isi":1.4,"bui":74.9,"fwi":5.8,"lat":50.185,"lon":-115.268,"repDate":"2026-10-09T12:00:00Z"},"CHERRY LAKE":{"ffmc":87.4,"dmc":44.6,"dc":557.7,"isi":4.3,"bui":74.3,"fwi":14.7,"lat":49.188,"lon":-115.542,"repDate":"2026-10-09T12:00:00Z"},"AKOKLI CREEK":{"ffmc":86.6,"dmc":20.6,"dc":639,"isi":3.4,"bui":38.1,"fwi":8.2,"lat":49.436,"lon":-116.746,"repDate":"2026-10-09T12:00:00Z"},"BRISCO":{"ffmc":86.2,"dmc":30.1,"dc":595.3,"isi":3.6,"bui":53.5,"fwi":10.6,"lat":50.819,"lon":-116.245,"repDate":"2026-10-09T12:00:00Z"},"BLAEBERRY":{"ffmc":77.5,"dmc":23.1,"dc":626.5,"isi":1.1,"bui":42.3,"fwi":2.8,"lat":51.436,"lon":-117.057,"repDate":"2026-10-09T12:00:00Z"},"BIG MOUTH 2":{"ffmc":32.2,"dmc":2.4,"dc":295.8,"isi":0,"bui":4.6,"fwi":0,"lat":51.853,"lon":-118.591,"repDate":"2026-10-09T12:00:00Z"},"CRAWFORD":{"ffmc":37.5,"dmc":1.7,"dc":380.3,"isi":0,"bui":3.3,"fwi":0,"lat":50.765,"lon":-117.958,"repDate":"2026-10-09T12:00:00Z"},"IDA BELL LAKE 3":{"ffmc":85.6,"dmc":16.5,"dc":487.6,"isi":3.8,"bui":30.3,"fwi":7.8,"lat":49.767,"lon":-119.124,"repDate":"2026-10-09T12:00:00Z"},"SICAMOUS":{"ffmc":83.2,"dmc":9.8,"dc":373,"isi":2.1,"bui":18.4,"fwi":3.1,"lat":50.863,"lon":-119.003,"repDate":"2026-10-09T12:00:00Z"},"GOATHAVEN":{"ffmc":84,"dmc":41.5,"dc":545.7,"isi":2.1,"bui":69.8,"fwi":7.7,"lat":49.667,"lon":-115.214,"repDate":"2026-10-09T12:00:00Z"},"DOWNIE":{"ffmc":29.7,"dmc":2.4,"dc":251.6,"isi":0,"bui":4.6,"fwi":0,"lat":51.515,"lon":-118.272,"repDate":"2026-10-09T12:00:00Z"},"GOLDSTREAM 2":{"ffmc":21.6,"dmc":1.9,"dc":218.2,"isi":0,"bui":3.6,"fwi":0,"lat":51.669,"lon":-118.487,"repDate":"2026-10-09T12:00:00Z"},"BERLAND AUTO":{"ffmc":4.3,"dmc":6.3,"dc":138.6,"isi":0,"bui":11.4,"fwi":0,"lat":54.09,"lon":-117.401,"repDate":"2026-10-09T12:00:00Z"},"LIVINGSTON GAP AUTO":{"ffmc":91.1,"dmc":48.5,"dc":224.2,"isi":36.1,"bui":62.9,"fwi":57.7,"lat":49.879,"lon":-114.383,"repDate":"2026-10-09T12:00:00Z"},"POLL HAVEN AUTO":{"ffmc":90.7,"dmc":39,"dc":280.7,"isi":26.5,"bui":57.9,"fwi":45.8,"lat":49.029,"lon":-113.595,"repDate":"2026-10-09T12:00:00Z"},"BLAIRMORE RANGER STATION":{"ffmc":91.8,"dmc":57.2,"dc":232.7,"isi":15.1,"bui":70.8,"fwi":35.1,"lat":49.609,"lon":-114.451,"repDate":"2026-10-09T12:00:00Z"},"CYPRESS HILLS":{"ffmc":90.1,"dmc":32.2,"dc":264.9,"isi":11.4,"bui":49.4,"fwi":24.2,"lat":49.636,"lon":-110.33,"repDate":"2026-10-09T12:00:00Z"},"CHISHOLM AUTO":{"ffmc":21,"dmc":12.5,"dc":272.6,"isi":0,"bui":22.5,"fwi":0,"lat":54.941,"lon":-114.04,"repDate":"2026-10-09T12:00:00Z"},"COWPAR LAKE AUTO":{"ffmc":31.2,"dmc":19,"dc":351.7,"isi":0,"bui":33.4,"fwi":0,"lat":55.953,"lon":-110.497,"repDate":"2026-10-09T12:00:00Z"},"WILDHAY AUTO":{"ffmc":21.3,"dmc":6.7,"dc":254.3,"isi":0,"bui":12.6,"fwi":0,"lat":53.861,"lon":-117.558,"repDate":"2026-10-09T12:00:00Z"},"GRANDE CACHE":{"ffmc":15.1,"dmc":4.7,"dc":174.5,"isi":0,"bui":8.9,"fwi":0,"lat":53.916,"lon":-118.867,"repDate":"2026-10-09T12:00:00Z"},"ENTRANCE AUTO":{"ffmc":56.5,"dmc":27.6,"dc":302.1,"isi":0.4,"bui":44.9,"fwi":0.6,"lat":53.38,"lon":-117.701,"repDate":"2026-10-09T12:00:00Z"},"PICADELLY AUTO":{"ffmc":79.4,"dmc":10.6,"dc":187.1,"isi":2.8,"bui":18.6,"fwi":4.3,"lat":57.651,"lon":-114.527,"repDate":"2026-10-09T12:00:00Z"},"PONDEROSA AUTO":{"ffmc":84,"dmc":7.6,"dc":233.8,"isi":2.6,"bui":14,"fwi":3.3,"lat":59.212,"lon":-117.063,"repDate":"2026-10-09T12:00:00Z"},"LAMBERT AUTO":{"ffmc":83.1,"dmc":9.3,"dc":117.6,"isi":3.5,"bui":15.5,"fwi":4.8,"lat":58.035,"lon":-114.141,"repDate":"2026-10-09T12:00:00Z"},"BISTCHO LAKE AUTO":{"ffmc":84.8,"dmc":13.4,"dc":396.9,"isi":5.1,"bui":24.7,"fwi":9.1,"lat":59.912,"lon":-118.963,"repDate":"2026-10-09T12:00:00Z"},"KAKWA AUTO":{"ffmc":13.4,"dmc":8.9,"dc":136.4,"isi":0,"bui":15.2,"fwi":0,"lat":54.175,"lon":-119.059,"repDate":"2026-10-09T12:00:00Z"},"GOOSE MOUNTAIN AUTO":{"ffmc":11.1,"dmc":2.9,"dc":12.9,"isi":0,"bui":3.7,"fwi":0,"lat":54.751,"lon":-116.033,"repDate":"2026-10-09T12:00:00Z"},"HEART LAKE AUTO":{"ffmc":31.7,"dmc":13.1,"dc":208.3,"isi":0,"bui":22.7,"fwi":0,"lat":54.915,"lon":-111.34,"repDate":"2026-10-09T12:00:00Z"},"HIGH PRAIRIE AGDM":{"ffmc":15.9,"dmc":8,"dc":261.5,"isi":0,"bui":14.8,"fwi":0,"lat":55.4,"lon":-116.483,"repDate":"2026-10-09T12:00:00Z"},"IMPERIAL AUTO":{"ffmc":12.9,"dmc":5.5,"dc":132.9,"isi":0,"bui":10.1,"fwi":0,"lat":54.467,"lon":-115.572,"repDate":"2026-10-09T12:00:00Z"},"KIRBY LAKE AUTO":{"ffmc":25.3,"dmc":14.6,"dc":244.5,"isi":0,"bui":25.5,"fwi":0,"lat":55.358,"lon":-110.645,"repDate":"2026-10-09T12:00:00Z"},"DUNKIRK AUTO":{"ffmc":23.6,"dmc":28.7,"dc":453.9,"isi":0,"bui":49.6,"fwi":0,"lat":56.768,"lon":-112.488,"repDate":"2026-10-09T12:00:00Z"},"KEANE AUTO":{"ffmc":83,"dmc":10.8,"dc":212.2,"isi":4,"bui":19.1,"fwi":6.3,"lat":58.309,"lon":-110.282,"repDate":"2026-10-09T12:00:00Z"},"LEISMER AUTO":{"ffmc":16.4,"dmc":20.3,"dc":296.6,"isi":0,"bui":34.6,"fwi":0,"lat":55.69,"lon":-111.285,"repDate":"2026-10-09T12:00:00Z"},"MAY RAWS":{"ffmc":13.6,"dmc":10.4,"dc":290.1,"isi":0,"bui":19.2,"fwi":0,"lat":55.562,"lon":-112.405,"repDate":"2026-10-09T12:00:00Z"},"BASNET AUTO":{"ffmc":62.6,"dmc":21.9,"dc":401.1,"isi":1,"bui":38.5,"fwi":2.2,"lat":57.352,"lon":-119.761,"repDate":"2026-10-09T12:00:00Z"},"JACKPINE AUTO":{"ffmc":30.5,"dmc":7.4,"dc":216.2,"isi":0,"bui":13.7,"fwi":0,"lat":56.881,"lon":-116.559,"repDate":"2026-10-09T12:00:00Z"},"PASS CREEK  AUTO":{"ffmc":6.4,"dmc":5.1,"dc":25.2,"isi":0,"bui":6.8,"fwi":0,"lat":54.229,"lon":-116.84,"repDate":"2026-10-09T12:00:00Z"},"CLEARWATER AUTO":{"ffmc":90.5,"dmc":33.8,"dc":160.6,"isi":5.9,"bui":44.3,"fwi":14.1,"lat":51.987,"lon":-115.24,"repDate":"2026-10-09T12:00:00Z"},"RAM FALLS AUTO":{"ffmc":90.5,"dmc":53.2,"dc":419,"isi":15.4,"bui":80.7,"fwi":37.8,"lat":52.088,"lon":-115.844,"repDate":"2026-10-09T12:00:00Z"},"ELK RIVER AUTO":{"ffmc":57.7,"dmc":23.2,"dc":179.5,"isi":0.4,"bui":35,"fwi":0.5,"lat":52.969,"lon":-115.865,"repDate":"2026-10-09T12:00:00Z"},"KOOTENAY PLAINS AUTO":{"ffmc":89.5,"dmc":62.5,"dc":613.9,"isi":6.3,"bui":99.6,"fwi":22.8,"lat":52.062,"lon":-116.413,"repDate":"2026-10-09T12:00:00Z"},"ROUND HILL AUTO":{"ffmc":23.1,"dmc":19.1,"dc":349.5,"isi":0,"bui":33.6,"fwi":0,"lat":55.302,"lon":-111.995,"repDate":"2026-10-09T12:00:00Z"},"ROCK ISLAND LAKE AUTO":{"ffmc":11.2,"dmc":8.8,"dc":284.6,"isi":0,"bui":16.4,"fwi":0,"lat":55.326,"lon":-113.46,"repDate":"2026-10-09T12:00:00Z"},"ROCKY LANE AGRD":{"ffmc":85.2,"dmc":16,"dc":309.8,"isi":5.7,"bui":28.4,"fwi":10.7,"lat":58.452,"lon":-116.481,"repDate":"2026-10-09T12:00:00Z"},"SALTEAUX AUTO":{"ffmc":15.8,"dmc":8.8,"dc":242.2,"isi":0,"bui":16.2,"fwi":0,"lat":54.916,"lon":-114.781,"repDate":"2026-10-09T12:00:00Z"},"KINUSO":{"ffmc":15.7,"dmc":10.5,"dc":416.7,"isi":0,"bui":19.7,"fwi":0,"lat":55.303,"lon":-115.492,"repDate":"2026-10-09T12:00:00Z"},"LOON RIVER":{"ffmc":25.3,"dmc":3.3,"dc":258.3,"isi":0,"bui":6.4,"fwi":0,"lat":57.144,"lon":-115.08,"repDate":"2026-10-09T12:00:00Z"},"WABASCA AUTO":{"ffmc":24.2,"dmc":8.3,"dc":264.5,"isi":0,"bui":15.4,"fwi":0,"lat":55.963,"lon":-113.825,"repDate":"2026-10-09T12:00:00Z"},"CHIP ALPAC":{"ffmc":23.9,"dmc":9.2,"dc":227.4,"isi":0,"bui":16.7,"fwi":0,"lat":56.528,"lon":-113.469,"repDate":"2026-10-09T12:00:00Z"},"SWAN DIVE AUTO":{"ffmc":10.3,"dmc":5.1,"dc":66,"isi":0,"bui":8.6,"fwi":0,"lat":54.728,"lon":-115.356,"repDate":"2026-10-09T12:00:00Z"},"SAND RIVER AUTO":{"ffmc":46.3,"dmc":27.5,"dc":307.7,"isi":0.3,"bui":44.9,"fwi":0.5,"lat":54.647,"lon":-110.982,"repDate":"2026-10-09T12:00:00Z"},"TOMPKINS LANDING AGCM":{"ffmc":84.9,"dmc":18.8,"dc":372.9,"isi":8.5,"bui":33.4,"fwi":16,"lat":58.021,"lon":-116.848,"repDate":"2026-10-09T12:00:00Z"},"TONY AUTO":{"ffmc":9.3,"dmc":7.4,"dc":58.2,"isi":0,"bui":11.2,"fwi":0,"lat":54.405,"lon":-117.492,"repDate":"2026-10-09T12:00:00Z"},"VEGA AUTO":{"ffmc":17.3,"dmc":10,"dc":324.7,"isi":0,"bui":18.5,"fwi":0,"lat":54.428,"lon":-114.43,"repDate":"2026-10-09T12:00:00Z"},"ETA LAKE AUTO":{"ffmc":27.4,"dmc":13.8,"dc":113.9,"isi":0,"bui":21.2,"fwi":0,"lat":53.183,"lon":-115.689,"repDate":"2026-10-09T12:00:00Z"},"MEEKWAP AUTO":{"ffmc":13,"dmc":8.7,"dc":207.7,"isi":0,"bui":15.8,"fwi":0,"lat":54.625,"lon":-116.66,"repDate":"2026-10-09T12:00:00Z"},"WINDFALL AUTO":{"ffmc":11.1,"dmc":7.4,"dc":202,"isi":0,"bui":13.5,"fwi":0,"lat":54.192,"lon":-116.242,"repDate":"2026-10-09T12:00:00Z"},"FOX CREEK AUTO":{"ffmc":17.5,"dmc":7.8,"dc":88.1,"isi":0,"bui":12.8,"fwi":0,"lat":54.397,"lon":-116.802,"repDate":"2026-10-09T12:00:00Z"},"WANDERING RIVER AUTO":{"ffmc":13.5,"dmc":14.9,"dc":274.2,"isi":0,"bui":26.2,"fwi":0,"lat":55.201,"lon":-112.502,"repDate":"2026-10-09T12:00:00Z"}}},"spring":{"generated":"2026-05-11T20:15:00Z","stations":{"EDMONTON BLATCHFORD":{"ffmc":87.1,"dmc":9.4,"dc":15.0,"isi":5.2,"bui":9.4,"fwi":4.9,"lat":53.5667,"lon":-113.5167,"repDate":"2026-05-11T12:00:00Z"}}}},
+ "gem_sets": {"captured":{"53.567,-113.517":{"latitude":53.573112,"longitude":-113.50955,"generationtime_ms":0.8296966552734375,"utc_offset_seconds":0,"timezone":"GMT","timezone_abbreviation":"GMT","elevation":667.0,"hourly_units":{"time":"iso8601","temperature_2m":"\u00b0C","relative_humidity_2m":"%","wind_speed_10m":"km/h","wind_direction_10m":"\u00b0","precipitation":"mm","thunderstorm_probability":"undefined"},"hourly":{"time":["2026-10-09T00:00","2026-10-09T01:00","2026-10-09T02:00","2026-10-09T03:00","2026-10-09T04:00","2026-10-09T05:00","2026-10-09T06:00","2026-10-09T07:00","2026-10-09T08:00","2026-10-09T09:00","2026-10-09T10:00","2026-10-09T11:00","2026-10-09T12:00","2026-10-09T13:00","2026-10-09T14:00","2026-10-09T15:00","2026-10-09T16:00","2026-10-09T17:00","2026-10-09T18:00","2026-10-09T19:00","2026-10-09T20:00","2026-10-09T21:00","2026-10-09T22:00","2026-10-09T23:00","2026-10-10T00:00","2026-10-10T01:00","2026-10-10T02:00","2026-10-10T03:00","2026-10-10T04:00","2026-10-10T05:00","2026-10-10T06:00","2026-10-10T07:00","2026-10-10T08:00","2026-10-10T09:00","2026-10-10T10:00","2026-10-10T11:00","2026-10-10T12:00","2026-10-10T13:00","2026-10-10T14:00","2026-10-10T15:00","2026-10-10T16:00","2026-10-10T17:00","2026-10-10T18:00","2026-10-10T19:00","2026-10-10T20:00","2026-10-10T21:00","2026-10-10T22:00","2026-10-10T23:00","2026-10-11T00:00","2026-10-11T01:00","2026-10-11T02:00","2026-10-11T03:00","2026-10-11T04:00","2026-10-11T05:00","2026-10-11T06:00","2026-10-11T07:00","2026-10-11T08:00","2026-10-11T09:00","2026-10-11T10:00","2026-10-11T11:00","2026-10-11T12:00","2026-10-11T13:00","2026-10-11T14:00","2026-10-11T15:00","2026-10-11T16:00","2026-10-11T17:00","2026-10-11T18:00","2026-10-11T19:00","2026-10-11T20:00","2026-10-11T21:00","2026-10-11T22:00","2026-10-11T23:00"],"temperature_2m":[10.0,10.9,9.2,8.8,9.2,9.5,8.8,8.7,7.6,7.9,8.4,8.1,7.6,7.3,6.6,6.8,8.0,9.3,10.2,11.0,10.8,10.5,10.2,9.8,8.6,8.8,7.9,6.5,5.8,4.6,2.7,2.7,2.4,1.7,1.0,0.7,0.6,0.6,0.5,0.6,0.7,0.8,0.7,1.0,0.7,0.7,0.6,0.5,0.4,0.3,0.2,0.2,0.1,0.1,0.2,0.2,0.2,0.3,0.3,0.4,0.4,0.4,0.5,0.7,1.1,1.6,2.4,3.0,3.1,3.0,3.0,3.1],"relative_humidity_2m":[81,72,93,94,89,85,93,86,88,84,81,81,86,82,86,86,82,74,69,66,68,70,72,75,80,82,93,94,95,95,97,94,96,96,97,96,95,96,96,95,93,93,92,90,91,91,91,92,93,94,94,94,94,94,94,94,95,95,95,95,95,96,96,95,92,86,80,76,74,78,75,74],"wind_speed_10m":[7.9,8.3,10.8,9.7,11.5,9.7,8.6,9.7,9.0,10.8,8.6,11.2,9.7,11.2,10.1,8.3,10.4,10.8,8.6,7.9,8.3,6.5,7.9,11.2,8.3,10.8,14.8,16.6,16.2,18.7,17.6,16.9,16.2,16.2,15.8,15.1,14.4,14.8,16.2,18.0,18.7,18.7,19.1,19.1,19.1,18.7,18.0,16.9,16.2,15.5,15.1,14.8,14.0,13.3,12.2,11.5,10.4,9.4,8.3,7.9,7.6,7.2,6.8,7.2,7.9,8.3,7.9,8.3,9.4,9.0,7.6,7.2],"wind_direction_10m":[100,76,67,90,111,123,123,119,107,113,105,105,110,107,103,90,81,95,86,78,51,37,340,320,328,326,3,16,13,2,356,10,8,3,358,357,353,348,347,350,351,352,352,353,353,354,355,355,356,357,358,359,3,7,12,14,17,25,29,31,38,48,52,60,68,72,78,99,112,126,131,139],"precipitation":[0.0,0.0,0.7,0.4,0.2,0.0,0.0,0.0,0.0,0.0,0.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.2,0.2,0.2,0.3,0.2,0.1,0.3,0.8,0.8,0.9,0.9,0.5,0.5,0.4,0.2,0.2,0.3,0.3,0.3,0.4,0.4,0.3,0.3,0.3,0.3,0.3,0.3,0.2,0.1,0.1,0.1,0.1,0.0,0.0,0.0,0.0,0.0,0.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"thunderstorm_probability":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}},"51.117,-114":{"latitude":51.124374,"longitude":-114.00452,"generationtime_ms":0.6753206253051758,"utc_offset_seconds":0,"timezone":"GMT","timezone_abbreviation":"GMT","elevation":1079.0,"hourly_units":{"time":"iso8601","temperature_2m":"\u00b0C","relative_humidity_2m":"%","wind_speed_10m":"km/h","wind_direction_10m":"\u00b0","precipitation":"mm","thunderstorm_probability":"undefined"},"hourly":{"time":["2026-10-09T00:00","2026-10-09T01:00","2026-10-09T02:00","2026-10-09T03:00","2026-10-09T04:00","2026-10-09T05:00","2026-10-09T06:00","2026-10-09T07:00","2026-10-09T08:00","2026-10-09T09:00","2026-10-09T10:00","2026-10-09T11:00","2026-10-09T12:00","2026-10-09T13:00","2026-10-09T14:00","2026-10-09T15:00","2026-10-09T16:00","2026-10-09T17:00","2026-10-09T18:00","2026-10-09T19:00","2026-10-09T20:00","2026-10-09T21:00","2026-10-09T22:00","2026-10-09T23:00","2026-10-10T00:00","2026-10-10T01:00","2026-10-10T02:00","2026-10-10T03:00","2026-10-10T04:00","2026-10-10T05:00","2026-10-10T06:00","2026-10-10T07:00","2026-10-10T08:00","2026-10-10T09:00","2026-10-10T10:00","2026-10-10T11:00","2026-10-10T12:00","2026-10-10T13:00","2026-10-10T14:00","2026-10-10T15:00","2026-10-10T16:00","2026-10-10T17:00","2026-10-10T18:00","2026-10-10T19:00","2026-10-10T20:00","2026-10-10T21:00","2026-10-10T22:00","2026-10-10T23:00","2026-10-11T00:00","2026-10-11T01:00","2026-10-11T02:00","2026-10-11T03:00","2026-10-11T04:00","2026-10-11T05:00","2026-10-11T06:00","2026-10-11T07:00","2026-10-11T08:00","2026-10-11T09:00","2026-10-11T10:00","2026-10-11T11:00","2026-10-11T12:00","2026-10-11T13:00","2026-10-11T14:00","2026-10-11T15:00","2026-10-11T16:00","2026-10-11T17:00","2026-10-11T18:00","2026-10-11T19:00","2026-10-11T20:00","2026-10-11T21:00","2026-10-11T22:00","2026-10-11T23:00"],"temperature_2m":[13.8,12.9,10.8,9.1,7.9,7.6,5.9,6.6,6.5,5.9,5.9,5.8,5.4,6.5,5.0,5.4,9.0,14.2,18.2,20.6,19.7,19.0,18.3,17.4,13.2,9.9,7.7,6.1,5.5,5.2,4.7,2.9,2.1,1.3,1.3,1.5,1.5,1.5,1.5,1.6,1.5,1.5,1.7,2.1,2.4,2.8,2.7,2.2,1.6,0.9,0.5,0.1,-0.2,-0.3,-0.5,-0.6,-0.7,-0.8,-1.0,-1.2,-1.2,-1.2,-1.3,-1.2,-1.0,-0.6,-0.5,-0.3,0.2,0.5,0.7,1.0],"relative_humidity_2m":[49,56,67,75,81,66,75,73,74,77,76,77,79,68,77,75,58,43,36,34,33,32,32,34,61,65,85,94,95,90,83,85,81,79,75,71,73,75,72,70,70,70,67,64,61,60,59,59,63,67,71,74,75,76,77,77,79,80,85,88,89,90,91,92,90,86,86,86,83,77,74,70],"wind_speed_10m":[11.5,10.8,9.7,9.0,8.3,9.7,7.6,8.6,9.0,9.4,10.1,10.4,11.2,11.2,10.8,9.0,8.6,7.9,4.7,13.0,20.5,23.0,19.4,21.2,18.7,27.0,15.1,10.8,11.5,16.6,21.2,19.1,19.8,20.2,20.9,23.8,26.3,26.6,24.5,24.5,24.5,26.6,26.3,26.6,26.6,27.0,27.0,26.3,24.8,23.8,22.3,21.6,20.9,20.5,20.5,20.2,18.4,17.3,16.6,17.3,15.8,14.4,13.7,13.7,12.6,11.9,10.4,9.0,8.6,8.6,7.9,6.5],"wind_direction_10m":[159,161,164,176,202,228,246,217,209,211,210,207,208,199,200,220,222,197,228,248,253,236,247,264,336,348,354,357,346,347,346,342,341,341,342,341,341,343,341,342,343,344,346,346,347,347,349,350,351,352,351,348,347,346,346,348,349,350,350,350,353,355,356,357,2,9,13,18,22,31,36,58],"precipitation":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.1,0.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.1,0.2,0.4,0.3,0.1,0.0,0.0,0.0],"thunderstorm_probability":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}},"55.183,-118.883":{"latitude":55.172787,"longitude":-118.90073,"generationtime_ms":1.1870861053466797,"utc_offset_seconds":0,"timezone":"GMT","timezone_abbreviation":"GMT","elevation":668.0,"hourly_units":{"time":"iso8601","temperature_2m":"\u00b0C","relative_humidity_2m":"%","wind_speed_10m":"km/h","wind_direction_10m":"\u00b0","precipitation":"mm","thunderstorm_probability":"undefined"},"hourly":{"time":["2026-10-09T00:00","2026-10-09T01:00","2026-10-09T02:00","2026-10-09T03:00","2026-10-09T04:00","2026-10-09T05:00","2026-10-09T06:00","2026-10-09T07:00","2026-10-09T08:00","2026-10-09T09:00","2026-10-09T10:00","2026-10-09T11:00","2026-10-09T12:00","2026-10-09T13:00","2026-10-09T14:00","2026-10-09T15:00","2026-10-09T16:00","2026-10-09T17:00","2026-10-09T18:00","2026-10-09T19:00","2026-10-09T20:00","2026-10-09T21:00","2026-10-09T22:00","2026-10-09T23:00","2026-10-10T00:00","2026-10-10T01:00","2026-10-10T02:00","2026-10-10T03:00","2026-10-10T04:00","2026-10-10T05:00","2026-10-10T06:00","2026-10-10T07:00","2026-10-10T08:00","2026-10-10T09:00","2026-10-10T10:00","2026-10-10T11:00","2026-10-10T12:00","2026-10-10T13:00","2026-10-10T14:00","2026-10-10T15:00","2026-10-10T16:00","2026-10-10T17:00","2026-10-10T18:00","2026-10-10T19:00","2026-10-10T20:00","2026-10-10T21:00","2026-10-10T22:00","2026-10-10T23:00","2026-10-11T00:00","2026-10-11T01:00","2026-10-11T02:00","2026-10-11T03:00","2026-10-11T04:00","2026-10-11T05:00","2026-10-11T06:00","2026-10-11T07:00","2026-10-11T08:00","2026-10-11T09:00","2026-10-11T10:00","2026-10-11T11:00","2026-10-11T12:00","2026-10-11T13:00","2026-10-11T14:00","2026-10-11T15:00","2026-10-11T16:00","2026-10-11T17:00","2026-10-11T18:00","2026-10-11T19:00","2026-10-11T20:00","2026-10-11T21:00","2026-10-11T22:00","2026-10-11T23:00"],"temperature_2m":[6.3,6.5,6.5,6.6,6.7,6.8,6.9,6.6,6.3,6.2,6.2,6.3,6.1,6.1,5.9,5.6,5.0,4.0,2.5,1.5,0.9,0.4,0.2,0.3,0.4,0.6,0.5,0.5,0.5,0.5,0.3,0.4,0.1,-0.0,-0.2,-0.5,-0.7,-0.9,-1.2,-1.4,-1.3,-1.2,-0.7,-0.4,-0.3,-0.2,-0.2,-0.2,-0.2,-0.5,-1.1,-1.4,-1.6,-1.7,-1.9,-1.9,-2.0,-2.0,-2.7,-4.8,-6.1,-6.6,-7.0,-7.0,-4.7,-1.3,0.9,2.1,3.3,4.5,5.6,6.1],"relative_humidity_2m":[97,96,98,99,99,99,100,99,99,99,99,99,98,98,97,97,96,96,95,97,97,100,100,98,95,95,96,96,95,96,98,95,96,95,94,94,92,92,92,91,91,90,88,87,87,87,86,86,87,91,93,94,94,95,95,95,94,93,95,95,96,96,95,94,93,91,88,85,82,80,78,78],"wind_speed_10m":[11.2,13.3,12.2,10.4,12.2,10.1,8.6,9.7,9.4,10.8,11.5,14.8,15.1,18.0,20.2,22.0,23.4,23.8,23.0,19.8,15.5,16.2,17.3,18.4,17.6,21.2,23.4,24.5,25.2,24.8,24.5,25.6,24.8,24.8,23.4,22.3,20.9,19.4,18.0,16.6,14.8,13.3,12.6,11.5,9.7,8.6,7.9,5.0,3.2,1.8,1.4,1.4,1.8,2.5,3.2,4.0,5.8,6.8,7.2,8.3,9.7,10.1,10.1,9.7,9.4,9.7,10.8,9.4,8.3,7.9,8.6,8.3],"wind_direction_10m":[89,98,85,78,82,85,74,58,42,37,27,21,18,11,8,4,8,4,352,2,349,341,340,342,345,2,9,15,19,20,21,19,17,16,16,15,13,12,13,13,11,10,12,14,9,9,10,13,20,30,71,91,119,140,146,120,94,92,114,102,99,101,102,103,113,128,133,139,145,148,150,149],"precipitation":[1.3,0.2,0.6,1.3,0.5,0.1,0.2,0.8,1.8,1.7,1.7,1.8,0.8,3.1,2.1,2.0,2.5,1.8,2.3,2.4,2.4,2.8,3.2,2.8,1.7,0.7,0.7,0.9,0.7,0.6,0.4,0.3,0.4,0.4,0.1,0.1,0.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"thunderstorm_probability":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}},"56.65,-111.217":{"latitude":56.6593,"longitude":-111.20633,"generationtime_ms":0.43833255767822266,"utc_offset_seconds":0,"timezone":"GMT","timezone_abbreviation":"GMT","elevation":370.0,"hourly_units":{"time":"iso8601","temperature_2m":"\u00b0C","relative_humidity_2m":"%","wind_speed_10m":"km/h","wind_direction_10m":"\u00b0","precipitation":"mm","thunderstorm_probability":"undefined"},"hourly":{"time":["2026-10-09T00:00","2026-10-09T01:00","2026-10-09T02:00","2026-10-09T03:00","2026-10-09T04:00","2026-10-09T05:00","2026-10-09T06:00","2026-10-09T07:00","2026-10-09T08:00","2026-10-09T09:00","2026-10-09T10:00","2026-10-09T11:00","2026-10-09T12:00","2026-10-09T13:00","2026-10-09T14:00","2026-10-09T15:00","2026-10-09T16:00","2026-10-09T17:00","2026-10-09T18:00","2026-10-09T19:00","2026-10-09T20:00","2026-10-09T21:00","2026-10-09T22:00","2026-10-09T23:00","2026-10-10T00:00","2026-10-10T01:00","2026-10-10T02:00","2026-10-10T03:00","2026-10-10T04:00","2026-10-10T05:00","2026-10-10T06:00","2026-10-10T07:00","2026-10-10T08:00","2026-10-10T09:00","2026-10-10T10:00","2026-10-10T11:00","2026-10-10T12:00","2026-10-10T13:00","2026-10-10T14:00","2026-10-10T15:00","2026-10-10T16:00","2026-10-10T17:00","2026-10-10T18:00","2026-10-10T19:00","2026-10-10T20:00","2026-10-10T21:00","2026-10-10T22:00","2026-10-10T23:00","2026-10-11T00:00","2026-10-11T01:00","2026-10-11T02:00","2026-10-11T03:00","2026-10-11T04:00","2026-10-11T05:00","2026-10-11T06:00","2026-10-11T07:00","2026-10-11T08:00","2026-10-11T09:00","2026-10-11T10:00","2026-10-11T11:00","2026-10-11T12:00","2026-10-11T13:00","2026-10-11T14:00","2026-10-11T15:00","2026-10-11T16:00","2026-10-11T17:00","2026-10-11T18:00","2026-10-11T19:00","2026-10-11T20:00","2026-10-11T21:00","2026-10-11T22:00","2026-10-11T23:00"],"temperature_2m":[10.0,8.7,7.9,7.3,6.8,6.6,6.4,6.2,6.1,5.9,6.0,6.0,5.8,5.9,6.0,6.0,5.6,5.1,4.6,5.5,5.6,5.7,5.5,5.3,4.6,4.5,4.1,3.8,3.5,3.1,2.7,2.5,2.2,2.2,2.2,2.1,1.9,1.6,1.5,1.7,2.2,2.6,2.7,3.1,3.4,3.5,3.6,3.4,3.0,2.7,2.4,2.2,2.0,1.8,1.6,1.5,1.4,1.3,1.3,1.1,0.9,0.7,0.5,0.4,0.9,2.1,4.1,5.1,5.4,5.5,5.4,4.9],"relative_humidity_2m":[67,69,67,66,70,72,70,76,77,77,79,80,83,82,83,84,92,95,100,96,96,95,95,95,94,95,95,95,94,94,96,93,90,88,87,86,85,85,85,83,81,77,75,71,69,68,68,69,70,72,74,75,77,78,79,81,82,81,79,79,81,84,86,85,80,75,66,60,58,59,58,60],"wind_speed_10m":[2.5,5.0,6.5,7.6,7.6,7.9,7.9,9.4,8.6,9.0,9.4,9.4,9.4,10.4,10.4,11.2,13.0,13.7,11.2,14.0,14.4,14.0,13.0,13.0,8.6,12.2,12.2,12.6,12.2,11.5,10.1,10.4,10.1,10.1,10.1,10.1,10.1,9.7,10.1,10.1,10.4,10.4,10.4,10.4,10.1,10.1,9.7,8.6,7.6,6.8,6.1,5.8,5.0,4.7,4.3,4.0,2.9,1.4,2.2,3.6,4.0,4.3,5.0,5.8,5.8,5.0,6.1,8.3,8.6,9.4,10.1,10.1],"wind_direction_10m":[66,70,80,90,86,87,86,82,91,87,87,81,77,74,72,71,70,68,64,70,71,65,60,53,38,47,41,37,35,35,24,22,15,9,3,359,356,353,352,354,3,11,16,20,18,13,16,20,20,25,30,26,10,352,345,348,1,44,81,81,89,104,111,115,119,125,134,143,149,152,155,160],"precipitation":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.2,0.4,0.5,0.4,1.2,0.8,0.5,0.7,1.1,1.2,1.0,0.9,0.7,0.4,0.3,0.3,0.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"thunderstorm_probability":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}}},"spring":{"53.567,-113.517":{"hourly":{"time":["2026-05-11T00:00","2026-05-11T01:00","2026-05-11T02:00","2026-05-11T03:00","2026-05-11T04:00","2026-05-11T05:00","2026-05-11T06:00","2026-05-11T07:00","2026-05-11T08:00","2026-05-11T09:00","2026-05-11T10:00","2026-05-11T11:00","2026-05-11T12:00","2026-05-11T13:00","2026-05-11T14:00","2026-05-11T15:00","2026-05-11T16:00","2026-05-11T17:00","2026-05-11T18:00","2026-05-11T19:00","2026-05-11T20:00","2026-05-11T21:00","2026-05-11T22:00","2026-05-11T23:00","2026-05-12T00:00","2026-05-12T01:00","2026-05-12T02:00","2026-05-12T03:00","2026-05-12T04:00","2026-05-12T05:00","2026-05-12T06:00","2026-05-12T07:00","2026-05-12T08:00","2026-05-12T09:00","2026-05-12T10:00","2026-05-12T11:00","2026-05-12T12:00","2026-05-12T13:00","2026-05-12T14:00","2026-05-12T15:00","2026-05-12T16:00","2026-05-12T17:00","2026-05-12T18:00","2026-05-12T19:00","2026-05-12T20:00","2026-05-12T21:00","2026-05-12T22:00","2026-05-12T23:00","2026-05-13T00:00","2026-05-13T01:00","2026-05-13T02:00","2026-05-13T03:00","2026-05-13T04:00","2026-05-13T05:00","2026-05-13T06:00","2026-05-13T07:00","2026-05-13T08:00","2026-05-13T09:00","2026-05-13T10:00","2026-05-13T11:00","2026-05-13T12:00","2026-05-13T13:00","2026-05-13T14:00","2026-05-13T15:00","2026-05-13T16:00","2026-05-13T17:00","2026-05-13T18:00","2026-05-13T19:00","2026-05-13T20:00","2026-05-13T21:00","2026-05-13T22:00","2026-05-13T23:00"],"temperature_2m":[19.8,18.4,16.5,14.3,12.0,9.7,7.5,5.6,4.2,3.3,3.0,3.3,4.2,5.6,7.5,9.7,12.0,14.3,16.5,18.4,19.8,20.7,21.0,20.7,19.8,18.4,16.5,14.3,12.0,9.7,7.5,5.6,4.2,3.3,3.0,3.3,4.2,5.6,7.5,9.7,12.0,14.3,16.5,18.4,19.8,20.7,21.0,20.7,19.8,18.4,16.5,14.3,12.0,9.7,7.5,5.6,4.2,3.3,3.0,3.3,4.2,5.6,7.5,9.7,12.0,14.3,16.5,18.4,19.8,20.7,21.0,20.7],"relative_humidity_2m":[33,37,42,49,55,61,68,73,77,79,80,79,77,73,68,61,55,49,42,37,33,31,30,31,33,37,42,49,55,61,68,73,77,79,80,79,77,73,68,61,55,49,42,37,33,31,30,31,33,37,42,49,55,61,68,73,77,79,80,79,77,73,68,61,55,49,42,37,33,31,30,31],"wind_speed_10m":[17.8,17.2,16.2,15.0,13.6,12.0,10.4,9.0,7.8,6.8,6.2,6.0,6.2,6.8,7.8,9.0,10.4,12.0,13.6,15.0,16.2,17.2,17.8,18.0,17.8,17.2,16.2,15.0,13.6,12.0,10.4,9.0,7.8,6.8,6.2,6.0,6.2,6.8,7.8,9.0,10.4,12.0,13.6,15.0,16.2,17.2,17.8,18.0,17.8,17.2,16.2,15.0,13.6,12.0,10.4,9.0,7.8,6.8,6.2,6.0,6.2,6.8,7.8,9.0,10.4,12.0,13.6,15.0,16.2,17.2,17.8,18.0],"wind_direction_10m":[250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250],"precipitation":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.4,0.4,0.4,0.4,0.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"thunderstorm_probability":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}}}
+}

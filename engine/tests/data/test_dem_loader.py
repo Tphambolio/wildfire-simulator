@@ -277,3 +277,19 @@ def test_dem_is_placed_and_aspect_is_relative_to_true_north(tmp_path):
     assert terrain.slope[r][c] == pytest.approx(10.0, rel=0.05)
     assert abs((terrain.aspect[r][c] - expected + 180) % 360 - 180) < 0.5
     assert abs(expected) > 1.0  # the test only means something if grid and true north differ
+
+
+def test_float_rows_are_compact_and_exact():
+    """Terrain rows are array('d') (8 bytes per cell; the Edmonton DEM held ~560 MB as
+    lists of Python floats): indexing returns Python floats with the same values."""
+    from array import array
+
+    from firesim.data.dem_loader import _float_rows
+
+    a = np.random.default_rng(0).normal(size=(7, 9)) * 100
+    rows = _float_rows(a.astype(np.float32))
+    assert all(isinstance(r, array) and r.typecode == "d" for r in rows)
+    for i in range(7):
+        for j in range(9):
+            v = rows[i][j]
+            assert type(v) is float and v == float(np.float64(np.float32(a[i, j])))

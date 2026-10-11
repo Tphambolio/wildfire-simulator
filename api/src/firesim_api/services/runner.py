@@ -47,7 +47,7 @@ class SimulationRun:
         self.error: str | None = None
         # Ensemble (optional, runs after the deterministic frames)
         self.ensemble = None
-        self.ensemble_status: str | None = None  # running / completed / failed
+        self.ensemble_status: str | None = None  # running / completed / failed / cancelled
         self.ensemble_progress: tuple[int, int] = (0, 0)
         self.ensemble_error: str | None = None
         self._lock = threading.Lock()
@@ -55,6 +55,8 @@ class SimulationRun:
         self._pause_event = threading.Event()
         self._pause_event.set()  # Initially running (not paused)
         self._cancel_event = threading.Event()
+        # Set by cancel_ensemble(): the client no longer wants this run's ensemble
+        self._ensemble_cancel = threading.Event()
         # Progress for display: phase (RUN_PHASES) and fraction of the spread done (0-1)
         self.phase: str | None = None
         self.progress: float | None = None
@@ -100,6 +102,14 @@ class SimulationRun:
         if self.status == SimulationStatus.PAUSED:
             self.status = SimulationStatus.RUNNING
             self._pause_event.set()
+
+    def cancel_ensemble(self) -> None:
+        """Stop the ensemble (before its next member) or skip it if it has not started.
+        The client calls this when it starts a new run, so an abandoned ensemble does not
+        keep the CPU from the new run (a 1-vCPU server)."""
+        self._ensemble_cancel.set()
+        if self.ensemble_status is None:
+            self.ensemble_status = "cancelled"
 
     def cancel(self) -> None:
         """Cancel the simulation immediately."""
@@ -169,6 +179,10 @@ class SimulationRunner:
         # One expensive load+join per unique pair; reused across all simulations.
         self._building_index_cache: dict[tuple, object] = {}
         self._building_index_lock = threading.Lock()
+        # Native-resolution fuel grids for the 20 m WUI window, keyed by (fuel, water) path;
+        # one byte per cell (~3 MB for Edmonton)
+        self._fine_cache: dict[tuple, object] = {}
+        self._fine_lock = threading.Lock()
 
     def create(
         self,
@@ -227,6 +241,66 @@ class SimulationRunner:
             self._building_index_cache[key] = bidx
         logger.info("BuildingIndex cached for key=%s", key)
         return bidx
+
+    def _get_building_vegetation(self):
+        """Per-building vegetation attributes (structure step 3), loaded once; None when the
+        file is not configured or unreadable (attributes are context only)."""
+        from firesim_api.settings import settings
+
+        path = settings.building_vegetation_path
+        if not path:
+            return None
+        cache = self.__dict__.setdefault("_veg_cache", {})
+        if path not in cache:
+            try:
+                from firesim.structures.vegetation import BuildingVegetation
+
+                cache[path] = BuildingVegetation.from_csv(path)
+                logger.info("Building vegetation: %d rows from %s", len(cache[path]), path)
+            except Exception:  # noqa: BLE001 - optional context data
+                logger.exception("Building vegetation not loaded from %s", path)
+                cache[path] = None
+        return cache[path]
+
+    def _get_canopy(self):
+        """The gap-cover canopy raster (vegetation-bridged cutoff); None when absent."""
+        from firesim_api.settings import settings
+
+        path = settings.canopy_path
+        if not path:
+            return None
+        cache = self.__dict__.setdefault("_canopy_cache", {})
+        if path not in cache:
+            try:
+                from firesim.structures.vegetation import CanopyCover
+
+                cache[path] = CanopyCover(path)
+            except Exception:  # noqa: BLE001
+                logger.exception("Canopy raster not opened from %s", path)
+                cache[path] = None
+        return cache[path]
+
+    def _get_fine_source(self, fuel_path: str | None, water_path: str | None, run_grid):
+        """The fuel raster at its native cell size for the 20 m WUI window, or None (disabled,
+        no raster, or the run grid is not coarser than the raster)."""
+        from firesim_api.settings import settings
+
+        if not fuel_path or run_grid is None or not settings.wui_fine_grid:
+            return None
+        key = (fuel_path, water_path)
+        with self._fine_lock:
+            if key in self._fine_cache:
+                return self._fine_cache[key]
+        from firesim.data.fine_grid import FineFuelSource
+
+        try:
+            src = FineFuelSource.from_raster(fuel_path, water_path=water_path)
+        except Exception:  # noqa: BLE001 - the 50 m run still works without it
+            logger.exception("Native fuel grid for the 20 m window could not be loaded")
+            src = None
+        with self._fine_lock:
+            self._fine_cache[key] = src
+        return src
 
     def _load_grids(
         self,
@@ -385,6 +459,7 @@ class SimulationRunner:
                 dem_path,
             )
 
+            fine_key = (params.fuel_grid_path, params.water_path)
             # CA mode: load real grid from settings env var, fall back to synthetic
             if fuel_grid is None and getattr(params, "use_ca_mode", False):
                 default_fuel_path = settings.fuel_grid_path
@@ -397,6 +472,7 @@ class SimulationRunner:
                         dem_path,
                     )
                     fuel_grid = real_grid
+                    fine_key = (default_fuel_path, params.water_path or settings.water_path)
                     if real_wui is not None and spread_modifier_grid is None:
                         spread_modifier_grid = real_wui
                     if real_terrain is not None and terrain_grid is None:
@@ -412,6 +488,7 @@ class SimulationRunner:
 
                     # Seeded from the ignition point (~11 m precision) so re-running a
                     # scenario reproduces the same demo landscape and result.
+                    fine_key = (None, None)
                     fuel_grid = generate_synthetic_fuel_grid(
                         ignition_lat=params.ignition_lat,
                         ignition_lng=params.ignition_lng,
@@ -490,7 +567,21 @@ class SimulationRunner:
                 structure_footprints=structure_geoms,
                 structure_embers=getattr(params, "structure_embers", False),
                 structure_design_fire_kw_m2=getattr(params, "structure_design_fire_kw_m2", 150),
+                structure_burnout=getattr(params, "structure_burnout", True),
+                structure_vegetation=(self._get_building_vegetation()
+                                      if structure_geoms is not None else None),
+                structure_vegetation_bridge=getattr(params, "structure_vegetation_bridge", False),
+                structure_canopy=(self._get_canopy()
+                                  if getattr(params, "structure_vegetation_bridge", False)
+                                  else None),
+                structure_combustible_roof_share=getattr(
+                    params, "structure_combustible_roof_share", 0.0),
                 progress=run.set_phase,
+                # 20 m WUI window (mechanics decision M5): tried when buildings are near the
+                # fire, kept only within the memory guards (firesim.spread.wui_window)
+                fine_fuel=(self._get_fine_source(*fine_key, fuel_grid)
+                           if building_geoms else None),
+                fine_building_mask=building_geoms or None,
             )
 
             run.set_phase("spread", 0.0)
@@ -525,8 +616,11 @@ class SimulationRunner:
     @staticmethod
     def _run_ensemble(run, config, fuel_grid, terrain_grid, spread_modifier_grid, ens) -> None:
         """Run the ensemble for a completed grid run; results on ``run.ensemble``."""
-        from firesim.spread.ensemble import EnsembleConfig, run_ensemble
+        from firesim.spread.ensemble import EnsembleCancelledError, EnsembleConfig, run_ensemble
 
+        if run._ensemble_cancel.is_set():
+            run.ensemble_status = "cancelled"
+            return
         run.ensemble_status = "running"
         run.ensemble_progress = (0, ens.n_members)
         try:
@@ -534,8 +628,12 @@ class SimulationRunner:
                 config, fuel_grid, EnsembleConfig(**ens.model_dump()),
                 terrain_grid=terrain_grid, spread_modifier_grid=spread_modifier_grid,
                 progress=lambda done, total: setattr(run, "ensemble_progress", (done, total)),
+                should_stop=run._ensemble_cancel.is_set,
             )
             run.ensemble_status = "completed"
+        except EnsembleCancelledError as exc:
+            run.ensemble_status = "cancelled"
+            logger.info("Ensemble for %s cancelled by the client (%s)", run.id, exc)
         except Exception as exc:  # noqa: BLE001 - surface any failure to the client
             run.ensemble_status = "failed"
             run.ensemble_error = str(exc)

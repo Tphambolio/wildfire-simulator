@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast, FORECAST_MODEL_LABEL } from "../services/api";
+import { isPyraSource } from "../utils/weatherSource";
 import MultiDayPanel from "./MultiDayPanel";
 import SetupSection from "./SetupSection";
 import { edmontonDayOfYear, formatClock, formatDate, roundToMinute, toDateTimeInputs, toEdmontonIso, zonedWallTimeToMs, zoneAbbrev } from "../utils/time";
@@ -217,7 +218,13 @@ interface WeatherPanelProps {
   onSkillOptions?: (opts: SkillOptionsState) => void;
   /** After a run: arm a new ignition on the map ("New ignition" in the run bar) */
   onNewIgnition?: () => void;
+  /** Single run pressed: called before the hourly forecast is fetched, so the previous run
+   * is cleared at once (the request is sent through onStartSimulation once ready) */
+  onRunRequested?: (durationHours: number) => void;
 }
+
+/** Roof scenario shares (pre-specified, docs/structure-spread-spec.md §6.2) */
+const ROOF_SHARES = [0, 0.05, 0.15, 0.3];
 
 function WeatherPanel({
   onStartSimulation,
@@ -234,6 +241,7 @@ function WeatherPanel({
   runBarTarget,
   onSkillOptions,
   onNewIgnition,
+  onRunRequested,
 }: WeatherPanelProps) {
   const fieldId = useId();
 
@@ -341,6 +349,10 @@ function WeatherPanel({
   const [structureSpread, setStructureSpread] = useState(false);
   // Opt-in under house-to-house spread: ember ignition of buildings (illustrative)
   const [structureEmbers, setStructureEmbers] = useState(false);
+  // Opt-in under house-to-house spread (structure step 3): vegetation-bridged cutoff, and the
+  // combustible-roof scenario (needs embers; a scenario, not observed roofs)
+  const [structureVegBridge, setStructureVegBridge] = useState(false);
+  const [structureRoofShare, setStructureRoofShare] = useState(0);
   const structureAvailable = useEdmontonGrid && includeBuildings;
   // Off by default: the bundled WUI multipliers have no documented source (see docs/verification.md)
   const [includeWUI, setIncludeWUI] = useState(false);
@@ -632,6 +644,7 @@ function WeatherPanel({
     let hourly = null;
     const spinWanted = spinUpOn && useHourlyForecast;
     if (useHourlyForecast) {
+      onRunRequested?.(durationHours);
       try {
         // Forecast hours aligned to the scenario start, not to now (design spec §2.3); with
         // the spin-up, also the hours from 17:00 before the start
@@ -688,6 +701,9 @@ function WeatherPanel({
       ffmc_spin_up: skill.ffmc_spin_up,
       structure_spread: structureAvailable && structureSpread,
       structure_embers: structureAvailable && structureSpread && structureEmbers,
+      structure_vegetation_bridge: structureAvailable && structureSpread && structureVegBridge,
+      structure_combustible_roof_share:
+        structureAvailable && structureSpread && structureEmbers ? structureRoofShare : 0,
     });
   };
 
@@ -1167,6 +1183,10 @@ function WeatherPanel({
           <div className="hint-sm weather-message" data-testid="weather-source">
             Manual <InfoTip label="About manual weather" text={TIPS.weatherManual} />
           </div>
+        ) : isPyraSource(weatherSource) ? (
+          <div className="hint-sm weather-message" data-testid="weather-source" data-source-tier="pyra">
+            {weatherSource}
+          </div>
         ) : (weatherSource || stationName) && (
           <div className="hint-sm weather-message" data-testid="weather-source">
             {stationName && (
@@ -1339,6 +1359,37 @@ function WeatherPanel({
                 Ember ignition
               </label>
               <InfoTip label="About embers between buildings" text={TIPS.structureEmbers} />
+            </div>
+            <div className="with-tip check-row-indent struct-suboption">
+              <label className="struct-option">
+                <input
+                  type="checkbox"
+                  checked={structureAvailable && structureSpread && structureVegBridge}
+                  disabled={!(structureAvailable && structureSpread)}
+                  onChange={(e) => setStructureVegBridge(e.target.checked)}
+                  data-testid="structure-veg-bridge"
+                />
+                Tree-bridged gaps (20–45 m)
+              </label>
+              <InfoTip label="About tree-bridged gaps" text={TIPS.structureVegBridge} />
+            </div>
+            <div className="with-tip check-row-indent struct-suboption">
+              <label className="struct-option">
+                Combustible roofs
+                <select
+                  value={structureAvailable && structureSpread && structureEmbers ? structureRoofShare : 0}
+                  disabled={!(structureAvailable && structureSpread && structureEmbers)}
+                  onChange={(e) => setStructureRoofShare(Number(e.target.value))}
+                  data-testid="structure-roof-share"
+                >
+                  {ROOF_SHARES.map((v) => (
+                    <option key={v} value={v}>
+                      {v === 0 ? "None" : `${Math.round(v * 100)} %`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Badge tone="warn" tip={TIPS.structureRoofs}>{BADGES.scenario}</Badge>
             </div>
             <div className="with-tip check-row-indent">
               <label>

@@ -24,6 +24,7 @@ export const BADGES = {
   modelOutput: "Model output",
   unsourced: "Unsourced",
   illustrative: "Illustrative",
+  scenario: "Scenario",
   exposureNotIgnition: "Exposure, not ignition",
   setByPlanning: "Status set by Planning",
   c2Generalisation: "C-2 generalisation",
@@ -86,8 +87,10 @@ export const TIPS = {
   // ── Setup: 3 Fuel & landscape ──
   edmontonGrid: (fallbackFuel: string) =>
     "City of Edmonton canopy-LiDAR FBP fuel product: 20 m cells (EPSG:3776; the file name says " +
-    "10 m), fuel types C-2, D-2, M-2, O-1a and O-1b. The engine resamples it to 50 m cells for " +
-    `the run. Cells without fuel data use ${fallbackFuel}.`,
+    "10 m), fuel types C-2, D-2, M-2, O-1a and O-1b. The run uses 50 m cells (the main fuel " +
+    "type in each); when buildings are near the fire it is repeated on the native 20 m cells " +
+    "in a window around the fire, if the fire is small enough. " +
+    `Cells without fuel data use ${fallbackFuel}.`,
   syntheticCA: "Generates a 5 km mixed-fuel demo grid around the ignition point and runs the grid model on it.",
   spotting:
     "Crown fires loft embers downwind and seed new ignitions. Maximum distance from Albini (1979); " +
@@ -100,10 +103,19 @@ export const TIPS = {
     "building exposure counts.",
   structureOption:
     "Fire passing from building to building (Hamada model), from the buildings the modelled front " +
-    "reaches. Illustrative, not validated in Canada. Needs the Edmonton grid and buildings.",
+    "reaches; a building stops passing fire when its 66 min design fire ends (burnt out). " +
+    "Illustrative, not validated in Canada. Needs the Edmonton grid and buildings.",
   structureEmbers:
     "Buildings also ignited by short-range embers from burning buildings and the front (published " +
     "Californian firebrand model, 150 kW/m² design fire). Illustrative. Needs house-to-house spread.",
+  structureVegBridge:
+    "Buildings up to 20 m apart pass fire as usual; 20–45 m apart only where trees cover at least " +
+    "20 % of the gap (open 1 m canopy map). FireSim rule from the FPInnovations Jasper threshold; " +
+    "not validated.",
+  structureRoofs:
+    "A scenario, not observed roofs: no open data says which roofs are wood shake. This share of " +
+    "buildings, picked at random with the run seed, ignite from embers at 0.375 of the threshold " +
+    "(lab firebrand tests, cedar vs treated pine). Needs ember ignition.",
   wui:
     "425 park-buffer zones with spread ×0.7, intensity ×1.2 and embers ×3.0. These values have no " +
     "documented source; leave off unless testing.",

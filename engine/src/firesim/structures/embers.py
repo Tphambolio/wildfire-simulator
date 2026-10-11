@@ -32,6 +32,9 @@ Model (one unit per building, spec §2):
    ψ*(v_air) = C / ((v_air − v_min)(v_max − v_air)) (FSJ104686 eq 1, p.3; Qin25 eq 5.12,
    p.120), after the delays TOA + t_ign,small + t_ign,large = flight time + 42 s + 300 s
    (FSJ104686 pp.4-5), and then starts its own design fire (Qin25 p.122).
+6. A unit emits embers only while its design fire burns: emission "ceases when HRR returns
+   to zero" (Qin25 p.67). With burn-out on (spec §4.3), its Hamada crossings also stop at the
+   design fire's end, so a burnt-out unit passes no fire by either path.
 
 FireSim choices (labelled [H] in the spec) are marked in the code. The wind heights are the
 least certain part; see ``u10_to_u6`` and the spec §6 notes (C16-C18).
@@ -331,7 +334,7 @@ class WildlandSources:
                    np.asarray(inten, float)[keep], float(emitters.cell_size))
 
     def safe_reach_m(self, u6_speeds, duration_min: float, gr: float = GR_VEGETATION,
-                     footprint_allowance_m: float = 100.0) -> float:
+                     footprint_allowance_m: float = 100.0, psi_factor_min: float = 1.0) -> float:
         """Distance from the burned cells beyond which wildland embers alone cannot ignite any
         building, for the reachable box (spec §2, §6).
 
@@ -343,12 +346,13 @@ class WildlandSources:
         ember mass per area is then below Σ_c N_c m_e sup f_X sup f_Y, independent of A; the
         returned r is the smallest (10 m steps) where that bound is below the smallest ψ* of
         the run, plus ``footprint_allowance_m`` for footprints whose wind-frame box is larger
-        than the footprint (FireSim bound [H]).
+        than the footprint (FireSim bound [H]). ``psi_factor_min``: the smallest per-unit
+        factor on ψ* in the run (roof scenario, spec §6.2), so the bound holds for every unit.
         """
         speeds = [float(u) for u in np.atleast_1d(u6_speeds) if u > 0]
         if len(self.x) == 0 or not speeds:
             return 0.0
-        psi_min = float(np.min(psi_critical(v_air(np.asarray(speeds)))))
+        psi_min = float(np.min(psi_critical(v_air(np.asarray(speeds))))) * float(psi_factor_min)
         if not np.isfinite(psi_min):
             return 0.0
         psi_min_g_m2 = psi_min * 1.0e4
@@ -431,7 +435,8 @@ class CoupledResult:
 
 def coupled_spread(units, t_front_min, wind, *, duration_min: float, fb: float,
                    options: EmberOptions, wildland: WildlandSources | None = None,
-                   cross=None) -> CoupledResult:
+                   cross=None, burnout: bool = False, link_filter=None,
+                   psi_factor=None) -> CoupledResult:
     """Front contact + Hamada building-to-building + ember ignition, first times per unit.
 
     Event-driven for front and Hamada (exact crossing times, as ``hamada_spread``), stepped
@@ -447,12 +452,22 @@ def coupled_spread(units, t_front_min, wind, *, duration_min: float, fb: float,
         options: ember settings.
         wildland: burning grid cells as ember sources (``None`` = structures only).
         cross: the Hamada crossing function (``spread._cross``), injected to avoid a cycle.
+        burnout: Hamada crossings from a unit stop when its design fire ends (spec §4.3 [H]).
+            Ember emission always stops then (Qin25 p.67).
+        link_filter: optional ``f(i, nb, sep) -> bool mask`` of the Hamada links that pass
+            fire (vegetation-bridged cutoff, spec §4.6); ``None`` = every graph link.
+        psi_factor: optional per-unit factor on ψ* (roof scenario, spec §6.2): a unit ignites
+            when its pool reaches ``psi_factor × ψ*/m_e × A``; ``None`` = 1 for all.
     """
     import shapely
 
     n = len(units)
     df = options.design_fire
     burn_min = df.duration_s / 60.0
+    factor = (np.ones(n) if psi_factor is None
+              else np.broadcast_to(np.asarray(psi_factor, dtype=float), (n,)))
+    if n and not (np.all(factor > 0) and np.all(factor <= 1.0)):
+        raise ValueError("psi_factor must be in (0, 1]")
     t = np.asarray(t_front_min, dtype=float).copy()
     t[t > duration_min] = np.inf
     source = np.where(np.isfinite(t), SOURCE_FRONT, 0).astype(np.int8)
@@ -545,6 +560,9 @@ def coupled_spread(units, t_front_min, wind, *, duration_min: float, fb: float,
                 continue
             keep = ~done[nb]
             nb, sep = nb[keep], sep[keep]
+            if len(nb) and link_filter is not None:
+                keep = link_filter(i, nb, sep)
+                nb, sep = nb[keep], sep[keep]
             if len(nb) == 0:
                 continue
             a0 = (units.size_m[i] + units.size_m[nb]) / 2.0
@@ -552,7 +570,7 @@ def coupled_spread(units, t_front_min, wind, *, duration_min: float, fb: float,
             dist = np.hypot(dx, dy)
             safe = np.where(dist > 0, dist, 1.0)
             arrive = cross(ti, a0, sep, dx / safe, dy / safe, dist > 0, starts, u10, wx, wy, fb,
-                           duration_min)
+                           duration_min, burnout_at=ti + burn_min if burnout else math.inf)
             better = arrive < t[nb]
             for j, tj in zip(nb[better], arrive[better]):
                 t[j] = tj
@@ -653,7 +671,7 @@ def coupled_spread(units, t_front_min, wind, *, duration_min: float, fb: float,
             touched = np.unique(tg)
             before = pool[touched].copy()
             pool[touched] += add[touched]
-            need = critical_embers(units.area_m2[touched], float(v_air(u6)))
+            need = critical_embers(units.area_m2[touched], float(v_air(u6))) * factor[touched]
             over = pool[touched] >= need
             if over.any():
                 # top contributor per target (parent, flight distance)

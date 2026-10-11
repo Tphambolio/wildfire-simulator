@@ -55,6 +55,11 @@ export function useEnsemble(
           set({ phase: grids ? "completed" : "failed", done: resp.done, total: resp.total, grids, error: grids ? null : "Ensemble result incomplete" });
           return;
         }
+        if (resp.status === "cancelled") {
+          // stopped at this client's request (a new run started): nothing to show
+          set(OFF);
+          return;
+        }
         if (resp.status === "failed") {
           set({ phase: "failed", done: resp.done, total: resp.total, grids: null, error: resp.error ?? "Ensemble failed" });
           return;
