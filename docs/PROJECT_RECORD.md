@@ -733,6 +733,7 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into â€
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-11 | `27b2da6` | feat(frontend): collapsible side columns, map focus mode and legend dock (branch `feat/map-focus-layout`) |
 | 2026-10-11 | `d12e78c` | feat(scripts): memory-bounded S2 blocks, NBAC bbox read, Alberta 2025 grid as a disclosed extra |
 | 2026-10-11 | `18e60c9` | feat(scripts): fire-area build fixes (memmap CHM, OSM cache, clipped NBAC scars, restartable) and rule shares |
 | 2026-10-10 | `e5af3a7` | analysis: pre-register the open-data fuel grid fire-spread test (PREREG) |
