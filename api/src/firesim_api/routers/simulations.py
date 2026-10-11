@@ -32,15 +32,30 @@ ws_manager: ConnectionManager | None = None
 
 
 def _incremental(run) -> bool:
-    """Whether the run streams only newly burned cells (single-event grid runs that ask)."""
-    return isinstance(run.config, SimulationCreate) and run.config.cells_mode == "incremental"
+    """Whether the run streams only newly burned cells (grid runs that ask)."""
+    return (isinstance(run.config, (SimulationCreate, MultiDaySimulationCreate))
+            and run.config.cells_mode == "incremental")
+
+
+def _offset(run, prev: SimulationFrame | None, frame: SimulationFrame) -> int:
+    """How many earlier cells to leave out of ``frame``: the previous frame's cell count.
+    Single runs: always (one grid run, cells ordered by arrival). Multi-day runs chain one
+    run per day, so the offset is used only where the previous frame's cells are the start
+    of this frame's; otherwise the frame is sent whole (0)."""
+    if prev is None or not _incremental(run):
+        return 0
+    before = prev.burned_cells or []
+    if isinstance(run.config, MultiDaySimulationCreate):
+        cells = frame.burned_cells or []
+        n = len(before)
+        if n == 0 or len(cells) < n or cells[:n] != before:
+            return 0
+    return len(before)
 
 
 def _cell_offsets(run, frames: list[SimulationFrame]) -> list[int]:
     """Per frame, how many earlier cells to leave out (the previous frame's cell count)."""
-    if not _incremental(run):
-        return [0] * len(frames)
-    return [0] + [len(f.burned_cells or []) for f in frames[:-1]]
+    return [_offset(run, frames[i - 1] if i else None, f) for i, f in enumerate(frames)]
 
 
 def _frame_to_schema(frame: SimulationFrame, day: int | None = None, offset: int = 0) -> FrameSchema:
@@ -113,10 +128,16 @@ def _on_multiday_frame(sim_id: str, frame: SimulationFrame, day: int) -> None:
     """Callback from multi-day simulation thread — broadcast frame with day tag."""
     if ws_manager is None:
         return
+    offset = 0
+    run = runner.get(sim_id) if runner is not None else None
+    if run is not None and _incremental(run):
+        frames = run.get_frames()  # this frame was added before the callback
+        if len(frames) > 1:
+            offset = _offset(run, frames[-2], frames[-1])
     event = {
         "type": "simulation.frame",
         "simulation_id": sim_id,
-        "frame": _frame_to_schema(frame, day=day).model_dump(),
+        "frame": _frame_to_schema(frame, day=day, offset=offset).model_dump(),
     }
     ws_manager.broadcast_from_thread(sim_id, event)
 
@@ -345,6 +366,29 @@ async def get_ensemble(sim_id: str) -> dict:
             "note": "Perturbation sizes are defaults until calibrated on observed fires.",
         })
     return out
+
+
+@router.delete("/{sim_id}/ensemble")
+async def cancel_ensemble(sim_id: str) -> dict:
+    """Stop a run's ensemble: before its next member, or skip it if it has not started.
+
+    The app calls this when it starts a new run (or clears the results) while the previous
+    run's ensemble is still pending or running, so the abandoned ensemble does not take the
+    CPU from the new run. A finished ensemble is left as it is. 404 when the run is unknown
+    or has no ensemble. Returns the ensemble status after the request.
+    """
+    if runner is None:
+        raise HTTPException(status_code=500, detail="Runner not initialized")
+    run = runner.get(sim_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    cfg = run.config if isinstance(run.config, SimulationCreate) else None
+    if cfg is None or cfg.ensemble is None:
+        raise HTTPException(status_code=404, detail="No ensemble requested for this run")
+    if run.ensemble_status not in ("completed", "failed"):
+        run.cancel_ensemble()
+    return {"simulation_id": sim_id, "status": run.ensemble_status or "pending",
+            "cancel_requested": run.ensemble_status not in ("completed", "failed")}
 
 
 @router.websocket("/ws/{sim_id}")
