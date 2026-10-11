@@ -1,6 +1,7 @@
 # Open-data FBP fuel grid (no LiDAR, no municipal inventory)
 
-**Version:** 1.0.0 (grids `v20261010`) · **Code:** `scripts/fuelgrid/` · **Tests:** `engine/tests/fuelgrid/`
+**Version:** 1.0.0 (grids `v20261010`) and **2.1.0** (full FBP key + disturbance, stand-object
+typing with a uPLVI-trained stand model, northern Alberta test areas; §9) · **Code:** `scripts/fuelgrid/` · **Tests:** `engine/tests/fuelgrid/`
 **Status:** research product. It has been compared cell by cell with the City of Edmonton LiDAR
 fuel grid, which has itself never been field-checked. Nothing here is a field-validated accuracy.
 
@@ -293,12 +294,283 @@ the JSON sidecar to a GitHub release `fuelgrid-v20261010`, and point `FIRESIM_FU
 the downloaded file. Keep the City LiDAR grid as the Edmonton default until a field check says
 which grid is better.
 
+## 9. Version 2: full FBP decision key, disturbance, stand-object typing (2.1.0)
+
+v2 extends the six-class key to the FBP types that can be mapped from open data, adds burn scars
+and cut blocks, types forest per stand object, and runs outside Edmonton. **2.1.0** (§9.7) replaces
+2.0.0's 100 m block typing and LiDAR-label re-map, which pulled pure stands into M-2. v1 files, code tables
+and parameters are unchanged (a test pins them), so `v20261010` still rebuilds bit for bit.
+Code: `key2.py` (decision key, pure numpy), `sources2.py` (inputs on any region grid),
+`build2.py`, `validate2.py`; `python -m scripts.fuelgrid.run all2` (needs the v1 build), then
+`PYTHONPATH=engine/src python -m scripts.fuelgrid.run firesim2`.
+
+### 9.1 Products
+
+`$FUELGRID_DATA/out/v2/{aoi}_fbp_opendata2_{kind}_20m_{epsg}_v{date}.tif`, kind =
+`leafon_ciffc`, `leafoff_ciffc` (CIFFC codes, load with `code_scheme="cfs_national"`: 1 C-1, 2 C-2,
+3 C-3, 4 C-4, 7 C-7, 11 D-1, 12 D-2, 21 S-1, 22 S-2, 31 O-1a, 32 O-1b, 4xx M-1 / 5xx M-2 with
+xx % conifer, 101 non-fuel, 102 water), `rule` (v2 rule per cell), `percent_conifer` (band 1:
+20 m continuous percent conifer; band 2: decision-unit percent conifer used for typing), and a
+`meta` JSON sidecar. The `canopy_lidar` scheme has no codes for the new types, so v2 is CIFFC only.
+AOIs: Edmonton and St. Albert (EPSG:3776, map year 2026) and three northern Alberta test areas
+(EPSG:3400, Alberta 10-TM Forest; §9.4). Provenance of every v2 retrieval:
+`$FUELGRID_DATA/provenance_v2.json` (v1's `provenance.json` is not rewritten).
+
+### 9.2 Decision key (ordered; first match wins; rule numbers in the rule raster)
+
+Sources: **CFS 2018** = Swystun, Taylor & Simpson, *FBP Fuel Layer Decision Rules* (14 Nov 2018,
+the rules behind CanFG 2019); **NRCan 2026** = LaCarte et al., *FBP Forest Fuel Type Mapping:
+Overview of the Methodology, Data Sources, and Uses & Limitations* (Cat. Fo4-268/2026E-PDF; the
+CFS 30 m layer), printed page numbers; **Perrakis 2015** = Perrakis & Eade, *BC Wildfire Fuel
+Typing and Fuel Type Layer Description, 2015 Version* (BCWS), printed page numbers. **[H]** = a
+FireSim choice where no source fixes the value. No published Alberta Wildfire typing key was found
+in open sources; Alberta practice enters only through the AVI comparison (§9.5).
+
+| # | Rule | Class | Source |
+|---|---|---|---|
+| 1, 3-8 | v1 land-cover gate (water, built/urban, crop/pasture, open land, stand gaps; §4) | as v1 | §4 |
+| — | **Forest extent at 20 m:** v1 contiguous stands (Meta CHM). Test areas only: also SCANFI v3 treed cover through the same stand rule (≥ 40 % 3×3, ≥ 1 ha, not built) on cells the v1 gate left open | — | [H] (§9.3) |
+| — | **Decision unit (2.1):** stand objects — uPLVI 2025 polygons in Edmonton; elsewhere connected regions of one conifer class cut by 200 m blocks (≤ 4 ha). Every evidence layer is averaged over the forest cells of each object; the 20 m extent is kept | — | conifer-mapping report 2026-10-10 §2, §4 (objects); reference-layer report 2026-10-10 §2-3 (pure-stand failure of 100 m blocks) [H] |
+| — | **Unit conifer (2.1):** Edmonton / St. Albert: uPLVI-trained stand model (C/M/D classifier + percent-conifer regressor on object-mean open features; out of fold in Edmonton). Test areas: object mean of SCANFI conifer share (no re-map) | — | §9.7 |
+| — | Conifer share: tamarack counted as deciduous | — | CFS 2018 p.1 |
+| 25 / 65 | Unit conifer ≤ 25 % | D-2 (leaf-off D-1) | CFS 2018 p.1 (> 75 % broadleaf = deciduous); Perrakis 2015 App. A4 p.59 (%C ≤ 20 → D-1/2). **[H] kept as D-2**, not low-PC M-2 (below) |
+| 26 / 66 | Unit conifer 25-75 % | M-2 (leaf-off M-1) with unit PC | CFS 2018 p.1; percent conifer carried (CIFFC 5xx) |
+| 24 / 64 | Conifer ≥ 75 % and (ponderosa ≥ 30 %, or ponderosa ≥ 20 % with Douglas-fir ≥ 25 %, or Douglas-fir ≥ 20 % with closure ≤ 40 %) | C-7 | NRCan 2026 rules 4.h, 4.i (p.8); CFS 2018 rule 36 (p.3) |
+| 22 / 62 | Conifer ≥ 75 %, jack + lodgepole pine ≥ 25 % of the unit, height < 12 m, 2 m+ cover ≥ 60 % | C-4 | NRCan 2026 rules 4.e/4.f (p.8: > 25 % pine, < 12 m); density cut **[H]** from Perrakis 2015 p.19 ("dense (> 60 % crown closure)"; C-4 behaviour uncommon) |
+| 23 / 63 | Conifer ≥ 75 %, pine ≥ 25 %, otherwise | C-3 | NRCan 2026 rules 4.e/4.f (p.8); Perrakis 2015 p.18 |
+| 21 / 61 | Conifer ≥ 75 %, black spruce ≥ 75 %, lichen ≥ 1 % (SCANFI v3 non-treed lichen), closure < 60 % | C-1 | NRCan 2026 rule 2.d (p.7) |
+| 20 / 60 | Conifer ≥ 75 %, otherwise (white / black spruce, fir) | C-2 | NRCan 2026 rule 2.b (p.7); Perrakis 2015 p.18 |
+| 30 | Outside stands (v1 rules 4/7, not built): 2 m+ cover ≥ 10 %, SCANFI treed-coniferous ≥ 25 % and ≥ 3 × broadleaf, black spruce ≥ 75 % with lichen ≥ 1 % | C-1 | NRCan 2026 rule 2.d (p.7); thresholds **[H]** |
+| 31 | Same open-conifer cells otherwise (sparse conifer, treed peatland) | M-1/M-2, 25 % conifer | NRCan 2026 rule 1.e (p.7: coniferous, closure < 30 % → M1-25 %) |
+| 32 | v1 rule-7 cells with WorldCover herbaceous wetland + moss ≥ 50 %, or AAFC wetland / peatland | O-1b (relabel only) | **[H]**: open fen/bog as standing grass. Alternatives in the sources: non-fuel/water for saturated bogs (Perrakis 2015 §5.4.4 p.25), "wetland, FBP type unknown" (CFS 2014b code 120), O-1a for herb/bryoid (NRCan 2026 rule 1.a p.7) |
+| 40 | Forest cell burned 1-2 years before the map year | non-fuel | NRCan 2026 Table 3 (p.17) |
+| 41 | Burned 3-5 years before | D-2 (leaf-off D-1) | idem |
+| 42 | Burned 6-21 years before | M-2 25 % conifer | idem; > 21 years: the vegetation inputs decide **[H]** (NRCan 2026 applies Table 3 only to post-2020 fires, p.16-17; FireSim applies it to every burn ≤ 21 years because the canopy imagery predates many of them). O-1, non-fuel and water are kept (p.17) |
+| 50 | Forest loss (Hansen) not inside a burn of ±1 year, 1-5 years before, pre-harvest pine ≥ 50 % of conifer | S-1 | slash for the first 5 years: Perrakis 2015 §5.4.3 p.24 (App. A4 p.56: pine logged ≤ 7 yr → S-1); fire attribution and pine share **[H]** |
+| 51 | Same, spruce / fir / mixed | S-2 | Perrakis 2015 App. A4 p.58 (Sb/Sw/Se logged ≤ 10 yr → S-2) |
+| 52 | Same, pre-harvest conifer ≤ 25 % (aspen block) | D-2 | **[H]** (no FBP aspen slash; aspen suckers within 2-3 years) |
+| 53 | Harvest 6-24 years before, cell not treed again (v1 rules 3/7/8) | O-1b | Perrakis 2015 App. A4 p.55 (non-vegetated, 7-24 yr, dry zones incl. BWBS → O-1a/b); treed regrowth is typed by the inputs |
+
+Harvest rules need a treed block before the cut (SCANFI closure ≥ 25 % in the epoch before the
+harvest year) and never apply in urban (rule 5) or crop (rule 6) cells **[H]**; the more recent of
+fire and harvest wins. Where the canopy image (Meta CHM acquisition year, per metadata polygon)
+predates a later fire or forest loss, cover and height come from SCANFI's epoch instead **[H]**.
+
+**Stand-object typing (2.1.0).** 2.0.0 typed forest on 100 m block means and, in Edmonton,
+re-mapped block means to the City LiDAR crown-label distribution. The reference-layer report
+(2026-10-10) showed that this put 72 % of pure uPLVI conifer stands and 57-64 % of pure AVI
+deciduous stands into M-2. 2.1.0 therefore (1) keeps the continuous 20 m percent conifer (band 1
+of the percent-conifer raster); (2) types per **stand object** (uPLVI polygons in Edmonton; one-class
+connected regions ≤ 4 ha elsewhere), so a pure stand is not averaged with its neighbours; (3) in
+Edmonton and St. Albert decides C/M/D with a **stand model trained on uPLVI percent conifer**
+(photo-interpreted, stand-level, open) instead of the LiDAR crowns, out of fold by 2 km blocks in
+Edmonton, with no quantile re-map; (4) in the test areas uses the object mean of SCANFI's share,
+with no re-map; (5) carries percent conifer through M-1/M-2 and calls C-2 only where the object is
+≥ 75 % conifer; the pine/spruce split and C-1/C-3/C-4/C-7 use object means. **D-2 below 25 % conifer
+is kept** [H] (FBP/CFS/BC practice; the engine's D-2 does not spread below BUI ≈ 80, while low-PC
+M-2 would burn every aspen stand). A test pins that an object is typed as a whole.
+
+**Not mappable from open data (stated, not guessed):** M-3/M-4 (no open dead-balsam-fir or
+budworm / beetle mortality layer at this scale; NRCan 2026 p.18 also leaves them out), C-5 (not in
+Alberta), C-6 plantations (no open plantation layer), S-3 (coastal), C-7 only where SCANFI shows
+ponderosa / Douglas-fir (montane Alberta; none in the test areas). Mature vs immature pine is by
+canopy height and density, not age or stem density.
+
+### 9.3 Why a second treed gate in the test areas
+
+In the boreal test areas the Meta 1 m canopy model reads almost no cover ≥ 5 m where WorldCover
+maps trees: in v2's first run 37,186 ha of the 86,624 ha 2023 test area fell to rule 7 (O-1b) with
+median Meta cover 0 while WorldCover tree averaged 54 % and SCANFI treed-coniferous 33 % there.
+The canopy model under-reads short, open black spruce and peatland forest. The v1 stand rule
+therefore also runs on SCANFI v3 treed cover (same 40 % / 1 ha / not-built thresholds) in the test
+areas only; Edmonton and St. Albert do not use it (their stands come from the same rule as v1).
+
+### 9.4 Inputs (all open; licences)
+
+| Input | Use | Licence |
+|---|---|---|
+| v1 inputs (§3) | gate, canopy, Edmonton conifer fraction | as §3 |
+| SCANFI v2 epochs (`v2_20260119`; 2015, 2020, 2025): closure, height, 10 species crown closures | species shares, pre-harvest composition, stale-canopy fallback | OGL – Canada |
+| SCANFI v3 annual (`v3_20260528`, map year − 1): treed coniferous / broadleaf, non-treed lichen, herbaceous, shrubs, water, burn scars | C-1 lichen, open conifer, second treed gate | OGL – Canada |
+| Meta CHM tile metadata (`acq_date` polygons) | canopy image year (stale-canopy rule) | CC BY 4.0 |
+| Hansen et al. Global Forest Change v1.12 `lossyear` (tiles 60N_120W, 60N_110W) | forest loss year 2001-2024 → harvest | CC BY 4.0 |
+| Alberta Wildfire historical wildfire perimeters 1931-2025 (`fp-historical-wildfire-perimeter-data.zip`; BURNCODE B*, PB* excluded — small polygons, median 4 ha, taken to be prescribed/partial burns [H]) | years since fire; fire attribution of forest loss | OGL – Alberta (open.alberta.ca listing) |
+| ESA WorldCover 2021 tiles N54W111, N57W117; Microsoft footprints; OSM; AAFC ACI (map year − 1; zero in the northern areas, outside the ACI extent) | gate in the test areas | as §3 |
+| City of Edmonton uPLVI 2025 (effective 2025-06-16; read from the reference-layer download) | 2.1: stand-model labels (percent conifer of treed components) and Edmonton stand objects | OGL – Edmonton |
+| **Comparison only:** CFS 2026 30 m; CFS 2024 100 m (`FBP_fueltypes_Canada_100m_EPSG3978_20240527`); AVI Crown (Alberta Vegetation Inventory, `AVI_Crown`) | §9.5 | OGL – Canada; OGL – Alberta |
+
+NBAC was not downloaded (the per-year files are 190 MB each); the Alberta perimeters, already
+downloaded by the reference-layer survey, were used instead. NTEMS harvest (1985-2020) ends before
+the slash window of the test years.
+
+**Pre-fire inputs.** Each test area is mapped for its fire year with SCANFI v2 of the last epoch
+before it (2020), SCANFI v3 and ACI of the previous year, burns and forest loss before the year,
+Meta canopy imagery ≤ 2020 (checked per cell; the build refuses imagery from the fire year or
+later) and WorldCover 2021. Not pre-fire: OSM (2026 extract) and the Microsoft footprints (2026),
+which carry little in these wildland areas.
+
+### 9.5 Results of 2.0.0 (100 m blocks; forest typing superseded by §9.7)
+
+**Test areas** (CFSDS burned extent + 5 km; fire `2024_126` lies against the 2023 burn of
+`2023_689`, so its pre-fire map carries that scar as non-fuel). Leaf-on areas, ha:
+
+| Class | 2023_689 (86,624 ha) | 2024_126 (67,356 ha) | 2024_152 (83,482 ha) |
+|---|---:|---:|---:|
+| C-1 | 2,636 | 1,680 | 306 |
+| C-2 | 22,035 | 10,949 | 12,287 |
+| C-3 | 114 | 176 | 903 |
+| C-4 | 343 | 387 | 3,374 |
+| D-2 (D-1 leaf-off) | 8,300 | 7,542 | 5,840 |
+| M-2 (M-1) | 37,839 | 29,029 | 28,944 |
+| S-1 / S-2 | 7 / 497 | 1 / 57 | 17 / 162 |
+| O-1b | 14,309 | 9,309 | 17,896 |
+| Non-fuel / water | 114 / 431 | 7,834 / 391 | 478 / 13,276 |
+
+M-2 includes 3,076 / 347 / 3,957 ha of 6-21-year-old burns at 25 % conifer (rule 42).
+
+**Comparison with the CFS layers and AVI** (groups: spruce C-1/C-2, pine C-3/C-4, other conifer,
+deciduous, mixedwood, open, slash, non-fuel, water; OA / κ). CFS 2026 includes the test fires
+and later burns, so those are excluded; CFS 2024 (May 2024) is pre-fire for the 2024 fires only.
+AVI (photo 1996 in the two western areas, 2003-2010 at 2024_152) is compared only on cells with no
+burn since 1990 and no Hansen loss, through a group crosswalk [H] (`validate2.avi_groups`).
+
+| Area | v2 vs CFS 2026 | v2 vs CFS 2024 | v2 vs AVI | CFS 2026 vs AVI | CFS 2024 vs AVI |
+|---|---|---|---|---|---|
+| 2023_689 | 0.43 / 0.21 | (not pre-fire) | **0.47 / 0.30** | 0.39 / 0.17 | 0.43 / 0.23 |
+| 2024_126 | 0.38 / 0.19 | 0.53 / 0.37 | **0.50 / 0.35** | 0.42 / 0.19 | 0.48 / 0.28 |
+| 2024_152 | 0.48 / 0.37 | 0.48 / 0.35 | **0.57 / 0.48** | 0.54 / 0.43 | 0.56 / 0.44 |
+
+Where both maps call conifer, pine vs spruce agrees with CFS 2026 on 95-96 % of cells in the
+western areas (κ 0.48-0.63) and 76 % at 2024_152 (κ 0.39). The largest systematic differences:
+v2 maps 8-17 k ha O-1b per area where CFS maps forest (CFS has almost no open class), and half
+CFS's C-2 area (CFS types much more as C-2, v2 as M-2). Against AVI, v2 has the highest agreement
+of the three maps in every area, but pine recall is low (0.06 in the western areas, where AVI has
+little pine; 0.42 at 2024_152) and mixedwood precision is 0.11-0.14 (AVI calls most of v2's M-2
+spruce or deciduous). None of these references is field truth.
+
+**Edmonton conifer typing at the decision unit** (all out of fold, City crown labels; label
+ceiling = split-half κ 0.33 at 20 m, 0.72 at 100 m, from the report): 20 m cells κ 0.278 (OA 0.58,
+MAE 0.205); **100 m blocks κ 0.423** (OA 0.714, folds 0.39-0.47, PC MAE 0.119, 5,610 blocks
+≥ 50 crowns; unit means without re-mapping κ 0.399); 200 m blocks κ 0.438. The labels put 2.0 % of
+the 100 m forest blocks in C-2 (60 % M-2, 38 % D-2); v2 calls C-2 with precision and recall 0.31.
+This is below the report's 0.49-0.53 because v2 uses the v1 (baseline) features and blocks, not
+the report's c5 features and SLIC objects.
+
+**Change from v1** (map year 2026): Edmonton 1,214 ha of 78,442 ha (1.6 %) — C-2 391 → 54 ha,
+M-2 1,514 → 2,193 ha, D-2 1,934 → 1,557 ha (stand-level typing), C-4 11 ha and C-3 0.4 ha
+(SCANFI pine ≥ 25 %; plantations, unverified), 37 ha O-1b → M-2 25 % (open conifer), 1.6 ha slash,
+and 54 ha of forest lost since the canopy image now typed from SCANFI (cleared land → crop /
+non-fuel). St. Albert 310 ha (1.6 %), the same pattern. Agreement with CFS 2026 is unchanged
+(Edmonton groups 0.769 / κ 0.597).
+
+**Reproducibility:** rebuilding v2 gave bit-identical grids and work arrays (25 of 25).
+
+**Engine check** (`firesim2`; `validation/v2/firesim_check_v2.json`): all ten v2 grids (5 AOIs ×
+leaf-on/off) load at 20 m with `code_scheme="cfs_national"`, and an ignition in the largest patch
+of every class present reads back the intended engine type (C1, C2, C3, C4, D1, D2, M1, M2, O1a,
+O1b, S1, S2) and spreads for 1 h at FFMC 92 / BUI ≈ 60 / 20 km/h (e.g. 2024_152 leaf-on: C-1
+18 ha, C-4 42 ha, S-1 18 ha, S-2 21 ha), except D-2, which does not spread at this BUI (FBP
+buildup effect, as in v1). All these FBP types already had equations in the engine
+(`fbp/constants.py`); no engine code was changed.
+
+### 9.6 Uses and limitations of v2
+
+Use v2 for runs outside Edmonton where no agency grid is at hand, for pre-fire hindcasts of the
+validation fires, and as a second Edmonton map. A 20 m cell's forest type is its stand object's
+call. In Edmonton the product uses the uPLVI polygons as objects; its pure-stand score is helped by
+that geometry (§9.7: 0.70 with uPLVI objects, 0.61 with open objects only). Edmonton's forest
+is now mostly D-2 (3,052 ha) and C-2 (503 ha) with little M-2 (243 ha), because the uPLVI itself
+is mostly pure stands; that raises the share of forest that does not burn below BUI ≈ 80 (D-2).
+In the north the conifer fraction is SCANFI's imputation, not trained locally; pure deciduous AVI
+stands are still mostly M-2 there; pine is under-called against AVI in the western areas; C-4
+versus C-3 rests on canopy height and cover only; slash rests on Hansen loss minus Alberta burn
+perimeters (losses from unmapped fires, insects or wind count as harvest); the post-fire table is
+a national boreal rule; open wetlands are O-1b by choice. The engine reads the fuel type from the
+CIFFC code but not yet the per-cell percent conifer (§5 follow-up).
+
+### 9.7 Rework 2.1.0: stand objects and a uPLVI-trained stand model (2026-10-11)
+
+**Why.** Against pure stands (≥ 80 % or ≤ 20 % conifer), 2.0.0 rarely called the opposite type
+but put most pure stands into M-2 (reference-layer report, `homog_v2.py` and `edmonton_uplvi.py`).
+Scores below are from those two scripts, unchanged except for paths, run on the 2.1 grids
+(`$FUELGRID_DATA/validation/v2.1/{edmonton_uplvi_pure_stands,homogeneous_stands}_v2.1_*.json`).
+BA = mean of (pure conifer mapped C, pure deciduous mapped D), with M and non-forest counted
+wrong; **opposite** = mean of (pure conifer mapped D, pure deciduous mapped C). Cells, not
+stands. None of these references is field truth; AVI is 1996 in the two western areas.
+
+**Stand model (Edmonton, out of fold by 2 km blocks; uPLVI polygons with ≥ 50 % treed
+components and ≥ 3 cells; 2,008 polygons).** C/M/D κ 0.58 (OA 0.88), percent-conifer MAE 0.09. On
+the all-treed pure polygons (121 conifer, 893 deciduous): classifier BA **0.81** (conifer → C 0.67,
+deciduous → D 0.95, opposite 0.033); regressor with cuts 0.75; a "transfer" model on features
+available everywhere (SCANFI + canopy) 0.78. The classifier with balanced classes was declared as
+the product and the regressor as the comparison before scoring.
+
+**Edmonton pure uPLVI stands (cells; 288 ha conifer, 1,712 ha deciduous).**
+
+| Map | conifer → C / M / D / other | deciduous → C / M / D / other | BA | BA, forest cells | opposite |
+|---|---|---|---:|---:|---:|
+| **v2.1 (uPLVI objects, product)** | 0.65 / 0.10 / 0.10 / 0.15 | 0.01 / 0.02 / 0.75 / 0.22 | **0.70** | **0.87** | 0.054 |
+| v2.1, open objects only (variant) | 0.50 / 0.11 / 0.24 / 0.15 | 0.03 / 0.03 / 0.71 / 0.22 | 0.61 | 0.75 | 0.136 |
+| v2.0 (100 m blocks) | 0.07 / 0.72 / 0.06 / 0.15 | 0.00 / 0.39 / 0.39 / 0.22 | 0.23 | 0.30 | 0.030 |
+| v1 | 0.33 / 0.38 / 0.12 / 0.17 | 0.02 / 0.28 / 0.48 / 0.22 | 0.41 | 0.51 | 0.070 |
+| CFS 2026 | 0.47 / 0.22 / 0.26 / 0.06 | 0.09 / 0.19 / 0.64 / 0.09 | 0.55 | 0.60 | 0.170 |
+| SCANFI v2 2025 (untrained) | 0.18 / 0.63 / 0.15 / 0.04 | 0.01 / 0.23 / 0.69 / 0.07 | 0.44 | 0.47 | 0.077 |
+| Alberta Wildfire 2025 | 0.39 / 0.00 / 0.21 / 0.41 | 0.03 / 0.00 / 0.41 / 0.56 | 0.40 | 0.79 | 0.120 |
+
+"Other" for v1/v2 is the unchanged land-cover gate (non-fuel / O-1b on 15-22 % of pure-stand
+cells). The pure polygons are also training polygons; their predictions are out of fold, but the
+product's objects are the uPLVI polygons themselves, which is why the open-objects variant is shown.
+
+**Northern test areas (AVI pure stands, stable cells).** BA (opposite):
+
+| Map | 2023_689 | 2024_126 | 2024_152 |
+|---|---|---|---|
+| **v2.1 product (SCANFI share per object)** | 0.51 (0.054) | 0.52 (0.038) | 0.45 (0.040) |
+| v2.0 (100 m blocks) | 0.47 | 0.48 | 0.42 |
+| v2.1 transfer model (variant) | 0.67 (0.287) | 0.73 (0.215) | 0.63 (0.247) |
+| v2.1 transfer, C only where SCANFI ≥ 0.5 (variant) | 0.63 (0.160) | 0.68 (0.124) | 0.61 (0.144) |
+| CFS 2026 | 0.51 (0.236) | 0.50 (0.208) | 0.51 (0.175) |
+| CFS 2024 | 0.58 (0.144) | 0.57 (0.112) | 0.54 (0.188) |
+| SCANFI v2 2020, cells (untrained) | 0.55 (0.075) | 0.56 (0.057) | 0.50 (0.055) |
+| Alberta Wildfire 2025 | 0.44 | 0.37 | 0.55 |
+
+Group κ against AVI (v2.1 product): 0.32 / 0.38 / 0.50 (2.0.0: 0.30 / 0.35 / 0.48; CFS 2026 0.17 /
+0.19 / 0.43; CFS 2024 0.23 / 0.28 / 0.44).
+
+**Choice for the north, and how it was made (honestly).** Four variants were built: SCANFI share
+per object, the transfer model, and two guarded transfers. The rule — highest mean BA on the
+western region (2023_689 + 2024_126; 2024_152 held out) with mean opposite-type error ≤ 0.10 — was
+written *after* the SCANFI and transfer results had been seen in all three areas, and the guarded
+variants were added after that; so the selection is not a clean hold-out. The rule selects
+**SCANFI share per object** (the only variant with opposite ≤ 0.10). It beats 2.0.0 and roughly
+ties CFS 2026 on BA in the west (0.51-0.52 against 0.50-0.51) with a quarter of CFS's opposite-type
+error, but it is below CFS 2024 (0.57-0.58), below raw SCANFI cells (0.55-0.56; partly the land-cover
+gate, which leaves 2-9 % of pure-stand cells non-forest) and below CFS 2026 at 2024_152. The
+transfer models are the only maps above 0.6 BA, but they call 36-55 % of pure deciduous stands
+conifer. **Goal not met in the north:** no variant beats CFS 2026 and CFS 2024 on BA while keeping
+v2's low opposite-type error. The transfer variant stays available (`PARAMS_V2["north_mode"]`).
+
+**Where the M sink came from (measured).** In Edmonton it was the block averaging plus the LiDAR-
+label re-map (the labels put 60 % of 100 m blocks in M); with uPLVI labels and polygon objects
+it is gone. In the north, SCANFI itself puts 46-56 % of pure AVI deciduous cells in its 25-75 %
+band; objects cannot remove a bias that is in the input.
+
+**Engine check and reproducibility (2.1).** See `validation/v2.1/firesim_check_v2.json`; the build
+(Edmonton stand model, 3 test areas) takes 35 s and 3.5 GB RSS.
+
 ## References
 
 - BCWS (2017). *BC Wildfire Service Fuel Type Layer: Overview and Limitations*.
 - Bennett, Da Silva & Boisvert (2024): average predictions, not inputs (mechanics decision M5).
 - Forbes & Beverly (2024): exposure varies with the fuel map used.
 - Forestry Canada (1992). ST-X-3; Wotton, Alexander & Taylor (2009). GLC-X-10.
+- Hansen et al. (2013). Science 342:850 (Global Forest Change; v1.12 used).
+- LaCarte et al. (2026). *FBP Forest Fuel Type Mapping: Overview of the Methodology, Data Sources, and Uses & Limitations*. NRCan, Cat. Fo4-268/2026E-PDF.
+- Perrakis, D.D.B. & Eade, G. (2015). *British Columbia Wildfire Fuel Typing and Fuel Type Layer Description, 2015 Version*. BC Wildfire Service.
+- Swystun, T., Taylor, S. & Simpson, B. (2018). *FBP Fuel Layer Decision Rules* (CanFG; Swystun et al. 2019).
+- Reference-layer report (2026-10-10): *Alberta reference fuel layers and accuracy plan*, `~/dev/wildfire/reports/` (pure-stand scorers `homog_v2.py`, `edmonton_uplvi.py`; AVI, uPLVI and provincial-grid licences).
+- City of Edmonton (2025). *Urban Primary Land and Vegetation Inventory (uPLVI)*, effective 2025-06-16, data.edmonton.ca `gm9t-5epd`, Open Government Licence – Edmonton.
+- Conifer-mapping report (2026-10-10): *Conifer vs deciduous mapping: literature and experiments*, `~/dev/wildfire/reports/` (split-half label ceiling, stand-level typing).
 - Guindon et al. (2026). SCANFI v2. doi:10.23687/07653869-f303-46c2-a04e-9ab479b73cbf.
 - Lang et al. (2023). Nature Ecology & Evolution 7:1778 (ETH 10 m canopy height; not used).
 - NRC (2021). *National Guide for Wildland-Urban Interface Fires*.
