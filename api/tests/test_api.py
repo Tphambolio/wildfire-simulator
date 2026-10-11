@@ -398,3 +398,137 @@ async def test_ensemble_fails_when_most_members_fail(client, monkeypatch):
     ens = await _wait_ensemble(client, _d2_payload(5))
     assert ens["status"] == "failed"
     assert "5 of 5 members failed" in ens["error"]
+
+
+async def test_cancel_ensemble_stops_it_between_members(client, monkeypatch):
+    """DELETE /ensemble (the app starts a new run): the ensemble stops before its next
+    member and reports "cancelled", instead of using the CPU of a 1-vCPU server."""
+    if not _EDMONTON_FUEL.exists():
+        pytest.skip("Edmonton fuel grid not present")
+    import threading
+
+    from firesim.spread import ensemble as ens_mod
+
+    real = ens_mod._run_member
+    started, release = threading.Event(), threading.Event()
+
+    def slow(*args, **kwargs):
+        started.set()
+        release.wait(30)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ens_mod, "_run_member", slow)
+    sim_id = (await client.post("/api/v1/simulations", json=_d2_payload(6))).json()["simulation_id"]
+    for _ in range(240):
+        if started.is_set():
+            break
+        time.sleep(0.25)
+    assert started.is_set(), "ensemble did not start"
+    resp = await client.delete(f"/api/v1/simulations/{sim_id}/ensemble")
+    assert resp.status_code == 200 and resp.json()["cancel_requested"] is True
+    release.set()
+    for _ in range(120):
+        ens = (await client.get(f"/api/v1/simulations/{sim_id}/ensemble")).json()
+        if ens["status"] != "running":
+            break
+        time.sleep(0.25)
+    assert ens["status"] == "cancelled", ens
+    assert ens["done"] <= 1
+
+
+async def test_cancel_ensemble_404_without_one(client):
+    payload = {"ignition_lat": 53.5, "ignition_lng": -113.5,
+               "weather": {"wind_speed": 10.0, "wind_direction": 270.0}, "duration_hours": 0.5}
+    sim_id = (await client.post("/api/v1/simulations", json=payload)).json()["simulation_id"]
+    assert (await client.delete(f"/api/v1/simulations/{sim_id}/ensemble")).status_code == 404
+    assert (await client.delete("/api/v1/simulations/nope/ensemble")).status_code == 404
+
+
+async def _run_multiday_grid(client, cells_mode: str) -> dict:
+    if not _EDMONTON_FUEL.exists():
+        pytest.skip("Edmonton fuel grid not present")
+    day = {"wind_speed": 25.0, "wind_direction": 270.0, "temperature": 25.0,
+           "relative_humidity": 30.0, "precipitation_24h": 0.0}
+    payload = {
+        "ignition_lat": 53.6778, "ignition_lng": -113.3631, "days": [day, day],
+        "fwi_overrides": {"ffmc": 90.0, "dmc": 40.0, "dc": 300.0}, "month": 7,
+        "snapshot_interval_minutes": 120.0, "fuel_grid_path": str(_EDMONTON_FUEL),
+        "fuel_modifiers": {"grass_cure": 60.0}, "start_time": "2026-07-15T11:00:00-06:00",
+        "burning_period": {"start_hour": 10, "end_hour": 20}, "cells_mode": cells_mode,
+    }
+    sim_id = (await client.post("/api/v1/simulations/multiday", json=payload)).json()["simulation_id"]
+    for _ in range(480):
+        data = (await client.get(f"/api/v1/simulations/{sim_id}")).json()
+        if data["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.5)
+    assert data["status"] == "completed", data.get("error")
+    return data
+
+
+async def test_multiday_incremental_frames_rebuild_cumulative(client):
+    """Multi-day incremental frames rebuild exactly the cumulative ones; a frame whose cells
+    do not extend the previous frame's (the day boundary) is sent whole."""
+    import json
+
+    full = await _run_multiday_grid(client, "cumulative")
+    inc = await _run_multiday_grid(client, "incremental")
+    assert len(full["frames"]) == len(inc["frames"]) == 25  # t = 0 and every 2 h to 48 h
+    cells: list[dict] = []
+    for f_full, f_inc in zip(full["frames"], inc["frames"]):
+        assert f_inc["cells_offset"] in (0, len(cells))
+        cells = cells[: f_inc["cells_offset"]] + (f_inc["burned_cells"] or [])
+        assert cells == (f_full["burned_cells"] or [])
+        assert f_full["cells_offset"] == 0
+    assert full["frames"][-1]["area_ha"] > 50
+    assert len(json.dumps(inc)) < 0.5 * len(json.dumps(full))
+
+
+async def test_get_never_reports_completed_with_frames_missing(client):
+    """Race found in CI (2026-10-11): GET read the frames, the run then added its last frames
+    and set COMPLETED, and the response said "completed" with frames missing. The status is
+    now read first; here the run finishes exactly between the two reads."""
+    from firesim.types import FireType, SimulationFrame
+    from firesim_api.routers import simulations as sims
+    from firesim_api.schemas.simulation import SimulationStatus
+    from firesim_api.services.runner import SimulationRun
+
+    def frame(t):
+        return SimulationFrame(time_hours=t, perimeter=[(53.5, -113.5)] * 3, area_ha=t,
+                               head_ros_m_min=1.0, max_hfi_kw_m=1.0, fire_type=FireType.SURFACE,
+                               flame_length_m=1.0, fuel_breakdown={})
+
+    run = SimulationRun("race1", None)
+    run.status = SimulationStatus.RUNNING
+    run.add_frame(frame(0.0))
+    real = run.get_frames
+
+    def get_frames_then_finish():
+        snapshot = real()
+        run.add_frame(frame(1.0))  # the run thread finishes right after the snapshot
+        run.status = SimulationStatus.COMPLETED
+        run.get_frames = real
+        return snapshot
+
+    run.get_frames = get_frames_then_finish
+    sims.runner._runs["race1"] = run
+    try:
+        data = (await client.get("/api/v1/simulations/race1")).json()
+        assert data["status"] == "running" and len(data["frames"]) == 1
+        data = (await client.get("/api/v1/simulations/race1")).json()
+        assert data["status"] == "completed" and len(data["frames"]) == 2
+    finally:
+        sims.runner._runs.pop("race1", None)
+
+
+def test_cancel_before_the_ensemble_starts_skips_it():
+    """Cancelled while the deterministic run is still computing: the ensemble never starts."""
+    from firesim_api.schemas.simulation import SimulationCreate
+    from firesim_api.services.runner import SimulationRun, SimulationRunner
+
+    params = SimulationCreate(**_d2_payload(5))
+    run = SimulationRun("x", params)
+    run.cancel_ensemble()
+    assert run.ensemble_status == "cancelled"
+    SimulationRunner._run_ensemble(run, None, None, None, None, params.ensemble)
+    assert run.ensemble_status == "cancelled" and run.ensemble is None

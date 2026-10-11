@@ -15,7 +15,7 @@ import EvacStatusPanel from "./components/EvacStatusPanel";
 import { FUEL_TYPES } from "./types/simulation";
 import { useSimulation } from "./hooks/useSimulation";
 import { useScenarios } from "./hooks/useScenarios";
-import { computeBurnProbability, fetchFuelGridImage } from "./services/api";
+import { cancelEnsemble, computeBurnProbability, fetchFuelGridImage } from "./services/api";
 import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { useRecon } from "./hooks/useRecon";
 import { clockAt, formatClock, zoneAbbrev } from "./utils/time";
@@ -388,6 +388,7 @@ export default function App() {
     startSimulation,
     startMultiDaySimulation,
     startPerimeterOverride,
+    prepareRun,
     setFrameIndex,
     pauseSimulation,
     resumeSimulation,
@@ -405,6 +406,22 @@ export default function App() {
 
   // Ensemble size requested with the current run (null = none: multi-day, perimeter restart)
   const [ensembleMembers, setEnsembleMembers] = useState<number | null>(null);
+  // The run whose ensemble the server may still be computing (pending or running), if any
+  const activeEnsembleIdRef = useRef<string | null>(null);
+
+  /**
+   * Leave the current run before any new one (single, multi-day, perimeter restart) or
+   * "Clear results": stop polling its ensemble and ask the server to stop computing it, so
+   * the next run neither shows the old range of outcomes nor competes with it for the CPU.
+   * Frames, structure layers, arrivals and the timeline all derive from useSimulation's
+   * frames, which the run start resets.
+   */
+  const leaveCurrentRun = useCallback(() => {
+    const old = activeEnsembleIdRef.current;
+    activeEnsembleIdRef.current = null;
+    if (old) cancelEnsemble(old);
+    setEnsembleMembers(null);
+  }, []);
 
   // Spread-skill options: Setup's current settings (reused by the perimeter restart), and the
   // burning period of the current run (timeline shading, Situation note)
@@ -419,24 +436,35 @@ export default function App() {
   const handlePerimeterOverride = useCallback(
     (req: PerimeterOverrideRequest) => {
       const at = req.start_time ? Date.parse(req.start_time) : NaN;
+      leaveCurrentRun();
       setScenarioStart(new Date(Number.isFinite(at) ? at : Date.now()));
-      setEnsembleMembers(null);
       setRunBurningPeriod(req.burning_period ?? null);
+      setLastRunSpinUp(false);
       cancelReconDrawing();
       startPerimeterOverride(req);
     },
-    [startPerimeterOverride, cancelReconDrawing]
+    [startPerimeterOverride, cancelReconDrawing, leaveCurrentRun]
   );
 
   const handleStartMultiDay = useCallback(
     (req: Parameters<typeof startMultiDaySimulation>[0], startMs: number) => {
+      leaveCurrentRun();
       setScenarioStart(new Date(startMs));
-      setEnsembleMembers(null);
       setRunBurningPeriod(req.burning_period ?? null);
       setLastRunSpinUp(false);
       startMultiDaySimulation(req);
     },
-    [startMultiDaySimulation]
+    [startMultiDaySimulation, leaveCurrentRun]
+  );
+
+  // Run pressed but the request is still being prepared (hourly forecast fetch): leave the
+  // previous run now rather than after the fetch
+  const handleRunRequested = useCallback(
+    (durationHours: number) => {
+      leaveCurrentRun();
+      prepareRun(durationHours);
+    },
+    [leaveCurrentRun, prepareRun]
   );
 
   // After the first completed run: fit the map to the fire; later runs keep the user's view
@@ -472,6 +500,11 @@ export default function App() {
 
   // ── Ensemble (range of outcomes): polled after the single run, the headline once in ──
   const ensemble = useEnsemble(simulationId, ensembleMembers, status);
+  // Remember which run's ensemble may still be computing on the server (leaveCurrentRun)
+  useEffect(() => {
+    activeEnsembleIdRef.current =
+      simulationId && (ensemble.phase === "waiting" || ensemble.phase === "running") ? simulationId : null;
+  }, [simulationId, ensemble.phase]);
   const ensGrids = ensemble.grids;
   const [ensToggles, setEnsToggles] = useState<EnsembleToggles>({ lines: true, p50: true, p90: false, prob: false });
   const handleEnsToggle = useCallback(
@@ -686,6 +719,7 @@ export default function App() {
     (params: SimulationCreate) => {
       lastStartRef.current = params;
       setDismissedError(null);
+      leaveCurrentRun();
       const start = params.start_time ? Date.parse(params.start_time) : NaN;
       setScenarioStart(new Date(Number.isFinite(start) ? start : Date.now()));
       setEnsembleMembers(params.ensemble?.n_members ?? null);
@@ -693,7 +727,7 @@ export default function App() {
       setLastRunSpinUp(!!params.ffmc_spin_up);
       startSimulation(params);
     },
-    [startSimulation]
+    [startSimulation, leaveCurrentRun]
   );
 
 
@@ -794,6 +828,7 @@ export default function App() {
             runBarTarget={runBarEl}
             onSkillOptions={setSkillOptions}
             onNewIgnition={!isRunning && frames.length > 0 ? armNewIgnition : undefined}
+            onRunRequested={handleRunRequested}
           />
           <div className="setup-more-label">More</div>
           <SetupSection
@@ -1033,8 +1068,8 @@ export default function App() {
                   className="btn-secondary btn-inline"
                   tip={TIPS.clearResults}
                   onClick={() => {
+                    leaveCurrentRun();
                     clearResults();
-                    setEnsembleMembers(null);
                     setRunBurningPeriod(null);
                   }}
                 >

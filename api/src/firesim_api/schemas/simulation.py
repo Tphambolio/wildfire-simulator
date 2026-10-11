@@ -247,7 +247,7 @@ class SimulationCreate(BaseModel):
         description=(
             "Grid runs: 'cumulative' sends every burned cell so far in each frame; 'incremental' "
             "sends only the cells burned since the previous frame (frame.cells_offset says how "
-            "many earlier cells were left out). Multi-day runs are always cumulative."
+            "many earlier cells were left out). Multi-day runs have their own cells_mode."
         ),
     )
     fuel_type: str = Field(default="C2", description="Default fuel type code")
@@ -541,6 +541,14 @@ class MultiDaySimulationCreate(BaseModel):
         default=None,
         description=BURNING_PERIOD_DOC + " Applied every day. (No FFMC spin-up for multi-day "
         "runs: they have daily weather only.)",
+    )
+    cells_mode: Literal["cumulative", "incremental"] = Field(
+        default="cumulative",
+        description=(
+            "Grid runs: 'incremental' sends only the cells burned since the previous frame "
+            "(frame.cells_offset), as for single runs. A frame whose cells do not extend the "
+            "previous frame's (e.g. at a day boundary) is sent whole (cells_offset 0)."
+        ),
     )
 
     @field_validator("start_time")

@@ -59,6 +59,16 @@ export async function getEnsemble(simId: string, signal?: AbortSignal): Promise<
   return resp.json();
 }
 
+/**
+ * Ask the API to stop a run's ensemble (DELETE /simulations/{id}/ensemble): called when a new
+ * run starts or the results are cleared while the old run's ensemble is still pending or
+ * running, so it does not keep the server's CPU from the new run. Best effort: errors are
+ * ignored (the run may be gone after a server restart).
+ */
+export function cancelEnsemble(simId: string): void {
+  void fetch(`${API_BASE}/api/v1/simulations/${simId}/ensemble`, { method: "DELETE", keepalive: true }).catch(() => {});
+}
+
 export async function getSimulation(
   simId: string
 ): Promise<SimulationResponse> {

@@ -47,7 +47,7 @@ class SimulationRun:
         self.error: str | None = None
         # Ensemble (optional, runs after the deterministic frames)
         self.ensemble = None
-        self.ensemble_status: str | None = None  # running / completed / failed
+        self.ensemble_status: str | None = None  # running / completed / failed / cancelled
         self.ensemble_progress: tuple[int, int] = (0, 0)
         self.ensemble_error: str | None = None
         self._lock = threading.Lock()
@@ -55,6 +55,8 @@ class SimulationRun:
         self._pause_event = threading.Event()
         self._pause_event.set()  # Initially running (not paused)
         self._cancel_event = threading.Event()
+        # Set by cancel_ensemble(): the client no longer wants this run's ensemble
+        self._ensemble_cancel = threading.Event()
         # Progress for display: phase (RUN_PHASES) and fraction of the spread done (0-1)
         self.phase: str | None = None
         self.progress: float | None = None
@@ -100,6 +102,14 @@ class SimulationRun:
         if self.status == SimulationStatus.PAUSED:
             self.status = SimulationStatus.RUNNING
             self._pause_event.set()
+
+    def cancel_ensemble(self) -> None:
+        """Stop the ensemble (before its next member) or skip it if it has not started.
+        The client calls this when it starts a new run, so an abandoned ensemble does not
+        keep the CPU from the new run (a 1-vCPU server)."""
+        self._ensemble_cancel.set()
+        if self.ensemble_status is None:
+            self.ensemble_status = "cancelled"
 
     def cancel(self) -> None:
         """Cancel the simulation immediately."""
@@ -606,8 +616,11 @@ class SimulationRunner:
     @staticmethod
     def _run_ensemble(run, config, fuel_grid, terrain_grid, spread_modifier_grid, ens) -> None:
         """Run the ensemble for a completed grid run; results on ``run.ensemble``."""
-        from firesim.spread.ensemble import EnsembleConfig, run_ensemble
+        from firesim.spread.ensemble import EnsembleCancelledError, EnsembleConfig, run_ensemble
 
+        if run._ensemble_cancel.is_set():
+            run.ensemble_status = "cancelled"
+            return
         run.ensemble_status = "running"
         run.ensemble_progress = (0, ens.n_members)
         try:
@@ -615,8 +628,12 @@ class SimulationRunner:
                 config, fuel_grid, EnsembleConfig(**ens.model_dump()),
                 terrain_grid=terrain_grid, spread_modifier_grid=spread_modifier_grid,
                 progress=lambda done, total: setattr(run, "ensemble_progress", (done, total)),
+                should_stop=run._ensemble_cancel.is_set,
             )
             run.ensemble_status = "completed"
+        except EnsembleCancelledError as exc:
+            run.ensemble_status = "cancelled"
+            logger.info("Ensemble for %s cancelled by the client (%s)", run.id, exc)
         except Exception as exc:  # noqa: BLE001 - surface any failure to the client
             run.ensemble_status = "failed"
             run.ensemble_error = str(exc)

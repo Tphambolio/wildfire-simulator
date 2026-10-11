@@ -112,6 +112,7 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | GET | `/api/v1/simulations/{id}` | Fetch stored results |
 | WS | `/api/v1/simulations/ws/{id}` | Stream frames real-time (JSON) |
 | GET | `/api/v1/simulations/{id}/arrival` | Arrival-minute raster of a finished grid run |
+| GET / DELETE | `/api/v1/simulations/{id}/ensemble` | Ensemble progress and P10/P50/P90 rasters / stop it (the app does when a new run starts) |
 | GET | `/api/v1/simulations/fuel-grid-image` | Fuel overlay PNG + legend |
 | POST | `/api/v1/simulations/multiday` | Multi-day FWI carry-over |
 | POST | `/api/v1/simulations/perimeter-override` | Mid-incident RPAS perimeter correction |

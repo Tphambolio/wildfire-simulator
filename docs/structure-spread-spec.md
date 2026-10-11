@@ -735,12 +735,12 @@ FireSim's plan:
      writes from published accounts; its sha256 is recorded with the results. Decision rule:
      the bridge is adopted for display only if κ(VB) beats κ(H30), (a) and (e1) with every 95 %
      block-bootstrap interval of the difference excluding zero. Status: see `docs/PROJECT_RECORD.md`
-     §4.4 and the step-3 build report ([R22]).
+     §4.4 and the step-3 build report ([R23]).
    - **Jasper** is a disclosed **non-independent** consistency check (FPI's 20 % threshold is
-     from the same fire). Results are in `docs/PROJECT_RECORD.md` §4.4 ([R22]).
+     from the same fire). Results are in `docs/PROJECT_RECORD.md` §4.4 ([R23]).
    - **Edmonton sensitivity** (`scripts/structure_sensitivity.py --step3`): the [R8] sites and
-     days with the bridge and the roof scenario; results in [R22].
-   - **Results (2026-10-10/11, [R22]):** the decision rule was **not met**. Eaton (independent):
+     days with the bridge and the roof scenario; results in [R23].
+   - **Results (2026-10-10/11, [R23]):** the decision rule was **not met**. Eaton (independent):
      from the documented first-structure areas structure-only Hamada reaches almost none of the
      7,195 destroyed units (H30 κ −0.019, VB −0.021; VB − H30 −0.002, −0.010 to +0.003; VB − (e1)
      −0.019, −0.040 to −0.004). Camp (secondary): VB κ 0.010 vs H30 0.002 (+0.009, +0.004 to

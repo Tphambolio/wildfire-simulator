@@ -33,7 +33,7 @@ export interface EnsembleMember {
 }
 
 export interface EnsembleResponse {
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
   done: number;
   total: number;
   error?: string | null;

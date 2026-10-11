@@ -283,6 +283,8 @@ export interface MultiDaySimulationCreate {
   /** Scenario start (ISO with offset); each day runs 24 h from its clock time */
   start_time?: string | null;
   burning_period?: BurningPeriod | null;
+  /** Grid runs: "incremental" streams only new cells (frame.cells_offset; whole at day starts) */
+  cells_mode?: "cumulative" | "incremental";
 }
 
 export type SimulationStatus = "pending" | "running" | "paused" | "completed" | "cancelled" | "failed";
