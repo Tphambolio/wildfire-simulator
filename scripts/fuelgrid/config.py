@@ -235,9 +235,9 @@ LEAFOFF_DOY = 258
 # ══ Version 2: full FBP decision key + disturbance (scripts/fuelgrid/key2.py) ══════════════
 # Nothing above this line changes for v2, so the v1 grids (v20261010) rebuild bit for bit.
 # v2 outputs carry the product name ``fbp_opendata2`` and go to OUT_DIR / "v2".
-PIPELINE_VERSION_V2 = "2.0.0"
-OUT_DIR_V2 = OUT_DIR / "v2"
-VAL_DIR_V2 = VAL_DIR / "v2"
+PIPELINE_VERSION_V2 = "2.1.0"  # 2.1: stand objects + uPLVI-trained stand model (2.0 used 100 m blocks)
+OUT_DIR_V2 = OUT_DIR / "v2.1"
+VAL_DIR_V2 = VAL_DIR / "v2.1"
 
 # New internal classes (v1 classes 0-9 keep their values)
 C1, C3, C4, C7, S1, S2 = 10, 11, 12, 13, 14, 15
@@ -288,8 +288,16 @@ PARAMS_V2 = {
     # Decision unit: forest is typed on 100 m blocks (5 x 5 cells) of its 20 m extent, the scale at
     # which the labels agree (split-half kappa 0.72 vs 0.33 at 20 m) and provinces map fuels
     # (conifer-mapping report 2026-10-10, §2.1, §4; SCANFI p.26)
-    "unit_cells": 5,
-    "unit_min_crowns": 50,        # units used to fit / score the unit-scale re-map (report §2.2)
+    "unit_cells": 5,              # fallback square unit (2.0 behaviour) when no stand objects are given
+    "object_block_cells": 10,     # stand objects: one-class connected regions cut by 200 m blocks (<= 4 ha) [H]
+    "uplvi_min_treed_share": 0.5, # training polygons: >= 50 % of the polygon in treed components [H]
+    "uplvi_min_cells": 3,         # ... and >= 3 cells (0.12 ha) on the grid
+    # Test areas (no local labels): "scanfi" = object mean SCANFI share; "transfer" = Edmonton-uPLVI stand
+    # model on SCANFI + canopy features; "transfer_guard_c" = transfer, but C only where the object's SCANFI
+    # share >= 0.5 (else M); "transfer_guard_both" = also D only where SCANFI share <= 0.5. Chosen on the
+    # western region (fires 2023_689, 2024_126) with 2024_152 held out; rule fixed before scoring: highest
+    # mean balanced accuracy with mean opposite-type error <= 0.10 (docs §9.7).
+    "north_mode": "scanfi",
     "conifer_c": 0.75,            # CFS 2018 p.1 / CFS 2026 §2.3: > 75 % needleleaf = coniferous
     "conifer_d": 0.25,            # <= 25 % conifer = D-2, kept (not low-PC M-2) [H], docs §4b
     "pine_share": 0.25,           # CFS 2026 rules 4.e / 4.f (> 25 % jack or lodgepole pine)

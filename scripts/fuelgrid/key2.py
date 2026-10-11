@@ -111,7 +111,8 @@ class KeyInputsV2:
     alt_treed: np.ndarray | None = None
     alt_closure: np.ndarray | None = None
     alt_height: np.ndarray | None = None
-    # Optional unit conifer fraction (per cell, constant within a unit), re-mapped at unit scale
+    # Optional stand objects (int ids, 0 = none) and unit conifer fraction (per cell, constant per unit)
+    units: np.ndarray | None = None
     unit_conifer: np.ndarray | None = None
 
 
@@ -161,11 +162,11 @@ def decision_key_v2(x: KeyInputsV2, p: dict = P2, p1: dict = C.PARAMS
     cover2 = x.cover2 if x.alt_closure is None else np.where(alt, x.alt_closure, x.cover2)
     closure = x.closure if x.alt_closure is None else np.where(alt, x.alt_closure, x.closure)
 
-    # 2 type at the decision unit (stand-level typing): every evidence layer is averaged over the
-    # forest cells of each unit (100 m block by default) and the forest key is applied to the
-    # means; the 20 m fuel extent is kept. The unit conifer fraction may be supplied already
-    # re-mapped at unit scale (Edmonton / St. Albert) via x.unit_conifer.
-    ids = unit_ids(cls.shape, int(p["unit_cells"]))
+    # 2 type per stand object (decision unit): every evidence layer is averaged over the forest
+    # cells of each unit and the forest key is applied to the means; the 20 m fuel extent is kept.
+    # Units are x.units (stand objects: uPLVI polygons / open-data segments) or, if absent, square
+    # blocks of unit_cells. The unit conifer fraction may be supplied (stand model) via x.unit_conifer.
+    ids = x.units if x.units is not None else unit_ids(cls.shape, int(p["unit_cells"]))
     um = lambda a: unit_mean(a, typed, ids)  # noqa: E731
     ucf = um(cf) if x.unit_conifer is None else x.unit_conifer
     usp = Species(pine=um(x.species.pine), black_spruce=um(x.species.black_spruce),

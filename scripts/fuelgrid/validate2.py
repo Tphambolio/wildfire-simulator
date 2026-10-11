@@ -19,7 +19,7 @@ try:
     from . import config as C
     from . import key2 as K
     from . import rules as R
-    from .build2 import FOREST_RULES, V1_WORK, WORK2, edmonton_unit_data, file_stem, remap_units
+    from .build2 import V1_WORK, WORK2, file_stem
     from .grid import read_tif
     from .sources import aoi_grid
     from .sources2 import burn_years, regions, test_area_grid
@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover
     import config as C  # type: ignore[no-redef]
     import key2 as K  # type: ignore[no-redef]
     import rules as R  # type: ignore[no-redef]
-    from build2 import FOREST_RULES, V1_WORK, WORK2, edmonton_unit_data, file_stem, remap_units  # type: ignore[no-redef]
+    from build2 import V1_WORK, WORK2, file_stem  # type: ignore[no-redef]
     from grid import read_tif  # type: ignore[no-redef]
     from sources import aoi_grid  # type: ignore[no-redef]
     from sources2 import burn_years, regions, test_area_grid  # type: ignore[no-redef]
@@ -132,49 +132,6 @@ def capital_vs_cfs(key: str) -> dict:
     valid = v2["cls"] != C.NODATA
     return {"fine": compare(cfs, ours, FINE, valid), "groups": compare(to_group(cfs), to_group(ours), GROUPS, valid),
             "areas_ours_ha": areas(ours, FINE, valid), "areas_cfs2026_ha": areas(cfs, FINE, valid)}
-
-
-# Label ceiling (split-half agreement of the City crown labels), measured in the conifer-mapping
-# report 2026-10-10 §2.1 (~/dev/wildfire/reports/Conifer vs deciduous mapping ... 2026-10-10.md)
-LABEL_CEILING = {"20 m": 0.33, "100 m": 0.72}
-
-
-def _cmd(v: np.ndarray, p: dict = C.PARAMS_V2) -> np.ndarray:
-    out = np.full(v.shape, "", object)
-    out[v >= p["conifer_c"]] = "C"
-    out[v <= p["conifer_d"]] = "D"
-    out[(v > p["conifer_d"]) & (v < p["conifer_c"])] = "M"
-    out[~np.isfinite(v)] = ""
-    return out
-
-
-def edmonton_unit_scores() -> dict:
-    """C/M/D agreement of the conifer fraction at 20 m and at the decision unit (all out-of-fold),
-    against the City LiDAR crown labels (a classifier's output, not field truth)."""
-    grid = aoi_grid("edmonton")
-    v2 = np.load(WORK2 / "edmonton.npz")
-    typed = np.isin(v2["rule"], FOREST_RULES)
-    out = {"label_ceiling_split_half_kappa": LABEL_CEILING, "forest_cells_ha": round(float(typed.sum() * HA), 1)}
-    var = np.load(V1_WORK / "edmonton_conifer_variants.npz")
-    cell = typed & var["train"]
-    out["cell_20m"] = {"all_folds": compare(_cmd(var["label"][cell]), _cmd(var["oof"][cell]), ["C", "M", "D"]),
-                       "mae": round(float(np.abs(var["label"][cell] - var["oof"][cell]).mean()), 3)}
-    for cells in (5, 10):
-        u = edmonton_unit_data(grid, typed, cells)
-        mapped, table = remap_units(u)
-        ok = (u["crowns"] >= C.PARAMS_V2["unit_min_crowns"]) & np.isfinite(u["label"]) & np.isfinite(mapped)
-        res = {"units": int(ok.sum()), "train_units_full_table": table["n_train_units"],
-               "remapped": compare(_cmd(u["label"][ok]), _cmd(mapped[ok]), ["C", "M", "D"]),
-               "unit_mean_not_remapped": compare(_cmd(u["label"][ok]), _cmd(u["pred"][ok]), ["C", "M", "D"]),
-               "pc_mae": round(float(np.abs(u["label"][ok] - mapped[ok]).mean()), 3),
-               "per_fold_kappa": []}
-        for k in range(C.PARAMS["n_folds"]):
-            f = ok & (u["fold"] == k)
-            res["per_fold_kappa"].append(compare(_cmd(u["label"][f]), _cmd(mapped[f]), ["C", "M", "D"])["kappa"])
-        lab = _cmd(u["label"][ok])
-        res["label_share_of_unit_area_pct"] = {c: round(100 * float((lab == c).mean()), 1) for c in "CMD"}
-        out[f"unit_{cells * 20}m"] = res
-    return out
 
 
 # ── northern test areas ──────────────────────────────────────────────────────
@@ -358,7 +315,8 @@ def firesim_check_v2() -> dict:
 
 def validate_all_v2() -> dict:
     out = {"capital": {k: {"change_from_v1": capital_change(k), "vs_cfs_2026": capital_vs_cfs(k)} for k in C.AOIS},
-           "edmonton_unit_scores": edmonton_unit_scores(),
+           "edmonton_stand_model_oof": json.loads((C.VAL_DIR_V2 / "build_summary.json").read_text())
+           ["edmonton_stand_model_oof"],
            "test_areas": {k: test_area(k) for k in C.TEST_AREAS}}
     C.VAL_DIR_V2.mkdir(parents=True, exist_ok=True)
     (C.VAL_DIR_V2 / "validation_v2.json").write_text(json.dumps(out, indent=2, default=str))

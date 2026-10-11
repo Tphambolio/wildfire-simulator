@@ -25,6 +25,7 @@ try:
     from . import config as C
     from . import key2 as K
     from . import rules as R
+    from . import stands as S
     from .grid import Grid, band_names, read_tif, write_tif
     from .sources import aoi_grid, aoi_mask
     from .sources2 import PROV_V2, Region, burn_years, regions, test_area_grid
@@ -32,6 +33,7 @@ except ImportError:  # pragma: no cover
     import config as C  # type: ignore[no-redef]
     import key2 as K  # type: ignore[no-redef]
     import rules as R  # type: ignore[no-redef]
+    import stands as S  # type: ignore[no-redef]
     from grid import Grid, band_names, read_tif, write_tif  # type: ignore[no-redef]
     from sources import aoi_grid, aoi_mask  # type: ignore[no-redef]
     from sources2 import PROV_V2, Region, burn_years, regions, test_area_grid  # type: ignore[no-redef]
@@ -187,53 +189,61 @@ def write_outputs(key: str, name: str, grid: Grid, cls, rule, pc, stands, cf, uc
 FOREST_RULES = list(range(20, 27)) + list(range(60, 67))
 
 
-def _per_unit(a: np.ndarray, mask: np.ndarray, ids: np.ndarray, n: int, weights=None) -> tuple[np.ndarray, np.ndarray]:
-    """(sum of weights, weighted mean) of `a` over the mask cells of each unit."""
-    w = np.ones(a.shape) if weights is None else weights
-    w = np.where(mask & np.isfinite(a), w, 0.0)
-    sw = np.bincount(ids.ravel(), weights=w.ravel(), minlength=n)
-    sa = np.bincount(ids.ravel(), weights=(np.nan_to_num(a) * w).ravel(), minlength=n)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        return sw, np.where(sw > 0, sa / np.maximum(sw, 1e-12), np.nan)
+def _majority(ids: np.ndarray, values: np.ndarray, n: int, nvals: int) -> np.ndarray:
+    """Most frequent value (0..nvals-1) per id 1..n (row 0 unused)."""
+    m = ids > 0
+    cnt = np.bincount(ids[m].astype(np.int64) * nvals + values[m].astype(np.int64), minlength=(n + 1) * nvals)
+    return cnt.reshape(n + 1, nvals).argmax(1)
 
 
-def edmonton_unit_data(grid: Grid, typed: np.ndarray, cells: int) -> dict:
-    """Unit-scale prediction (mean of the out-of-fold cell conifer fraction), crown-weighted label
-    share, crown count and spatial fold of every decision unit in Edmonton (City labels; local only)."""
+def capital_features(grid: Grid) -> tuple[np.ndarray, list[str]]:
+    """v1 open features plus a canopy-height texture layer (3 x 3 SD of mean tree height)."""
+    from scipy import ndimage as ndi
     try:
-        from . import labels as L
+        from . import model as M
     except ImportError:  # pragma: no cover
-        import labels as L  # type: ignore[no-redef]
-    lab = L.load_labels()
-    var = np.load(V1_WORK / "edmonton_conifer_variants.npz")
-    ids = K.unit_ids(grid.shape, cells)
-    n = int(ids.max()) + 1
-    cnt = np.nan_to_num(lab["cnt"]).astype(np.float64)
-    lf = lab["conifer_frac"]
-    labelled = typed & (cnt > 0) & np.isfinite(lf)
-    _, pred = _per_unit(var["oof"], typed, ids, n)
-    crowns, share = _per_unit(lf, labelled, ids, n, weights=cnt)
-    fold = np.full(n, -1)
-    fold[ids[typed]] = var["folds"][typed]
-    return {"ids": ids, "n": n, "pred": pred, "label": share, "crowns": crowns, "fold": fold}
+        import model as M  # type: ignore[no-redef]
+    F, names = M.features(grid)
+    h = np.nan_to_num(F[names.index("chm_height5")])
+    mu = ndi.uniform_filter(h, 3)
+    sd = np.sqrt(np.maximum(ndi.uniform_filter(h * h, 3) - mu * mu, 0)).astype(np.float32)
+    return np.concatenate([F, sd[None]]), names + ["chm_height5_sd3x3"]
 
 
-def remap_units(u: dict, p: dict = C.PARAMS_V2) -> tuple[np.ndarray, dict]:
-    """Out-of-fold quantile re-map at unit scale: for each spatial fold, the map from unit-mean
-    prediction to unit label share is fitted on the units of the other folds (>= unit_min_crowns
-    crowns) and applied to the fold's units. Returns (re-mapped unit values, full-data table)."""
-    out = np.full(u["n"], np.nan)
-    train = (u["crowns"] >= p["unit_min_crowns"]) & np.isfinite(u["pred"]) & np.isfinite(u["label"])
-    for k in range(C.PARAMS["n_folds"]):
-        tr = train & (u["fold"] != k) & (u["fold"] >= 0)
-        xp, yp = K.quantile_map(u["pred"][tr], u["label"][tr])
-        te = (u["fold"] == k) & np.isfinite(u["pred"])
-        out[te] = np.interp(u["pred"][te], xp, yp)
-    xp, yp = K.quantile_map(u["pred"][train], u["label"][train])
-    return out, {"xp": xp, "yp": yp, "n_train_units": int(train.sum())}
+def stand_objects(typed: np.ndarray, pid: np.ndarray | None, share: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(typing objects on forest cells, feature objects incl. whole uPLVI polygons).
+
+    uPLVI polygons are the objects where they exist (ids = polygon ids); the remaining forest cells
+    are split into one-class objects (``stands.class_objects``) with ids above the largest polygon."""
+    base = np.zeros(typed.shape, np.int32) if pid is None else pid.astype(np.int32)
+    start = int(base.max()) + 1
+    seg = S.class_objects(share, typed & (base == 0), start=start)
+    units = np.where(typed, np.where(base > 0, base, seg), 0).astype(np.int32)
+    feat_ids = np.where(base > 0, base, seg).astype(np.int32)
+    return units, feat_ids
 
 
-def build_capital(key: str, regs: dict, table: dict | None = None) -> tuple[dict, dict | None]:
+def stand_model_oof(X: np.ndarray, pc: np.ndarray, fold: np.ndarray, keep: np.ndarray) -> dict:
+    """Per-fold stand models (trained without the fold) + a full model; out-of-fold predictions for
+    every training polygon, and the regressor-only variant for comparison."""
+    n_folds = C.PARAMS["n_folds"]
+    models, k_oof, pc_oof, reg_only = {}, np.full(len(pc), -1), np.full(len(pc), np.nan), np.full(len(pc), -1)
+    for k in range(n_folds):
+        tr, te = keep & (fold != k), keep & (fold == k)
+        m = S.StandModel(C.PARAMS["seed"] + k).fit(X[tr], pc[tr])
+        models[k] = m
+        if te.any():
+            k_oof[te], pc_oof[te] = m.predict(X[te])
+            reg_only[te] = S.cmd_class(np.clip(m.reg.predict(X[te]), 0, 1))
+    models["full"] = S.StandModel(C.PARAMS["seed"]).fit(X[keep], pc[keep])
+    return {"models": models, "class_oof": k_oof, "pc_oof": pc_oof, "class_oof_regressor_only": reg_only}
+
+
+def build_capital(key: str, regs: dict, bundle: dict | None = None, uplvi_objects: bool = True,
+                  variant: str | None = None) -> tuple[dict, dict]:
+    """v2.1 grid for Edmonton / St. Albert. `uplvi_objects=False` (validation variant) types
+    Edmonton on open-data objects only, so the score does not borrow the label polygons' geometry;
+    a variant is written to VAL_DIR_V2 / "variants" instead of the products."""
     r = regs["capital"]
     grid = aoi_grid(key)
     v1 = np.load(V1_WORK / f"{key}.npz")
@@ -241,27 +251,71 @@ def build_capital(key: str, regs: dict, table: dict | None = None) -> tuple[dict
     x, diag = evidence(r, grid, C.MAP_YEAR_CAPITAL, v1["conifer_frac"], valid, "aci2025.tif")
     _, rule0, _, _ = K.decision_key_v2(x)          # first pass: the 20 m forest extent
     typed = np.isin(rule0, FOREST_RULES)
-    cells = int(C.PARAMS_V2["unit_cells"])
-    ids = K.unit_ids(grid.shape, cells)
+    F, names = capital_features(grid)
+    folds_cell = M_block_folds(grid)
     if key == "edmonton":
-        u = edmonton_unit_data(grid, typed, cells)
-        mapped, table = remap_units(u)
-        how = "unit mean of the out-of-fold cell prediction, re-mapped out-of-fold at unit scale"
+        pid, df = S.uplvi_raster(grid)
+        npoly = len(df)
+        X_poly = S.segment_means(F, pid, npoly)[1:]
+        cells = np.bincount(pid.ravel(), minlength=npoly + 1)[1:]
+        pc = df.pc.to_numpy() / 100.0
+        keep = np.isfinite(pc) & (df.treed_share.to_numpy() >= C.PARAMS_V2["uplvi_min_treed_share"]) \
+            & (cells >= C.PARAMS_V2["uplvi_min_cells"]) & np.isfinite(X_poly).any(1)
+        fold_poly = _majority(pid, folds_cell, npoly, C.PARAMS["n_folds"])[1:]
+        bundle = {**stand_model_oof(X_poly, pc, fold_poly, keep), "pc": pc, "keep": keep, "fold": fold_poly,
+                  "all_treed": df.all_treed.to_numpy(), "cells": cells, "n_train": int(keep.sum())}
+        ti = [names.index(n) for n in S.TRANSFER]
+        bundle["transfer"] = stand_model_oof(X_poly[:, ti], pc, fold_poly, keep)
+        if uplvi_objects:
+            units, feat_ids = stand_objects(typed, pid, v1["conifer_frac"])
+            objects = "uPLVI 2025 polygons + one-class objects (<= 4 ha) elsewhere"
+        else:
+            units, feat_ids = stand_objects(typed, None, v1["conifer_frac"])
+            objects = "one-class objects (<= 4 ha) only (validation variant)"
     else:
-        n = int(ids.max()) + 1
-        _, pred = _per_unit(v1["conifer_frac"], typed, ids, n)
-        mapped = np.interp(pred, table["xp"], table["yp"])
-        how = "unit mean of the cell prediction, re-mapped with the Edmonton unit-scale table"
-    ucf = np.where(typed, mapped[ids], np.nan).astype(np.float32)
-    x.unit_conifer = ucf
-    cls, rule, stands, pc = K.decision_key_v2(x)
-    outs = write_outputs(key, C.AOIS[key].name, grid, cls, rule, pc, stands, x.base.conifer_frac, ucf,
-                         {"conifer_model": "v1 LightGBM conifer fraction (Edmonton out-of-fold); " + how,
-                          "decision_unit": f"{cells * grid.cell:.0f} m blocks", "map_year": C.MAP_YEAR_CAPITAL})
-    return {"files": outs, "diagnostics": diag, "areas_ha": K.class_areas(cls, grid.cell)}, table
+        units, feat_ids = stand_objects(typed, None, v1["conifer_frac"])
+        objects = "one-class objects (<= 4 ha)"
+    n = int(feat_ids.max())
+    Xs = S.segment_means(F, feat_ids, n)
+    seg_fold = _majority(feat_ids, folds_cell, n, C.PARAMS["n_folds"])
+    present = np.unique(units[units > 0])
+    ucf_seg = np.full(n + 1, np.nan, np.float32)
+    okx = np.isfinite(Xs[present]).any(1)
+    present = present[okx]
+    if key == "edmonton":  # out of fold: each object predicted by the model that did not see its block
+        for k in range(C.PARAMS["n_folds"]):
+            sel = present[seg_fold[present] == k]
+            if len(sel):
+                ucf_seg[sel] = bundle["models"][k].predict(Xs[sel])[1]
+        how = "uPLVI-trained stand model, out of fold by 2 km blocks"
+    else:
+        ucf_seg[present] = bundle["models"]["full"].predict(Xs[present])[1]
+        how = "uPLVI-trained stand model (all Edmonton polygons)"
+    ucf = np.where(typed, ucf_seg[units], np.nan).astype(np.float32)
+    x.units, x.unit_conifer = units, ucf
+    cls, rule, stands, pc_out = K.decision_key_v2(x)
+    if variant is not None:
+        vdir = C.VAL_DIR_V2 / "variants"
+        vdir.mkdir(parents=True, exist_ok=True)
+        write_tif(vdir / f"{key}_{variant}_leafon_ciffc.tif", K.encode_ciffc_v2(cls, pc_out), grid, nodata=0,
+                  band_names=["fbp_code"], tags={"content": f"validation variant {variant}; not a product"})
+        return {"areas_ha": K.class_areas(cls, grid.cell)}, bundle
+    outs = write_outputs(key, C.AOIS[key].name, grid, cls, rule, pc_out, stands, x.base.conifer_frac, ucf,
+                         {"conifer_model": how, "decision_unit": objects, "map_year": C.MAP_YEAR_CAPITAL})
+    np.savez_compressed(WORK2 / f"{key}_units.npz", units=units)
+    return {"files": outs, "diagnostics": {**diag, "objects": int(len(np.unique(units[units > 0])))},
+            "areas_ha": K.class_areas(cls, grid.cell)}, bundle
 
 
-def build_test_area(key: str, regs: dict) -> dict:
+def M_block_folds(grid: Grid) -> np.ndarray:
+    try:
+        from . import model as M
+    except ImportError:  # pragma: no cover
+        import model as M  # type: ignore[no-redef]
+    return M.block_folds(grid)
+
+
+def build_test_area(key: str, regs: dict, bundle: dict | None = None) -> dict:
     t = C.TEST_AREAS[key]
     r = regs[t.region]
     grid = test_area_grid(key)
@@ -269,26 +323,75 @@ def build_test_area(key: str, regs: dict) -> dict:
     x, diag = evidence(r, grid, t.year, None, valid, f"aci{t.year - 1}.tif", alt_gate=True)
     if diag["chm_image_years"]["max"] is not None and diag["chm_image_years"]["max"] >= t.year:
         raise RuntimeError(f"{key}: canopy imagery from {diag['chm_image_years']['max']} is not pre-fire")
+    _, rule0, _, _ = K.decision_key_v2(x)
+    typed = np.isin(rule0, FOREST_RULES)
+    units, _ = stand_objects(typed, None, x.base.conifer_frac)
+    x.units = units
+    how = "SCANFI v2 species composition (tamarack as deciduous), object mean"
+    if bundle is not None:  # transfer stand model (SCANFI + canopy features, trained on Edmonton uPLVI)
+        epoch = max(e for e in C.SCANFI_V2_EPOCHS if e < t.year)
+        sc = _scanfi_epoch(r, epoch, grid)
+        v3 = _bands(r, f"scanfi_v3_{min(t.year - 1, 2025)}.tif", grid)
+        chm = read_tif(r.dir / "meta_chm.tif", grid, region=r.grid)
+        Ft = S.transfer_features(sc, v3, chm)
+        n = int(units.max())
+        Xs = S.segment_means(Ft, units, n)
+        present = np.unique(units[units > 0])
+        present = present[np.isfinite(Xs[present]).any(1)]
+        ucf_seg = np.full(n + 1, np.nan, np.float32)
+        ucf_seg[present] = bundle["transfer"]["models"]["full"].predict(Xs[present])[1]
+        mode = C.PARAMS_V2["north_mode"]
+        if mode != "transfer":  # guard the transfer call with the object's own SCANFI share [H]
+            share = S.segment_means(x.base.conifer_frac[None], units, n)[:, 0]
+            k = S.cmd_class(ucf_seg)
+            demote = (k == 2) & (share < 0.5)
+            if mode == "transfer_guard_both":
+                demote |= (k == 0) & (share > 0.5)
+            mpc = np.clip(np.nan_to_num(share), C.PARAMS_V2["conifer_d"] + 0.05, C.PARAMS_V2["conifer_c"] - 0.05)
+            ucf_seg = np.where(demote, mpc, ucf_seg).astype(np.float32)
+        x.unit_conifer = np.where(typed, ucf_seg[units], np.nan).astype(np.float32)
+        how = "transfer stand model (SCANFI + canopy features) trained on Edmonton uPLVI, object mean features"
     cls, rule, stands, pc = K.decision_key_v2(x)
-    typed = np.isin(rule, FOREST_RULES)
-    ucf = np.where(typed, K.unit_mean(x.base.conifer_frac, typed, K.unit_ids(grid.shape, int(C.PARAMS_V2["unit_cells"]))),
-                   np.nan).astype(np.float32)
+    typed2 = np.isin(rule, FOREST_RULES)
+    ucf = x.unit_conifer if x.unit_conifer is not None else K.unit_mean(x.base.conifer_frac, typed, units)
+    ucf = np.where(typed2, ucf, np.nan).astype(np.float32)
     outs = write_outputs(key, f"fire {t.fire_id} test area (pre-fire, map year {t.year})", grid, cls, rule, pc,
                          stands, x.base.conifer_frac, ucf,
-                         {"conifer_model": "SCANFI v2 species composition (tamarack as deciduous)",
-                          "map_year": t.year, "fire_id": t.fire_id})
-    return {"files": outs, "diagnostics": diag, "areas_ha": K.class_areas(cls, grid.cell)}
+                         {"conifer_model": how,
+                          "decision_unit": "one-class objects (<= 4 ha)", "map_year": t.year, "fire_id": t.fire_id})
+    np.savez_compressed(WORK2 / f"{key}_units.npz", units=units)
+    return {"files": outs, "diagnostics": {**diag, "objects": int(len(np.unique(units[units > 0])))},
+            "areas_ha": K.class_areas(cls, grid.cell)}
+
+
+def stand_scores(bundle: dict) -> dict:
+    """Out-of-fold stand scores against uPLVI (all training polygons, and the all-treed pure set)."""
+    keep, pc, k = bundle["keep"], bundle["pc"], bundle["class_oof"]
+    ok = keep & (k >= 0)
+    y = S.cmd_class(pc[ok])
+    cm = np.zeros((3, 3), int)
+    np.add.at(cm, (y, k[ok]), 1)
+    a = R.agreement(cm)
+    pure = ok & bundle["all_treed"]
+    reg = bundle["class_oof_regressor_only"]
+    return {"n_train_polygons": bundle["n_train"],
+            "cmd_all_polygons": {"oa": round(a["oa"], 3), "kappa": round(a["kappa"], 3),
+                                 "confusion_rows_true_D_M_C": cm.tolist()},
+            "pure_all_treed_classifier": S.balanced_accuracy(pc[pure], k[pure]),
+            "pure_all_treed_regressor_only": S.balanced_accuracy(pc[pure], reg[pure]),
+            "pc_mae_oof": round(float(np.nanmean(np.abs(bundle["pc_oof"][ok] - pc[ok]))), 3)}
 
 
 def build_all_v2() -> dict:
     regs = regions()
     summary = {}
-    table = None
-    for k in ("edmonton", "st_albert"):  # Edmonton first: its unit-scale table maps St. Albert
-        summary[k], t = build_capital(k, regs, table)
-        table = table or t
+    bundle = None
+    for k in ("edmonton", "st_albert"):  # Edmonton first: its stand model maps St. Albert
+        summary[k], bundle = build_capital(k, regs, bundle)
+    summary["edmonton_stand_model_oof"] = stand_scores(bundle)
+    summary["edmonton_transfer_model_oof"] = stand_scores({**bundle, **bundle["transfer"]})
     for k in C.TEST_AREAS:
-        summary[k] = build_test_area(k, regs)
+        summary[k] = build_test_area(k, regs, None if C.PARAMS_V2["north_mode"] == "scanfi" else bundle)
         log.info("%s: %s", k, summary[k]["areas_ha"])
     C.VAL_DIR_V2.mkdir(parents=True, exist_ok=True)
     (C.VAL_DIR_V2 / "build_summary.json").write_text(json.dumps(summary, indent=2, default=str))
