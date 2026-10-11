@@ -15,7 +15,7 @@ import EvacStatusPanel from "./components/EvacStatusPanel";
 import { FUEL_TYPES } from "./types/simulation";
 import { useSimulation } from "./hooks/useSimulation";
 import { useScenarios } from "./hooks/useScenarios";
-import { cancelEnsemble, computeBurnProbability, fetchFuelGridImage } from "./services/api";
+import { cancelEnsemble, computeBurnProbability, fetchAreaLayer, fetchFuelGridImage } from "./services/api";
 import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { useRecon } from "./hooks/useRecon";
 import { clockAt, formatClock, zoneAbbrev } from "./utils/time";
@@ -68,9 +68,13 @@ import {
   type EnsembleMapLayers,
 } from "./utils/ensemble";
 import {
+  ALBERTA_ATTRIBUTION,
+  ALBERTA_MAP_ATTRIBUTION,
   CATEGORY_ORDER,
   EDMONTON_ATTRIBUTION,
   EDMONTON_MAP_ATTRIBUTION,
+  areaBox,
+  outsideEdmonton,
   assetReach,
   assetRows,
   assetsFromGeoJSON,
@@ -269,6 +273,10 @@ export default function App() {
   const [edmontonAssets, setEdmontonAssets] = useState<GeoJSON.FeatureCollection | null>(null);
   const [edmontonRoads, setEdmontonRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [edmontonNote, setEdmontonNote] = useState("Loading with the Edmonton fuel grid…");
+  // Alberta layers for the area around the ignition outside Edmonton (served by the API)
+  const [albertaAssets, setAlbertaAssets] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [albertaRoads, setAlbertaRoads] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [albertaNote, setAlbertaNote] = useState<string | null>(null);
   const [userLayers, setUserLayers] = useState<UserLayer[]>([]);
   const [assetsVisible, setAssetsVisible] = useState(true);
   const [roadsReachedVisible, setRoadsReachedVisible] = useState(true);
@@ -385,6 +393,39 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  // Alberta assets and major roads around an ignition outside the Edmonton layers' box,
+  // fetched by area (snapped box, so nearby ignitions reuse the request)
+  const areaKey = useMemo(() => {
+    if (!ignitionPoint) return null;
+    const box = areaBox(ignitionPoint.lat, ignitionPoint.lng);
+    return box ? JSON.stringify(box) : null;
+  }, [ignitionPoint]);
+  useEffect(() => {
+    if (!areaKey) {
+      setAlbertaAssets(null);
+      setAlbertaRoads(null);
+      setAlbertaNote(null);
+      return;
+    }
+    const box = JSON.parse(areaKey) as { south: number; west: number; north: number; east: number };
+    const ctl = new AbortController();
+    setAlbertaNote("Loading Alberta assets for this area…");
+    Promise.all([fetchAreaLayer("assets", box, ctl.signal), fetchAreaLayer("roads", box, ctl.signal)])
+      .then(([a, r]) => {
+        const ok = a.metadata?.available !== false;
+        setAlbertaAssets(ok ? outsideEdmonton(a) : null);
+        setAlbertaRoads(r.metadata?.available !== false ? outsideEdmonton(r) : null);
+        setAlbertaNote(ok ? null : "Alberta asset layer not installed on this server: Edmonton only.");
+      })
+      .catch((e: unknown) => {
+        if ((e as { name?: string })?.name === "AbortError") return;
+        setAlbertaAssets(null);
+        setAlbertaRoads(null);
+        setAlbertaNote("Alberta asset layers could not be loaded for this area.");
+      });
+    return () => ctl.abort();
+  }, [areaKey]);
 
   const {
     status,
@@ -623,17 +664,21 @@ export default function App() {
   const assets = useMemo<Asset[]>(
     () => [
       ...assetsFromGeoJSON(edmontonAssets, { idPrefix: "edm:" }),
+      ...assetsFromGeoJSON(albertaAssets, { idPrefix: "ab:" }),
       ...userLayers.flatMap((l) => assetsFromGeoJSON(l.data, { idPrefix: `${l.id}:`, category: "custom", source: l.name })),
     ],
-    [edmontonAssets, userLayers],
+    [edmontonAssets, albertaAssets, userLayers],
   );
   const roads = useMemo<GeoJSON.FeatureCollection | null>(() => {
     const lines = userLayers.flatMap((l) =>
       l.data.features.filter((f) => f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString"),
     );
-    if (!edmontonRoads && lines.length === 0) return null;
-    return { type: "FeatureCollection", features: [...(edmontonRoads?.features ?? []), ...lines] };
-  }, [edmontonRoads, userLayers]);
+    if (!edmontonRoads && !albertaRoads && lines.length === 0) return null;
+    return {
+      type: "FeatureCollection",
+      features: [...(edmontonRoads?.features ?? []), ...(albertaRoads?.features ?? []), ...lines],
+    };
+  }, [edmontonRoads, albertaRoads, userLayers]);
   const singleFire = useMemo(() => fireFromFrames(frames), [frames]);
   const worstFire = useMemo(() => (ensGrids ? fireFromEnsemble(ensGrids, "p10") : null), [ensGrids]);
   const singleAssetReach = useMemo(() => assetReach(singleFire, assets), [singleFire, assets]);
@@ -667,10 +712,14 @@ export default function App() {
   const assetSources = useMemo(() => {
     const out: string[] = [];
     if (edmontonAssets) out.push(EDMONTON_ATTRIBUTION);
+    if (albertaAssets?.features.length || albertaRoads?.features.length) out.push(ALBERTA_ATTRIBUTION);
     for (const l of userLayers) out.push(`Your layer: ${l.name}`);
     return out;
-  }, [edmontonAssets, userLayers]);
-  const assetAttribution = edmontonAssets ? EDMONTON_MAP_ATTRIBUTION : null;
+  }, [edmontonAssets, albertaAssets, albertaRoads, userLayers]);
+  const assetAttribution =
+    [edmontonAssets ? EDMONTON_MAP_ATTRIBUTION : null, albertaAssets?.features.length ? ALBERTA_MAP_ATTRIBUTION : null]
+      .filter(Boolean)
+      .join(" · ") || null;
   const toggleCategory = useCallback((c: AssetCategory) => {
     setShownCategories((prev) => {
       const next = new Set(prev);
@@ -1138,7 +1187,8 @@ export default function App() {
             roadsVisible={roadsReachedVisible}
             onRoadsVisible={setRoadsReachedVisible}
             sources={assetSources}
-            loadNote={edmontonNote}
+            loadNote={albertaNote ?? edmontonNote}
+            albertaArea={!!albertaAssets}
           />
           <EOCSummary
             frames={frames}
