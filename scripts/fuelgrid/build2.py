@@ -28,7 +28,7 @@ try:
     from . import stands as S
     from .grid import Grid, band_names, read_tif, write_tif
     from .sources import aoi_grid, aoi_mask
-    from .sources2 import PROV_V2, Region, burn_years, regions, test_area_grid
+    from .sources2 import PROV_V2, Region, burn_years, record_v2, regions, test_area_grid
 except ImportError:  # pragma: no cover
     import config as C  # type: ignore[no-redef]
     import key2 as K  # type: ignore[no-redef]
@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover
     import stands as S  # type: ignore[no-redef]
     from grid import Grid, band_names, read_tif, write_tif  # type: ignore[no-redef]
     from sources import aoi_grid, aoi_mask  # type: ignore[no-redef]
-    from sources2 import PROV_V2, Region, burn_years, regions, test_area_grid  # type: ignore[no-redef]
+    from sources2 import PROV_V2, Region, burn_years, record_v2, regions, test_area_grid  # type: ignore[no-redef]
 
 log = logging.getLogger("fuelgrid.build2")
 VERSION_DATE = date.today().strftime("%Y%m%d")
@@ -255,6 +255,7 @@ def build_capital(key: str, regs: dict, bundle: dict | None = None, uplvi_object
     folds_cell = M_block_folds(grid)
     if key == "edmonton":
         pid, df = S.uplvi_raster(grid)
+        record_v2("uplvi_2025", {**C.SOURCES_V2["uplvi_2025"], "file": str(S.UPLVI), "polygons": len(df)})
         npoly = len(df)
         X_poly = S.segment_means(F, pid, npoly)[1:]
         cells = np.bincount(pid.ravel(), minlength=npoly + 1)[1:]

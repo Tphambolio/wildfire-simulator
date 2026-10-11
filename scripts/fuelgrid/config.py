@@ -383,6 +383,13 @@ SOURCES_V2: dict[str, dict] = {
         "licence": "Open Government Licence – Alberta (open.alberta.ca)",
         "url": "https://geospatial.alberta.ca/titan/rest/services/wildfire/historical_wildfires_data/FeatureServer",
     },
+    "uplvi_2025": {
+        "title": "City of Edmonton Urban Primary Land and Vegetation Inventory 2025 (uPLVI): stand-model labels "
+                 "and Edmonton stand objects (2.1)",
+        "version": "effective 2025-06-16",
+        "licence": "Open Government Licence – Edmonton",
+        "url": "https://data.edmonton.ca/api/geospatial/gm9t-5epd?method=export&format=GeoJSON",
+    },
     "avi_crown": {
         "title": "Alberta Vegetation Inventory (AVI) Crown: AVI_Crown + AVI_PostInventoryHarvest (comparison only)",
         "version": "AlbertaVegetationInventoryCrown.gdb (2022 release)",
