@@ -30,6 +30,7 @@ import {
   planningZones,
   planningZonesToGeoJSON,
   upsertTier,
+  mergeCommunities,
   type EvacTier,
   type EvacTierRecord,
 } from "./utils/evacZones";
@@ -45,6 +46,7 @@ import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
+import AppErrorBoundary from "./components/AppErrorBoundary";
 import TopBar, { type AppTab } from "./components/TopBar";
 import Badge from "./components/Badge";
 import InfoTip from "./components/InfoTip";
@@ -369,11 +371,18 @@ export default function App() {
     setUserLayers((prev) => prev.filter((l) => l.id !== id));
   }, []);
 
-  // Pre-load Edmonton neighbourhoods on startup (arrival outlines and evacuation status).
+  // Pre-load community units on startup (arrival outlines and evacuation status): Edmonton
+  // neighbourhoods, and Statistics Canada census subdivisions elsewhere in Alberta.
   useEffect(() => {
-    fetch("./edmonton/neighbourhoods.geojson")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((fc) => { if (fc) setCommunities(fc as GeoJSON.FeatureCollection); })
+    const get = (url: string) =>
+      fetch(url)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null) as Promise<GeoJSON.FeatureCollection | null>;
+    Promise.all([get("./edmonton/neighbourhoods.geojson"), get("./alberta/census_subdivisions.geojson")])
+      .then(([edm, csd]) => {
+        const merged = mergeCommunities(edm, csd);
+        if (merged) setCommunities(merged);
+      })
       .catch(() => {});
   }, []);
 
@@ -907,6 +916,7 @@ export default function App() {
       )}
       {activeTab === "eoc" && incident && (
         <div className="eoc-tab-wrapper">
+          <AppErrorBoundary area="EOC console" resetKey={activeTab} onReset={() => setActiveTab("simulation")}>
           <OperationalPeriodPanel
             incident={incident}
             activePeriod={activePeriod}
@@ -953,6 +963,7 @@ export default function App() {
             onIncidentNameChange={(name) => updateIncidentField("name", name)}
           />
           </Suspense>
+          </AppErrorBoundary>
         </div>
       )}
 

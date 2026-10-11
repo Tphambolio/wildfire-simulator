@@ -10,9 +10,11 @@
 import { memo, useId, useState } from "react";
 import {
   ARRIVAL_BUFFER_M,
+  CSD_SOURCE,
   EVAC_TIERS,
   TIER_STYLE,
   arrivalTime,
+  communitySourceTag,
   type EvacTier,
   type EvacTierRecord,
   type NeighbourhoodArrival,
@@ -94,6 +96,8 @@ function EvacStatusPanel({
   const [pickTier, setPickTier] = useState<EvacTier | "">("Watch");
   // Rows: P10 first when the ensemble is in, with the single-run time beside it
   const single = new Map(arrivals.map((a) => [a.name, a.arrivalHours]));
+  // Census subdivisions (outside Edmonton) are tagged so the unit's source is visible
+  const tagOf = new Map([...arrivals, ...(worstArrivals ?? [])].map((a) => [a.name, communitySourceTag(a.feature)]));
   const rows: Array<{ name: string; worst: number | null; single: number | null }> = worstArrivals
     ? [
         ...worstArrivals.map((a) => ({ name: a.name, worst: a.arrivalHours, single: single.get(a.name) ?? null })),
@@ -139,7 +143,12 @@ function EvacStatusPanel({
           <tbody>
             {rows.map((a) => (
               <tr key={a.name}>
-                <th scope="row">{a.name}</th>
+                <th scope="row">
+                  {a.name}
+                  {tagOf.get(a.name) && (
+                    <span className="evac-source-tag" title={CSD_SOURCE}> {tagOf.get(a.name)}</span>
+                  )}
+                </th>
                 {worstArrivals && (
                   <td className="evac-arrival-time evac-arrival-worst">
                     {a.worst !== null ? arrivalTime(a.worst, scenarioStart) : "not reached"}

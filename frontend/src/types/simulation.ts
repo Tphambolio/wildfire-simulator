@@ -319,6 +319,18 @@ export interface SimulationResponse {
   progress?: number | null;
   /** Fuel data the run used (absent from older API versions; docs/api-reference.md) */
   fuel_source?: FuelSourceInfo | null;
+  /** Buildings the run used (absent from older API versions; docs/api-reference.md) */
+  buildings_source?: BuildingsSourceInfo | null;
+}
+
+/** Which buildings a run used (API `buildings_source`) */
+export interface BuildingsSourceInfo {
+  kind: "edmonton_neighbourhoods" | "near_ignition" | string;
+  label: string;
+  attribution?: string | null;
+  selection: string;
+  buildings: number;
+  capped: boolean;
 }
 
 /** Which fuel data a run used (API `fuel_source`) */

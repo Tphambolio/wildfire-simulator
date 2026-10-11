@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { IncidentSession, OperationalPeriod } from "../types/incident";
+import { nextPeriodDate } from "../utils/time";
 
 interface OperationalPeriodPanelProps {
   incident: IncidentSession;
@@ -20,17 +21,13 @@ export default function OperationalPeriodPanel({
 }: OperationalPeriodPanelProps) {
   const [showAdvance, setShowAdvance] = useState(false);
   const [editingName, setEditingName] = useState(false);
-  const [nextDate, setNextDate] = useState(() => {
-    // Default to day after current period's date
-    if (activePeriod?.date) {
-      const d = new Date(activePeriod.date + "T00:00:00");
-      d.setDate(d.getDate() + 1);
-      return d.toISOString().slice(0, 10);
-    }
-    return new Date().toISOString().slice(0, 10);
-  });
+  const [nextDate, setNextDate] = useState(() => nextPeriodDate(activePeriod?.date));
   const [nextStart, setNextStart] = useState("08:00");
   const [nextEnd, setNextEnd] = useState("20:00");
+
+  // Incidents persist in localStorage across app versions: read stored fields defensively
+  const periods = Array.isArray(incident.operationalPeriods) ? incident.operationalPeriods : [];
+  const lastArea = activePeriod?.frameSummaries?.at(-1)?.areaHa;
 
   const handleAdvance = () => {
     onAdvancePeriod({ date: nextDate, opPeriodStart: nextStart, opPeriodEnd: nextEnd });
@@ -60,7 +57,7 @@ export default function OperationalPeriodPanel({
 
       {/* Day tabs */}
       <div className="op-period-days">
-        {incident.operationalPeriods.map((p, idx) => (
+        {periods.map((p, idx) => (
           <button
             key={idx}
             className={`op-period-day-btn${incident.activePeriodIndex === idx ? " active" : ""}`}
@@ -68,7 +65,7 @@ export default function OperationalPeriodPanel({
             title={`Day ${p.day}: ${p.date} ${p.opPeriodStart}–${p.opPeriodEnd}`}
           >
             Day {p.day}
-            <span className="op-period-day-date">{p.date.slice(5)}</span>
+            <span className="op-period-day-date">{typeof p.date === "string" ? p.date.slice(5) : ""}</span>
             {p.simulationStatus === "completed" && <span className="op-period-day-done">✓</span>}
           </button>
         ))}
@@ -104,10 +101,8 @@ export default function OperationalPeriodPanel({
       {activePeriod && (
         <div className="op-period-info">
           <span>Day {activePeriod.day} · {activePeriod.date} · {activePeriod.opPeriodStart}–{activePeriod.opPeriodEnd}</span>
-          {activePeriod.frameSummaries.length > 0 && (
-            <span className="op-period-stats">
-              {activePeriod.frameSummaries[activePeriod.frameSummaries.length - 1].areaHa.toFixed(1)} ha burned
-            </span>
+          {typeof lastArea === "number" && Number.isFinite(lastArea) && (
+            <span className="op-period-stats">{lastArea.toFixed(1)} ha burned</span>
           )}
         </div>
       )}

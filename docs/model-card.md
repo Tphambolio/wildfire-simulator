@@ -69,7 +69,8 @@ fuel grid (Edmonton: City canopy-LiDAR product; from 2026-10-11 the Alberta Wild
 types 2025, 100 m, wherever the City grid has no data and for ignitions outside it, with D-1/D-2
 and M-1/M-2 leaf-on from day of year 150 to 257, per-cell percent conifer from the map and O-1 as
 O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optional DEM, water
-and building masks,
+and building masks (from 2026-10-11 Microsoft building footprints for all of Alberta, read by
+window; Edmonton runs unchanged; `docs/buildings-alberta.md`),
 grass curing, percent conifer / dead fir, foliar moisture or date. Grass curing (decision M1,
 2026-10-10): 95 % by default from 1 March to 29 May (day of year 60-149, between snow-melt and
 green-up), a required entry outside that window whenever O-1 grass can burn (API 422; the UI
@@ -159,6 +160,14 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   the Edmonton DEM. Recent burns are re-typed (non-fuel, regenerating aspen, grass), which
   matters for current fires but confounds tests on past fires (indicative check on 7
   calibration fire-days: F1 0.287 → 0.295, area bias +0.28 → +0.08; not a skill estimate).
+- Buildings outside Edmonton (2026-10-11): Microsoft Canadian Building Footprints (2019 release)
+  for all of Alberta. Coverage is uneven (e.g. ~640 footprints within 5 km of Hinton, a town
+  of about 10,000), footprints miss many sheds and garages that municipal layers have (ODB
+  windows: 5-37 % more footprints), and buildings built since the imagery are missing, so
+  exposure and house-to-house counts outside the major cities can be low. Outside the Edmonton
+  area the mask, exposure and inside-perimeter counts use at most 30,000 buildings nearest the
+  ignition; community units there are Statistics Canada census subdivisions (municipalities and
+  counties), much coarser than Edmonton neighbourhoods. Edmonton results are unchanged.
 - Edmonton fuel grid: urban trees are non-fuel. Structure-to-structure spread is only an
   opt-in, illustrative Hamada layer (API `structure_spread`): Japanese empirical coefficients,
   California-only published tests (recall 78-97 %, precision 9-77 %), FireSim's own 10 m

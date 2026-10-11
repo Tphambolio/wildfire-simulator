@@ -66,6 +66,16 @@ Start a new fire spread simulation.
   Same on `/simulations/multiday`, `/simulations/burn-probability` (422 when no grid covers the
   ignition) and perimeter overrides (the source run's request). The response says what was used
   (`fuel_source`, below).
+- `buildings_path` (optional): building footprints for the building mask, exposure,
+  inside-perimeter counts and structure spread. The app sends
+  `/app/data/edmonton_buildings.geojson.gz`; when the server has the Alberta buildings file
+  (`FIRESIM_AB_BUILDINGS_PATH`, added 2026-10-11) that path reads it instead, by window:
+  ignitions in the Edmonton area (53.39-53.71 N, 113.75-113.25 W) get the same buildings as
+  before (the 4 City neighbourhoods nearest the ignition; structure spread over the same
+  footprints), ignitions elsewhere in Alberta the buildings in the run area, the
+  `FIRESIM_BUILDINGS_MAX_NEAR` (30,000) nearest the ignition when there are more. `null` = no
+  buildings; any other path is used as given (`.fgb` read by window, GeoJSON whole). The
+  response says what was used (`buildings_source`, below; `docs/buildings-alberta.md`).
 - `start_time` (optional): scenario start (ignition) time, ISO 8601 with a UTC offset, e.g.
   `"2026-04-28T13:40:00-06:00"` (a time without an offset is rejected with 422). Frame
   `time_hours` and `hourly_weather[].hours_from_start` count from it, and when
@@ -95,7 +105,7 @@ Start a new fire spread simulation.
   (docs/verification.md, "Spotting is repeatable").
 - `structure_spread` (optional, default `false`): **illustrative — not validated in Canada.**
   Grid runs with building footprints (`buildings_path` or `FIRESIM_BUILDINGS_PATH`, and
-  `FIRESIM_NEIGHBOURHOODS_PATH`): every footprint in the run area can become a building unit
+  `FIRESIM_NEIGHBOURHOODS_PATH` or the Alberta file): every footprint in the run area can become a building unit
   (units are built only for the area the spread can reach, which gives the same result as
   building them all; spec §2), a unit is involved when the front reaches a grid cell its footprint touches or one of their
   8 neighbours (10 m contact measured from the building's grid cells), and fire passes
@@ -204,6 +214,14 @@ Get simulation status and results.
     "attribution": "Contains information licensed under the Open Government Licence – Alberta (Alberta Wildfire FBP Fuel Type, © Government of Alberta).",
     "season": "leaf-on",
     "share": {"ab_wildfire": 1.0}
+  },
+  "buildings_source": {
+    "kind": "near_ignition",
+    "label": "Microsoft Canadian Building Footprints, Alberta (2019)",
+    "attribution": "Building footprints: Microsoft Canadian Building Footprints (2019), Open Data Commons ODbL",
+    "selection": "run area",
+    "buildings": 787,
+    "capped": false
   }
 }
 ```
@@ -216,6 +234,15 @@ the text to show, `attribution` the licence line to show with it (Alberta grid: 
 `season` the leaf-on / leaf-off state used for the seasonal pairs (provincial and national
 cells only; `null` otherwise) and `share` the fraction of the window's cells each source
 supplied (`city`, `ab_wildfire`, `national`; windows only).
+
+`buildings_source` (added 2026-10-11; `null` until buildings are selected, or when the run has
+none): `kind` is `edmonton_neighbourhoods` (ignition in the Edmonton area: the 4 City
+neighbourhoods nearest the ignition, as before) or `near_ignition` (elsewhere: buildings in the
+run area); `label` the data source, `attribution` the licence line to show (Microsoft
+footprints: ODbL), `selection` which buildings in words, `buildings` how many were used for the
+mask, exposure and counts, `capped` true when the run area held more than
+`FIRESIM_BUILDINGS_MAX_NEAR` and only the nearest were kept (structure spread still reads every
+footprint in its reachable box).
 
 Status values: `running`, `completed`, `failed`, `cancelled`
 
@@ -263,11 +290,12 @@ Stream simulation frames in real-time.
 ```json
 {"type": "simulation.status", "simulation_id": "abc123", "phase": "spread", "progress": 0.42}
 {"type": "simulation.frame", "frame": { ... }}
-{"type": "simulation.completed", "fuel_source": { ... }}
+{"type": "simulation.completed", "fuel_source": { ... }, "buildings_source": { ... }}
 {"type": "simulation.error", "error": "message"}
 ```
 
-`simulation.completed` carries the run's `fuel_source` (as in GET, added 2026-10-11).
+`simulation.completed` carries the run's `fuel_source` and `buildings_source` (as in GET, added
+2026-10-11).
 
 `simulation.status` (added 2026-10-10; single runs and perimeter restarts) reports the run's
 phase while it computes: `loading`, `buildings`, `spread` (with `progress` 0-1, rounded to 3

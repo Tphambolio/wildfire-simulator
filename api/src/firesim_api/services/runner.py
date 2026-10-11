@@ -68,6 +68,8 @@ class SimulationRun:
         self._last_sent: tuple[str | None, float] = (None, -1.0)
         # Fuel data used (FuelSourceInfo fields), set when the grids are loaded
         self.fuel_source: dict | None = None
+        # Buildings used (BuildingsSourceInfo fields), set when buildings are selected
+        self.buildings_source: dict | None = None
 
     def set_phase(self, phase: str, progress: float | None = None) -> None:
         """Record the run's phase and progress; notify ``on_status`` when the phase changes
@@ -129,6 +131,26 @@ def _fuel_kwargs(params) -> dict:
     if hasattr(params, "fuel_config_kwargs"):
         return params.fuel_config_kwargs()
     return params.fuel_modifiers.config_kwargs()
+
+
+MS_BUILDINGS_ATTRIBUTION = ("Building footprints: Microsoft Canadian Building Footprints "
+                            "(2019), Open Data Commons ODbL")
+
+
+def _buildings_info(kind: str, path: str, n: int, capped: bool, selection: str) -> dict:
+    """BuildingsSourceInfo fields for a run."""
+    from firesim_api.settings import settings
+
+    name = os.path.basename(path)
+    attribution = MS_BUILDINGS_ATTRIBUTION
+    if path.lower().endswith(".fgb"):
+        label = "Microsoft Canadian Building Footprints, Alberta (2019)"
+    elif settings.city_buildings_path and name == os.path.basename(settings.city_buildings_path):
+        label = "Microsoft Canadian Building Footprints, Edmonton extract (2019)"
+    else:
+        label, attribution = f"Building footprints {name}", None
+    return {"kind": kind, "label": label, "attribution": attribution,
+            "selection": selection, "buildings": int(n), "capped": bool(capped)}
 
 
 def run_day_of_year(params) -> int | None:
@@ -239,26 +261,47 @@ class SimulationRunner:
         with self._lock:
             return self._runs.get(sim_id)
 
-    def _get_building_index(self, buildings_path: str, neighbourhoods_path: str):
-        """Return a BuildingIndex, loading and caching on first call."""
-        from firesim.data.building_index import BuildingIndex
+    def _get_building_index(self, buildings_path: str, neighbourhoods_path: str | None):
+        """Return a BuildingIndex, opening and caching on first call.
+
+        A FlatGeobuf (the Alberta file) is read by window; nothing per building is held. The
+        Edmonton neighbourhood selection then applies to the former Edmonton extract's box
+        only (``EDMONTON_EXTRACT_BOX``); a GeoJSON file keeps the former whole-file
+        behaviour (docs/buildings-alberta.md)."""
+        from firesim.data.building_index import EDMONTON_EXTRACT_BOX, BuildingIndex
 
         key = (buildings_path, neighbourhoods_path)
         with self._building_index_lock:
             if key in self._building_index_cache:
                 return self._building_index_cache[key]
 
-        # Load outside the lock — can be slow (30-60s), but only happens once.
         logger.info(
-            "BuildingIndex cache MISS: loading buildings=%s nbhd=%s",
+            "BuildingIndex cache MISS: opening buildings=%s nbhd=%s",
             buildings_path, neighbourhoods_path,
         )
-        bidx = BuildingIndex(buildings_path, neighbourhoods_path)
+        fgb = buildings_path.lower().endswith(".fgb")
+        bidx = BuildingIndex(buildings_path, neighbourhoods_path,
+                             partition_box=EDMONTON_EXTRACT_BOX if fgb else None)
 
         with self._building_index_lock:
             self._building_index_cache[key] = bidx
         logger.info("BuildingIndex cached for key=%s", key)
         return bidx
+
+    @staticmethod
+    def resolve_buildings_path(path: str | None) -> str | None:
+        """The buildings file a run reads: the Alberta FlatGeobuf when it is installed and the
+        request (or the server default) names the bundled Edmonton file; otherwise the path as
+        given (None = no buildings)."""
+        from firesim_api.settings import settings
+
+        ab = settings.ab_buildings_path
+        if not ab or not os.path.exists(ab):
+            return path
+        city = settings.city_buildings_path
+        if path and city and os.path.realpath(path) == os.path.realpath(city):
+            return ab
+        return path
 
     def _get_building_vegetation(self):
         """Per-building vegetation attributes (structure step 3), loaded once; None when the
@@ -675,37 +718,58 @@ class SimulationRunner:
             if run.fuel_source is None:
                 run.fuel_source = self._legacy_fuel_source(params, fuel_grid, fine_key[0])
 
-            # Apply neighbourhood-filtered building mask per simulation.
-            # Uses BuildingIndex (loaded once, cached) to find the 4 nearest
-            # neighbourhoods to the ignition point, then rasterizes only those
-            # ~5-15K buildings instead of all 334K citywide.
+            # Buildings for the building mask, inside-perimeter counts and exposure
+            # (docs/buildings-alberta.md). In Edmonton (ignition in the former extract's box):
+            # the buildings of the 4 neighbourhoods nearest the ignition, exactly as before.
+            # Elsewhere (Alberta file): the buildings in the run grid's box, the nearest
+            # FIRESIM_BUILDINGS_MAX_NEAR to the ignition when there are more. Only a window of
+            # the file is read either way.
             masked_fuel_grid = fuel_grid
             building_centroids = None
             building_geoms = None
             structure_geoms = None
-            buildings_path = getattr(params, "buildings_path", None) or settings.buildings_path
-            if buildings_path and fuel_grid is not None and settings.neighbourhoods_path:
+            buildings_path = self.resolve_buildings_path(
+                getattr(params, "buildings_path", None) or settings.buildings_path)
+            is_fgb = bool(buildings_path) and buildings_path.lower().endswith(".fgb")
+            if buildings_path and fuel_grid is not None and (
+                    settings.neighbourhoods_path or is_fgb):
                 import dataclasses
+                from firesim.data.building_index import EDMONTON_EXTRACT_BOX
                 from firesim.data.environment import load_environment_mask
 
                 run.set_phase("buildings")
                 bidx = self._get_building_index(buildings_path, settings.neighbourhoods_path)
-                nearest = bidx.nearest_neighbourhoods(
-                    params.ignition_lat, params.ignition_lng, n=4
-                )
-                logger.info("Nearest neighbourhoods for ignition (%.4f, %.4f): %s",
-                            params.ignition_lat, params.ignition_lng, nearest)
-                building_geoms = bidx.building_geoms_for(nearest)
-                building_centroids = bidx.building_centroids_for(nearest)
-                logger.info("Building mask: %d geometries from %d neighbourhoods",
-                            len(building_geoms), len(nearest))
+                lat0, lng0 = params.ignition_lat, params.ignition_lng
+                if bidx.in_partition(lat0, lng0):
+                    nearest = bidx.nearest_neighbourhoods(lat0, lng0, n=4)
+                    logger.info("Nearest neighbourhoods for ignition (%.4f, %.4f): %s",
+                                lat0, lng0, nearest)
+                    building_geoms = bidx.building_geoms_for(nearest)
+                    building_centroids = bidx.building_centroids_for(nearest)
+                    # Edmonton runs keep the former extract's buildings (same results)
+                    source = bidx.clipped(EDMONTON_EXTRACT_BOX) if is_fgb else bidx
+                    run.buildings_source = _buildings_info(
+                        "edmonton_neighbourhoods", buildings_path, len(building_geoms), False,
+                        f"{len(nearest)} City of Edmonton neighbourhoods nearest the ignition")
+                else:
+                    near = bidx.near(lat0, lng0, (fuel_grid.lat_min, fuel_grid.lat_max,
+                                                  fuel_grid.lng_min, fuel_grid.lng_max),
+                                     max_buildings=settings.buildings_max_near)
+                    building_geoms, building_centroids = near.geoms, near.centroids
+                    source = bidx
+                    run.buildings_source = _buildings_info(
+                        "near_ignition", buildings_path, len(building_geoms), near.capped,
+                        ("run area" if not near.capped else
+                         f"the {len(building_geoms):,} buildings nearest the ignition "
+                         "in the run area"))
+                logger.info("Building mask: %d geometries (%s)", len(building_geoms),
+                            run.buildings_source["kind"])
                 if getattr(params, "structure_spread", False):
                     # Structure spread may reach any building in the run area, not only the
-                    # neighbourhoods nearest the ignition (docs/structure-spread-spec.md §2).
-                    # The index is passed as a footprint source: after the grid run, units are
-                    # built only for the area the spread can reach (never the whole city;
-                    # building all ~334K footprints OOM-killed the 2 GB machine, 2026-10-10).
-                    structure_geoms = bidx
+                    # selection above (docs/structure-spread-spec.md §2). The index is passed
+                    # as a footprint source: after the grid run, units are built only for the
+                    # area the spread can reach, read by window from the file.
+                    structure_geoms = source
 
                 if building_geoms:
                     bldg_mask = load_environment_mask(

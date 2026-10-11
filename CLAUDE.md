@@ -71,6 +71,7 @@ docker compose up --build
 | `spread/montecarlo.py` | Burn probability (jitter ignition, wind speed, RH over N iterations) |
 | `fwi/classes.py` | FWI display classes (CWFIS FWI map intervals) |
 | `data/fuel_loader.py` | GeoTIFF → `FuelGrid`; integer codes mapped by code scheme (`CODE_SCHEMES`, explicit `code_scheme` or detection; `ab_wildfire` = Alberta Wildfire FBP 2025); `fill_path` fills no-data cells from a second raster; per-cell percent conifer (`FuelGrid.pc`) from 6xx / CIFFC codes |
+| `data/building_index.py` | Buildings read by window (FlatGeobuf R-tree via pyogrio; GeoJSON into compact arrays): Edmonton 4-nearest-neighbourhood selection unchanged (former extract's box), `near()` for runs elsewhere (≤ `FIRESIM_BUILDINGS_MAX_NEAR`), footprint source for structure spread (`clipped()` for Edmonton runs); `docs/buildings-alberta.md` |
 | `data/provincial.py` | Default fuel outside Edmonton: windowed reads of large rasters onto a lat/lng `Lattice`, source stacking (City where mapped → Alberta grid → national), `choose_fuel` (city / provincial / national / uniform); `docs/fuel-grid-alberta.md` |
 | `fbp/season.py` | Leaf-on / leaf-off swap of D-1, M-1, M-3 labels by day of year (150 / 258; the validation harness uses the same) |
 | `data/dem_loader.py` | DEM GeoTIFF → slope % + aspect ° → `TerrainGrid` |
@@ -146,6 +147,8 @@ FIRESIM_GIT_SHA           Set by the Docker build (CI passes the commit); served
 FIRESIM_AB_FUEL_GRID_PATH Alberta Wildfire FBP fuel grid COG (default fuel outside the City grid; set by api/Dockerfile)
 FIRESIM_CITY_FUEL_GRID_PATH  City grid path that triggers it (default /app/data/Edmonton_FBP_FuelLayer_20251105_10m.tif)
 FIRESIM_NATIONAL_FUEL_GRID_PATH / _SCHEME, FIRESIM_PROVINCIAL_WINDOW_KM (40), FIRESIM_CITY_MARGIN_KM (5)
+FIRESIM_AB_BUILDINGS_PATH Alberta buildings FlatGeobuf (set by api/Dockerfile); stands in for FIRESIM_CITY_BUILDINGS_PATH
+FIRESIM_CITY_BUILDINGS_PATH  default /app/data/edmonton_buildings.geojson.gz; FIRESIM_BUILDINGS_MAX_NEAR (30000, outside Edmonton)
 ```
 
 ---
@@ -160,7 +163,7 @@ Top bar (incident, status, limits badge, America/Edmonton clock) · Setup column
 summaries, sticky Run bar) · map (`MapView.tsx`) · Situation panel (`FireMetrics.tsx`, exposure,
 Neighbourhoods card `EvacStatusPanel.tsx`, `EOCSummary.tsx`) · clock-time timeline
 (`TimeSlider.tsx`). Neighbourhoods: modelled fire arrival within 500 m and evacuation status set by
-Planning (`utils/evacZones.ts`); FireSim never suggests Order/Alert/Watch. Critical assets card
+Planning (`utils/evacZones.ts`; Edmonton neighbourhoods + StatCan census subdivisions elsewhere, `mergeCommunities`, tagged "CSD"); FireSim never suggests Order/Alert/Watch. Critical assets card
 `CriticalAssetsPanel.tsx` (`utils/assets.ts`): arrival within 500 m / inside for each asset and
 first reach per major road, from the bundled `public/edmonton/assets.geojson`
 (`scripts/build_edmonton_assets.py`; roads `scripts/build_edmonton_roads.py`; sources in `docs/data-sources.md`) or a user layer. EOC console tab: `EOCConsole.tsx`
@@ -219,7 +222,9 @@ The engine works without real data using `synthetic_grid.py` (generates a mixed-
 | `Edmonton_FBP_FuelLayer_*_10m.tif` | City of Edmonton canopy-LiDAR fuel product (20 m grid in EPSG:3776 despite the name; codes 2, 12, 14, 31, 32, 99, with 0 = no data) | `fuel_loader.py` |
 | `edmonton_dem.tif` | 30 m DEM, UTM 12N (EPSG:26912), file dated 2011; recorded as Open Government Canada, exact product not recorded (likely NRCan CDEM; unverified) | `dem_loader.py` |
 | `edmonton_water_bodies.geojson.gz` | OpenStreetMap (ODbL; features carry `osm_id`), 2,275 polygons. **Off by default** (2026-10-07): it covers about 3,700 ha the LiDAR grid maps as vegetation, and the LiDAR grid already maps water as non-fuel (`docs/verification.md`) | `fuel_loader.py` (`water_path` mask) |
-| `edmonton_buildings.geojson.gz` | Microsoft Canadian Building Footprints (ODbL), 346,238 footprints, generated 2025-11-16 per the file metadata. The `type`/`height`/`material`/`roof_type` attributes have no documented source; exposure uses only the footprint geometry | `building_index.py`: mask, inside-perimeter counts, exposure |
+| `edmonton_buildings.geojson.gz` | Microsoft Canadian Building Footprints (ODbL), 346,238 footprints, generated 2025-11-16 per the file metadata (= the Alberta file's footprints with ring-average centroid in 53.39-53.71 N, 113.75-113.25 W). The `type`/`height`/`material`/`roof_type` attributes have no documented source; exposure uses only the footprint geometry | `building_index.py`: mask, inside-perimeter counts, exposure (when the Alberta file is not installed; requests still name this path) |
+| `ab_buildings_ms2019.fgb` (**not committed**: GitHub release `data-ab-buildings-ms2019`, fetched by `api/Dockerfile`; built by `scripts/build_ab_buildings.py`) | Microsoft Canadian Building Footprints, Alberta (2019), ODbL: 1,777,439 footprints, FlatGeobuf with packed R-tree, 372 MB, fields `id` (Edmonton extract ids kept; others 1,000,000 + source position) and `area_m2` only (no addresses) | `building_index.py`, read by window only; Edmonton runs give the same buildings as before (`docs/buildings-alberta.md`) |
+| `frontend/public/alberta/census_subdivisions.geojson` | Statistics Canada 2021 census subdivisions, Alberta without Edmonton (422), simplified ~30 m (Statistics Canada Open Licence); `scripts/build_ab_communities.py` | Neighbourhoods card community units outside Edmonton (tagged "CSD") |
 | `edmonton_neighbourhoods.geojson` | City of Edmonton Open Data, Neighbourhoods `65fr-66s6` (OGL – City of Edmonton), 407 polygons | building index, neighbourhood card |
 | `wui_zones.geojson.gz` | Custom, **no documented source** — off by default; don't present results using it as measured | `wui_loader.py` |
 | `ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif` (**not committed**: GitHub release `data-ab-fbp-2025`, fetched by `api/Dockerfile`; built by `scripts/build_ab_fuel_cog.py`) | Alberta Wildfire FBP Fuel Type raster 2025, 100 m, EPSG:3400, © Government of Alberta, Open Government Licence – Alberta (image service: GoA disclaimer). Default fuel where the City grid has no data and outside it (`docs/fuel-grid-alberta.md`) | `data/provincial.py`, `fuel_loader.py` (`ab_wildfire`) |

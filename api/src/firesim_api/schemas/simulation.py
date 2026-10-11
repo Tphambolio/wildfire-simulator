@@ -533,6 +533,22 @@ class FuelSourceInfo(BaseModel):
         "Share of the run grid's cells each source supplied (window runs)"))
 
 
+class BuildingsSourceInfo(BaseModel):
+    """Which buildings a run used (set once they are selected; docs/buildings-alberta.md)."""
+
+    kind: str = Field(description=(
+        "edmonton_neighbourhoods (the 4 City neighbourhoods nearest the ignition, as before) "
+        "or near_ignition (buildings in the run area, nearest the ignition first)"))
+    label: str = Field(description="Data source, e.g. 'Microsoft Canadian Building Footprints, "
+                                   "Alberta (2019)'")
+    attribution: str | None = Field(default=None, description="Licence attribution to show")
+    selection: str = Field(description="Which buildings were selected, in words")
+    buildings: int = Field(description="Buildings selected (mask, exposure, counts)")
+    capped: bool = Field(default=False, description=(
+        "True when the run area held more than FIRESIM_BUILDINGS_MAX_NEAR buildings and only "
+        "the nearest were kept"))
+
+
 class SimulationResponse(BaseModel):
     """Response from simulation creation or status query."""
 
@@ -548,6 +564,8 @@ class SimulationResponse(BaseModel):
     progress: float | None = None
     #: Fuel data the run used (None until the grids are loaded)
     fuel_source: FuelSourceInfo | None = None
+    #: Buildings the run used (None until selected, or when the run has none)
+    buildings_source: BuildingsSourceInfo | None = None
 
 
 class DayWeatherParams(BaseModel):

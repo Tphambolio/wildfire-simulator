@@ -284,6 +284,7 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
         phase=phase,
         progress=progress,
         fuel_source=run.fuel_source,
+        buildings_source=getattr(run, "buildings_source", None),
     )
 
 
@@ -437,6 +438,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                 "type": "simulation.completed",
                 "simulation_id": sim_id,
                 "fuel_source": run.fuel_source,
+                "buildings_source": getattr(run, "buildings_source", None),
             })
         elif status0 == SimulationStatus.FAILED:
             await websocket.send_json({
@@ -472,6 +474,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                 "type": "simulation.completed",
                 "simulation_id": sim_id,
                 "fuel_source": run.fuel_source,
+                "buildings_source": getattr(run, "buildings_source", None),
             })
         elif run.status == SimulationStatus.CANCELLED:
             # Status already sent on cancel action; send final frame if available
@@ -609,7 +612,8 @@ async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbab
         def _load_provincial():
             grid = runner.resolve_provincial(params, run_day_of_year(params), None, None,
                                              params.water_path or settings.water_path)[0]
-            bpath = params.buildings_path or settings.buildings_path
+            bpath = runner.resolve_buildings_path(
+                params.buildings_path or settings.buildings_path)
             if grid is not None and bpath:
                 import dataclasses
 
