@@ -187,7 +187,7 @@ neighbourhoods (`mergeCommunities`) and tags them "CSD" in the Neighbourhoods ca
 
 ## Alberta assets and roads (served by area, outside Edmonton)
 
-Added 2026-10-11 (owner-approved task; report [R28] in `PROJECT_RECORD.md`). The bundled
+Added 2026-10-11 (owner-approved task; report [R29] in `PROJECT_RECORD.md`). The bundled
 Edmonton layers stay as they are. For the rest of the province the API serves two FlatGeobuf
 files by box (`GET /api/v1/layers/assets|roads`, `docs/api-reference.md`); the app asks for
 about 28 km around an ignition and drops Alberta features inside the Edmonton layers' box, so

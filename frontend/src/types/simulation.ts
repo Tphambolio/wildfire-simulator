@@ -129,6 +129,8 @@ export interface SimulationFrame {
     fuel: string; t: number; max_spot_distance_m: number;
   } | null;
   day?: number | null; // Multi-day scenario: which day (1-based)
+  /** Multi-day scenario: the day's FWI codes after the CFFDRS daily carry-over */
+  day_fwi?: { ffmc: number; dmc: number; dc: number; isi: number; bui: number; fwi: number } | null;
   buildings_at_risk?: number; // building centroids inside the perimeter
   ignition_snapped_m?: number;
   // Exposure (not ignition probability), grid model with building footprints

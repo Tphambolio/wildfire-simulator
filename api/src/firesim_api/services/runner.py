@@ -28,6 +28,13 @@ from firesim_api.schemas.simulation import (
 logger = logging.getLogger(__name__)
 
 
+#: Runs kept in memory (frames, arrival grid, ensemble). Beyond this the oldest finished runs are
+#: dropped, so a long uptime cannot fill the 2 GB machine (QA 2026-10-11: the store had no
+#: bound). A dropped run answers 404, as after a restart; clients keep their own copy.
+MAX_STORED_RUNS = int(os.environ.get("FIRESIM_MAX_STORED_RUNS", "40"))
+
+_LIVE = (SimulationStatus.PENDING, SimulationStatus.RUNNING, SimulationStatus.PAUSED)
+
 #: Provincial fuel windows kept in memory (2 GB API machine: keep this small)
 _WINDOW_CACHE_SIZE = 2
 
@@ -48,6 +55,11 @@ class SimulationRun:
         self.config = config
         self.status: SimulationStatus = SimulationStatus.PENDING
         self.frames: list[SimulationFrame] = []
+        # Multi-day runs: the day (1-based) of each frame, parallel to ``frames``, and each
+        # day's FWI codes after the CFFDRS daily carry-over ({day: {ffmc, dmc, dc, isi, bui,
+        # fwi}}), so GET and a late WebSocket join report them as the live stream does
+        self.frame_days: list[int | None] = []
+        self.day_fwi: dict[int, dict[str, float]] = {}
         self.error: str | None = None
         # Ensemble (optional, runs after the deterministic frames)
         self.ensemble = None
@@ -93,13 +105,21 @@ class SimulationRun:
             except Exception:  # display only: never fail a run over a status message
                 logger.debug("status callback failed for %s", self.id, exc_info=True)
 
-    def add_frame(self, frame: SimulationFrame) -> None:
+    def add_frame(self, frame: SimulationFrame, day: int | None = None) -> None:
         with self._lock:
             self.frames.append(frame)
+            self.frame_days.append(day)
 
     def get_frames(self) -> list[SimulationFrame]:
         with self._lock:
             return list(self.frames)
+
+    def frame_meta(self, n: int) -> list[tuple[int | None, dict[str, float] | None]]:
+        """(day, day's FWI codes) for the first ``n`` frames (None, None for single-day runs)."""
+        with self._lock:
+            days = self.frame_days[:n]
+        days += [None] * (n - len(days))
+        return [(d, self.day_fwi.get(d) if d is not None else None) for d in days]
 
     def pause(self) -> None:
         """Pause the simulation after the current frame."""
@@ -249,8 +269,7 @@ class SimulationRunner:
         run = SimulationRun(sim_id, params)
         run.on_status = on_status
 
-        with self._lock:
-            self._runs[sim_id] = run
+        self._store(sim_id, run)
 
         # Start simulation in background thread
         thread = threading.Thread(
@@ -261,6 +280,20 @@ class SimulationRunner:
         thread.start()
 
         return sim_id
+
+    def _store(self, sim_id: str, run: SimulationRun) -> None:
+        """Keep a new run; drop the oldest finished runs beyond ``MAX_STORED_RUNS`` (never a
+        run still computing, nor one whose ensemble is)."""
+        with self._lock:
+            self._runs[sim_id] = run
+            excess = len(self._runs) - MAX_STORED_RUNS
+            for old_id, old in list(self._runs.items()):  # insertion order: oldest first
+                if excess <= 0:
+                    break
+                if old_id == sim_id or old.status in _LIVE or old.ensemble_status == "running":
+                    continue
+                del self._runs[old_id]
+                excess -= 1
 
     def get(self, sim_id: str) -> SimulationRun | None:
         with self._lock:
@@ -992,8 +1025,7 @@ class SimulationRunner:
         sim_id = str(uuid.uuid4())[:8]
         run = SimulationRun(sim_id, params)
 
-        with self._lock:
-            self._runs[sim_id] = run
+        self._store(sim_id, run)
 
         thread = threading.Thread(
             target=self._execute_multiday,
@@ -1069,6 +1101,10 @@ class SimulationRunner:
                     rain=day_weather.precipitation_24h,
                     month=params.month,
                 )
+                run.day_fwi[day_num] = {
+                    k: round(float(getattr(day_fwi, k)), 1)
+                    for k in ("ffmc", "dmc", "dc", "isi", "bui", "fwi")
+                }
 
                 config = SimulationConfig(
                     ignition_lat=params.ignition_lat,
@@ -1113,7 +1149,7 @@ class SimulationRunner:
                         frame, time_hours=round(frame.time_hours + time_offset, 3)
                     )
 
-                    run.add_frame(adjusted)
+                    run.add_frame(adjusted, day=day_num)
                     if on_frame is not None:
                         on_frame(run.id, adjusted, day_num)
 
@@ -1219,8 +1255,7 @@ class SimulationRunner:
         run = SimulationRun(sim_id, original.config)
         run.on_status = on_status
 
-        with self._lock:
-            self._runs[sim_id] = run
+        self._store(sim_id, run)
 
         thread = threading.Thread(
             target=self._execute_perimeter_override,

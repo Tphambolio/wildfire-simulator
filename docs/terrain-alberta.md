@@ -4,7 +4,7 @@
 `dem_loader.slope_aspect`; API `services/runner.py` (`_window_terrain`), burn probability in
 `routers/simulations.py` · **Build:** `scripts/build_ab_terrain.py` · **Tests:**
 `engine/tests/data/test_alberta_layers_terrain.py`, `api/tests/test_alberta_layers_terrain.py`
-· **Report:** *Alberta assets roads terrain 2026-10-11* (PROJECT_RECORD [R28]).
+· **Report:** *Alberta assets roads terrain 2026-10-11* (PROJECT_RECORD [R29]).
 
 Before this change the only terrain was the bundled Edmonton DEM, so every run outside it was
 flat (open item of `docs/fuel-grid-alberta.md` §8). Mountain and foothill towns (Canmore,

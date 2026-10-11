@@ -469,6 +469,9 @@ class SimulationFrame(BaseModel):
     num_fronts: int = 1
     burned_cells: list[dict] | None = None
     day: int | None = None  # Multi-day scenario: which day (1-based)
+    # Multi-day scenario: the day's FWI codes after the CFFDRS daily carry-over
+    # {ffmc, dmc, dc, isi, bui, fwi}; None for single-day runs
+    day_fwi: dict[str, float] | None = None
     buildings_at_risk: int = 0  # building centroids inside the perimeter
     ignition_snapped_m: float = 0.0  # >0 if the ignition was moved to the nearest fuel cell
     # Building exposure (grid model with building footprints): counts reached by this frame.
