@@ -208,6 +208,49 @@ PREREG_STEP3_EATON = {
 }
 
 
+# --------------------------------------------------------------------------------------------
+# Third dated block: Camp 2018, the secondary independent fire (fixed 2026-10-10 after the Eaton
+# block, before any Camp run). Camp has no open pre-fire footprints: units are the DINS points.
+# Footprint rule: one square of 169 m2 (13 m side; the median Eaton footprint area, data report
+# §3.1) centred on each point, the same for every point [H]. The data report proposed a square per
+# structure type; that was not used because type completeness by damage class was not checked and
+# could carry outcome information. Gap cover from the NAIP 2018 pseudo-CHM (data report §4.2:
+# NDVI threshold calibrated on an unburned control, not canopy height; saturates on lawns and
+# shrubs). Seeds: NIST TN 2135 App. F observations with window <= 15 min in the first structure
+# areas, times in minutes after 07:30 PST. Camp is labelled secondary for the bridge test.
+# --------------------------------------------------------------------------------------------
+PREREG_STEP3_CAMP = {
+    "date_fixed": "2026-10-10",
+    "run_config": {
+        "seed_points": [[39.788, -121.496],   # Concow residential 07:25 (App. F TD-062; TN2135 p.59)
+                        [39.754, -121.571],   # Paradise east, first 911 07:49 (App. F 911-064-1; p.72)
+                        [39.757, -121.601],   # Paradise central-east 07:57 (911-1030-10; p.81)
+                        [39.762, -121.589]],  # Elliott/Nunneley residential 08:00 (TD, window 15; p.81)
+        "seed_minutes": [0.0, 19.0, 27.0, 30.0],
+        "nearest_per_point": 5,
+        "wind_speed_kmh": 25.2,  # 7 m/s, Jarbo Gap RAWS sustained (data report §5.1; TN2135 p.16)
+        "wind_from_deg": 45.0,   # NE
+        "window_min": 480.0,     # 07:30-15:30 (TN2135 F12: Paradise consumed by 14:30)
+        "footprint_square_m2": 169.0,
+        "chm": "derived/naip2018_pseudochm_camp.tif",
+        "sources": "CAL FIRE DINS independent test data report 2026-10-10 §3.2, §4.2, §5.1, §8",
+    },
+    "sensitivity": {
+        "wind_kmh": [18.0, 43.2],  # 5 / 12 m/s (data report §8 item 5)
+        "I2_windward_band": 0.05,
+        "footprint_square_m2": [100.0, 200.0],
+        "gap_cover_threshold": [0.10, 0.30],
+        "outcome_major_or_destroyed": True,
+        "runs_per_sensitivity": "H30 and VB only",
+    },
+    "scoring_domain": "the 23,256 DINS points in FRAP perimeter + 300 ft (all surveyed); about "
+                      "16 % of survivors have no DINS record (data report §3.2): not units",
+    "status": "secondary: point units with an assumed footprint, NDVI-based canopy",
+    "disclosure": "As for Eaton: the author read the data report (aggregate outcome counts, match "
+                  "rates, descriptive roof table) before fixing this block; nothing was scored.",
+}
+
+
 # ---------------------------------------------------------------------------------- helpers
 
 
@@ -483,6 +526,16 @@ def _windward(u, frac, wind_from) -> np.ndarray:
     return s
 
 
+def _squares(lng, lat, area_m2: float) -> np.ndarray:
+    """Axis-aligned squares of ``area_m2`` centred on points (lng, lat) [H]."""
+    import shapely
+
+    h = math.sqrt(area_m2) / 2.0
+    dlat = h / 111320.0
+    dlng = h / (111320.0 * np.cos(np.radians(lat)))
+    return shapely.box(lng - dlng, lat - dlat, lng + dlng, lat + dlat)
+
+
 def main_independent(args) -> None:
     import geopandas as gpd
 
@@ -490,8 +543,12 @@ def main_independent(args) -> None:
     d = CALFIRE_DIR / "derived"
     fire = args.fire
     cfg_path = d / f"{fire}_run_config.json"
+    pre_blocks = {"eaton": PREREG_STEP3_EATON, "camp": PREREG_STEP3_CAMP}
+    chm = (CALFIRE_DIR / pre_blocks[fire]["run_config"]["chm"]
+           if fire in pre_blocks and "chm" in pre_blocks[fire]["run_config"]
+           else CALFIRE_DIR / "raw" / f"meta_chm_{fire}.tif")
     needed = [d / f"{fire}_units.gpkg", d / f"{fire}_units_status.csv",
-              d / f"{fire}_unit_veg_metrics.csv", CALFIRE_DIR / "raw" / f"meta_chm_{fire}.tif"]
+              d / f"{fire}_unit_veg_metrics.csv", chm]
     missing = [str(p) for p in needed if not p.exists()]
     if missing:
         sys.exit("scoring pending: missing " + ", ".join(missing))
@@ -499,17 +556,22 @@ def main_independent(args) -> None:
         cfg_bytes = cfg_path.read_bytes()
         cfg = json.loads(cfg_bytes)
         pre = None
-    elif fire == "eaton":
-        pre = PREREG_STEP3_EATON
+    elif fire in pre_blocks:
+        pre = pre_blocks[fire]
         cfg = pre["run_config"]
         cfg_bytes = json.dumps(cfg, sort_keys=True).encode()
     else:
         sys.exit(f"scoring pending: no run config for {fire}")
     cfg_sha = hashlib.sha256(cfg_bytes).hexdigest()
     g = gpd.read_file(needed[0], columns=["unit_id"])  # geometry + id only (no attributes)
-    g = g[g.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
     ids = g.unit_id.to_numpy(dtype=np.int64)
-    geoms = np.asarray(g.geometry.values, dtype=object)
+    if (g.geometry.geom_type == "Point").all():  # Camp: pre-registered square footprints
+        geoms = _squares(g.geometry.x.to_numpy(), g.geometry.y.to_numpy(),
+                         float(cfg["footprint_square_m2"]))
+    else:
+        g = g[g.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
+        ids = g.unit_id.to_numpy(dtype=np.int64)
+        geoms = np.asarray(g.geometry.values, dtype=object)
     if args.dry_run:  # model-only: outcomes never read
         rng = np.random.default_rng(1)
         st = rng.choice(["Destroyed (>50%)", "No Damage", "UNSURVEYED"], size=len(ids),
@@ -572,20 +634,40 @@ def main_independent(args) -> None:
 
         for kmh in S["wind_kmh"]:
             hv(f"wind_{kmh:g}kmh", kmh, seed_t, obs, scored)
+        for a2 in S.get("footprint_square_m2", []):
+            g2 = _squares(g.geometry.x.to_numpy(), g.geometry.y.to_numpy(), a2)
+            u_alt = {c: build_units(g2, neighbour_cutoff_m=c, ids=ids) for c in (30.0, 45.0)}
+            st_alt = {c: _seed_mask_times(u, cfg)[1] for c, u in u_alt.items()}
+            w = [WindPeriod(0.0, float(cfg["wind_speed_kmh"]), wf)]
+            h = hamada_spread(u_alt[30.0], st_alt[30.0], w, duration_min=win,
+                              burnout_min=d66).t_min <= win
+            links = V.BridgedLinks(u_alt[45.0], canopy)
+            vb = hamada_spread(u_alt[45.0], st_alt[45.0], w, duration_min=win, burnout_min=d66,
+                               link_filter=links).t_min <= win
+            tag = f"footprint_{a2:g}m2"
+            sens[tag] = {"H30": J.score(h, obs, scored), "VB": J.score(vb, obs, scored),
+                         "VB_minus_H30": masked_diff(u30, scored, vb, h, obs),
+                         "bridge": links.stats()}
+            print(f"sens {tag:28s} H30 kappa={sens[tag]['H30']['kappa']:+.3f} (pred {int(h.sum())}) "
+                  f"VB kappa={sens[tag]['VB']['kappa']:+.3f} (pred {int(vb.sum())})", flush=True)
         i1 = dict(cfg)
-        i1["seed_points"] = cfg["seed_points"] + [S["I1_add_west_altadena"]["point"]]
-        i1["seed_minutes"] = list(cfg.get("seed_minutes", [0.0] * len(cfg["seed_points"]))) + [
-            S["I1_add_west_altadena"]["minute"]]
-        st1 = {c: _seed_mask_times(u, i1)[1] for c, u in units.items()}
-        hv("I1_add_west_altadena", float(cfg["wind_speed_kmh"]), st1, obs, scored)
+        if "I1_add_west_altadena" not in S:
+            i1 = None
+        if i1 is not None:
+            i1["seed_points"] = cfg["seed_points"] + [S["I1_add_west_altadena"]["point"]]
+            i1["seed_minutes"] = list(cfg.get("seed_minutes", [0.0] * len(cfg["seed_points"]))) + [
+                S["I1_add_west_altadena"]["minute"]]
+            st1 = {c: _seed_mask_times(u, i1)[1] for c, u in units.items()}
+            hv("I1_add_west_altadena", float(cfg["wind_speed_kmh"]), st1, obs, scored)
         st2 = {c: np.where(_windward(u, S["I2_windward_band"], wf), 0.0, np.inf)
                for c, u in units.items()}
         hv("I2_windward_band", float(cfg["wind_speed_kmh"]), st2, obs, scored)
         for thr in S["gap_cover_threshold"]:
             hv(f"gap_cover_{thr:g}", float(cfg["wind_speed_kmh"]), seed_t, obs, scored, thr=thr)
         if not args.dry_run:
-            all_m = ~np.isin(st, ["Inaccessible"])
-            hv("unsurveyed_as_no_damage", float(cfg["wind_speed_kmh"]), seed_t, obs, all_m)
+            if S.get("unsurveyed_scored_as_no_damage"):
+                all_m = ~np.isin(st, ["Inaccessible"])
+                hv("unsurveyed_as_no_damage", float(cfg["wind_speed_kmh"]), seed_t, obs, all_m)
             maj = np.isin(st, ["Destroyed (>50%)", "Major (25-50%)"])
             hv("outcome_major_or_destroyed", float(cfg["wind_speed_kmh"]), seed_t, maj, scored)
     res.update({"prereg_step3": PREREG_STEP3, "prereg_eaton": pre, "fire": fire, "run_config": cfg,
