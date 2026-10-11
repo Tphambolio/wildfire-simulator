@@ -258,6 +258,11 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
     if run is None:
         raise HTTPException(status_code=404, detail="Simulation not found")
 
+    # Read the status before the frames: the run thread adds its last frames and then sets
+    # the terminal status, so a "completed" read first guarantees every frame is in the list.
+    # (Read after, a run finishing while the frames are serialised was reported "completed"
+    # with frames missing; the client then stops polling. Seen in CI 2026-10-11.)
+    status, error, phase, progress = run.status, run.error, run.phase, run.progress
     engine_frames = run.get_frames()
     frames = [
         _frame_to_schema(f, offset=o)
@@ -269,12 +274,12 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
 
     return SimulationResponse(
         simulation_id=run.id,
-        status=run.status,
+        status=status,
         config=config_out,
         frames=frames,
-        error=run.error,
-        phase=run.phase,
-        progress=run.progress,
+        error=error,
+        phase=phase,
+        progress=progress,
     )
 
 
@@ -406,7 +411,10 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
     await ws_manager.connect(sim_id, websocket)
 
     try:
-        # Send any frames that already exist
+        # Send any frames that already exist. Status first (see get_simulation): frames
+        # added after this snapshot reach the client by broadcast, and a run that finishes
+        # meanwhile gets its "completed" from the loop below, after them.
+        status0 = run.status
         existing = run.get_frames()
         for frame, offset in zip(existing, _cell_offsets(run, existing)):
             await websocket.send_json({
@@ -416,16 +424,16 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
             })
 
         # A client joining a run still computing gets its current phase first
-        if run.status == SimulationStatus.RUNNING and run.phase is not None:
+        if status0 == SimulationStatus.RUNNING and run.phase is not None:
             await websocket.send_json(_status_event(sim_id, run.phase, run.progress if run.phase == "spread" else None))
 
         # If already done, send completion
-        if run.status == SimulationStatus.COMPLETED:
+        if status0 == SimulationStatus.COMPLETED:
             await websocket.send_json({
                 "type": "simulation.completed",
                 "simulation_id": sim_id,
             })
-        elif run.status == SimulationStatus.FAILED:
+        elif status0 == SimulationStatus.FAILED:
             await websocket.send_json({
                 "type": "simulation.error",
                 "simulation_id": sim_id,
@@ -468,6 +476,13 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                     "simulation_id": sim_id,
                     "frame": _frame_to_schema(frames[-1], offset=_cell_offsets(run, frames)[-1]).model_dump(),
                 })
+        elif run.status == SimulationStatus.FAILED and status0 != SimulationStatus.FAILED:
+            # failed after the snapshot above
+            await websocket.send_json({
+                "type": "simulation.error",
+                "simulation_id": sim_id,
+                "error": run.error,
+            })
 
     except WebSocketDisconnect:
         pass

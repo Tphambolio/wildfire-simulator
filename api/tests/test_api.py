@@ -484,6 +484,43 @@ async def test_multiday_incremental_frames_rebuild_cumulative(client):
     assert len(json.dumps(inc)) < 0.5 * len(json.dumps(full))
 
 
+async def test_get_never_reports_completed_with_frames_missing(client):
+    """Race found in CI (2026-10-11): GET read the frames, the run then added its last frames
+    and set COMPLETED, and the response said "completed" with frames missing. The status is
+    now read first; here the run finishes exactly between the two reads."""
+    from firesim.types import FireType, SimulationFrame
+    from firesim_api.routers import simulations as sims
+    from firesim_api.schemas.simulation import SimulationStatus
+    from firesim_api.services.runner import SimulationRun
+
+    def frame(t):
+        return SimulationFrame(time_hours=t, perimeter=[(53.5, -113.5)] * 3, area_ha=t,
+                               head_ros_m_min=1.0, max_hfi_kw_m=1.0, fire_type=FireType.SURFACE,
+                               flame_length_m=1.0, fuel_breakdown={})
+
+    run = SimulationRun("race1", None)
+    run.status = SimulationStatus.RUNNING
+    run.add_frame(frame(0.0))
+    real = run.get_frames
+
+    def get_frames_then_finish():
+        snapshot = real()
+        run.add_frame(frame(1.0))  # the run thread finishes right after the snapshot
+        run.status = SimulationStatus.COMPLETED
+        run.get_frames = real
+        return snapshot
+
+    run.get_frames = get_frames_then_finish
+    sims.runner._runs["race1"] = run
+    try:
+        data = (await client.get("/api/v1/simulations/race1")).json()
+        assert data["status"] == "running" and len(data["frames"]) == 1
+        data = (await client.get("/api/v1/simulations/race1")).json()
+        assert data["status"] == "completed" and len(data["frames"]) == 2
+    finally:
+        sims.runner._runs.pop("race1", None)
+
+
 def test_cancel_before_the_ensemble_starts_skips_it():
     """Cancelled while the deterministic run is still computing: the ensemble never starts."""
     from firesim_api.schemas.simulation import SimulationCreate
