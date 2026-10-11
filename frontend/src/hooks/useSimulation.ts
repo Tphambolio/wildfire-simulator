@@ -83,13 +83,13 @@ export function useSimulation() {
     }
   };
 
-  const _startWithCreateFn = useCallback(async (
-    createFn: () => Promise<{ simulation_id: string }>,
-    durationHours: number | null = null,
-  ) => {
+  /**
+   * Drop the previous run (socket, poll, frames, status) and show a new run as starting.
+   * Returns the new run's token; anything still arriving for an older token is ignored.
+   */
+  const beginRun = useCallback((durationHours: number | null): number => {
     detachSocket();
     const token = ++runTokenRef.current;
-
     setState({
       ...IDLE,
       status: "running",
@@ -97,6 +97,22 @@ export function useSimulation() {
       startedAt: Date.now(),
       durationHours,
     });
+    return token;
+  }, []);
+
+  /**
+   * A run was requested but its request is still being prepared (e.g. the hourly forecast is
+   * being fetched): clear the previous run now, so it is not shown, polled or re-run meanwhile.
+   */
+  const prepareRun = useCallback((durationHours: number | null = null) => {
+    beginRun(durationHours);
+  }, [beginRun]);
+
+  const _startWithCreateFn = useCallback(async (
+    createFn: () => Promise<{ simulation_id: string }>,
+    durationHours: number | null = null,
+  ) => {
+    const token = beginRun(durationHours);
 
     try {
       const resp = await createFn();
@@ -112,6 +128,8 @@ export function useSimulation() {
       ws.onmessage = (event) => {
         if (token !== runTokenRef.current) return;
         const data: WSEvent = JSON.parse(event.data);
+        // Belt and braces: only this run's events (the socket is per run)
+        if (data.simulation_id && data.simulation_id !== simId) return;
 
         if (data.type === "simulation.status" && data.phase) {
           setState((prev) => ({
@@ -194,7 +212,8 @@ export function useSimulation() {
         isRunning: false,
       }));
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- pollForResults is stable (no deps)
+  }, [beginRun]);
 
   const startSimulation = useCallback(
     // Grid runs stream only newly burned cells; withAllCells rebuilds each frame's full list
@@ -205,7 +224,11 @@ export function useSimulation() {
 
   const startMultiDaySimulation = useCallback(
     (params: MultiDaySimulationCreate) =>
-      _startWithCreateFn(() => createMultiDaySimulation(params), (params.days?.length ?? 0) * 24 || null),
+      // Incremental cells as for single runs: a 3-day Edmonton grid run streams ~1.7 MB, not ~21 MB
+      _startWithCreateFn(
+        () => createMultiDaySimulation({ ...params, cells_mode: "incremental" }),
+        (params.days?.length ?? 0) * 24 || null,
+      ),
     [_startWithCreateFn]
   );
 
@@ -295,6 +318,7 @@ export function useSimulation() {
     startSimulation,
     startMultiDaySimulation,
     startPerimeterOverride,
+    prepareRun,
     clearResults,
     setFrameIndex,
     pauseSimulation,

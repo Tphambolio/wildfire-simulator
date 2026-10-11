@@ -218,6 +218,9 @@ interface WeatherPanelProps {
   onSkillOptions?: (opts: SkillOptionsState) => void;
   /** After a run: arm a new ignition on the map ("New ignition" in the run bar) */
   onNewIgnition?: () => void;
+  /** Single run pressed: called before the hourly forecast is fetched, so the previous run
+   * is cleared at once (the request is sent through onStartSimulation once ready) */
+  onRunRequested?: (durationHours: number) => void;
 }
 
 function WeatherPanel({
@@ -235,6 +238,7 @@ function WeatherPanel({
   runBarTarget,
   onSkillOptions,
   onNewIgnition,
+  onRunRequested,
 }: WeatherPanelProps) {
   const fieldId = useId();
 
@@ -633,6 +637,7 @@ function WeatherPanel({
     let hourly = null;
     const spinWanted = spinUpOn && useHourlyForecast;
     if (useHourlyForecast) {
+      onRunRequested?.(durationHours);
       try {
         // Forecast hours aligned to the scenario start, not to now (design spec §2.3); with
         // the spin-up, also the hours from 17:00 before the start

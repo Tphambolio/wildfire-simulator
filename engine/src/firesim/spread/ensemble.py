@@ -77,6 +77,10 @@ class EnsembleFailedError(RuntimeError):
     """Too few ensemble members finished to report percentiles."""
 
 
+class EnsembleCancelledError(RuntimeError):
+    """``should_stop`` asked the ensemble to stop (e.g. the client started a new run)."""
+
+
 # Calibrated defaults (docs/validation.md "Ensemble calibration"; API EnsembleParams).
 DEFAULT_SIGMAS = {
     "wind_dir_sd_deg": 24.0,
@@ -181,12 +185,15 @@ def run_ensemble(
     initial_perimeter: list[tuple[float, float]] | None = None,
     initial_burned: list[tuple[float, float]] | None = None,
     progress=None,
+    should_stop=None,
 ) -> EnsembleResult:
     """Run ``ens.n_members`` perturbed grid-model fires and summarise arrival times.
 
     ``initial_perimeter`` / ``initial_burned`` start every member from an observed fire
     (RPAS perimeter or a previous day), as in the deterministic model.
-    ``progress(done, total)`` is called after each member.
+    ``progress(done, total)`` is called after each member. ``should_stop()`` is checked
+    before each member; when it returns True the ensemble stops with
+    ``EnsembleCancelledError`` (no partial result).
     """
     ens = ens or EnsembleConfig()
     rng = random.Random(ens.seed)
@@ -202,6 +209,8 @@ def run_ensemble(
     ok = np.zeros(ens.n_members, dtype=bool)
     failed: list[dict] = []
     for i in range(ens.n_members):
+        if should_stop is not None and should_stop():
+            raise EnsembleCancelledError(f"cancelled after {i} of {ens.n_members} members")
         member_cfg, k_ros, record = perturb_config(config, ens, rng, base_fmc)
         try:
             arrival = _run_member(member_cfg, k_ros, fuel_grid, terrain_grid, spread_modifier_grid,

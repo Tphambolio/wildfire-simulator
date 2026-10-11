@@ -82,6 +82,34 @@ export interface MockOptions {
    * one every `phaseDelayMs`, as the API does while the grid model computes */
   phases?: boolean;
   phaseDelayMs?: number;
+  /** Keep the ensemble "running" (never completes), as a slow server ensemble does */
+  ensembleNeverCompletes?: boolean;
+}
+
+/** Simulation ID the mocked POST /simulations/multiday returns */
+export const MULTIDAY_ID = "fixture-multiday";
+
+/**
+ * Multi-day frames for a request of `days` days: the fixture's final perimeter every 6 h up to
+ * days x 24 h, whole frames (no cell offsets), area 1000 + hours. Only the clock span and the
+ * area matter to the tests.
+ */
+export function multiDayFrames(days: number): Fixture["frames"] {
+  const last = fixture.frames[fixture.frames.length - 1];
+  const out: Fixture["frames"] = [];
+  for (let h = 6; h <= days * 24; h += 6) {
+    out.push({
+      ...last,
+      time_hours: h,
+      day: Math.ceil(h / 24),
+      area_ha: 1000 + h,
+      burned_cells: null,
+      cells_offset: 0,
+      building_exposure: null,
+      building_exposure_detail: null,
+    });
+  }
+  return out;
 }
 
 export interface MockState {
@@ -91,6 +119,12 @@ export interface MockState {
   wsConnections: number;
   polls: number;
   ensemblePolls: number;
+  /** POST /simulations/multiday bodies */
+  multidayPosts: Array<Record<string, unknown>>;
+  /** Simulation ID of every GET /simulations/{id}/ensemble, in order */
+  ensemblePollIds: string[];
+  /** Simulation ID of every DELETE /simulations/{id}/ensemble (the app stopping an old ensemble) */
+  ensembleCancels: string[];
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -100,7 +134,11 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
   const mode = opts.mode ?? "ws";
   const fx = opts.structure ? structureFixture : fixture;
   const frameDelayMs = opts.frameDelayMs ?? 40;
-  const state: MockState = { posts: [], overridePosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0 };
+  const state: MockState = {
+    posts: [], overridePosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0, multidayPosts: [], ensemblePollIds: [],
+    ensembleCancels: [],
+  };
+  let multiDays = 3;
   const ensembleStep = opts.ensembleStep ?? 8;
 
   // External requests: tiles get a blank PNG, everything else is aborted
@@ -131,12 +169,28 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       state.overridePosts.push(req.postDataJSON() as Record<string, unknown>);
       return json(route, { simulation_id: fx.simulation_id, status: "running", config: fx.config, frames: [], error: null });
     }
+    if (path === "/api/v1/simulations/multiday" && req.method() === "POST") {
+      const body = req.postDataJSON() as Record<string, unknown>;
+      state.multidayPosts.push(body);
+      multiDays = Array.isArray(body.days) ? body.days.length : 3;
+      return json(route, { simulation_id: MULTIDAY_ID, status: "running", config: null, frames: [], error: null });
+    }
+    const ens = path.match(/^\/api\/v1\/simulations\/([^/]+)\/ensemble$/);
+    if (ens && req.method() === "DELETE") {
+      state.ensembleCancels.push(ens[1]);
+      return json(route, { simulation_id: ens[1], status: "running", cancel_requested: true });
+    }
+    if (ens) state.ensemblePollIds.push(ens[1]);
+    if (path === `/api/v1/simulations/${MULTIDAY_ID}/ensemble`) {
+      return json(route, { detail: "No ensemble requested for this run" }, 404);
+    }
     if (path === `/api/v1/simulations/${fx.simulation_id}/arrival`) return json(route, arrival);
     if (path === `/api/v1/simulations/${fx.simulation_id}/ensemble`) {
       if (!opts.ensemble) return json(route, { detail: "No ensemble requested for this run" }, 404);
       const n = ++state.ensemblePolls;
       const total = ensembleFixture.total;
       if (n === 1) return json(route, { status: "pending", done: 0, total });
+      if (opts.ensembleNeverCompletes) return json(route, { status: "running", done: 1, total, error: null });
       const done = (n - 1) * ensembleStep;
       if (done < total) return json(route, { status: "running", done, total, error: null });
       return json(route, ensembleBody);
@@ -157,6 +211,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return;
     }
     const simId = ws.url().split("/").pop();
+    const frames = simId === MULTIDAY_ID ? multiDayFrames(multiDays) : fx.frames;
     let i = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const statuses: Array<[string, number | null]> = opts.phases
@@ -170,8 +225,8 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         timer = setTimeout(next, opts.phaseDelayMs ?? 400);
         return;
       }
-      if (i < fx.frames.length) {
-        ws.send(JSON.stringify({ type: "simulation.frame", simulation_id: simId, frame: fx.frames[i++] }));
+      if (i < frames.length) {
+        ws.send(JSON.stringify({ type: "simulation.frame", simulation_id: simId, frame: frames[i++] }));
         timer = setTimeout(next, frameDelayMs);
       } else {
         ws.send(JSON.stringify({ type: "simulation.completed", simulation_id: simId }));
