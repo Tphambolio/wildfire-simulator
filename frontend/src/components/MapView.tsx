@@ -31,6 +31,8 @@ const STRUCT_COLOR: maplibregl.ExpressionSpecification = [
   "match", ["get", "mechanism"], "front", STRUCT_FRONT, "ember", STRUCT_EMBER, STRUCT_B2B,
 ];
 const STRUCT_EDGE = "#0e1217";
+/** Roof scenario outline (dashed): light amber, reads over every mechanism fill */
+const STRUCT_ROOF = "#ffd166";
 /** Burnt out by hour `t` (design fire ended): charcoal fill, mechanism-coloured outline */
 function structPaint(t: number): { fill: maplibregl.ExpressionSpecification; line: maplibregl.ExpressionSpecification } {
   const out: maplibregl.ExpressionSpecification = ["<=", ["get", "t_out_h"], t + 1e-6];
@@ -277,6 +279,10 @@ interface MapViewProps {
   structureCaveat?: string;
   /** Clock label for hours from the start (popup), e.g. "15:32 MDT" */
   structureClock?: (tH: number) => string;
+  /** Roof scenario runs: "Scenario: 15 % combustible roofs (not observed roofs)" (legend, popup) */
+  structureRoofLabel?: string | null;
+  /** Outline the involved buildings the roof scenario assigned a combustible roof */
+  structureRoofOutline?: boolean;
 }
 
 /** What the RPAS perimeter panel shows on the map (GeoJSON [lng, lat]). */
@@ -329,6 +335,8 @@ export default function MapView({
   structureLabel = "illustrative — not validated in Canada",
   structureCaveat = "",
   structureClock,
+  structureRoofLabel = null,
+  structureRoofOutline = true,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -898,7 +906,7 @@ export default function MapView({
     }
 
     // ── House-to-house spread: involved footprints by mechanism (illustrative) ──
-    for (const id of ["struct-units-fill", "struct-units-line"]) if (m.getLayer(id)) m.removeLayer(id);
+    for (const id of ["struct-units-fill", "struct-units-line", "struct-units-roof"]) if (m.getLayer(id)) m.removeLayer(id);
     if (m.getSource("struct-units")) m.removeSource("struct-units");
     m.addSource("struct-units", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     m.addLayer({
@@ -914,6 +922,18 @@ export default function MapView({
       source: "struct-units",
       layout: { visibility: "none" },
       paint: { "line-color": STRUCT_EDGE, "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.4, 17, 1.2] },
+    });
+    // Roof scenario: dashed outline on the buildings the scenario gave a combustible roof
+    m.addLayer({
+      id: "struct-units-roof",
+      type: "line",
+      source: "struct-units",
+      layout: { visibility: "none" },
+      paint: {
+        "line-color": STRUCT_ROOF,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 1, 17, 2.5],
+        "line-dasharray": [2, 1],
+      },
     });
     const structPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: "240px" });
     const structContent = (p: Record<string, unknown>) => {
@@ -937,6 +957,13 @@ export default function MapView({
         o.className = "map-popup-muted";
         o.textContent = out.charAt(0).toUpperCase() + out.slice(1);
         el.appendChild(o);
+      }
+      if (Number(p.roof) === 1) {
+        const r = document.createElement("div");
+        r.className = "map-popup-muted";
+        r.setAttribute("data-testid", "structure-popup-roof");
+        r.textContent = "Combustible roof (scenario, not observed)";
+        el.appendChild(r);
       }
       const l = document.createElement("div");
       l.className = "struct-popup-label";
@@ -1979,9 +2006,14 @@ export default function MapView({
         m.setLayoutProperty(id, "visibility", structureVisible && structureUnits ? "visible" : "none");
       }
     }
+    if (m.getLayer("struct-units-roof")) {
+      m.setFilter("struct-units-roof", ["all", filter, ["==", ["get", "roof"], 1]]);
+      m.setLayoutProperty("struct-units-roof", "visibility",
+        structureVisible && structureUnits && structureRoofLabel && structureRoofOutline ? "visible" : "none");
+    }
     if (m.getLayer("struct-units-fill")) m.setPaintProperty("struct-units-fill", "fill-color", paint.fill);
     if (m.getLayer("struct-units-line")) m.setPaintProperty("struct-units-line", "line-color", paint.line);
-  }, [structureUnits, structureVisible, frames, currentFrameIndex, mapReady, fireLayersVersion]);
+  }, [structureUnits, structureVisible, structureRoofLabel, structureRoofOutline, frames, currentFrameIndex, mapReady, fireLayersVersion]);
 
   // Isochrone layer visibility
   useEffect(() => {
@@ -2227,6 +2259,12 @@ export default function MapView({
               <div className="burn-prob-legend-row">
                 <div className="burn-prob-legend-swatch struct-swatch-burnt" style={{ background: STRUCT_BURNT }} />
                 <span>Burnt out</span>
+              </div>
+            )}
+            {structureRoofLabel && structureRoofOutline && (
+              <div className="burn-prob-legend-row" data-testid="structure-legend-roof">
+                <div className="burn-prob-legend-swatch struct-swatch-roof" style={{ borderColor: STRUCT_ROOF }} />
+                <span>{structureRoofLabel}</span>
               </div>
             )}
           </div>

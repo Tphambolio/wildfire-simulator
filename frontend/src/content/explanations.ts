@@ -24,6 +24,7 @@ export const BADGES = {
   modelOutput: "Model output",
   unsourced: "Unsourced",
   illustrative: "Illustrative",
+  scenario: "Scenario",
   exposureNotIgnition: "Exposure, not ignition",
   setByPlanning: "Status set by Planning",
   c2Generalisation: "C-2 generalisation",
@@ -107,6 +108,14 @@ export const TIPS = {
   structureEmbers:
     "Buildings also ignited by short-range embers from burning buildings and the front (published " +
     "Californian firebrand model, 150 kW/m² design fire). Illustrative. Needs house-to-house spread.",
+  structureVegBridge:
+    "Buildings up to 20 m apart pass fire as usual; 20–45 m apart only where trees cover at least " +
+    "20 % of the gap (open 1 m canopy map). FireSim rule from the FPInnovations Jasper threshold; " +
+    "not validated.",
+  structureRoofs:
+    "A scenario, not observed roofs: no open data says which roofs are wood shake. This share of " +
+    "buildings, picked at random with the run seed, ignite from embers at 0.375 of the threshold " +
+    "(lab firebrand tests, cedar vs treated pine). Needs ember ignition.",
   wui:
     "425 park-buffer zones with spread ×0.7, intensity ×1.2 and embers ×3.0. These values have no " +
     "documented source; leave off unless testing.",

@@ -36,6 +36,32 @@ class Settings:
         """Default building footprints GeoJSON for non-fuel masking."""
         return os.environ.get("FIRESIM_BUILDINGS_PATH")
 
+    def _sibling_of_buildings(self, env: str, name: str) -> str | None:
+        v = os.environ.get(env)
+        if v:
+            return v
+        b = self.buildings_path
+        if b:
+            p = os.path.join(os.path.dirname(b), name)
+            if os.path.exists(p):
+                return p
+        return None
+
+    @property
+    def building_vegetation_path(self) -> str | None:
+        """Per-building vegetation attributes (structure step 3, open data; keyed by the
+        footprint ``id``). ``FIRESIM_BUILDING_VEGETATION_PATH``, else
+        ``edmonton_building_vegetation.csv.gz`` next to the buildings file when present."""
+        return self._sibling_of_buildings("FIRESIM_BUILDING_VEGETATION_PATH",
+                                          "edmonton_building_vegetation.csv.gz")
+
+    @property
+    def canopy_path(self) -> str | None:
+        """Gap-cover canopy raster (Meta 1 m CHM, open-ground canopy share on ~5 m cells,
+        EPSG:3857) for the vegetation-bridged cutoff. ``FIRESIM_CANOPY_PATH``, else
+        ``edmonton_canopy_5m.tif`` next to the buildings file when present."""
+        return self._sibling_of_buildings("FIRESIM_CANOPY_PATH", "edmonton_canopy_5m.tif")
+
     @property
     def neighbourhoods_path(self) -> str | None:
         """Path to neighbourhood polygons GeoJSON for BuildingIndex partitioning.

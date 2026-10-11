@@ -28,12 +28,16 @@ export function structureCaveat(
   cellM = 50,
   designFireKwM2?: number,
   burnoutMin?: number | null,
+  extra: { bridge?: boolean; roofLabel?: string } = {},
 ): string {
   const l = label.charAt(0).toUpperCase() + label.slice(1);
   return (
     `${l}. Shows modelled involvement, not a prediction of which buildings will burn. ` +
-    `Fire passes between buildings up to ${cutoffM} m apart; front contact is measured on the ` +
-    `~${cellM} m fire grid.` +
+    (extra.bridge
+      ? `Fire passes between buildings up to ${cutoffM} m apart, and up to 45 m apart where the ` +
+        `gap has at least 20 % tree cover (open canopy data; FireSim rule). `
+      : `Fire passes between buildings up to ${cutoffM} m apart; `) +
+    `front contact is measured on the ~${cellM} m fire grid.` +
     (designFireKwM2
       ? ` Ember ignition: short-range embers (about 100 m at most) from burning buildings and the ` +
         `front, published Californian model, ${designFireKwM2} kW/m² design fire.`
@@ -41,8 +45,31 @@ export function structureCaveat(
     (burnoutMin
       ? ` A building stops passing fire ${Math.round(burnoutMin)} min after it is involved, when ` +
         `its design fire ends (burnt out).`
+      : "") +
+    (extra.roofLabel
+      ? ` Roofs: ${extra.roofLabel}; those buildings ignite from embers at 0.375 of the ` +
+        `threshold (lab firebrand tests on cedar vs treated pine).`
       : "")
   );
+}
+
+/** The caveat for a run's counts (summary of its first frame with counts). */
+export function caveatFor(s: SimulationFrame["structure_spread"], cellM = 50): string {
+  if (!s) return "";
+  return structureCaveat(
+    s.label,
+    s.neighbour_cutoff_m ?? 30,
+    cellM,
+    s.embers ? s.design_fire_kw_m2 : undefined,
+    s.burnout ? s.burnout_min : undefined,
+    { bridge: !!s.vegetation_bridged_cutoff, roofLabel: s.roof_scenario?.label },
+  );
+}
+
+/** "Scenario: 15 % combustible roofs (not observed roofs)", or null without a roof scenario. */
+export function roofScenarioLabel(s: SimulationFrame["structure_spread"]): string | null {
+  const l = s?.roof_scenario?.label;
+  return l ? l.charAt(0).toUpperCase() + l.slice(1) : null;
 }
 
 export interface StructurePoint {
@@ -92,7 +119,13 @@ export function structureUnitsGeoJSON(detail: StructureUnitDetail[] | null): Geo
         type: "Feature",
         id: u.id,
         geometry: { type: "Polygon", coordinates: u.polygon },
-        properties: { id: u.id, t_h: u.t_h, t_out_h: u.t_out_h ?? NEVER_H, mechanism: u.mechanism },
+        properties: {
+          id: u.id,
+          t_h: u.t_h,
+          t_out_h: u.t_out_h ?? NEVER_H,
+          mechanism: u.mechanism,
+          roof: u.combustible_roof_scenario ? 1 : 0,
+        },
       })),
   };
 }
