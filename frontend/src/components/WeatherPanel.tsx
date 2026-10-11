@@ -1226,6 +1226,7 @@ function WeatherPanel({
             Use Edmonton fuel grid
           </label>
           <InfoTip label="About the Edmonton fuel grid" text={TIPS.edmontonGrid(fuelType)} />
+          <InfoTip label="About the Alberta Wildfire fuel grid" text={TIPS.albertaGrid} />
         </div>
         <label>
           Grass curing (%){curingRequired ? " · required" : grassCure === null && cureDefault !== null ? " · spring default" : ""}

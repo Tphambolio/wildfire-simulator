@@ -57,6 +57,8 @@ export interface SimulationCreate {
   snapshot_interval_minutes: number;
   fuel_type: string;
   fuel_grid_path?: string | null;
+  /** City grid where mapped, Alberta Wildfire grid elsewhere (API default true) */
+  provincial_fuel?: boolean;
   water_path?: string | null;
   buildings_path?: string | null;
   wui_zones_path?: string | null;
@@ -299,6 +301,17 @@ export interface SimulationResponse {
   phase?: RunPhase | null;
   /** Fraction of the spread computed, 0-1 */
   progress?: number | null;
+  /** Fuel data the run used (absent from older API versions; docs/api-reference.md) */
+  fuel_source?: FuelSourceInfo | null;
+}
+
+/** Which fuel data a run used (API `fuel_source`) */
+export interface FuelSourceInfo {
+  kind: "city" | "provincial" | "national" | "user_grid" | "synthetic" | "uniform" | string;
+  label: string;
+  attribution?: string | null;
+  season?: string | null;
+  share?: Record<string, number> | null;
 }
 
 /** Server-side run phases (API `simulation.status`, docs/api-reference.md) */

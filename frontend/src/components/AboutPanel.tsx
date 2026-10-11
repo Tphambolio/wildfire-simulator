@@ -154,6 +154,7 @@ export default function AboutPanel({ section = null }: { section?: AboutSectionI
         <Section id="about-data" title="4. Data sources and licences">
           <ul>
             <li><strong>Edmonton fuel grid.</strong> {TIPS.edmontonGrid("C-2 (or the fuel type chosen in Setup)")}</li>
+            <li><strong>Alberta Wildfire FBP fuel types 2025, 100 m.</strong> {TIPS.albertaGrid} Data use is governed by the Open Government Licence – Alberta; the image service carries the Government of Alberta disclaimer (provided "as is", no warranty).</li>
             <li><strong>Terrain.</strong> 30 m DEM, UTM 12N (file dated 2011; recorded as Open Government Canada, likely NRCan CDEM, unverified).</li>
             <li><strong>Extra water mask.</strong> {TIPS.waterMask} © OpenStreetMap contributors (ODbL).</li>
             <li><strong>Buildings.</strong> {TIPS.buildings}</li>

@@ -31,11 +31,13 @@ class FineFuelSource:
     """
 
     def __init__(self, idx: np.ndarray, types: list, bounds: tuple[float, float, float, float],
-                 cell_m: float | None = None):
+                 cell_m: float | None = None, pcs: list | None = None):
         """``idx`` (rows, cols) uint8, row 0 = north: 0 = non-fuel, k = ``types[k]``;
-        ``bounds`` = (lat_min, lat_max, lng_min, lng_max)."""
+        ``bounds`` = (lat_min, lat_max, lng_min, lng_max). ``pcs[k]`` is the percent conifer
+        of entry k (M-1/M-2 codes that carry it), None for the run's value."""
         self.idx = np.asarray(idx, dtype=np.uint8)
         self.types: list[FuelType | None] = list(types)
+        self.pcs: list[float | None] = list(pcs) if pcs is not None else [None] * len(self.types)
         self.lat_min, self.lat_max, self.lng_min, self.lng_max = (float(v) for v in bounds)
         self.rows, self.cols = self.idx.shape
         self.cell_lat = (self.lat_max - self.lat_min) / self.rows
@@ -57,9 +59,20 @@ class FineFuelSource:
                     idx[r, c] = types.index(ft)
         return cls(idx, types, (grid.lat_min, grid.lat_max, grid.lng_min, grid.lng_max))
 
+    def with_season(self, day_of_year: int | None) -> "FineFuelSource":
+        """The same grid with leafless labels (D-1, M-1, M-3) swapped for the green types when
+        leaves are on (``firesim.fbp.season``); shares the index array."""
+        from firesim.fbp.season import seasonal_fuel
+
+        types = [seasonal_fuel(t, day_of_year) for t in self.types]
+        if types == self.types:
+            return self
+        return FineFuelSource(self.idx, types, self.bounds, cell_m=self.cell_m, pcs=self.pcs)
+
     @classmethod
     def from_raster(cls, path: str, water_path: str | None = None,
-                    code_scheme: str = "auto") -> "FineFuelSource":
+                    code_scheme: str = "auto", fill_path: str | None = None,
+                    fill_scheme: str = "ab_wildfire") -> "FineFuelSource":
         """Load ``path`` at its native resolution.
 
         Args:
@@ -68,6 +81,9 @@ class FineFuelSource:
                 ``load_fuel_grid`` does for the run grid).
             code_scheme: as ``load_fuel_grid``; "auto" detects it from the whole raster, so
                 every crop uses the run grid's scheme.
+            fill_path, fill_scheme: as ``load_fuel_grid``: cells where ``path`` has no data take
+                the fill raster's class (read on the native lattice, nearest neighbour from
+                100 m), so the 20 m window matches the filled 50 m run grid.
         """
         import rasterio
 
@@ -83,17 +99,42 @@ class FineFuelSource:
         present = np.unique(codes).tolist()
         code_map = _detect_code_map(set(present), code_scheme)
         types: list[FuelType | None] = [None]
+        pcs: list[float | None] = [None]
         idx = np.zeros(codes.shape, dtype=np.uint8)
-        for code in present:
-            ft = code_map.get(int(code))
-            if ft is None:
-                continue
-            if ft not in types:
-                types.append(ft)
-            idx[codes == code] = types.index(ft)
+        layers = [(codes, code_map, None)]
+        if fill_path is not None:
+            from firesim.data.fuel_loader import percent_conifer_for_code
+            from firesim.data.provincial import (
+                NODATA, Lattice, nodata_codes, read_codes_on_lattice,
+            )
+
+            lattice = Lattice(grid.lat_max, grid.lng_min,
+                              (grid.lat_max - grid.lat_min) / codes.shape[0],
+                              (grid.lng_max - grid.lng_min) / codes.shape[1], *codes.shape)
+            fill = read_codes_on_lattice(fill_path, lattice)
+            primary_nodata = np.isin(codes, [NODATA, 0])
+            fill = np.where(primary_nodata & ~np.isin(fill, list(nodata_codes(fill_scheme))),
+                            fill, NODATA)
+            from firesim.data.fuel_loader import CODE_SCHEMES
+
+            layers.append((fill, CODE_SCHEMES[fill_scheme],
+                           lambda c: percent_conifer_for_code(c, fill_scheme)))
+        for layer_codes, layer_map, pc_of in layers:
+            for code in np.unique(layer_codes).tolist():
+                ft = layer_map.get(int(code))
+                if ft is None:
+                    continue
+                pc = pc_of(int(code)) if pc_of is not None else None
+                entry = next((k for k in range(1, len(types))
+                              if types[k] is ft and pcs[k] == pc), None)
+                if entry is None:
+                    types.append(ft)
+                    pcs.append(pc)
+                    entry = len(types) - 1
+                idx[layer_codes == code] = entry
         if len(types) > 255:
             raise ValueError("too many fuel types for the compact native grid")
-        del codes
+        del codes, layers
         bounds = (grid.lat_min, grid.lat_max, grid.lng_min, grid.lng_max)
         if water_path:
             from firesim.data.environment import load_environment_mask
@@ -101,7 +142,7 @@ class FineFuelSource:
             water = load_environment_mask(bounds=bounds, rows=idx.shape[0], cols=idx.shape[1],
                                           water_path=water_path)
             idx[water] = 0
-        src = cls(idx, types, bounds, cell_m=grid.cell_m)
+        src = cls(idx, types, bounds, cell_m=grid.cell_m, pcs=pcs)
         logger.info("Native fuel grid %s: %dx%d at %.0f m (%.1f MB)", os.path.basename(path),
                     src.rows, src.cols, src.cell_m, idx.nbytes / 1e6)
         return src
@@ -152,9 +193,14 @@ class FineFuelSource:
                                              building_geoms=list(geoms[hit]))
                 sub[mask] = 0
         types = self.types
-        fuel_types = [[types[v] for v in row] for row in sub.tolist()]
+        values = sub.tolist()
+        fuel_types = [[types[v] for v in row] for row in values]
+        pc = None
+        if any(p is not None for p in self.pcs):
+            pcs = self.pcs
+            pc = [[pcs[v] for v in row] for row in values]
         return FuelGrid(fuel_types=fuel_types, lat_min=lat_min, lat_max=lat_max,
-                        lng_min=lng_min, lng_max=lng_max, rows=rows, cols=cols)
+                        lng_min=lng_min, lng_max=lng_max, rows=rows, cols=cols, pc=pc)
 
     def nbytes(self) -> int:
         return int(self.idx.nbytes)

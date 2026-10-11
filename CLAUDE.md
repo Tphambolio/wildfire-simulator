@@ -70,7 +70,9 @@ docker compose up --build
 | `spread/simulator.py` | `Simulator` class — main orchestrator, yields `SimulationFrame` per snapshot |
 | `spread/montecarlo.py` | Burn probability (jitter ignition, wind speed, RH over N iterations) |
 | `fwi/classes.py` | FWI display classes (CWFIS FWI map intervals) |
-| `data/fuel_loader.py` | GeoTIFF → `FuelGrid`; integer codes mapped by code scheme (`CODE_SCHEMES`, explicit `code_scheme` or detection) |
+| `data/fuel_loader.py` | GeoTIFF → `FuelGrid`; integer codes mapped by code scheme (`CODE_SCHEMES`, explicit `code_scheme` or detection; `ab_wildfire` = Alberta Wildfire FBP 2025); `fill_path` fills no-data cells from a second raster; per-cell percent conifer (`FuelGrid.pc`) from 6xx / CIFFC codes |
+| `data/provincial.py` | Default fuel outside Edmonton: windowed reads of large rasters onto a lat/lng `Lattice`, source stacking (City where mapped → Alberta grid → national), `choose_fuel` (city / provincial / national / uniform); `docs/fuel-grid-alberta.md` |
+| `fbp/season.py` | Leaf-on / leaf-off swap of D-1, M-1, M-3 labels by day of year (150 / 258; the validation harness uses the same) |
 | `data/dem_loader.py` | DEM GeoTIFF → slope % + aspect ° → `TerrainGrid` |
 | `data/wui_loader.py` | WUI GeoJSON → `SpreadModifierGrid` |
 | `data/synthetic_grid.py` | Demo landscape generator (no data files needed) |
@@ -141,6 +143,9 @@ FIRESIM_WATER_PATH        Water bodies GeoJSON (non-fuel mask)
 FIRESIM_BUILDINGS_PATH    Building footprints GeoJSON
 FIRESIM_NEIGHBOURHOODS_PATH  Neighbourhood polygons (building index; needed for building masks/exposure)
 FIRESIM_GIT_SHA           Set by the Docker build (CI passes the commit); served by /api/v1/version
+FIRESIM_AB_FUEL_GRID_PATH Alberta Wildfire FBP fuel grid COG (default fuel outside the City grid; set by api/Dockerfile)
+FIRESIM_CITY_FUEL_GRID_PATH  City grid path that triggers it (default /app/data/Edmonton_FBP_FuelLayer_20251105_10m.tif)
+FIRESIM_NATIONAL_FUEL_GRID_PATH / _SCHEME, FIRESIM_PROVINCIAL_WINDOW_KM (40), FIRESIM_CITY_MARGIN_KM (5)
 ```
 
 ---
@@ -217,6 +222,7 @@ The engine works without real data using `synthetic_grid.py` (generates a mixed-
 | `edmonton_buildings.geojson.gz` | Microsoft Canadian Building Footprints (ODbL), 346,238 footprints, generated 2025-11-16 per the file metadata. The `type`/`height`/`material`/`roof_type` attributes have no documented source; exposure uses only the footprint geometry | `building_index.py`: mask, inside-perimeter counts, exposure |
 | `edmonton_neighbourhoods.geojson` | City of Edmonton Open Data, Neighbourhoods `65fr-66s6` (OGL – City of Edmonton), 407 polygons | building index, neighbourhood card |
 | `wui_zones.geojson.gz` | Custom, **no documented source** — off by default; don't present results using it as measured | `wui_loader.py` |
+| `ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif` (**not committed**: GitHub release `data-ab-fbp-2025`, fetched by `api/Dockerfile`; built by `scripts/build_ab_fuel_cog.py`) | Alberta Wildfire FBP Fuel Type raster 2025, 100 m, EPSG:3400, © Government of Alberta, Open Government Licence – Alberta (image service: GoA disclaimer). Default fuel where the City grid has no data and outside it (`docs/fuel-grid-alberta.md`) | `data/provincial.py`, `fuel_loader.py` (`ab_wildfire`) |
 | `edmonton_building_vegetation.csv.gz` | Per-footprint canopy cover rings, roof overhang, distance to a 1 ha stand, keyed by footprint `id`; from the Meta/WRI 1 m canopy height map (CC BY 4.0) by `scripts/build_building_vegetation.py`. **Never City LiDAR** | `structures/vegetation.py` (attributes, context only) |
 | `edmonton_canopy_5m.tif` | Open-ground canopy share (%, ≈ 5 m cells, EPSG:3857) from the Meta 1 m CHM with footprints masked (`build_building_vegetation.py canopy-raster`) | vegetation-bridged cutoff (gap woody cover) |
 

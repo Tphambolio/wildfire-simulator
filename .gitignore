@@ -33,6 +33,8 @@ engine/.env
 # Spatial scratch files (committed data lives in data/)
 *.gpkg
 *.gdb/
+# Alberta Wildfire FBP fuel grid COG: a release asset fetched by api/Dockerfile, never committed
+data/ab_wildfire_fbp_fueltype_*.tif
 
 # OS
 .DS_Store

@@ -111,6 +111,18 @@ class FuelGrid:
     # cell) means "use the fuel type's FBP default".
     cbh: list[list[float | None]] | None = None  # crown base height (m)
     cfl: list[list[float | None]] | None = None  # crown fuel load (kg/m2)
+    # Optional per-cell percent conifer for M-1/M-2 cells (e.g. the Alberta Wildfire 6xx or
+    # CIFFC 4xx-6xx codes). None (layer or cell) means "use the run's percent_conifer".
+    pc: list[list[float | None]] | None = None
+
+    def get_pc_at(self, lat: float, lng: float) -> float | None:
+        """Per-cell percent conifer, or None for the run's value."""
+        if self.pc is None or not (
+            self.lat_min <= lat <= self.lat_max and self.lng_min <= lng <= self.lng_max
+        ):
+            return None
+        row, col = self._cell_index(lat, lng)
+        return self.pc[row][col]
 
     def get_canopy_at(self, lat: float, lng: float) -> tuple[float | None, float | None]:
         """Per-cell crown base height and crown fuel load, or (None, None) for defaults."""

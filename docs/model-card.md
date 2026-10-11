@@ -64,7 +64,11 @@ Inputs: ignition point or observed perimeter (optionally with its active edges: 
 along the perimeter or whole sides, from an RPAS thermal flight; the rest is treated as burned
 out), start time, weather (constant or hourly, optionally from 17:00 the evening before for
 the FFMC spin-up), FWI codes, burning period (local hours), FBP
-fuel grid (Edmonton: City canopy-LiDAR product), optional DEM, water and building masks,
+fuel grid (Edmonton: City canopy-LiDAR product; from 2026-10-11 the Alberta Wildfire FBP fuel
+types 2025, 100 m, wherever the City grid has no data and for ignitions outside it, with D-1/D-2
+and M-1/M-2 leaf-on from day of year 150 to 257, per-cell percent conifer from the map and O-1 as
+O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optional DEM, water
+and building masks,
 grass curing, percent conifer / dead fir, foliar moisture or date. Grass curing (decision M1,
 2026-10-10): 95 % by default from 1 March to 29 May (day of year 60-149, between snow-melt and
 green-up), a required entry outside that window whenever O-1 grass can burn (API 422; the UI
@@ -145,6 +149,14 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
 - Spotting is illustrative; active crown fire spotting is underestimated.
 - Burn probability varies only ignition, wind speed and RH (not a Burn-P3-style analysis).
 - Huygens perimeters are convex; use the grid model on heterogeneous fuel.
+- Alberta Wildfire fuel grid (default outside the City grid, 2026-10-11): an operational map
+  with accuracy "unknown" in its own metadata, partly built from the Alberta Vegetation
+  Inventory, 100 m cells; it maps little vegetation inside towns; "vegetated non-fuel" (12 % of
+  the province's mapped cells) is non-fuel, so modelled fire can stop where shrub or wetland
+  burns; O-1 runs as standing grass (O-1b); fixed green-up / leaf-off dates; no terrain outside
+  the Edmonton DEM. Recent burns are re-typed (non-fuel, regenerating aspen, grass), which
+  matters for current fires but confounds tests on past fires (indicative check on 7
+  calibration fire-days: F1 0.287 → 0.295, area bias +0.28 → +0.08; not a skill estimate).
 - Edmonton fuel grid: urban trees are non-fuel. Structure-to-structure spread is only an
   opt-in, illustrative Hamada layer (API `structure_spread`): Japanese empirical coefficients,
   California-only published tests (recall 78-97 %, precision 9-77 %), FireSim's own 10 m

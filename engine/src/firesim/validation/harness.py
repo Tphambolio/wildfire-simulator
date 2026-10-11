@@ -41,6 +41,7 @@ from scipy import ndimage
 
 from firesim.data.fuel_loader import CODE_SCHEMES
 from firesim.fbp.constants import FuelType
+from firesim.fbp.season import GREENUP_DOY, LEAFOFF_DOY
 from firesim.fwi.classes import fwi_class
 from firesim.spread.cellular import burned_outline, run_cellular_simulation
 from firesim.spread.diurnal import SPINUP_FROM_HOUR as _DIURNAL_SPINUP_FROM_HOUR
@@ -100,9 +101,11 @@ class RunOptions:
     enable_spotting: bool = False
     oracle_max_h: int = 17  # Bennett scenario 2: best of hours 1..oracle_max_h
     # Seasonal fuel handling for national grids (D-1/M-1 labels -> green D-2/M-2 in summer)
-    greenup_doy: int = 150
-    leafoff_doy: int = 258
-    percent_conifer: float = 50.0  # M-1/M-2 (the 2014b grid carries no percent conifer)
+    greenup_doy: int = GREENUP_DOY
+    leafoff_doy: int = LEAFOFF_DOY
+    # M-1/M-2 (the 2014b grid carries no percent conifer; ab_wildfire / cfs_national grids carry
+    # it per cell and override this for their M-1/M-2 cells)
+    percent_conifer: float = 50.0
     percent_dead_fir: float = 35.0
     grass_cure_green: float = 60.0  # O-1 curing between green-up and leaf-off
     grass_cure_dormant: float = 90.0  # O-1 curing in spring / fall
@@ -212,17 +215,26 @@ def _seasonal(ft: FuelType | None, doy: int, opts: RunOptions) -> FuelType | Non
 
 def fuel_grid_for(domain: FireDomain, doy: int, opts: RunOptions,
                   non_fuel: np.ndarray | None = None) -> FuelGrid:
-    """FuelGrid from the domain's fuel codes, with the seasonal leafless/green choice."""
+    """FuelGrid from the domain's fuel codes, with the seasonal leafless/green choice and, for
+    schemes whose codes carry it, per-cell percent conifer."""
+    from firesim.data.fuel_loader import percent_conifer_for_code
+
     code_map = CODE_SCHEMES[domain.fuel_scheme]
     lut = {code: _seasonal(ft, doy, opts) for code, ft in code_map.items()}
     codes = domain.fuel
     uniq, inv = np.unique(codes, return_inverse=True)
-    types = np.array([lut.get(int(u)) for u in uniq], dtype=object)[inv.reshape(codes.shape)]
+    inv = inv.reshape(codes.shape)
+    types = np.array([lut.get(int(u)) for u in uniq] + [None], dtype=object)[:-1][inv]
     if non_fuel is not None:
         types[non_fuel] = None
+    pcs = [percent_conifer_for_code(int(u), domain.fuel_scheme) for u in uniq]
+    pc = None
+    if any(p is not None for p in pcs):
+        pc = np.array(pcs + [None], dtype=object)[:-1][inv].tolist()
     return FuelGrid(
         fuel_types=types.tolist(), lat_min=domain.lat_min, lat_max=domain.lat_max,
         lng_min=domain.lng_min, lng_max=domain.lng_max, rows=domain.rows, cols=domain.cols,
+        pc=pc,
     )
 
 

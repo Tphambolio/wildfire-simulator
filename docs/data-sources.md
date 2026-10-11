@@ -2,7 +2,8 @@
 
 Every dataset the frontend ships in `frontend/public/edmonton/`, with its source, licence, date
 and how to refresh it. Engine data (fuel grid, DEM, water, buildings) is listed in
-`CLAUDE.md` (Data Files) and `docs/deployment.md`.
+`CLAUDE.md` (Data Files) and `docs/deployment.md`; the provincial fuel grid (Alberta Wildfire
+FBP fuel types 2025, Open Government Licence – Alberta) in `docs/fuel-grid-alberta.md`.
 
 Attribution shown in the app (Critical assets card footer and map attribution):
 "City of Edmonton Open Data (Open Government Licence – City of Edmonton) · Government of
