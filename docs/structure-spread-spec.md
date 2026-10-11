@@ -605,14 +605,14 @@ never exported, never in ICS forms.
 
 **Compute.** One field per run (one FFT per time bin × class), then M structure runs. The
 Eaton validation (13.5k units, 4,400 ha of crowning wildland, 851 × 1,124 cells at 20 m) is
-reported in [R26].
+reported in [R27].
 
 **Not built.** Spot fires in wildland/yard grid cells from long-range embers (the existing
 `spread/spotting.py` stays the wildland spotting model); column-collapse pulses; turbulent-plume
 tails other than the pre-registered ×2 sensitivity; terrain.
 
 **Validation.** Pre-registered Eaton (primary) / Camp (secondary) test, `PREREG_LR` in
-`scripts/long_range_ember_validation.py`; results in PROJECT_RECORD §4.4 and [R26].
+`scripts/long_range_ember_validation.py`; results in PROJECT_RECORD §4.4 and [R27].
 
 ## 7. Conflicting published values and the choices made
 
