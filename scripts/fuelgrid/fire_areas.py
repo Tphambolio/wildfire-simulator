@@ -280,7 +280,7 @@ def scanfi(a: dict, variant: str) -> None:
     y2, y3 = scanfi_years(a, variant)
     urls = ([f"/vsicurl/{SCANFI}v2/SCANFI_{n}_{y2}_v2_20260119.tif" for n in SCANFI_V2]
             + [f"/vsicurl/{SCANFI}v3/cog_SCANFI_{n}_{y3}_v3_20260528.tif" for n in SCANFI_V3])
-    with ThreadPoolExecutor(4) as ex:
+    with ThreadPoolExecutor(8) as ex:
         bands = list(ex.map(lambda u: _warp_remote(u, grid, Resampling.bilinear), urls))
     _wt(dest, np.stack(bands).astype(np.float32), grid, nodata=np.nan,
         band_names=[f"v2_{n}" for n in SCANFI_V2] + [f"v3_{n}" for n in SCANFI_V3],
@@ -392,7 +392,7 @@ def _read_s2(href: str, grid: Grid, resampling: Resampling, overview: int | None
     raise RuntimeError("unreachable")
 
 
-def sentinel2(a: dict, variant: str, workers: int = 6) -> None:
+def sentinel2(a: dict, variant: str, workers: int = 10) -> None:
     grid = area_grid(a)
     windows = s2_windows(a, variant)
     for season, wins in windows.items():
@@ -510,7 +510,11 @@ def chm_all(areas: list[dict], keep_tiles: bool = False) -> None:
                     continue
                 sg = Grid(g.x0 + c0 * CELL, g.y0 - r0 * CELL, c1 - c0, r1 - r0, CELL, CRS)
                 if fid not in acc:
-                    acc[fid] = {k: np.zeros(g.shape, np.float32) for k in ("valid", "ge5", "ge2", "h", "h5")}
+                    # disk-backed accumulators: many areas are open at once while tiles stream
+                    shared_dir(a).mkdir(parents=True, exist_ok=True)
+                    acc[fid] = {k: np.lib.format.open_memmap(shared_dir(a) / f"_chm_acc_{k}.npy", "w+",
+                                                             np.float32, g.shape)
+                                for k in ("valid", "ge5", "ge2", "h", "h5")}
                 A = acc[fid]
                 fine = Grid(sg.x0, sg.y0, sg.width * sub, sg.height * sub, 1.0, CRS)
                 with rasterio.open(path) as src, WarpedVRT(src, crs=CRS, transform=fine.transform,
@@ -533,7 +537,11 @@ def chm_all(areas: list[dict], keep_tiles: bool = False) -> None:
             # areas whose last tile this was: write
             for fid in tiles[t]:
                 if all(fid not in tiles[u] for u in order[i + 1:]) and fid in acc:
-                    _write_chm(byid[fid], acc.pop(fid))
+                    A = acc.pop(fid)
+                    _write_chm(byid[fid], A)
+                    for k in list(A):
+                        A[k]._mmap.close()
+                        (shared_dir(byid[fid]) / f"_chm_acc_{k}.npy").unlink(missing_ok=True)
             if not keep_tiles and t != "021211312":
                 path.unlink(missing_ok=True)
 
@@ -613,9 +621,19 @@ def osm(a: dict) -> None:
         return
     import pyogrio
     grid = area_grid(a)
-    pbf = C.RAW / "alberta-latest.osm.pbf"
-    df = pyogrio.read_dataframe(pbf, layer="multipolygons", bbox=tuple(a["lonlat"]),
-                                columns=["landuse", "natural", "leisure", "amenity"])
+    cache = FIRES_DIR / "osm_fire_areas_multipolygons.gpkg"
+    if not cache.exists():  # one pass over the Alberta extract for every fire area
+        b = np.array([x["lonlat"] for x in load_areas()])
+        bb = (b[:, 0].min(), b[:, 1].min(), b[:, 2].max(), b[:, 3].max())
+        d = pyogrio.read_dataframe(C.RAW / "alberta-latest.osm.pbf", layer="multipolygons", bbox=tuple(bb),
+                                   columns=["landuse", "natural", "leisure", "amenity"])
+        keep = np.zeros(len(d), bool)
+        for rules in C.OSM_RULES.values():
+            for key, vals in rules.items():
+                keep |= d[key].isin(vals).to_numpy()
+        pyogrio.write_dataframe(d[keep], cache.with_suffix(".part.gpkg"), driver="GPKG")
+        cache.with_suffix(".part.gpkg").rename(cache)
+    df = pyogrio.read_dataframe(cache, bbox=tuple(a["lonlat"]))
     df = df[df.geometry.notna()].to_crs(CRS)
     out = np.zeros(grid.shape, np.uint8)
     counts = {}
@@ -660,7 +678,12 @@ def scar_mask(a: dict) -> None:
         df = df.cx[bb[0]:bb[2], bb[1]:bb[3]]
         years_hit[y] = len(df)
         if len(df):
-            df = df.to_crs(CRS)
+            # clip the (sometimes enormous) NBAC polygons to the area box before reprojecting
+            import shapely
+            pad = 2000.0
+            df = df.set_geometry(shapely.clip_by_rect(df.geometry.values, bb[0] - pad, bb[1] - pad,
+                                                      bb[2] + pad, bb[3] + pad))
+            df = df[~df.geometry.is_empty].to_crs(CRS)
             r = rasterize(((g, 1) for g in df.geometry if g is not None), out_shape=grid.shape,
                           transform=grid.transform, fill=0, dtype="uint8")
             m[r > 0] = 1
@@ -808,7 +831,9 @@ def fetch(a: dict, variant: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("stage", choices=["areas", "fetch", "chm", "build", "chm-dates", "model"])
+    ap.add_argument("stage", choices=["areas", "fetch", "chm", "build", "chm-dates", "model", "all"])
+    ap.add_argument("--clean", action="store_true",
+                    help="all: delete an area's fetched inputs once its grid is built (disk)")
     ap.add_argument("--variant", choices=["current", "prefire"], default="current")
     ap.add_argument("--only", nargs="*", default=None)
     args = ap.parse_args(argv)
@@ -833,6 +858,24 @@ def main(argv: list[str] | None = None) -> int:
     elif args.stage == "build":
         for x in areas:
             build(x, args.variant)
+    elif args.stage == "all":
+        # sequential (one heavy job at a time): model, CHM for every area, then per area and
+        # variant: fetch -> build -> optionally delete the variant's inputs
+        full_model()
+        chm_all(areas)
+        for x in sorted(areas, key=lambda a: a["grid"][2] * a["grid"][3]):
+            for variant in (("current", "prefire") if x["prefire"] else ("current",)):
+                if not (area_dir(x, variant) / "opendata_grid.npz").exists():
+                    fetch(x, variant)
+                    build(x, variant)
+                else:  # built before a restart; still make sure the shared layers exist
+                    for fn in (buildings, osm, cfs2026, scar_mask):
+                        fn(x)
+                if args.clean:
+                    for f in area_dir(x, variant).glob("*.tif"):
+                        if f.name.startswith(("s2_", "scanfi")):
+                            f.unlink()
+                log.info("%s %s built", x["fire_id"], variant)
     return 0
 
 

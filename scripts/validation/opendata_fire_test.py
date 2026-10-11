@@ -359,6 +359,29 @@ def growth_composition(keys: list) -> dict:
             for k, v in sorted(area.items(), key=lambda t: -t[1])}
 
 
+def rule_shares() -> dict:
+    """Area share of each decision-key rule and class in the open grids (descriptive)."""
+    from scripts.fuelgrid import config as FC
+    from scripts.fuelgrid import fire_areas as FA
+    out = {}
+    for variant in ("current", "prefire"):
+        rules = np.zeros(9)
+        classes = np.zeros(10)
+        stands_in_scar = []
+        for a in FA.load_areas():
+            p = FA.area_dir(a, variant) / "opendata_grid.npz"
+            if not p.exists():
+                continue
+            z = np.load(p)
+            rules += np.bincount(z["rule"].ravel(), minlength=9)[:9]
+            classes += np.bincount(z["cls"].ravel(), minlength=10)[:10]
+        if rules.sum():
+            out[variant] = {"rules": {FC.RULES[i]: float(rules[i] / rules.sum()) for i in range(1, 9)},
+                            "classes": {FC.CLASS_NAMES[i]: float(classes[i] / classes.sum())
+                                        for i in range(10) if classes[i]}}
+    return out
+
+
 def cmd_analyse(args) -> None:
     from firesim.validation.report import split_fires
     runs = {g: _read_run(g) for g in GRIDS}
@@ -436,6 +459,7 @@ def cmd_analyse(args) -> None:
                       for g in GRIDS if runs[g] and any(k in runs[g] for k in keys)}}
     res["per_fire"] = pf
     res["growth_composition_2014b"] = growth_composition(allkeys)
+    res["open_grid_rules"] = rule_shares()
     # growth fuel mix per grid (harness view, area-weighted)
     mix = {}
     for g in GRIDS:
@@ -496,6 +520,10 @@ def write_markdown(res: dict, path: Path) -> None:
           "|---|---|---|---|"]
     for k, v in res["growth_composition_2014b"].items():
         L.append(f"| {k} | {v['ha']:,} | {100 * v['share']:.1f} % | {v['days_ge5pct']} |")
+    for variant, r in res.get("open_grid_rules", {}).items():
+        L += ["", f"## Open grid ({variant}) over all fire areas: decision-key rules and classes", ""]
+        L += [f"- rule {k}: {100 * v:.2f} %" for k, v in r["rules"].items()]
+        L += ["- classes: " + ", ".join(f"{k} {100 * v:.1f} %" for k, v in r["classes"].items())]
     L += ["", "## Observed growth by fuel type, each grid (harness view, area-weighted)", ""]
     for g, m in res["growth_fuel_mix_by_grid"].items():
         L.append(f"- **{g}**: " + ", ".join(f"{k} {100 * v:.1f} %" for k, v in m.items()))
