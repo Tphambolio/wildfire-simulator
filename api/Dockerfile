@@ -29,9 +29,20 @@ ARG AB_FUEL_URL=https://github.com/Tphambolio/wildfire-simulator/releases/downlo
 ARG AB_FUEL_SHA256=e9555f401c4932f348db09a54231bb8123b3598794f15e9346c002fc934a991f
 COPY scripts/fetch_ab_fuel_grid.py /tmp/fetch_ab_fuel_grid.py
 RUN python /tmp/fetch_ab_fuel_grid.py "$AB_FUEL_URL" "$AB_FUEL_SHA256" \
-        /app/data/ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif \
-    && rm /tmp/fetch_ab_fuel_grid.py
+        /app/data/ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif
 ENV FIRESIM_AB_FUEL_GRID_PATH=/app/data/ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif
+
+# Alberta building footprints (Microsoft Canadian Building Footprints 2019, ODbL; FlatGeobuf
+# with a packed R-tree, 372 MB, 1,777,439 footprints): read by window only, never loaded whole.
+# Not in git: fetched from the repository's data release and checked against its SHA-256. If
+# the download fails the build continues and the API uses the Edmonton buildings file only
+# (docs/buildings-alberta.md).
+ARG AB_BUILDINGS_URL=https://github.com/Tphambolio/wildfire-simulator/releases/download/data-ab-buildings-ms2019/ab_buildings_ms2019.fgb
+ARG AB_BUILDINGS_SHA256=14f0d6760665d332d74917798071bef893dd372b2b6b9f217a82c907da4405f8
+RUN python /tmp/fetch_ab_fuel_grid.py "$AB_BUILDINGS_URL" "$AB_BUILDINGS_SHA256" \
+        /app/data/ab_buildings_ms2019.fgb "Alberta buildings" \
+    && rm /tmp/fetch_ab_fuel_grid.py
+ENV FIRESIM_AB_BUILDINGS_PATH=/app/data/ab_buildings_ms2019.fgb
 
 # Commit of this build, reported by GET /api/v1/version
 ARG GIT_SHA=unknown

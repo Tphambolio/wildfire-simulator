@@ -3,7 +3,9 @@
 Every dataset the frontend ships in `frontend/public/edmonton/`, with its source, licence, date
 and how to refresh it. Engine data (fuel grid, DEM, water, buildings) is listed in
 `CLAUDE.md` (Data Files) and `docs/deployment.md`; the provincial fuel grid (Alberta Wildfire
-FBP fuel types 2025, Open Government Licence – Alberta) in `docs/fuel-grid-alberta.md`.
+FBP fuel types 2025, Open Government Licence – Alberta) in `docs/fuel-grid-alberta.md`; the
+Alberta building footprints (Microsoft Canadian Building Footprints 2019, ODbL; Statistics
+Canada's Open Database of Buildings evaluated, not used) in `docs/buildings-alberta.md`.
 
 Attribution shown in the app (Critical assets card footer and map attribution):
 "City of Edmonton Open Data (Open Government Licence – City of Edmonton) · Government of
@@ -169,6 +171,27 @@ with `name`, `neighbourhood`, `ward`, `district`; bundled 2026-03-22 (the same l
 `data/edmonton_neighbourhoods.geojson`). Open Government Licence – City of Edmonton.
 Refresh from https://data.edmonton.ca/resource/65fr-66s6.geojson and keep the same property
 names.
+
+## `../alberta/census_subdivisions.geojson`: community units outside Edmonton
+
+Statistics Canada, 2021 Census cartographic boundary file, census subdivisions
+(`lcsd000b21a`), Alberta (PRUID 48), from the StatCan geography REST service
+(`geo.statcan.gc.ca/geo_wa/rest/services/2021/Cartographic_boundary_files/MapServer/9`),
+fetched 2026-10-11. Statistics Canada Open Licence ("Source: Statistics Canada, 2021 Census
+boundary files"). 422 polygons (Alberta's 423 without Edmonton, 4811061, which keeps its
+neighbourhoods), simplified to ~30 m (topology preserved), 5-decimal coordinates, 1.3 MB
+(340 KB gzipped), properties `name` (CSD name; "Name (type)" where a name repeats), `csduid`,
+`csdtype`, `source`. Refresh: `python scripts/build_ab_communities.py --out
+frontend/public/alberta/census_subdivisions.geojson`. The app merges them with the Edmonton
+neighbourhoods (`mergeCommunities`) and tags them "CSD" in the Neighbourhoods card.
+
+## Buildings (engine data)
+
+Microsoft Canadian Building Footprints (2019), Alberta, © Microsoft, Open Data Commons Open
+Database License (ODbL) 1.0. The derived file `ab_buildings_ms2019.fgb` (geometry, `id`,
+`area_m2`; no addresses) is a database under ODbL and is distributed under ODbL with this
+attribution: "Building footprints: Microsoft Canadian Building Footprints (2019), Open Data
+Commons ODbL". The API returns the same line in `buildings_source.attribution`.
 
 ## How the app uses them
 

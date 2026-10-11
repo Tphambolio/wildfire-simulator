@@ -1973,6 +1973,13 @@ label.field > input[aria-invalid="true"] {
   margin: 0 0 var(--sp-2);
 }
 
+.evac-source-tag {
+  font-size: 0.75em;
+  font-weight: 400;
+  color: var(--text-muted, #9aa4b2);
+  margin-left: 0.25em;
+}
+
 .evac-arrival-table {
   width: 100%;
   border-collapse: collapse;
