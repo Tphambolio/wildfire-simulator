@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from array import array
 
 import numpy as np
 import rasterio
@@ -32,6 +33,16 @@ logger = logging.getLogger(__name__)
 
 # Maximum raster dimensions before refusing to process (same limit as fuel loader)
 _MAX_RASTER_CELLS = 10_000 * 10_000
+
+
+def _float_rows(a: np.ndarray) -> list[array]:
+    """2-D array as a list of ``array('d')`` rows (same float64 values)."""
+    out = []
+    for row in np.ascontiguousarray(a, dtype=np.float64):
+        r = array("d")
+        r.frombytes(row.tobytes())
+        out.append(r)
+    return out
 
 
 def load_terrain_grid(
@@ -121,9 +132,12 @@ def load_terrain_grid(
     # Flat cells get aspect 0 (undefined, will have no slope effect anyway)
     aspect_deg[slope_pct < 0.1] = 0.0
 
-    # Convert numpy arrays to Python lists (required by TerrainGrid)
-    slope_list: list[list[float]] = slope_pct.tolist()
-    aspect_list: list[list[float]] = aspect_deg.tolist()
+    # Rows as array('d'): indexed like lists of floats (``slope[row][col]`` is a Python float
+    # with the same value), at 8 bytes per cell instead of a Python float object each. The
+    # Edmonton DEM (~4.8 million cells) held ~560 MB as lists, ~76 MB this way; it stays in
+    # the API's grid cache for the life of the process (2 GB server).
+    slope_list = _float_rows(slope_pct)
+    aspect_list = _float_rows(aspect_deg)
 
     grid = TerrainGrid(
         slope=slope_list,

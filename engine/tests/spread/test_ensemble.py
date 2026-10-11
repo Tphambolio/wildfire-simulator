@@ -115,3 +115,14 @@ def test_defaults_match_documented_calibration():
     for k, v in DOCUMENTED_SIGMAS.items():
         assert f"`{k}` = {v:g}" in section, k
         assert f"`{k}` {v:g}" in api, k
+
+
+def test_should_stop_cancels_before_the_next_member():
+    """A client that starts a new run stops the old ensemble between members (no result)."""
+    from firesim.spread.ensemble import EnsembleCancelledError
+
+    done = []
+    with pytest.raises(EnsembleCancelledError, match="after 2 of 6"):
+        run_ensemble(_config(hours=0.5), _grid(40), EnsembleConfig(n_members=6, seed=1),
+                     progress=lambda d, n: done.append(d), should_stop=lambda: len(done) >= 2)
+    assert done == [1, 2]

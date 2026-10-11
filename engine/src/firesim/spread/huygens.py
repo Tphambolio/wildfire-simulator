@@ -19,6 +19,7 @@ References:
 
 from __future__ import annotations
 
+import bisect
 import math
 from dataclasses import dataclass, field
 
@@ -160,6 +161,7 @@ class TerrainGrid:
     Stores pre-computed slope (%) and aspect (degrees) for each cell.
     """
 
+    # [row][col]; rows may be lists or array('d') (dem_loader: compact rows)
     slope: list[list[float]]  # percent slope [row][col]
     aspect: list[list[float]]  # degrees (0=N, 90=E) [row][col]
     lat_min: float
@@ -233,6 +235,8 @@ class SpreadModifierGrid:
         )
 
 
+_MISSING = object()
+
 # Meters per degree of latitude (approximate)
 _M_PER_DEG_LAT = 111320.0
 
@@ -279,11 +283,47 @@ def expand_vertex(
     Returns:
         List of new vertices forming the wavelet ellipse
     """
+    offsets = _wavelet_offsets(
+        conditions, fuel_type, slope_pct, aspect_deg, dt_minutes, num_rays, ros_modifier,
+        cbh, cfl, accel_window,
+    )
+    return _place_wavelet(vertex, offsets)
+
+
+def _place_wavelet(
+    vertex: FireVertex, offsets: list[tuple[float, float]] | None
+) -> list[FireVertex]:
+    """The wavelet's vertices: metre offsets (north, east) from ``vertex``; None = no spread."""
+    if offsets is None:
+        return [vertex]
+    m_per_lng = _m_per_deg_lng(vertex.lat)
+    lat, lng = vertex.lat, vertex.lng
+    return [
+        FireVertex(lat=lat + dn / _M_PER_DEG_LAT, lng=lng + de / m_per_lng)
+        for dn, de in offsets
+    ]
+
+
+def _wavelet_offsets(
+    conditions: SpreadConditions,
+    fuel_type: FuelType,
+    slope_pct: float,
+    aspect_deg: float,
+    dt_minutes: float,
+    num_rays: int,
+    ros_modifier: float,
+    cbh: float | None,
+    cfl: float | None,
+    accel_window: tuple[float, float] | None,
+) -> list[tuple[float, float]] | None:
+    """Metre offsets (north, east) of the wavelet's ray end points from the vertex, or None
+    when the fire does not spread. Depends only on the local inputs, not on the vertex, so a
+    front in uniform fuel and terrain computes it once per step (``expand_fire_front``)."""
     fbp = fbp_for_conditions(conditions, fuel_type, slope_pct, aspect_deg, cbh, cfl)
 
     head_ros = fbp.ros_final * ros_modifier
     if head_ros <= 0.001:
-        return [vertex]  # No spread
+        return None  # No spread
     back_ros = fbp.back_ros * ros_modifier
     flank_ros = fbp.flank_ros * ros_modifier
     if accel_window is not None:
@@ -294,7 +334,7 @@ def expand_vertex(
         back_ros *= g
         flank_ros = (head_ros + back_ros) / (2.0 * lb_t)
         if head_ros <= 1e-9:
-            return [vertex]
+            return None
 
     # Ellipse in rate space: semi-major (head + back) / 2, semi-minor = FROS,
     # centre displaced (head - back) / 2 toward the head along RAZ.
@@ -305,9 +345,7 @@ def expand_vertex(
     offset_n = center_offset * math.cos(spread_dir_rad)
     offset_e = center_offset * math.sin(spread_dir_rad)
 
-    m_per_lng = _m_per_deg_lng(vertex.lat)
-
-    wavelet_points = []
+    offsets: list[tuple[float, float]] = []
     for i in range(num_rays):
         # Ray direction (degrees, 0=N, clockwise) measured from the ellipse centre
         ray_deg = 360.0 * i / num_rays
@@ -323,15 +361,9 @@ def expand_vertex(
         dist_m = ray_ros * dt_minutes
         total_dn = offset_n + dist_m * math.cos(ray_rad)
         total_de = offset_e + dist_m * math.sin(ray_rad)
+        offsets.append((total_dn, total_de))
 
-        wavelet_points.append(
-            FireVertex(
-                lat=vertex.lat + total_dn / _M_PER_DEG_LAT,
-                lng=vertex.lng + total_de / m_per_lng,
-            )
-        )
-
-    return wavelet_points
+    return offsets
 
 
 def expand_fire_front(
@@ -366,6 +398,7 @@ def expand_fire_front(
         New fire front vertices (expanded)
     """
     all_points: list[FireVertex] = []
+    wavelet_cache: dict[tuple, list[tuple[float, float]] | None] = {}
 
     for vertex in front:
         # Look up local fuel type
@@ -390,20 +423,18 @@ def expand_fire_front(
         if spread_modifier_grid is not None:
             ros_mod, _, _ = spread_modifier_grid.get_modifiers_at(vertex.lat, vertex.lng)
 
-        # Expand this vertex
-        wavelet = expand_vertex(
-            vertex=vertex,
-            conditions=conditions,
-            fuel_type=fuel,
-            slope_pct=slope_pct,
-            aspect_deg=aspect_deg,
-            dt_minutes=dt_minutes,
-            num_rays=num_rays,
-            ros_modifier=ros_mod,
-            cbh=cbh,
-            cfl=cfl,
-            accel_window=accel_window,
-        )
+        # Expand this vertex. The wavelet's shape depends only on the local inputs, so
+        # vertices with the same fuel, terrain and modifiers share it (uniform fuel: once
+        # per step); the result is the same as expanding each vertex on its own.
+        key = (fuel, slope_pct, aspect_deg, ros_mod, cbh, cfl)
+        offsets = wavelet_cache.get(key, _MISSING)
+        if offsets is _MISSING:
+            offsets = _wavelet_offsets(
+                conditions, fuel, slope_pct, aspect_deg, dt_minutes, num_rays, ros_mod,
+                cbh, cfl, accel_window,
+            )
+            wavelet_cache[key] = offsets
+        wavelet = _place_wavelet(vertex, offsets)
 
         # Clip rays that land on non-fuel — shorten to barrier boundary
         if fuel_grid is not None:
@@ -454,17 +485,14 @@ def simplify_front(
         return points
 
     # Calculate centroid
-    cx = sum(p.lat for p in points) / len(points)
-    cy = sum(p.lng for p in points) / len(points)
+    xs = [p.lat for p in points]
+    ys = [p.lng for p in points]
+    cx = sum(xs) / len(points)
+    cy = sum(ys) / len(points)
 
-    # Sort points by angle from centroid
-    def angle_key(p: FireVertex) -> float:
-        return math.atan2(p.lng - cy, p.lat - cx)
-
-    sorted_points = sorted(points, key=angle_key)
-
-    # Convex hull via Graham scan
-    hull = _convex_hull(sorted_points)
+    # Convex hull (monotone chain; it sorts the points itself, so the input order does not
+    # matter)
+    hull = _convex_hull(points)
 
     if len(hull) < 3:
         return hull
@@ -483,19 +511,28 @@ def _convex_hull(points: list[FireVertex]) -> list[FireVertex]:
     if len(pts) <= 2:
         return pts
 
-    # Build lower hull
-    lower: list[FireVertex] = []
-    for p in pts:
-        while len(lower) >= 2 and _cross(lower[-2], lower[-1], p) <= 0:
-            lower.pop()
-        lower.append(p)
+    # Build lower and upper hulls. Same arithmetic as ``_cross`` on plain floats (hot loop:
+    # thousands of wavelet points per step).
+    xs = [p.lat for p in pts]
+    ys = [p.lng for p in pts]
 
-    # Build upper hull
-    upper: list[FireVertex] = []
-    for p in reversed(pts):
-        while len(upper) >= 2 and _cross(upper[-2], upper[-1], p) <= 0:
-            upper.pop()
-        upper.append(p)
+    def chain(order) -> list[int]:
+        out: list[int] = []
+        for i in order:
+            bx, by = xs[i], ys[i]
+            while len(out) >= 2:
+                o, a = out[-2], out[-1]
+                ox, oy = xs[o], ys[o]
+                if (xs[a] - ox) * (by - oy) - (ys[a] - oy) * (bx - ox) <= 0:
+                    out.pop()
+                else:
+                    break
+            out.append(i)
+        return out
+
+    n = len(pts)
+    lower = [pts[i] for i in chain(range(n))]
+    upper = [pts[i] for i in chain(range(n - 1, -1, -1))]
 
     return lower[:-1] + upper[:-1]
 
@@ -518,21 +555,32 @@ def _resample_angular(
     if not hull:
         return hull
 
-    # Sort hull by angle from centroid
-    def angle(p: FireVertex) -> float:
-        return math.atan2(p.lng - cy, p.lat - cx)
+    # Sort hull by angle from centroid (stable: equal angles keep the hull order)
+    angles = [math.atan2(p.lng - cy, p.lat - cx) for p in hull]
+    order = sorted(range(len(hull)), key=angles.__getitem__)
+    hull_sorted = [hull[i] for i in order]
+    a_sorted = [angles[i] for i in order]
+    n = len(a_sorted)
 
-    hull_sorted = sorted(hull, key=angle)
-
-    # For each target angle, find the hull vertex closest to that angle
-    # and interpolate if needed
+    # For each target angle, the hull vertex closest in angle: the first of the sorted
+    # vertices with the smallest |angle - target| (what min() over the sorted list returns),
+    # found by bisection instead of a scan
     result = []
     for i in range(num_points):
         target_angle = -math.pi + 2.0 * math.pi * i / num_points
-
-        # Find the two hull vertices that bracket this angle
-        best = min(hull_sorted, key=lambda p: abs(angle(p) - target_angle))
-        result.append(best)
+        j = bisect.bisect_left(a_sorted, target_angle)
+        if j == 0:
+            best = 0
+        else:
+            below = abs(a_sorted[j - 1] - target_angle)
+            if j < n and abs(a_sorted[j] - target_angle) < below:
+                best = j
+            else:
+                # the first vertex at that distance (equal angles, or rounding ties)
+                best = j - 1
+                while best > 0 and abs(a_sorted[best - 1] - target_angle) == below:
+                    best -= 1
+        result.append(hull_sorted[best])
 
     # Remove duplicates while preserving order
     seen = set()

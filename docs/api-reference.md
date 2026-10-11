@@ -124,9 +124,24 @@ Start a new fire spread simulation.
   or 70 min (400) after it is involved; a Hamada crossing not complete by then never arrives
   (`docs/structure-spread-spec.md` §4.3; a FireSim extension, Hamada has no burnout). `false`
   gives the published Hamada model.
+- `structure_vegetation_bridge` (optional, default `false`; **needs `structure_spread: true`**,
+  else 422): the vegetation-bridged cutoff (spec §4.6, a FireSim heuristic): buildings ≤ 20 m
+  apart link as usual, 20-45 m apart only when the gap between them carries ≥ 20 % woody cover
+  (FPInnovations WF TR 2025 n.04 p.24), measured on the open Meta 1 m canopy height map
+  (server file `FIRESIM_CANOPY_PATH`, default `edmonton_canopy_5m.tif` next to the buildings
+  file). Replaces the 30 m cutoff. Where no canopy data cover the run area nothing is bridged
+  (plain 20 m cutoff; counts say `bridge_canopy_data: false`).
+- `structure_combustible_roof_share` (optional, default `0`; one of `0`, `0.05`, `0.15`, `0.30`,
+  else 422; values above 0 **need `structure_embers: true`**, else 422): the combustible-roof
+  scenario (spec §6.2). That share of buildings, chosen at random from the run `seed` and the
+  building id, ignite from embers at 0.375 × ψ* (DeBeer 2023, firebrand piles on cedar vs pine
+  treated wood). **A scenario, not observed roofs.**
+- Per-building vegetation attributes (spec §2.1; no request flag): when the server has
+  `FIRESIM_BUILDING_VEGETATION_PATH` (default `edmonton_building_vegetation.csv.gz` next to the
+  buildings file) and the footprints carry an `id`, involved units in the detail gain `veg`.
 - `cells_mode` (grid runs): `"cumulative"` (default) repeats every burned cell in each frame;
   `"incremental"` sends only the cells burned since the previous frame (a 24 h run: about
-  1.6 MB instead of 35 MB). Multi-day runs are always cumulative.
+  1.6 MB instead of 35 MB). Multi-day runs have their own `cells_mode` (below).
 
 **Response (201):**
 
@@ -202,9 +217,9 @@ the spread has computed, 0-1. Clients that poll (no WebSocket) use them for the 
 | `head_ros_m_min` | the head fire's front speed: the fastest head cell reached since the previous frame |
 | `head` | that cell: `{lat, lng, ros, raz (deg, direction of spread), hfi, cfb, fuel, t, max_spot_distance_m}`; the spotting distance is Albini's maximum (surface-fire or torching-tree model) with the 10 m wind at that time; `null` when no head cell was reached |
 | `building_exposure`, `building_exposure_detail` | see `docs/building-exposure.md` |
-| `structure_spread` | only with the request flag `structure_spread`, else `null`: counts by this frame `{model: "hamada", label: "illustrative — not validated in Canada", computed: true, units_in_run, units_built, units_front_contact, units_structure_to_structure, units_involved, units_burning, units_burnt_out, burnout, burnout_min, design_fire_kw_m2, combustible_fraction, neighbour_cutoff_m, wildland_contact_m, front_contact_rule}`. `units_burning` + `units_burnt_out` = `units_involved`: a unit is burnt out once its design fire has ended (`burnout_min` after involvement; `burnout: false` → `burnout_min: null` and `units_burnt_out: 0`). `units_in_run`: buildings whose centroid is in the run area (fuel grid box); `units_built`: units built for the area the spread can reach (spec §2); `units_front_contact`: units reached by the wildland front (a burned cell within `wildland_contact_m` of a grid cell the footprint touches; `front_contact_rule: "building_cells"`); `units_structure_to_structure`: units reached from another unit (Hamada). With `structure_embers` the counts also carry `embers: true`, `design_fire_kw_m2`, `ember_generation_pcs_per_mw_s`, `embers_from_wildland`, `hamada: true`, `units_ember` (ignited by embers) and `units_ember_from_wildland` (of those, the main ember source was the wildland front), and `units_involved` = front + building to building + ember; without it these keys are absent. When the memory guard stops the build: `{model, label, computed: false, note: "not computed: too many buildings in run area", units_in_run, units_needed, max_units, ...}` with the counts `null`. Any display must carry `label` (`docs/structure-spread-spec.md`) |
+| `structure_spread` | only with the request flag `structure_spread`, else `null`: counts by this frame `{model: "hamada", label: "illustrative — not validated in Canada", computed: true, units_in_run, units_built, units_front_contact, units_structure_to_structure, units_involved, units_burning, units_burnt_out, burnout, burnout_min, design_fire_kw_m2, combustible_fraction, neighbour_cutoff_m, wildland_contact_m, front_contact_rule}`. `units_burning` + `units_burnt_out` = `units_involved`: a unit is burnt out once its design fire has ended (`burnout_min` after involvement; `burnout: false` → `burnout_min: null` and `units_burnt_out: 0`). `units_in_run`: buildings whose centroid is in the run area (fuel grid box); `units_built`: units built for the area the spread can reach (spec §2); `units_front_contact`: units reached by the wildland front (a burned cell within `wildland_contact_m` of a grid cell the footprint touches; `front_contact_rule: "building_cells"`); `units_structure_to_structure`: units reached from another unit (Hamada). With `structure_embers` the counts also carry `embers: true`, `design_fire_kw_m2`, `ember_generation_pcs_per_mw_s`, `embers_from_wildland`, `hamada: true`, `units_ember` (ignited by embers) and `units_ember_from_wildland` (of those, the main ember source was the wildland front), and `units_involved` = front + building to building + ember; without it these keys are absent. `vegetation_attributes`: whether per-building vegetation attributes were available. With `structure_vegetation_bridge`: `vegetation_bridged_cutoff: true`, `bridge_base_cutoff_m` 20, `bridge_max_cutoff_m` 45, `bridge_min_gap_cover` 0.2, `bridge_canopy_data`, `links_tested` (20-45 m links whose gap cover was computed), `links_bridged` (of those, ≥ 20 %), and `neighbour_cutoff_m` 20. With a roof scenario: `roof_scenario: {combustible_roof_share, psi_factor: 0.375, seed, label: "scenario: X % combustible roofs (not observed roofs)", units_combustible_roof_built, units_involved_combustible_roof}`; any display must show its `label`. When the memory guard stops the build: `{model, label, computed: false, note: "not computed: too many buildings in run area", units_in_run, units_needed, max_units, ...}` with the counts `null`. Any display must carry `label` (`docs/structure-spread-spec.md`) |
 | `grid` | grid runs: the grid the frame is on, `{cell_m, wui_window, reason, note}` plus `window` `[lat_min, lat_max, lng_min, lng_max]` and `window_cells` when `wui_window` is true. `cell_m` 20 when the run was repeated on the fuel raster's native 20 m cells in a window around the fire near buildings (mechanics decision M5); otherwise 50 with `reason` `no_buildings`, `too_large` (over 600,000 crop cells or 60,000 burned 20 m cells), `edge` (the fire kept reaching the window edge) or `no_native_grid`. Server setting `FIRESIM_WUI_FINE_GRID=0` keeps 50 m. Same on every frame of a run |
-| `structure_spread_detail` | final frame only, with `structure_spread` (else `null`; `[]` when not computed): one entry per **involved** unit, in involvement order, `{id, t_h, t_out_h, mechanism, source_id, polygon}`. `t_h`: hours from the start; `t_out_h`: burn-out, hours from the start (`t_h` + `burnout_min`/60; may be after the run's end; `null` when `structure_burnout` is false); `mechanism`: `"front"` (wildland front contact), `"b2b"` (building to building, Hamada) or `"ember"` (ember ignition, with `structure_embers`); `source_id`: the `id` of the unit that passed the fire on (`b2b`, or `ember` when the main ember source was a building; `null` for front contact and for embers from the wildland front); `polygon`: the footprint ring `[[[lng, lat], ...]]`, simplified (0.5 m) and rounded to 6 decimals, largest part of a multi-part footprint. No other attributes (no address, owner or parcel data). About 200-250 bytes per unit (20-160 kB on the 2026-10-09 sensitivity runs). **Map display only** (owner decision 2026-10-10): the app does not put it in any export, ICS 209 or report. Illustrative — not validated in Canada |
+| `structure_spread_detail` | final frame only, with `structure_spread` (else `null`; `[]` when not computed): one entry per **involved** unit, in involvement order, `{id, t_h, t_out_h, mechanism, source_id, polygon}`. `t_h`: hours from the start; `t_out_h`: burn-out, hours from the start (`t_h` + `burnout_min`/60; may be after the run's end; `null` when `structure_burnout` is false); `mechanism`: `"front"` (wildland front contact), `"b2b"` (building to building, Hamada) or `"ember"` (ember ignition, with `structure_embers`); `source_id`: the `id` of the unit that passed the fire on (`b2b`, or `ember` when the main ember source was a building; `null` for front contact and for embers from the wildland front); `polygon`: the footprint ring `[[[lng, lat], ...]]`, simplified (0.5 m) and rounded to 6 decimals, largest part of a multi-part footprint. Optional (structure step 3): `veg` `{cc_0_5, cc_5_10, cc_10_30, cc_0_10, overhang_frac, dist_stand_1ha_m}` (open-data canopy cover 0-1 in rings around the footprint, share of the roof under canopy, distance to a ≥ 1 ha stand in m; context only) and `combustible_roof_scenario: true` on units the roof scenario assigned a combustible roof (not observed). No other attributes (no address, owner or parcel data). About 200-250 bytes per unit (20-160 kB on the 2026-10-09 sensitivity runs). **Map display only** (owner decision 2026-10-10): the app does not put it in any export, ICS 209 or report. Illustrative — not validated in Canada |
 
 ### GET /api/v1/simulations/{id}/arrival
 
@@ -278,6 +293,7 @@ and the percentiles, burn probability and area range are over the `members_ok` m
 finished. Members that burned nothing (their ignition cell cannot carry fire under their
 perturbed weather) are finished members with `area_ha` 0 and count in every statistic. The
 ensemble is `"status": "failed"` (with `error`) only when fewer than half the members finish.
+`"status": "cancelled"` when the client stopped it (`DELETE` below); there is no partial result.
 
 Default perturbations (`EnsembleParams`; calibrated on observed Alberta fires, see
 `docs/validation.md` "Ensemble calibration" for sources and held-out scores): `wind_dir_sd_deg`
@@ -291,14 +307,29 @@ footprint held at least 90 % of the observed growth on only 29 % of fire-days. G
 near 58.8 % curing are very sensitive to the curing perturbation (the FBP curing factor
 changes slope there); the curing and foliar-moisture sizes are not validated.
 
+### DELETE /api/v1/simulations/{id}/ensemble
+
+Stop a run's ensemble: it stops before its next member (the member in progress finishes), or
+never starts if the deterministic run is still computing. The app calls this when a new run
+starts or the results are cleared while the previous run's ensemble is pending or running, so
+an abandoned ensemble (minutes of CPU on the 1-vCPU server) does not slow the new run. A
+completed or failed ensemble is left as it is. Response:
+`{"simulation_id": "...", "status": "running" | "cancelled" | "completed" | "failed" | "pending", "cancel_requested": true}`
+(`status` is the state at the time of the request; poll GET for `"cancelled"`). 404 when the
+run is unknown or has no ensemble.
+
 ### POST /api/v1/simulations/multiday
 
 Multi-day scenario: `days` is a list of 1-7 daily noon weather records
 (`wind_speed`, `wind_direction`, `temperature`, `relative_humidity`, `precipitation_24h`); the FWI
 codes are advanced day to day from `fwi_overrides` (Van Wagner & Pickett 1985; `month` sets
 the day-length factors) and each day's
-grid run continues from the previous day's burned area. Frames carry `day`. Cells are always
-cumulative. Optional `start_time` (each day runs 24 h from its clock time) and
+grid run continues from the previous day's burned area. Frames carry `day`. `cells_mode`
+(grid runs): `"cumulative"` (default) or `"incremental"` as for single runs, except that a
+frame whose cells do not extend the previous frame's (the first frame of each day after the
+first) is sent whole with `cells_offset` 0; a 3-day Edmonton grid run streams about 1.7 MB
+instead of 21 MB (the app asks for incremental). No ensemble, structure spread or 20 m WUI
+window for multi-day runs. Optional `start_time` (each day runs 24 h from its clock time) and
 `burning_period` (as above, applied every day; needs `start_time`). No FFMC spin-up: multi-day
 runs have daily weather only.
 

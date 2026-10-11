@@ -11,7 +11,8 @@ import {
   STRUCT_BURNT,
   STRUCT_EMBER,
   STRUCT_FRONT,
-  structureCaveat,
+  caveatFor,
+  roofScenarioLabel,
   structureSeries,
 } from "../utils/structureSpread";
 import InfoTip from "./InfoTip";
@@ -25,6 +26,9 @@ interface StructureSpreadPanelProps {
   onMapVisible: (v: boolean) => void;
   /** The map layer has data (the run's final frame has arrived) */
   mapAvailable: boolean;
+  /** Roof scenario runs: outline the scenario's combustible-roof buildings on the map */
+  roofOutline?: boolean;
+  onRoofOutline?: (v: boolean) => void;
 }
 
 const W = 280;
@@ -89,17 +93,20 @@ export function StructureChart({ frames, frameIndex }: { frames: SimulationFrame
   );
 }
 
-export default function StructureSpreadPanel({ frames, frameIndex, mapVisible, onMapVisible, mapAvailable }: StructureSpreadPanelProps) {
+export default function StructureSpreadPanel({
+  frames,
+  frameIndex,
+  mapVisible,
+  onMapVisible,
+  mapAvailable,
+  roofOutline = true,
+  onRoofOutline,
+}: StructureSpreadPanelProps) {
   const frame = frames[frameIndex] ?? null;
   const s = frame?.structure_spread ?? frames.find((f) => f.structure_spread)?.structure_spread ?? null;
   if (!s) return null;
-  const caveat = structureCaveat(
-    s.label,
-    s.neighbour_cutoff_m ?? 30,
-    50,
-    s.embers ? s.design_fire_kw_m2 : undefined,
-    s.burnout ? s.burnout_min : undefined,
-  );
+  const caveat = caveatFor(s);
+  const roofLabel = roofScenarioLabel(s);
   const computed = s.computed !== false && s.units_involved != null;
   const cur = frame?.structure_spread;
   return (
@@ -109,6 +116,11 @@ export default function StructureSpreadPanel({ frames, frameIndex, mapVisible, o
           House-to-house spread <Badge tone="warn" className="struct-badge">{BADGES.illustrative}</Badge>
           <InfoTip text={caveat} label="About house-to-house spread" />
         </h4>
+        {roofLabel && (
+          <div className="hint-sm struct-scenario" role="note" data-testid="structure-roof-scenario">
+            {roofLabel}
+          </div>
+        )}
         {!computed ? (
           <div className="hint-sm" role="note">
             {s.note ? s.note.charAt(0).toUpperCase() + s.note.slice(1) : "Not computed"}
@@ -153,6 +165,17 @@ export default function StructureSpreadPanel({ frames, frameIndex, mapVisible, o
               />
               Show on map
             </label>
+            {roofLabel && onRoofOutline && (
+              <label className="struct-toggle">
+                <input
+                  type="checkbox"
+                  checked={roofOutline}
+                  disabled={!mapAvailable || !mapVisible}
+                  onChange={(e) => onRoofOutline(e.target.checked)}
+                />
+                Outline scenario roofs
+              </label>
+            )}
           </>
         )}
       </div>

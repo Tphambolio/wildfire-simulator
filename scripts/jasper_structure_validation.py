@@ -416,9 +416,14 @@ def percolate(units, seed, max_gap_m) -> np.ndarray:
     return on
 
 
-def baselines(units, seed, obs, n_firesim, dist) -> dict:
+def baselines(units, seed, obs, n_firesim, dist, veg_scores: dict | None = None) -> dict:
+    """Pre-registered baselines; ``veg_scores`` (name -> out-of-fold scores from
+    ``distance_vegetation_scores``) adds the step-3 "distance + vegetation" baselines, each
+    count-matched to FireSim (top ``n_firesim`` scores)."""
     order = np.lexsort((np.arange(len(units)), dist))
     out = {}
+    for name, sc in (veg_scores or {}).items():
+        out[name] = top_n(sc, n_firesim)
     a = np.zeros(len(units), bool)
     a[order[:n_firesim]] = True
     out["a_distance_band_count_matched"] = a
@@ -429,6 +434,71 @@ def baselines(units, seed, obs, n_firesim, dist) -> dict:
     out["b2_separation_5m_percolation"] = percolate(units, seed, 5.0)
     out["d_seeds_only"] = seed.copy()
     return out
+
+
+def _logistic_fit(X: np.ndarray, y: np.ndarray, ridge: float = 1e-6, iters: int = 50) -> np.ndarray:
+    """Unpenalised (tiny ridge for stability) logistic regression by IRLS; X has a 1s column."""
+    w = np.zeros(X.shape[1])
+    for _ in range(iters):
+        p = 1.0 / (1.0 + np.exp(-np.clip(X @ w, -30, 30)))
+        W = p * (1 - p)
+        H = X.T @ (X * W[:, None]) + ridge * np.eye(X.shape[1])
+        step = np.linalg.solve(H, X.T @ (y - p) - ridge * w)
+        w += step
+        if np.max(np.abs(step)) < 1e-8:
+            break
+    return w
+
+
+def distance_vegetation_scores(units, dist, veg_cols: np.ndarray, obs, *, block_m: float = 250.0,
+                               folds: int = 10, repeats: int = 10, seed: int = 20261010) -> np.ndarray:
+    """Out-of-fold probability of loss from log(1 + distance to the seeds) + vegetation columns.
+
+    Structure step 3 baseline (spec §8 item 4; step-3 data report §5.2): a logistic regression
+    fitted on the observed outcome but scored only out of fold, with spatial blocks of
+    ``block_m`` assigned at random to ``folds`` folds, averaged over ``repeats`` assignments
+    (fixed ``seed``). Features standardised on each training fold; missing vegetation values
+    take the training-fold median. It uses the outcome, so it is a deliberately strong
+    baseline: a spread model is worth showing only if it beats it."""
+    obs = np.asarray(obs, float)
+    feats = np.column_stack([np.log1p(np.asarray(dist, float)),
+                             np.asarray(veg_cols, float).reshape(len(dist), -1)])
+    bx = np.floor(units.x / block_m).astype(int)
+    by = np.floor(units.y / block_m).astype(int)
+    _, block = np.unique(np.column_stack([bx, by]), axis=0, return_inverse=True)
+    block = block.ravel()
+    nb = int(block.max()) + 1
+    rng = np.random.default_rng(seed)
+    out = np.zeros(len(obs))
+    for _ in range(repeats):
+        fold_of_block = rng.permutation(np.arange(nb) % folds)
+        fold = fold_of_block[block]
+        for k in range(folds):
+            te, tr = fold == k, fold != k
+            if not te.any() or len(np.unique(obs[tr])) < 2:
+                out[te] += obs[tr].mean() if tr.any() else 0.5
+                continue
+            Xtr, Xte = feats[tr].copy(), feats[te].copy()
+            med = np.nanmedian(Xtr, axis=0)
+            med = np.where(np.isfinite(med), med, 0.0)
+            for c in range(feats.shape[1]):
+                Xtr[~np.isfinite(Xtr[:, c]), c] = med[c]
+                Xte[~np.isfinite(Xte[:, c]), c] = med[c]
+            mu, sd = Xtr.mean(axis=0), Xtr.std(axis=0)
+            sd = np.where(sd > 0, sd, 1.0)
+            Xtr, Xte = (Xtr - mu) / sd, (Xte - mu) / sd
+            w = _logistic_fit(np.column_stack([np.ones(tr.sum()), Xtr]), obs[tr])
+            out[te] += 1.0 / (1.0 + np.exp(-np.clip(np.column_stack([np.ones(te.sum()), Xte]) @ w,
+                                                     -30, 30)))
+    return out / repeats
+
+
+def top_n(scores, n: int) -> np.ndarray:
+    """The ``n`` highest scores (ties by index) as a boolean prediction."""
+    order = np.lexsort((np.arange(len(scores)), -np.asarray(scores, float)))
+    pred = np.zeros(len(scores), dtype=bool)
+    pred[order[:max(int(n), 0)]] = True
+    return pred
 
 
 def random_baseline(obs, mask=None) -> dict:

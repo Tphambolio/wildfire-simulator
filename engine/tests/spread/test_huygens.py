@@ -421,3 +421,98 @@ class TestSimplifyFront:
         lat_range = exp_lat_max - exp_lat_min
         assert abs(sim_lat_max - exp_lat_max) < 0.1 * lat_range
         assert abs(sim_lat_min - exp_lat_min) < 0.1 * lat_range
+
+
+# ── Performance rewrites must not change results (multi-day speed, 2026-10-11) ──────────
+
+
+def _reference_resample(hull, cx, cy, num_points):
+    """The pre-2026-10-11 resampling: a linear min() scan per target angle."""
+    def angle(p):
+        return math.atan2(p.lng - cy, p.lat - cx)
+
+    hull_sorted = sorted(hull, key=angle)
+    result = [
+        min(hull_sorted, key=lambda p: abs(angle(p) - (-math.pi + 2.0 * math.pi * i / num_points)))
+        for i in range(num_points)
+    ]
+    seen, unique = set(), []
+    for p in result:
+        key = (round(p.lat, 8), round(p.lng, 8))
+        if key not in seen:
+            seen.add(key)
+            unique.append(p)
+    return unique
+
+
+def _reference_hull(points):
+    from firesim.spread.huygens import _cross
+
+    pts = sorted(points, key=lambda p: (p.lat, p.lng))
+    if len(pts) <= 2:
+        return pts
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and _cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and _cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_hull_and_resampling_match_the_reference(seed):
+    """Bisection resampling and the inlined monotone chain give exactly the old output,
+    including duplicate points, equal angles and fewer hull vertices than targets."""
+    import random
+
+    from firesim.spread.huygens import _convex_hull, _resample_angular
+
+    rng = random.Random(seed)
+    pts = [FireVertex(53.5 + rng.gauss(0, 0.01), -113.5 + rng.gauss(0, 0.02)) for _ in range(800)]
+    pts += pts[:50]  # exact duplicates
+    pts += [FireVertex(53.5 + 0.001 * k, -113.5 + 0.001 * k) for k in range(-5, 6)]  # collinear
+    hull = _convex_hull(pts)
+    assert hull == _reference_hull(pts)
+    cx = sum(p.lat for p in pts) / len(pts)
+    cy = sum(p.lng for p in pts) / len(pts)
+    for n in (5, 36, len(hull), 3 * len(hull)):
+        assert _resample_angular(hull, cx, cy, n) == _reference_resample(hull, cx, cy, n)
+    # a hull with repeated angles from the centroid (points on one ray)
+    ray = [FireVertex(53.5 + 0.001 * k, -113.5) for k in (1, 2, 3)] + hull
+    assert _resample_angular(ray, cx, cy, 72) == _reference_resample(ray, cx, cy, 72)
+
+
+def test_front_expansion_shares_wavelets_without_changing_them(base_conditions):
+    """expand_fire_front computes each distinct wavelet once; every point equals expanding
+    the vertex on its own (uniform fuel, terrain and a WUI modifier grid)."""
+    front = [FireVertex(53.5 + 0.002 * math.cos(a / 10), -113.5 + 0.003 * math.sin(a / 10))
+             for a in range(63)]
+    terrain = TerrainGrid([[0.0, 30.0], [12.0, 5.0]], [[0.0, 90.0], [180.0, 270.0]],
+                          53.49, 53.51, -113.51, -113.49, 2, 2)
+    for tg in (None, terrain):
+        got = expand_fire_front(front, base_conditions, None, tg, 5.0, accel_window=(10.0, 15.0))
+        want = []
+        for v in front:
+            slope, aspect = tg.get_slope_aspect(v.lat, v.lng) if tg else (0.0, 0.0)
+            want += expand_vertex(v, base_conditions, FuelType.C2, slope, aspect, 5.0,
+                                  accel_window=(10.0, 15.0))
+        assert got == want
+
+
+def test_simplify_front_is_independent_of_point_order(base_conditions):
+    import random
+
+    front = [FireVertex(53.5 + 0.002 * math.cos(a / 5), -113.5 + 0.003 * math.sin(a / 5))
+             for a in range(32)]
+    pts = expand_fire_front(front, base_conditions, None, None, 5.0)
+    shuffled = pts[:]
+    random.Random(1).shuffle(shuffled)
+    a, b = simplify_front(pts), simplify_front(shuffled)
+    # the centroid sum depends on the order only through rounding
+    assert len(a) == len(b)
+    for p, q in zip(a, b):
+        assert p.lat == pytest.approx(q.lat, abs=1e-12) and p.lng == pytest.approx(q.lng, abs=1e-12)

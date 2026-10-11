@@ -65,7 +65,7 @@ docker compose up --build
 | `spread/slope.py` | ST-X-3 eq 39 slope factor (slope itself is applied via net effective wind in the FBP calculator) |
 | `spread/spotting.py`, `spread/albini.py` | Ember spotting (opt-in): Albini/Chase/Morris maximum distance (surface-fire or torching-tree model); emission, probability and landing are heuristic (illustrative) |
 | `exposure.py` | Building exposure: distance bands, Cohen (2004) radiant flux and flux-time index from the grid run's flame panels (exposure, not ignition; `docs/building-exposure.md`) |
-| `structures/` | Structure spread (opt-in, API `structure_spread`, labelled "illustrative — not validated in Canada"): `units.py` one unit per building footprint (centroid, area, size, neighbour graph within a cutoff); `hamada.py` Hamada rates; `spread.py` front contact + building-to-building spread, units built only where the spread can reach (memory guard 60,000 units → "not computed"), involved-unit detail on the final frame; `embers.py` opt-in ember ignition (API `structure_embers`, design fire 150/400, mechanism `ember`; spec §6.1); burn-out at the design-fire end, 66/70 min (API `structure_burnout`, default on; spec §4.3); `docs/structure-spread-spec.md` |
+| `structures/` | Structure spread (opt-in, API `structure_spread`, labelled "illustrative — not validated in Canada"): `units.py` one unit per building footprint (centroid, area, size, neighbour graph within a cutoff); `hamada.py` Hamada rates; `spread.py` front contact + building-to-building spread, units built only where the spread can reach (memory guard 60,000 units → "not computed"), involved-unit detail on the final frame; `embers.py` opt-in ember ignition (API `structure_embers`, design fire 150/400, mechanism `ember`; spec §6.1); burn-out at the design-fire end, 66/70 min (API `structure_burnout`, default on; spec §4.3); structure step 3 (opt-in): `vegetation.py` per-building open-data vegetation attributes (context only) and the vegetation-bridged cutoff (API `structure_vegetation_bridge`: links ≤ 20 m, 20-45 m only across ≥ 20 % gap woody cover; spec §4.6), `roofs.py` combustible-roof scenario (API `structure_combustible_roof_share` 0/0.05/0.15/0.30, needs embers, ψ* × 0.375; "scenario … (not observed roofs)"; spec §6.2); `docs/structure-spread-spec.md` |
 | `spread/diurnal.py` | Opt-in burning period (`SimulationConfig.burning_period` + `start_hour`; grid and Huygens; a point ignition outside it waits for it); hourly FFMC spin-up = hourly records with negative `hours_from_start`, from 17:00 local (`hourly_for_run`) |
 | `spread/simulator.py` | `Simulator` class — main orchestrator, yields `SimulationFrame` per snapshot |
 | `spread/montecarlo.py` | Burn probability (jitter ignition, wind speed, RH over N iterations) |
@@ -114,6 +114,7 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | GET | `/api/v1/simulations/{id}` | Fetch stored results |
 | WS | `/api/v1/simulations/ws/{id}` | Stream frames real-time (JSON) |
 | GET | `/api/v1/simulations/{id}/arrival` | Arrival-minute raster of a finished grid run |
+| GET / DELETE | `/api/v1/simulations/{id}/ensemble` | Ensemble progress and P10/P50/P90 rasters / stop it (the app does when a new run starts) |
 | GET | `/api/v1/simulations/fuel-grid-image` | Fuel overlay PNG + legend |
 | POST | `/api/v1/simulations/multiday` | Multi-day FWI carry-over |
 | POST | `/api/v1/simulations/perimeter-override` | Mid-incident RPAS perimeter correction |
@@ -222,6 +223,8 @@ The engine works without real data using `synthetic_grid.py` (generates a mixed-
 | `edmonton_neighbourhoods.geojson` | City of Edmonton Open Data, Neighbourhoods `65fr-66s6` (OGL – City of Edmonton), 407 polygons | building index, neighbourhood card |
 | `wui_zones.geojson.gz` | Custom, **no documented source** — off by default; don't present results using it as measured | `wui_loader.py` |
 | `ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif` (**not committed**: GitHub release `data-ab-fbp-2025`, fetched by `api/Dockerfile`; built by `scripts/build_ab_fuel_cog.py`) | Alberta Wildfire FBP Fuel Type raster 2025, 100 m, EPSG:3400, © Government of Alberta, Open Government Licence – Alberta (image service: GoA disclaimer). Default fuel where the City grid has no data and outside it (`docs/fuel-grid-alberta.md`) | `data/provincial.py`, `fuel_loader.py` (`ab_wildfire`) |
+| `edmonton_building_vegetation.csv.gz` | Per-footprint canopy cover rings, roof overhang, distance to a 1 ha stand, keyed by footprint `id`; from the Meta/WRI 1 m canopy height map (CC BY 4.0) by `scripts/build_building_vegetation.py`. **Never City LiDAR** | `structures/vegetation.py` (attributes, context only) |
+| `edmonton_canopy_5m.tif` | Open-ground canopy share (%, ≈ 5 m cells, EPSG:3857) from the Meta 1 m CHM with footprints masked (`build_building_vegetation.py canopy-raster`) | vegetation-bridged cutoff (gap woody cover) |
 
 ---
 

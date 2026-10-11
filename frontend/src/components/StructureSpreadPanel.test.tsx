@@ -59,7 +59,7 @@ describe("structureSpread utils", () => {
     const fc = structureUnitsGeoJSON(DETAIL);
     expect(fc.features).toHaveLength(3);
     expect(fc.features[1].geometry.type).toBe("Polygon");
-    expect(fc.features[1].properties).toEqual({ id: 1, t_h: 1.2, t_out_h: NEVER_H, mechanism: "b2b" });
+    expect(fc.features[1].properties).toEqual({ id: 1, t_h: 1.2, t_out_h: NEVER_H, mechanism: "b2b", roof: 0 });
     expect(structureUnitsGeoJSON(null).features).toEqual([]);
   });
 

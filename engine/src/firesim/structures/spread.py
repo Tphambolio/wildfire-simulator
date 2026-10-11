@@ -30,6 +30,11 @@ Canada.** Outputs are modelled involvement times, not predictions of which build
    footprints they land on; a unit ignites when its pooled ember load passes the ψ criterion
    (Qin et al. 2026, Fire Safety J. 162: 104686, eq 1, pp.3-5). Embers from the burning grid
    cells (Sardoy) can also reach buildings. Mechanism "ember".
+6. Structure step 3 (spec §2.1, §4.6, §6.2; 2026-10-10), all opt-in: per-building vegetation
+   attributes (context only, ``firesim.structures.vegetation``), the vegetation-bridged
+   cutoff (Hamada links 20-45 m apart only across ≥ 20 % gap woody cover [H]) and the
+   combustible-roof scenario (a seeded random share of buildings ignite from embers at
+   0.375 ψ*; ``firesim.structures.roofs``; labelled "scenario ... (not observed roofs)").
 """
 
 from __future__ import annotations
@@ -98,6 +103,9 @@ class StructureSpreadResult:
     frame: object = None  # LocalFrame of ``footprints``
     ember_from_wildland: np.ndarray | None = None  # ember units lit by the grid cells' embers
     burnout_min: float | None = None  # involvement -> burn-out, minutes (None: no burnout)
+    combustible_roof: np.ndarray | None = None  # roof scenario: units assigned a combustible roof
+    roof_scenario: dict | None = None  # scenario parameters and label (spec §6.2)
+    veg: np.ndarray | None = None  # (units, len(VEG_FIELDS)) vegetation attributes, nan = none
 
     @property
     def t_out_min(self) -> np.ndarray:
@@ -138,6 +146,12 @@ class StructureSpreadResult:
             out["units_involved"] = front + structure + out["units_ember"]
         out["units_burnt_out"] = int(np.sum(by & out_by))
         out["units_burning"] = out["units_involved"] - out["units_burnt_out"]
+        if self.roof_scenario is not None:
+            roof = (self.combustible_roof if self.combustible_roof is not None
+                    else np.zeros(len(self.t_min), dtype=bool))
+            out["roof_scenario"] = {**self.roof_scenario,
+                                    "units_combustible_roof_built": int(np.sum(roof)),
+                                    "units_involved_combustible_roof": int(np.sum(by & roof))}
         return out
 
     def involved_detail(self, simplify_m: float = DETAIL_SIMPLIFY_M) -> list[dict]:
@@ -149,8 +163,11 @@ class StructureSpreadResult:
         "b2b" = building to building (Hamada), "ember" = ember ignition), ``source_id`` (the
         ``id`` of the unit that passed the fire on: b2b, or ember when the main ember source
         was a building; ``None`` for embers from the wildland front) and ``polygon`` (footprint rings in (lng, lat), simplified by
-        ``simplify_m`` and rounded to 6 decimals, ~0.1 m). Only involved units; no attributes
-        beyond these. Illustrative — not validated in Canada.
+        ``simplify_m`` and rounded to 6 decimals, ~0.1 m). Only involved units. Structure
+        step 3 adds, when available: ``veg`` (the unit's open-data vegetation attributes,
+        ``firesim.structures.vegetation.VEG_FIELDS``) and ``combustible_roof_scenario: true``
+        on units the roof scenario assigned a combustible roof (a scenario, not observed
+        roofs). Illustrative — not validated in Canada.
         """
         import shapely
 
@@ -176,14 +193,23 @@ class StructureSpreadResult:
             parent = int(self.parent[u])
             t_out = (float(self.t_min[u]) + self.burnout_min
                      if self.burnout_min is not None else None)
-            out.append({
+            entry = {
                 "id": k,
                 "t_h": round(float(self.t_min[u]) / 60.0, 3),
                 "t_out_h": round(t_out / 60.0, 3) if t_out is not None else None,
                 "mechanism": mech,
                 "source_id": new_id.get(parent) if mech != "front" and parent >= 0 else None,
                 "polygon": [[[float(x), float(y)] for x, y in g.exterior.coords]],
-            })
+            }
+            if self.veg is not None:
+                from firesim.structures.vegetation import veg_dict
+
+                v = veg_dict(self.veg[u])
+                if v is not None:
+                    entry["veg"] = v
+            if self.combustible_roof is not None and bool(self.combustible_roof[u]):
+                entry["combustible_roof_scenario"] = True
+            out.append(entry)
         return out
 
 
@@ -331,6 +357,7 @@ def hamada_spread(
     duration_min: float,
     fb: float = DEFAULT_COMBUSTIBLE_FRACTION,
     burnout_min: float | None = None,
+    link_filter=None,
 ) -> StructureSpreadResult:
     """First involvement time of every unit: front contact, then Hamada building-to-building.
 
@@ -343,6 +370,8 @@ def hamada_spread(
         fb: Hamada combustible fraction.
         burnout_min: minutes from involvement to burn-out (``burnout_minutes``); a unit passes
             fire only until then (spec §4.3 [H]). ``None``: no burnout (published Hamada).
+        link_filter: optional ``f(i, nb, sep) -> bool mask`` of the graph links that pass fire
+            (e.g. ``vegetation.BridgedLinks``, spec §4.6); ``None`` = every graph link.
     """
     if not wind:
         raise ValueError("wind needs at least one period")
@@ -371,6 +400,9 @@ def hamada_spread(
             continue
         keep = ~done[nb]
         nb, sep = nb[keep], sep[keep]
+        if len(nb) and link_filter is not None:
+            keep = link_filter(i, nb, sep)
+            nb, sep = nb[keep], sep[keep]
         if len(nb) == 0:
             continue
         a0 = (units.size_m[i] + units.size_m[nb]) / 2.0
@@ -434,8 +466,13 @@ def spread_with_embers(
     embers=None,
     wildland=None,
     burnout_min: float | None = None,
+    link_filter=None,
+    psi_factor=None,
 ) -> StructureSpreadResult:
     """Front contact, Hamada building to building and (opt-in) ember ignition.
+
+    ``link_filter`` as in ``hamada_spread``. ``psi_factor``: per-unit factor on the ember
+    threshold ψ* (roof scenario, spec §6.2; needs ``embers``).
 
     ``burnout_min`` as in ``hamada_spread``; with embers it must be the ember design fire's
     duration (one design fire per run). ``embers=None`` is exactly ``hamada_spread``. With an ``EmberOptions`` the run adds ember
@@ -444,8 +481,10 @@ def spread_with_embers(
     ``embers.from_wildland``. Deterministic (expected-value pooling, no random draws).
     """
     if embers is None:
+        if psi_factor is not None:
+            raise ValueError("psi_factor (roof scenario) needs embers")
         return hamada_spread(units, t_front_min, wind, duration_min=duration_min, fb=fb,
-                             burnout_min=burnout_min)
+                             burnout_min=burnout_min, link_filter=link_filter)
     if not wind:
         raise ValueError("wind needs at least one period")
     if burnout_min is not None and not math.isclose(burnout_min,
@@ -455,7 +494,8 @@ def spread_with_embers(
 
     r = coupled_spread(units, t_front_min, wind, duration_min=duration_min, fb=fb,
                        options=embers, wildland=wildland if embers.from_wildland else None,
-                       cross=_cross, burnout=burnout_min is not None)
+                       cross=_cross, burnout=burnout_min is not None,
+                       link_filter=link_filter, psi_factor=psi_factor)
     params = {"combustible_fraction": fb, "neighbour_cutoff_m": units.neighbour_cutoff_m,
               "hamada": bool(embers.hamada), **embers.params()}
     return StructureSpreadResult(t_min=r.t_min, source=r.source, parent=r.parent,
@@ -471,13 +511,16 @@ class ListFootprintSource:
     ``firesim.data.building_index.BuildingIndex`` is the other implementation (it builds
     shapely geometries only for the footprints asked for)."""
 
-    def __init__(self, footprints) -> None:
+    def __init__(self, footprints, ids=None) -> None:
         import shapely
 
         self._geoms = np.asarray(list(footprints), dtype=object)
+        self._ids = (np.asarray(list(ids), dtype=np.int64) if ids is not None
+                     else np.full(len(self._geoms), -1, dtype=np.int64))
         if len(self._geoms):
             ok = ~(shapely.is_missing(self._geoms) | shapely.is_empty(self._geoms))
             self._geoms = self._geoms[ok]
+            self._ids = self._ids[ok]
         b = shapely.bounds(self._geoms) if len(self._geoms) else np.zeros((0, 4))
         self._b = b  # lng_min, lat_min, lng_max, lat_max
         c = shapely.centroid(self._geoms) if len(self._geoms) else np.zeros(0)
@@ -501,6 +544,10 @@ class ListFootprintSource:
     def footprints_intersecting(self, bbox) -> list:
         """Footprints whose bounds intersect ``bbox``, in input order."""
         return list(self._geoms[self._hit(bbox)])
+
+    def ids_intersecting(self, bbox) -> np.ndarray:
+        """Building ids of ``footprints_intersecting(bbox)``, same order (-1 = none given)."""
+        return self._ids[self._hit(bbox)]
 
 
 DEFAULT_MAX_UNITS = 60_000  # OOM guard (2 GB API machine; ~1.5 kB per unit, see report)
@@ -545,6 +592,12 @@ def structure_spread_for_grid_run(
     emitters=None,
     burnout: bool = True,
     design_fire_kw_m2: int | None = None,
+    vegetation=None,
+    vegetation_bridge: bool = False,
+    canopy=None,
+    combustible_roof_share: float = 0.0,
+    roof_psi_factor: float | None = None,
+    seed: int = 0,
 ):
     """Hamada structure spread coupled to a finished grid run, built only where it can reach.
 
@@ -592,8 +645,19 @@ def structure_spread_for_grid_run(
         burnout: units stop passing fire when their design fire ends (spec §4.3; default on).
         design_fire_kw_m2: the building design fire (150 or 400) that sets the burn-out time;
             ``None`` = the ember design fire with embers, else 150. Must match ``embers``.
+        vegetation: a ``vegetation.BuildingVegetation`` table (attributes for the detail;
+            context only, needs building ids from the source).
+        vegetation_bridge: opt-in vegetation-bridged cutoff (spec §4.6 [H]): links ≤ 20 m as
+            before, 20-45 m only across ≥ 20 % gap woody cover; the graph is built to 45 m and
+            ``neighbour_cutoff_m`` is ignored. ``canopy``: a ``vegetation.CanopyCover``; with
+            none, or no data in the run area, no link is bridged (plain 20 m cutoff).
+        combustible_roof_share: roof scenario (spec §6.2), share of buildings assigned a
+            combustible roof (seeded by ``seed``); they ignite from embers at
+            ``roof_psi_factor`` × ψ* (default ``roofs.ROOF_PSI_FACTOR``). Needs ``embers``.
 
-    Burn-out only removes crossings, so the exactness argument above is unchanged.
+    Burn-out only removes crossings, so the exactness argument above is unchanged; the
+    vegetation bridge only removes graph links (the guard uses the 45 m graph cutoff), and the
+    roof scenario's lower thresholds are included in the wildland ember margin.
     """
     from firesim.structures.units import (
         DEFAULT_NEIGHBOUR_CUTOFF_M,
@@ -609,6 +673,12 @@ def structure_spread_for_grid_run(
                              else DEFAULT_DESIGN_FIRE_KW_M2)
     if embers is not None and int(embers.design_fire_kw_m2) != int(design_fire_kw_m2):
         raise ValueError("design_fire_kw_m2 must match the ember design fire")
+    from firesim.structures import roofs as roofs_mod
+
+    roof_share = float(combustible_roof_share or 0.0)
+    if roof_share and embers is None:
+        raise ValueError("combustible_roof_share needs ember ignition (embers)")
+    roof_k = roofs_mod.ROOF_PSI_FACTOR if roof_psi_factor is None else float(roof_psi_factor)
     burnout_min = burnout_minutes(design_fire_kw_m2) if burnout else None
     source = footprints if hasattr(footprints, "footprints_intersecting") else ListFootprintSource(footprints)
     grid_bbox = bbox
@@ -618,13 +688,26 @@ def structure_spread_for_grid_run(
     if units_in_run == 0:
         return None
     cutoff = DEFAULT_NEIGHBOUR_CUTOFF_M if neighbour_cutoff_m is None else float(neighbour_cutoff_m)
+    if vegetation_bridge:
+        from firesim.structures.vegetation import BRIDGE_BASE_CUTOFF_M, BRIDGE_MAX_CUTOFF_M
+
+        cutoff = BRIDGE_MAX_CUTOFF_M  # graph to 45 m; links filtered by BridgedLinks
     frame = LocalFrame((lat_min + lat_max) / 2.0, (lng_min + lng_max) / 2.0)
-    params = {"combustible_fraction": fb, "neighbour_cutoff_m": cutoff,
+    params = {"combustible_fraction": fb,
+              "neighbour_cutoff_m": BRIDGE_BASE_CUTOFF_M if vegetation_bridge else cutoff,
               "wildland_contact_m": contact_m, "front_contact_rule": FRONT_CONTACT_RULE,
               "design_fire_kw_m2": int(design_fire_kw_m2), "burnout": bool(burnout),
-              "burnout_min": burnout_min}
+              "burnout_min": burnout_min,
+              "vegetation_attributes": vegetation is not None}
     if embers is not None:
         params.update(embers.params())
+    roof_params = None
+    if roof_share:
+        roof_params = {"combustible_roof_share": roof_share, "psi_factor": roof_k,
+                       "seed": int(seed), "label": roofs_mod.roof_label(roof_share)}
+    canopy_window = None
+    if vegetation_bridge and canopy is not None:
+        canopy_window = canopy.window(lat_min, lat_max, lng_min, lng_max)
     wind = [WindPeriod(float(s), float(c.wind_speed), float(c.wind_direction)) for s, c in schedule]
 
     arrival_min = np.asarray(arrival_min, dtype=float)
@@ -653,7 +736,8 @@ def structure_spread_for_grid_run(
             wildland = WildlandSources.from_emitters(emitters, frame)
             if wildland is not None:
                 speeds = u10_to_u6(np.array([w.wind_speed_kmh for w in wind]) / 3.6)
-                margin_m += wildland.safe_reach_m(speeds, duration_min, embers.gr_vegetation)
+                margin_m += wildland.safe_reach_m(speeds, duration_min, embers.gr_vegetation,
+                                                  psi_factor_min=roof_k if roof_share else 1.0)
 
     while True:
         mlat, mlng = margin_m / M_PER_DEG_LAT, margin_m / frame.m_per_deg_lng
@@ -663,11 +747,23 @@ def structure_spread_for_grid_run(
         needed = source.count_intersecting(reach)
         if needed > max_units:
             return StructureSpreadSkipped(not_computed(units_in_run, needed, max_units, params))
+        ids = source.ids_intersecting(reach) if hasattr(source, "ids_intersecting") else None
         units = build_units(source.footprints_intersecting(reach), neighbour_cutoff_m=cutoff,
-                            bbox=bbox, frame=frame)
+                            bbox=bbox, frame=frame, ids=ids)
         t_front = building_cell_contact_times(units, arrival_min, grid_bbox, contact_m)
+        links = None
+        if vegetation_bridge:
+            from firesim.structures.vegetation import BridgedLinks
+
+            links = BridgedLinks(units, canopy_window)
+        roof = psi = None
+        if roof_share:
+            roof = roofs_mod.assign_combustible_roofs(roofs_mod.building_keys(units),
+                                                      roof_share, seed)
+            psi = roofs_mod.psi_factors(roof, roof_k)
         result = spread_with_embers(units, t_front, wind, duration_min=duration_min, fb=fb,
-                                    embers=embers, wildland=wildland, burnout_min=burnout_min)
+                                    embers=embers, wildland=wildland, burnout_min=burnout_min,
+                                    link_filter=links, psi_factor=psi)
         guard = cutoff + 1.0
         if embers is not None:
             guard = np.maximum(structure_ember_reach(units, embers, u10_max), cutoff) + 1.0
@@ -675,6 +771,14 @@ def structure_spread_for_grid_run(
             break
         margin_m *= 2.0
     result.params.update(params)
+    if links is not None:
+        result.params.update(links.params())
+        result.params.update(links.stats())
+    if roof_params is not None:
+        result.roof_scenario = roof_params
+        result.combustible_roof = roof
+    if vegetation is not None and units.building_id is not None:
+        result.veg = vegetation.lookup(units.building_id)
     result.units_in_run = units_in_run
     inv = np.isfinite(result.t_min)
     result.footprints = np.where(inv, units.footprints, None)  # keep only involved geometry
