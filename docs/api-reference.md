@@ -167,9 +167,13 @@ Start a new fire spread simulation.
 
 ### GET /api/v1/simulations/{id}
 
-Runs are kept in server memory only: lost on a deploy or machine restart, and beyond
-`FIRESIM_MAX_STORED_RUNS` (default 40) the oldest finished runs are dropped (runs still
-computing, or with an ensemble computing, are kept). A dropped run answers 404.
+Runs are kept in server memory while the API runs. Beyond `FIRESIM_MAX_STORED_RUNS`
+(default 40) the oldest finished runs are dropped from memory (runs still computing, or with
+an ensemble computing, are kept). Since 2026-10-11 every finished run (completed, failed,
+cancelled) is also written to the **run archive** (`docs/run-archive.md`). A run not in memory
+(after a deploy, a restart or the cap) is read from the archive: the same body as the live
+GET, with `"archived": true` (live responses have `"archived": false`). `/arrival` and
+`/ensemble` fall back the same way. A run in neither answers 404.
 
 Get simulation status and results.
 
@@ -304,9 +308,14 @@ Health check endpoint.
   "status": "healthy",
   "version": "3.0.0",
   "uptime_seconds": 123.4,
-  "engine": "firesim"
+  "engine": "firesim",
+  "archive": {"enabled": true, "backend": "local", "durable": false, "max_age_days": 365.0,
+              "failures": 0, "runs": 12, "bytes": 51234}
 }
 ```
+
+`archive`: run-archive status (`docs/run-archive.md`). `durable: false` means the archive is on
+a temporary disk and is lost on deploy (no `FIRESIM_ARCHIVE_DIR` and no `/data` volume).
 
 ### GET /api/v1/simulations/{id}/ensemble
 

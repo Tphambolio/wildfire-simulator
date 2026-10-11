@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 import uuid
 from typing import Callable
 
@@ -82,6 +83,12 @@ class SimulationRun:
         self.fuel_source: dict | None = None
         # Buildings used (BuildingsSourceInfo fields), set when buildings are selected
         self.buildings_source: dict | None = None
+        # Run archive (services/archive.py): kind of run, the perimeter-override request,
+        # creation and end times (epoch seconds)
+        self.kind: str = "single" if not isinstance(config, MultiDaySimulationCreate) else "multiday"
+        self.override_request: dict | None = None
+        self.created_at: float = time.time()
+        self.finished_at: float | None = None
 
     def set_phase(self, phase: str, progress: float | None = None) -> None:
         """Record the run's phase and progress; notify ``on_status`` when the phase changes
@@ -226,6 +233,9 @@ class SimulationRunner:
     def __init__(self) -> None:
         self._runs: dict[str, SimulationRun] = {}
         self._lock = threading.Lock()
+        # Called with the run once its thread ends (terminal status, ensemble done): the app
+        # archives it from here (services/archive.py). Errors are logged, never raised.
+        self.on_finished: Callable[[SimulationRun], None] | None = None
         # Cache loaded grids keyed by (fuel_path, water_path, wui_path, dem_path).
         # Buildings are intentionally excluded — they are applied per-simulation
         # using the neighbourhood-filtered BuildingIndex, not baked into the grid.
@@ -267,12 +277,7 @@ class SimulationRunner:
         self._store(sim_id, run)
 
         # Start simulation in background thread
-        thread = threading.Thread(
-            target=self._execute,
-            args=(run, on_frame),
-            daemon=True,
-        )
-        thread.start()
+        self._start(self._execute, run, on_frame)
 
         return sim_id
 
@@ -293,6 +298,24 @@ class SimulationRunner:
     def get(self, sim_id: str) -> SimulationRun | None:
         with self._lock:
             return self._runs.get(sim_id)
+
+    def _start(self, target: Callable[..., None], run: SimulationRun, *args) -> None:
+        """Run ``target(run, *args)`` on a daemon thread; when it ends, record the end time
+        and hand the run to ``on_finished`` (the run archive). The hook only queues work, and
+        an error in it is logged: it never changes the run's result."""
+        def body() -> None:
+            try:
+                target(run, *args)
+            finally:
+                run.finished_at = time.time()
+                hook = self.on_finished
+                if hook is not None:
+                    try:
+                        hook(run)
+                    except Exception:  # noqa: BLE001 - the archive must never break a run
+                        logger.exception("on_finished hook failed for %s", run.id)
+
+        threading.Thread(target=body, daemon=True).start()
 
     def _get_building_index(self, buildings_path: str, neighbourhoods_path: str | None):
         """Return a BuildingIndex, opening and caching on first call.
@@ -935,12 +958,7 @@ class SimulationRunner:
 
         self._store(sim_id, run)
 
-        thread = threading.Thread(
-            target=self._execute_multiday,
-            args=(run, params, on_frame),
-            daemon=True,
-        )
-        thread.start()
+        self._start(self._execute_multiday, run, params, on_frame)
 
         return sim_id
 
@@ -1161,15 +1179,13 @@ class SimulationRunner:
         sim_id = str(uuid.uuid4())[:8]
         run = SimulationRun(sim_id, original.config)
         run.on_status = on_status
+        run.kind = "perimeter_override"
+        run.override_request = req.model_dump(mode="json")
 
         self._store(sim_id, run)
 
-        thread = threading.Thread(
-            target=self._execute_perimeter_override,
-            args=(run, original.config, initial_front, req, on_frame, clock),
-            daemon=True,
-        )
-        thread.start()
+        self._start(self._execute_perimeter_override, run, original.config, initial_front, req,
+                    on_frame, clock)
 
         return sim_id
 

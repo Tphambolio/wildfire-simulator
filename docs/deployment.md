@@ -6,6 +6,7 @@
 |---|---|---|
 | API | Fly.io app `firesim-api` (region yyz): https://firesim-api.fly.dev | GitHub Actions `deploy` job on every push to `master`: `flyctl deploy --remote-only --build-arg GIT_SHA=<commit>` (needs the `FLY_API_TOKEN` secret). Image: `api/Dockerfile`, which bundles `data/` at `/app/data` and downloads the Alberta Wildfire fuel grid COG (31.8 MB, SHA-256 checked) from the GitHub release `data-ab-fbp-2025` (`docs/fuel-grid-alberta.md` §6; the build continues without it). |
 | Frontend | Vercel: https://wildfire-simulator.vercel.app | Vercel builds `frontend/` from `master`; pull requests get preview deployments (behind Vercel login). |
+| Run archive | API: SQLite index + object store (`docs/run-archive.md`) | Without settings: a temporary local directory (lost on deploy; warning at startup). Durable setup (owner approval needed): Fly volume at `/data`, R2 bucket for payloads, Litestream backup of the index (`api/deploy/entrypoint.sh`); commands in `docs/run-archive.md` "Deploy". |
 
 `GET /api/v1/version` returns the deployed commit (from the `GIT_SHA` build argument), so any
 output can be traced to the exact model version.

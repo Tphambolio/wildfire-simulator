@@ -7,12 +7,18 @@ are marked ``@pytest.mark.pyra`` and get it switched on with an empty cache.
 
 from __future__ import annotations
 
+import os
+import tempfile
+
 import pytest
 
 from firesim_api.services import pyra as pyra_source
 
 
 def pytest_configure(config):
+    # Every run the API tests start is archived when it ends (services/archive.py): keep that
+    # in a throwaway directory, never a developer's /data or the shared temp folder
+    os.environ.setdefault("FIRESIM_ARCHIVE_DIR", tempfile.mkdtemp(prefix="firesim-archive-test-"))
     config.addinivalue_line("markers", "pyra: test runs with the Pyra fire-weather tier enabled")
 
 

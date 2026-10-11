@@ -307,6 +307,8 @@ export interface SimulationResponse {
   fuel_source?: FuelSourceInfo | null;
   /** Buildings the run used (absent from older API versions; docs/api-reference.md) */
   buildings_source?: BuildingsSourceInfo | null;
+  /** Read from the server's run archive (the run finished before the API restarted) */
+  archived?: boolean;
 }
 
 /** Which buildings a run used (API `buildings_source`) */
