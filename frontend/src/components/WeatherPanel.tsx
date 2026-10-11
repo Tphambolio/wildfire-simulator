@@ -221,6 +221,10 @@ interface WeatherPanelProps {
   /** Single run pressed: called before the hourly forecast is fetched, so the previous run
    * is cleared at once (the request is sent through onStartSimulation once ready) */
   onRunRequested?: (durationHours: number) => void;
+  /** Incremented by the collapsed Setup rail's Run button: run as the Run bar would */
+  runRequest?: number;
+  /** Whether Run is possible now, and why not (for the collapsed Setup rail) */
+  onRunState?: (state: { canRun: boolean; reason: string | null; label: string }) => void;
 }
 
 /** Roof scenario shares (pre-specified, docs/structure-spread-spec.md §6.2) */
@@ -242,6 +246,8 @@ function WeatherPanel({
   onSkillOptions,
   onNewIgnition,
   onRunRequested,
+  runRequest = 0,
+  onRunState,
 }: WeatherPanelProps) {
   const fieldId = useId();
 
@@ -815,6 +821,17 @@ function WeatherPanel({
       else handleMultiDaySubmit();
     };
   });
+  // The collapsed Setup rail's Run button
+  const lastRunRequest = useRef(runRequest);
+  useEffect(() => {
+    if (runRequest === lastRunRequest.current) return;
+    lastRunRequest.current = runRequest;
+    runRef.current();
+  }, [runRequest]);
+  const runLabel = isRunning ? "Simulating..." : simMode === "single" ? "Run Simulation" : `Run ${multiDayDays.length * 24}h Scenario`;
+  useEffect(() => {
+    onRunState?.({ canRun, reason: disabledReason, label: runLabel });
+  }, [onRunState, canRun, disabledReason, runLabel]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {

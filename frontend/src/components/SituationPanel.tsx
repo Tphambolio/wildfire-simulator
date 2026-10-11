@@ -29,6 +29,16 @@ interface SituationPanelProps {
   /** Actions after a run (New ignition, Clear results) */
   actions?: ReactNode;
   children?: ReactNode;
+  /** Collapsed to its rail (the content stays mounted, hidden) */
+  collapsed?: boolean;
+  /** id of the content element (aria-controls of the collapse and rail buttons) */
+  contentId?: string;
+  /** Collapse chevron for the header */
+  collapseButton?: ReactNode;
+  /** The rail shown while collapsed */
+  rail?: ReactNode;
+  /** Narrow screens: open as an overlay drawer */
+  drawer?: boolean;
 }
 
 const DIRS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -63,7 +73,8 @@ function statusLine(status: string | null, totalFrames: number, last: Simulation
 }
 
 const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function SituationPanel(
-  { frame, frameIndex, totalFrames, status, scenarioStart, headline, kpiCaption, burningPeriod = null, progress = null, actions = null, children },
+  { frame, frameIndex, totalFrames, status, scenarioStart, headline, kpiCaption, burningPeriod = null, progress = null, actions = null, children,
+    collapsed = false, contentId, collapseButton = null, rail = null, drawer = false },
   ref,
 ) {
   // The "last" frame for progress is the newest one; the KPIs follow the timeline selection
@@ -74,14 +85,25 @@ const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function Sit
   return (
     <aside
       ref={ref}
-      className="situation-panel"
+      className={`situation-panel${collapsed ? " collapsed" : ""}${drawer ? " is-drawer" : ""}`}
       aria-labelledby="situation-title"
       tabIndex={-1}
     >
+      {collapsed && rail}
+      {/* Run status stays announced while the panel is collapsed */}
+      {collapsed && (
+        <div className="visually-hidden" role="status" aria-live="polite">
+          {statusLine(status, totalFrames, frame, scenarioStart)}
+        </div>
+      )}
+      <div id={contentId} className="situation-content" hidden={collapsed}>
       <header className="situation-header">
-        <h2 id="situation-title" className="situation-title">
-          {frame ? `At ${clockLabel(scenarioStart, frame.time_hours)}` : "Situation"}
-        </h2>
+        <div className="situation-title-row">
+          <h2 id="situation-title" className="situation-title">
+            {frame ? `At ${clockLabel(scenarioStart, frame.time_hours)}` : "Situation"}
+          </h2>
+          {collapseButton}
+        </div>
         {frame && (
           <div className="situation-sub">
             {formatElapsed(frame.time_hours)} · frame {frameIndex + 1} of {totalFrames}
@@ -141,6 +163,7 @@ const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function Sit
       )}
 
       <div className="situation-body">{children}</div>
+      </div>
     </aside>
   );
 });
