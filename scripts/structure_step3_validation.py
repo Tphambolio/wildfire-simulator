@@ -161,6 +161,53 @@ PREREG_STEP3 = {
 }
 
 
+# --------------------------------------------------------------------------------------------
+# Second dated block: the Eaton 2025 run set-up (fixed 2026-10-10 after PREREG_STEP3 was committed
+# in 492c7af and before any Eaton run, dry or scored). The data preparation wrote no
+# <fire>_run_config.json; its report ("CAL FIRE DINS independent test data 2026-10-10", §5.2 and
+# §8) gives the documented entry areas, wind and window, taken here unchanged. Coordinates are
+# area centres read by eye from the LA County AAR maps (±0.01°, ~1 km); they locate areas, not
+# buildings. PREREG_STEP3 is unchanged.
+# --------------------------------------------------------------------------------------------
+PREREG_STEP3_EATON = {
+    "date_fixed": "2026-10-10",
+    "run_config": {
+        # I0: the three earliest structure areas (18:30-20:00), all entered at t = 0 (18:30)
+        "seed_points": [[34.18, -118.08],   # foothill homes east of Eaton Wash, 18:30-19:30 (AAR p.123)
+                        [34.17, -118.10],   # homes along Eaton Canyon / Wash, 18:30-20:30 (AAR p.123; report p.54)
+                        [34.18, -118.10]],  # east Altadena, ~19:25-20:00 (investigation report pp.15-16)
+        "seed_minutes": [0.0, 0.0, 0.0],
+        "nearest_per_point": 5,
+        "wind_speed_kmh": 46.8,  # 13 m/s, SCE Eaton Canyon 27-30 mph sustained (report pp.9-11)
+        "wind_from_deg": 20.0,   # NNE: KBUR, Mill Creek and San Rafael Hills RAWS
+        "window_min": 690.0,     # 18:30 to 06:00 (8 Jan)
+        "sources": "CAL FIRE DINS independent test data report 2026-10-10 §5.2, §8 items 4-5",
+    },
+    "sensitivity": {
+        "wind_kmh": [32.4, 64.8],  # 9 / 18 m/s (KBUR low, Henninger high; report §8 item 5)
+        "I1_add_west_altadena": {"point": [34.18, -118.14], "minute": 385.0},  # 00:55 (AAR pp.18, 26)
+        "I2_windward_band": 0.05,
+        "gap_cover_threshold": [0.10, 0.30],  # data report §8 item 10; sensitivity, never adoption
+        "unsurveyed_scored_as_no_damage": True,
+        "outcome_major_or_destroyed": True,
+        "runs_per_sensitivity": "H30 and VB only (kappa, VB - H30 block bootstrap)",
+    },
+    "scoring_domain": "the 13,545 footprint units in FRAP perimeter + 300 ft; unsurveyed (351) and "
+                      "Inaccessible excluded from scoring, kept as fuel",
+    "not_used": "DINS construction fields (ROOFCONSTRUCTION etc.) are not read; the units file is "
+                "read for geometry and unit_id only",
+    "expectation_from_a_model_only_dry_run": "Eaton geometry with random outcomes (--dry-run, the "
+        "status file not read): H30 involves 130 of 13,545 units in 690 min (H20 112, H45 176, "
+        "VB 147); no ember ignition in E or any roof run; I2 windward band H30 2,650 / VB 5,864. "
+        "Structure-only Hamada from 15 seeds is therefore expected to reach very few of the "
+        "observed losses (recall near zero) at Eaton.",
+    "disclosure": "Before this block the author read the data report, including its aggregate "
+                  "outcome counts and its descriptive roof table (wood roofs 0.45 % of Eaton "
+                  "structures); nothing was scored and no outcome was joined to any model or "
+                  "vegetation value by the author.",
+}
+
+
 # ---------------------------------------------------------------------------------- helpers
 
 
@@ -220,11 +267,12 @@ def masked_diff(units, mask, a, b, obs) -> dict:
 
 
 def run_set(units45, units_by_cut, seed, obs, mask, wind_kmh, wind_from, window, canopy,
-            veg_scores, dist, log, extra_winds=()) -> dict:
-    """All PREREG_STEP3 runs on one fire; returns the results dict."""
+            veg_scores, dist, log, extra_winds=(), seed_t=None) -> dict:
+    """All PREREG_STEP3 runs on one fire; returns the results dict. ``seed_t``: per cutoff, the
+    seed units' entry minutes (inf elsewhere); default 0 for every seed."""
     P = PREREG_STEP3
     d66 = burnout_minutes(150)
-    tf = {c: np.where(seed[c], 0.0, np.inf) for c in seed}
+    tf = seed_t or {c: np.where(seed[c], 0.0, np.inf) for c in seed}
     res = {"runs": {}, "roof_runs": {}}
 
     def wind(kmh):
@@ -415,6 +463,26 @@ def main_jasper(args) -> None:
 # ---------------------------------------------------------------------------------- independent
 
 
+def _seed_mask_times(u, cfg) -> tuple[np.ndarray, np.ndarray]:
+    import shapely
+
+    t = np.full(len(u), np.inf)
+    for (lat, lng), m in zip(cfg["seed_points"], cfg.get("seed_minutes", [0.0] * len(cfg["seed_points"]))):
+        x, y = u.frame.to_local(lat, lng)
+        dd = shapely.distance(u.footprints, shapely.Point(float(x), float(y)))
+        idx = np.argsort(dd, kind="stable")[:int(cfg.get("nearest_per_point", 5))]
+        t[idx] = np.minimum(t[idx], float(m))
+    return np.isfinite(t), t
+
+
+def _windward(u, frac, wind_from) -> np.ndarray:
+    to = math.radians(wind_from + 180.0)
+    proj = u.x * math.sin(to) + u.y * math.cos(to)
+    s = np.zeros(len(u), dtype=bool)
+    s[np.argsort(proj, kind="stable")[:int(math.ceil(frac * len(u)))]] = True
+    return s
+
+
 def main_independent(args) -> None:
     import geopandas as gpd
 
@@ -423,60 +491,119 @@ def main_independent(args) -> None:
     fire = args.fire
     cfg_path = d / f"{fire}_run_config.json"
     needed = [d / f"{fire}_units.gpkg", d / f"{fire}_units_status.csv",
-              d / f"{fire}_unit_veg_metrics.csv", CALFIRE_DIR / "raw" / f"meta_chm_{fire}.tif", cfg_path]
+              d / f"{fire}_unit_veg_metrics.csv", CALFIRE_DIR / "raw" / f"meta_chm_{fire}.tif"]
     missing = [str(p) for p in needed if not p.exists()]
     if missing:
         sys.exit("scoring pending: missing " + ", ".join(missing))
-    cfg = json.loads(cfg_path.read_text())
-    cfg_sha = hashlib.sha256(cfg_path.read_bytes()).hexdigest()
-    g = gpd.read_file(needed[0])[["unit_id", "geometry"]]  # geometry + id only (no attributes)
+    if cfg_path.exists():
+        cfg_bytes = cfg_path.read_bytes()
+        cfg = json.loads(cfg_bytes)
+        pre = None
+    elif fire == "eaton":
+        pre = PREREG_STEP3_EATON
+        cfg = pre["run_config"]
+        cfg_bytes = json.dumps(cfg, sort_keys=True).encode()
+    else:
+        sys.exit(f"scoring pending: no run config for {fire}")
+    cfg_sha = hashlib.sha256(cfg_bytes).hexdigest()
+    g = gpd.read_file(needed[0], columns=["unit_id"])  # geometry + id only (no attributes)
     g = g[g.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
     ids = g.unit_id.to_numpy(dtype=np.int64)
     geoms = np.asarray(g.geometry.values, dtype=object)
-    status = {}
-    with open(needed[1], newline="") as f:
-        for row in csv.DictReader(f):
-            status[int(row["unit_id"])] = row["DAMAGE"]
-    st = np.array([status.get(int(i), "UNSURVEYED") for i in ids])
+    if args.dry_run:  # model-only: outcomes never read
+        rng = np.random.default_rng(1)
+        st = rng.choice(["Destroyed (>50%)", "No Damage", "UNSURVEYED"], size=len(ids),
+                        p=[0.5, 0.47, 0.03])
+    else:
+        status = {}
+        with open(needed[1], newline="") as f:
+            for row in csv.DictReader(f):
+                status[int(row["unit_id"])] = row["DAMAGE"]
+        st = np.array([status.get(int(i), "UNSURVEYED") for i in ids])
     scored = ~np.isin(st, ["UNSURVEYED", "Inaccessible"])
     obs = st == "Destroyed (>50%)"
     units = {c: build_units(geoms, neighbour_cutoff_m=c, ids=ids) for c in (20.0, 30.0, 45.0)}
     for u in units.values():
         assert len(u) == len(geoms), "a footprint was dropped by build_units"
-    seed = {}
+    seed, seed_t = {}, {}
     for c, u in units.items():
-        s = np.zeros(len(u), dtype=bool)
-        import shapely
-
-        for lat, lng in cfg["seed_points"]:
-            x, y = u.frame.to_local(lat, lng)
-            dd = shapely.distance(u.footprints, shapely.Point(float(x), float(y)))
-            s[np.argsort(dd, kind="stable")[:int(cfg.get("nearest_per_point", 5))]] = True
-        seed[c] = s
+        seed[c], seed_t[c] = _seed_mask_times(u, cfg)
     u30 = units[30.0]
     dist = J.edge_distance_to_seeds(u30, seed[30.0])
     veg = _read_veg(needed[2], "fid")
     vm = _veg_matrix(ids, veg, ("cc_0_10", "cc_10_30"))
-    sub = {"x": u30.x, "y": u30.y}
-    veg_scores = {}
-    for name, cols in (("e1_distance_vegetation", vm[:, :1]), ("e2_distance_vegetation_10_30", vm)):
-        sc = np.full(len(obs), -np.inf)
+
+    def veg_scores_for(mask, outcome, distance):
         from types import SimpleNamespace
 
-        us = SimpleNamespace(x=sub["x"][scored], y=sub["y"][scored])
-        sc[scored] = J.distance_vegetation_scores(us, dist[scored], cols[scored], obs[scored])
-        veg_scores[name] = sc
+        out = {}
+        us = SimpleNamespace(x=u30.x[mask], y=u30.y[mask])
+        for name, cols in (("e1_distance_vegetation", vm[:, :1]), ("e2_distance_vegetation_10_30", vm)):
+            sc = np.full(len(outcome), -np.inf)
+            sc[mask] = J.distance_vegetation_scores(us, distance[mask], cols[mask], outcome[mask])
+            out[name] = sc
+        return out
+
+    veg_scores = veg_scores_for(scored, obs, dist)
     canopy = canopy_for(geoms, needed[3])
     t0 = time.time()
     res = run_set(units[45.0], units, seed, obs, scored, float(cfg["wind_speed_kmh"]),
                   float(cfg["wind_from_deg"]), float(cfg["window_min"]), canopy, veg_scores, dist,
-                  print)
-    res.update({"prereg_step3": PREREG_STEP3, "fire": fire, "run_config": cfg,
+                  print, seed_t=seed_t)
+
+    # Pre-registered sensitivity (Eaton block): H30 and VB only
+    sens = {}
+    if pre is not None:
+        S = pre["sensitivity"]
+        d66 = burnout_minutes(150)
+        wf, win = float(cfg["wind_from_deg"]), float(cfg["window_min"])
+
+        def hv(tag, kmh, s_t, outcome, mask, thr=V.BRIDGE_MIN_GAP_COVER, wind_from=wf):
+            w = [WindPeriod(0.0, kmh, wind_from)]
+            h = hamada_spread(u30, s_t[30.0], w, duration_min=win, burnout_min=d66).t_min <= win
+            links = V.BridgedLinks(units[45.0], canopy, min_gap_cover=thr)
+            vb = hamada_spread(units[45.0], s_t[45.0], w, duration_min=win, burnout_min=d66,
+                               link_filter=links).t_min <= win
+            sens[tag] = {"H30": J.score(h, outcome, mask), "VB": J.score(vb, outcome, mask),
+                         "VB_minus_H30": masked_diff(u30, mask, vb, h, outcome),
+                         "bridge": links.stats()}
+            print(f"sens {tag:28s} H30 kappa={sens[tag]['H30']['kappa']:+.3f} (pred {int(h.sum())}) "
+                  f"VB kappa={sens[tag]['VB']['kappa']:+.3f} (pred {int(vb.sum())})", flush=True)
+
+        for kmh in S["wind_kmh"]:
+            hv(f"wind_{kmh:g}kmh", kmh, seed_t, obs, scored)
+        i1 = dict(cfg)
+        i1["seed_points"] = cfg["seed_points"] + [S["I1_add_west_altadena"]["point"]]
+        i1["seed_minutes"] = list(cfg.get("seed_minutes", [0.0] * len(cfg["seed_points"]))) + [
+            S["I1_add_west_altadena"]["minute"]]
+        st1 = {c: _seed_mask_times(u, i1)[1] for c, u in units.items()}
+        hv("I1_add_west_altadena", float(cfg["wind_speed_kmh"]), st1, obs, scored)
+        st2 = {c: np.where(_windward(u, S["I2_windward_band"], wf), 0.0, np.inf)
+               for c, u in units.items()}
+        hv("I2_windward_band", float(cfg["wind_speed_kmh"]), st2, obs, scored)
+        for thr in S["gap_cover_threshold"]:
+            hv(f"gap_cover_{thr:g}", float(cfg["wind_speed_kmh"]), seed_t, obs, scored, thr=thr)
+        if not args.dry_run:
+            all_m = ~np.isin(st, ["Inaccessible"])
+            hv("unsurveyed_as_no_damage", float(cfg["wind_speed_kmh"]), seed_t, obs, all_m)
+            maj = np.isin(st, ["Destroyed (>50%)", "Major (25-50%)"])
+            hv("outcome_major_or_destroyed", float(cfg["wind_speed_kmh"]), seed_t, maj, scored)
+    res.update({"prereg_step3": PREREG_STEP3, "prereg_eaton": pre, "fire": fire, "run_config": cfg,
                 "run_config_sha256": cfg_sha, "units": len(ids), "units_scored": int(scored.sum()),
-                "veg_coverage": int(np.isfinite(vm[:, 0]).sum()), "seconds": time.time() - t0})
-    (args.out / f"results_step3_{fire}.json").write_text(json.dumps(res, indent=2, default=float))
-    (args.out / f"tables_step3_{fire}.md").write_text(
-        tables_md(f"CAL FIRE {fire}: step 3 independent test", res))
+                "observed_destroyed_scored": int(obs[scored].sum()),
+                "veg_coverage": int(np.isfinite(vm[:, 0]).sum()), "sensitivity": sens,
+                "dry_run": bool(args.dry_run), "seconds": time.time() - t0})
+    tag = "_DRYRUN" if args.dry_run else ""
+    (args.out / f"results_step3_{fire}{tag}.json").write_text(json.dumps(res, indent=2, default=float))
+    md = tables_md(f"CAL FIRE {fire}: step 3 independent test{' (DRY RUN, random outcomes)' if args.dry_run else ''}", res)
+    if sens:
+        md += "\n## Pre-registered sensitivity (H30 and VB)\n\n| Run | κ H30 (pred) | κ VB (pred) | VB − H30 [95 %] | Links bridged / tested |\n|---|---|---|---|---|\n"
+        for k, v in sens.items():
+            dd = v["VB_minus_H30"]
+            md += (f"| {k} | {v['H30']['kappa']:+.3f} ({v['H30']['predicted']}) | {v['VB']['kappa']:+.3f} "
+                   f"({v['VB']['predicted']}) | {dd['point']:+.3f} [{dd['p2.5']:+.3f}, {dd['p97.5']:+.3f}] | "
+                   f"{v['bridge']['links_bridged']} / {v['bridge']['links_tested']} |\n")
+    (args.out / f"tables_step3_{fire}{tag}.md").write_text(md)
     print(f"wrote {args.out}")
 
 
@@ -491,6 +618,8 @@ def main() -> None:
     b = sub.add_parser("independent")
     b.add_argument("--fire", default="eaton")
     b.add_argument("--out", type=Path, required=True)
+    b.add_argument("--dry-run", action="store_true",
+                   help="model-only run with random outcomes (the status file is never read)")
     sub.add_parser("prereg", help="print the pre-registration")
     args = ap.parse_args()
     if args.cmd == "jasper":
