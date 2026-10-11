@@ -90,6 +90,12 @@ interface EOCConsoleProps {
   incidentName?: string;
   /** Run ID, start time and ensemble, for the ICS 209-WF */
   run209?: ICS209RunContext | null;
+  /** Active operational period, e.g. "Day 2 · 2026-10-11 08:00–20:00" (forms) */
+  operationalPeriod?: string;
+  /** Active operational period's day (tag on new map annotations) */
+  operationalDay?: number;
+  /** The active period's saved run, when it is not the run shown (forms say it is not loaded) */
+  periodRunId?: string | null;
   onIncidentNameChange?: (name: string) => void;
 }
 
@@ -141,6 +147,9 @@ export default function EOCConsole({
   ghostPerimeter = null,
   incidentName: incidentNameProp,
   run209 = null,
+  operationalPeriod,
+  operationalDay = 1,
+  periodRunId = null,
   onIncidentNameChange,
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("situation");
@@ -157,7 +166,10 @@ export default function EOCConsole({
   const [activeColor, setActiveColor] = useState<string | null>(null);
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const [selectedForm, setSelectedForm] = useState<ICSFormId>("ics201");
-  const [formHtml, setFormHtml] = useState<string>("");
+  const [renderedForm, setRenderedForm] = useState<{ html: string; period?: string; frames: SimulationFrame[] }>({ html: "", frames: [] });
+  // A form generated for another operational period or run is not shown (QA 2026-10-11: after
+  // switching periods the viewer kept the previous period's form); select it again to refresh
+  const formHtml = renderedForm.period === operationalPeriod && renderedForm.frames === frames ? renderedForm.html : "";
   const [mapSnapshot, setMapSnapshot] = useState<string | undefined>(undefined);
   const consoleMapRef = useRef<maplibregl.Map | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -239,7 +251,7 @@ export default function EOCConsole({
           label: symDef?.label ?? activeSymbolKey,
           color: activeColor ?? undefined,
           properties: {},
-          operationalDay: 1,
+          operationalDay,
           createdAt: new Date().toISOString(),
         });
       }
@@ -249,7 +261,7 @@ export default function EOCConsole({
     } else if (markupTool === "text") {
       setPendingTextPos({ x, y });
     }
-  }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool, getSvgCoords, pixelToGeo]);
+  }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool, getSvgCoords, pixelToGeo, operationalDay, activeColor]);
 
   const handleSvgMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (!isPenDownRef.current) return;
@@ -275,7 +287,7 @@ export default function EOCConsole({
             label: symDef?.label ?? activeSymbolKey,
             color: activeColor ?? undefined,
             properties: {},
-            operationalDay: 1,
+            operationalDay,
             createdAt: new Date().toISOString(),
           };
           onAddAnnotation(annotation);
@@ -285,7 +297,7 @@ export default function EOCConsole({
       }
       return [];
     });
-  }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool]);
+  }, [activeSymbolKey, activeLayer, onAddAnnotation, markupTool, operationalDay, activeColor]);
 
   const handleTextSubmit = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && pendingTextPos) {
@@ -304,7 +316,7 @@ export default function EOCConsole({
             label: text,
             color: activeColor ?? undefined,
             properties: {},
-            operationalDay: 1,
+            operationalDay,
             createdAt: new Date().toISOString(),
           });
         } else {
@@ -316,7 +328,7 @@ export default function EOCConsole({
     } else if (e.key === "Escape") {
       setPendingTextPos(null);
     }
-  }, [pendingTextPos, pixelToGeo, onAddAnnotation, activeLayer, activeSymbolKey]);
+  }, [pendingTextPos, pixelToGeo, onAddAnnotation, activeLayer, activeSymbolKey, operationalDay, activeColor]);
 
   const clearMarkup = useCallback(() => {
     setPenPaths([]);
@@ -411,7 +423,11 @@ export default function EOCConsole({
     evacZones,
     mapSnapshotDataUrl: snapshot ?? mapSnapshot,
     annotations: incidentAnnotations,
-  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, mapSnapshot, incidentAnnotations]);
+    operationalPeriod,
+    runId: frames.length > 0
+      ? (run209?.simulationId ?? null)
+      : periodRunId ? `${periodRunId} (not loaded: use "Load run" above the console)` : null,
+  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, mapSnapshot, incidentAnnotations, operationalPeriod, run209, periodRunId]);
 
   // ── Suppression advisory for ICS-209 ─────────────────────────────────────
 
@@ -451,9 +467,9 @@ export default function EOCConsole({
     else if (formId === "ics206") html = buildICS206HTML(opts);
     else if (formId === "ics214") html = buildICS214HTML(opts);
     else if (formId === "full-iap") html = buildFullIAPHTML(opts);
-    setFormHtml(html);
+    setRenderedForm({ html, period: operationalPeriod, frames });
     setSelectedForm(formId);
-  }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, getSuppressionAdvisory, run209, incidentName]);
+  }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, getSuppressionAdvisory, run209, incidentName, operationalPeriod]);
 
   const handleFormSelect = useCallback(async (formId: ICSFormId) => {
     const snap = await captureMapSnapshot();

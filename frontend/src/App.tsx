@@ -321,7 +321,15 @@ export default function App() {
     exportIncident,
     importIncident,
     setEvacTier,
+    saveFailed: incidentSaveFailed,
   } = useIncident();
+  // The incident and operational period a run is started for (set when any run starts), so
+  // the completed run is filed there even if the user switches periods while it computes
+  const incidentRef = useRef(incident);
+  useEffect(() => {
+    incidentRef.current = incident;
+  }, [incident]);
+  const runTargetRef = useRef<{ incidentId: string; periodIndex: number } | null>(null);
   const currentConfigRef = useRef<Omit<ScenarioConfig, "id" | "createdAt" | "name" | "description"> | null>(null);
 
   // Edmonton assets and major roads load with the Edmonton grid (no upload needed)
@@ -398,6 +406,7 @@ export default function App() {
     startMultiDaySimulation,
     startPerimeterOverride,
     prepareRun,
+    restoreRun,
     setFrameIndex,
     pauseSimulation,
     resumeSimulation,
@@ -426,6 +435,8 @@ export default function App() {
    * frames, which the run start resets.
    */
   const leaveCurrentRun = useCallback(() => {
+    const inc = incidentRef.current;
+    runTargetRef.current = inc ? { incidentId: inc.id, periodIndex: inc.activePeriodIndex } : null;
     const old = activeEnsembleIdRef.current;
     activeEnsembleIdRef.current = null;
     if (old) cancelEnsemble(old);
@@ -499,13 +510,43 @@ export default function App() {
     }
   }, [status, frames.length, activeTab]);
 
-  // Auto-save completed simulation into active incident period
+  // Auto-save a completed simulation into the operational period it was started for (else,
+  // a run started before the incident was opened, the active period)
   useEffect(() => {
     if (status === "completed" && frames.length > 0 && simulationId && incident) {
-      saveFrameData(frames, simulationId);
+      saveFrameData(frames, simulationId, runTargetRef.current, scenarioStart?.toISOString() ?? null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  // Run <-> operational period (EOC console): the live run is this period's run, another
+  // period's run, or not filed under any period (run before the incident was opened)
+  const periodRunId = activePeriod?.simulationId ?? null;
+  const liveRunPeriod = useMemo(() => {
+    if (!incident || !simulationId) return -1;
+    return (incident.operationalPeriods ?? []).findIndex((p) => p.simulationId === simulationId);
+  }, [incident, simulationId]);
+  const liveRunIsThisPeriods = !!simulationId && periodRunId === simulationId;
+  // The EOC forms describe the active period: its own run, or a run not yet filed anywhere when
+  // the period has none. Never another period's run (QA 2026-10-11: Day 2's ICS 209 showed
+  // Day 1's run after "+ New Period").
+  const eocShowsLiveRun = liveRunIsThisPeriods || (!periodRunId && liveRunPeriod < 0);
+  const canAttachLiveRun =
+    !!incident && !!activePeriod && status === "completed" && frames.length > 0 && liveRunPeriod < 0;
+  const handleAttachLiveRun = useCallback(() => {
+    if (!incident || !simulationId) return;
+    saveFrameData(frames, simulationId, { incidentId: incident.id, periodIndex: incident.activePeriodIndex },
+      scenarioStart?.toISOString() ?? null);
+  }, [incident, simulationId, frames, scenarioStart, saveFrameData]);
+  // Reload the active period's run from the server (after a page reload or another run)
+  const handleLoadPeriodRun = useCallback(() => {
+    if (!incident || !activePeriod?.simulationId) return;
+    leaveCurrentRun();
+    const at = activePeriod.runStartIso ? Date.parse(activePeriod.runStartIso) : NaN;
+    setScenarioStart(Number.isFinite(at) ? new Date(at) : null);
+    setRunBurningPeriod(null);
+    restoreRun(activePeriod.simulationId);
+  }, [incident, activePeriod, leaveCurrentRun, restoreRun]);
 
   // ── Ensemble (range of outcomes): polled after the single run, the headline once in ──
   const ensemble = useEnsemble(simulationId, ensembleMembers, status);
@@ -923,27 +964,35 @@ export default function App() {
             onPeriodSelect={setActivePeriodIndex}
             onAdvancePeriod={advancePeriod}
             onUpdateName={(name) => updateIncidentField("name", name)}
+            saveFailed={incidentSaveFailed}
+            run={{
+              liveRunShown: eocShowsLiveRun && frames.length > 0,
+              liveRunDay: liveRunPeriod >= 0 ? incident.operationalPeriods[liveRunPeriod]?.day ?? null : null,
+              canAttach: canAttachLiveRun,
+              onAttach: handleAttachLiveRun,
+              onLoad: activePeriod?.simulationId && !liveRunIsThisPeriods && !isRunning ? handleLoadPeriodRun : undefined,
+            }}
           />
           <Suspense fallback={<div className="hint eoc-loading">Loading EOC console…</div>}>
           <EOCConsole
-            frames={frames}
-            currentFrameIndex={currentFrameIndex}
-            burnProbabilityData={burnProbabilityData}
+            frames={eocShowsLiveRun ? frames : NO_FRAMES}
+            currentFrameIndex={eocShowsLiveRun ? currentFrameIndex : 0}
+            burnProbabilityData={eocShowsLiveRun ? burnProbabilityData : null}
             showBurnProbView={showBurnProbView}
-            runParams={lastRunParams}
+            runParams={eocShowsLiveRun ? lastRunParams : null}
             ignitionPoint={ignitionPoint}
-            fuelTypeLabel={lastRunParams?.fuel_type ? `${lastRunParams.fuel_type} — ${FUEL_TYPES[lastRunParams.fuel_type] ?? ""}` : undefined}
+            fuelTypeLabel={eocShowsLiveRun && lastRunParams?.fuel_type ? `${lastRunParams.fuel_type} — ${FUEL_TYPES[lastRunParams.fuel_type] ?? ""}` : undefined}
             overlayCommunities={communities}
             assetPoints={assetPoints}
             assetsVisible={assetsVisible}
-            roadsReached={roadsReached}
+            roadsReached={eocShowsLiveRun ? roadsReached : null}
             roadsReachedVisible={roadsReachedVisible}
             assetAttribution={assetAttribution}
-            criticalReach={criticalReach}
+            criticalReach={eocShowsLiveRun ? criticalReach : null}
             evacZones={evacZones}
             evacZonesVisible={evacZonesVisible}
             isochrones={isochrones}
-            isochronesVisible={isochronesVisible}
+            isochronesVisible={eocShowsLiveRun && isochronesVisible}
             fuelGridImage={fuelGridImage}
             fuelGridVisible={fuelGridVisible}
             incidentAnnotations={activePeriod?.annotations ?? []}
@@ -959,7 +1008,10 @@ export default function App() {
                 : null
             }
             incidentName={incident?.name}
-            run209={run209}
+            run209={eocShowsLiveRun ? run209 : null}
+            operationalPeriod={activePeriod ? `Day ${activePeriod.day} · ${activePeriod.date} ${activePeriod.opPeriodStart}–${activePeriod.opPeriodEnd}` : undefined}
+            operationalDay={activePeriod?.day ?? 1}
+            periodRunId={activePeriod?.simulationId ?? null}
             onIncidentNameChange={(name) => updateIncidentField("name", name)}
           />
           </Suspense>
@@ -1197,6 +1249,7 @@ export default function App() {
 }
 
 const SCRATCH_EVAC_KEY = "firesim-v3-evac-tiers";
+const NO_FRAMES: SimulationFrame[] = [];
 
 function loadScratchEvacTiers(): EvacTierRecord[] {
   try {

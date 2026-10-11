@@ -1,6 +1,6 @@
 /** Persist incident sessions (multi-day operational periods) to localStorage. */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useSyncExternalStore } from "react";
 import { fetchNearbyFacilities } from "../services/overpass";
 import type { SimulationFrame } from "../types/simulation";
 import type {
@@ -12,26 +12,34 @@ import type {
 } from "../types/incident";
 import { makeIncident, makeOperationalPeriod } from "../types/incident";
 import { upsertTier, type EvacTier } from "../utils/evacZones";
+import { loadIncidents, normaliseIncident, writeStored } from "../utils/storage";
 
 const STORAGE_KEY = "firesim-v3-incidents";
 const MAX_INCIDENTS = 20;
 
 function loadFromStorage(): IncidentSession[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as IncidentSession[];
-  } catch {
-    return [];
-  }
+  // Defensive: corrupted or older-version incidents are normalised or dropped (utils/storage.ts)
+  return loadIncidents(STORAGE_KEY);
 }
 
+// Result of the last write: false when the browser refused it (quota exceeded, storage blocked).
+// A tiny external store (useSyncExternalStore): writes happen inside state updaters, so the
+// listeners are told after the current render, not during it.
+let lastSaveOk = true;
+const saveListeners = new Set<() => void>();
+const subscribeSave = (l: () => void) => {
+  saveListeners.add(l);
+  return () => {
+    saveListeners.delete(l);
+  };
+};
+const getSaveOk = () => lastSaveOk;
+
 function saveToStorage(incidents: IncidentSession[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(incidents));
-  } catch {
-    // quota exceeded — silently fail
-  }
+  const ok = writeStored(STORAGE_KEY, incidents);
+  if (ok === lastSaveOk) return;
+  lastSaveOk = ok;
+  queueMicrotask(() => saveListeners.forEach((l) => l()));
 }
 
 function framestoSummaries(frames: SimulationFrame[]): FrameSummary[] {
@@ -54,6 +62,10 @@ export function useIncident() {
     const active = all.find((i) => i.status === "active");
     return active?.id ?? null;
   });
+
+  // Every change is written to localStorage; when the browser refuses (storage full), say so
+  // rather than lose the incident silently on the next reload (QA 2026-10-11)
+  const saveFailed = !useSyncExternalStore(subscribeSave, getSaveOk);
 
   const activeIncident = incidents.find((i) => i.id === activeIncidentId) ?? null;
   const activePeriod = activeIncident
@@ -105,7 +117,15 @@ export function useIncident() {
     []
   );
 
+  // Resuming a closed incident reopens it, so it is restored after a reload (only active
+  // incidents are restored)
   const loadIncident = useCallback((id: string) => {
+    setIncidents((prev) => {
+      if (!prev.some((i) => i.id === id && i.status === "closed")) return prev;
+      const next = prev.map((i) => (i.id === id ? { ...i, status: "active" as const, updatedAt: new Date().toISOString() } : i));
+      saveToStorage(next);
+      return next;
+    });
     setActiveIncidentId(id);
   }, []);
 
@@ -220,20 +240,44 @@ export function useIncident() {
 
   // ── Frame data ────────────────────────────────────────────────────────────
 
+  /**
+   * Save a completed run into an operational period: by default the active one; `target` names
+   * the incident and period the run was started for, so switching periods while it computes
+   * does not file it under the wrong day.
+   */
   const saveFrameData = useCallback(
-    (frames: SimulationFrame[], simulationId: string) => {
+    (
+      frames: SimulationFrame[],
+      simulationId: string,
+      target?: { incidentId: string; periodIndex: number } | null,
+      runStartIso?: string | null,
+    ) => {
       const summaries = framestoSummaries(frames);
       const lastFrame = frames[frames.length - 1];
-      const finalPerimeter: [number, number][] | null = lastFrame?.perimeter
+      const finalPerimeter: [number, number][] | null = lastFrame?.perimeter?.length
         ? (lastFrame.perimeter as [number, number][])
         : null;
-      updateActivePeriod((p) => ({
+      const apply = (p: OperationalPeriod): OperationalPeriod => ({
         ...p,
         simulationId,
         simulationStatus: "completed",
         frameSummaries: summaries,
         finalPerimeter,
-      }));
+        runStartIso: runStartIso ?? p.runStartIso ?? null,
+      });
+      if (!target) {
+        updateActivePeriod(apply);
+        return;
+      }
+      setIncidents((prev) => {
+        const next = prev.map((i) => {
+          if (i.id !== target.incidentId || !i.operationalPeriods[target.periodIndex]) return i;
+          const periods = i.operationalPeriods.map((p, idx) => (idx === target.periodIndex ? apply(p) : p));
+          return { ...i, operationalPeriods: periods, updatedAt: new Date().toISOString() };
+        });
+        saveToStorage(next);
+        return next;
+      });
     },
     [updateActivePeriod]
   );
@@ -275,9 +319,9 @@ export function useIncident() {
           fwi: opts.fwi ?? currentPeriod.fwi,
           opPeriodStart: opts.opPeriodStart ?? "08:00",
           opPeriodEnd: opts.opPeriodEnd ?? "20:00",
-          // Carry forward ignition point
+          // Carry forward ignition point. Map annotations stay with their own period (each
+          // period starts with none; the previous period's are on its own tab)
           ignitionPoint: currentPeriod.ignitionPoint,
-          // Day 1 annotations carry forward (each annotation has operationalDay tag)
         };
         return {
           ...incident,
@@ -320,13 +364,16 @@ export function useIncident() {
       reader.onload = (e) => {
         try {
           const parsed = JSON.parse(e.target?.result as string) as IncidentSession;
-          if (!parsed.name || !parsed.operationalPeriods) {
+          // Same normalisation as stored incidents (older exports, missing fields)
+          const normalised = parsed?.name && Array.isArray(parsed.operationalPeriods)
+            ? normaliseIncident({ ...parsed, id: crypto.randomUUID() })
+            : null;
+          if (!normalised) {
             reject(new Error("Invalid incident file"));
             return;
           }
           const next: IncidentSession = {
-            ...parsed,
-            id: crypto.randomUUID(),
+            ...normalised,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -352,6 +399,8 @@ export function useIncident() {
     activeIncidentId,
     incidents,
     activePeriod,
+    /** The last write to browser storage failed (e.g. storage full): changes are not saved */
+    saveFailed,
     // CRUD
     createIncident,
     loadIncident,

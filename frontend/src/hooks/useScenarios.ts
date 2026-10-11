@@ -2,26 +2,18 @@
 
 import { useState, useCallback } from "react";
 import type { ScenarioConfig } from "../types/simulation";
+import { loadScenarios, writeStored } from "../utils/storage";
 
 const STORAGE_KEY = "firesim-v3-scenarios";
 const MAX_SCENARIOS = 10;
 
 function loadFromStorage(): ScenarioConfig[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as ScenarioConfig[];
-  } catch {
-    return [];
-  }
+  // Defensive: older or corrupted saves are normalised or dropped (utils/storage.ts)
+  return loadScenarios(STORAGE_KEY);
 }
 
 function saveToStorage(scenarios: ScenarioConfig[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
-  } catch {
-    // quota exceeded — silently fail
-  }
+  writeStored(STORAGE_KEY, scenarios); // quota exceeded: kept for this session only
 }
 
 export function useScenarios() {

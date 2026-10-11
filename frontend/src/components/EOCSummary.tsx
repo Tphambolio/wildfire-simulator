@@ -193,6 +193,9 @@ function buildICSText(
       const hfi = d.peakHfi.toFixed(0).padEnd(18);
       const ftype = d.fireType.replace(/_/g, " ");
       lines.push(`  ${day} ${area} ${hfi} ${ftype}`);
+      if (d.fwi) {
+        lines.push(`        FWI ${d.fwi.fwi.toFixed(1)} (FFMC ${d.fwi.ffmc.toFixed(1)}, DMC ${d.fwi.dmc.toFixed(1)}, DC ${d.fwi.dc.toFixed(0)}; carried over)`);
+      }
     }
     lines.push("");
   }
@@ -289,6 +292,8 @@ interface DayStats {
   peakHfi: number;
   finalAreaHa: number;
   fireType: string;
+  /** The day's FWI codes after the daily carry-over (multi-day runs) */
+  fwi?: SimulationFrame["day_fwi"];
 }
 
 function extractDayStats(frames: SimulationFrame[]): DayStats[] | null {
@@ -301,11 +306,13 @@ function extractDayStats(frames: SimulationFrame[]): DayStats[] | null {
     const day = f.day ?? (Math.ceil(f.time_hours / 24) || 1);
     const existing = dayMap.get(day);
     if (!existing) {
-      dayMap.set(day, { day, peakRos: f.head_ros_m_min, peakHfi: f.max_hfi_kw_m, finalAreaHa: f.area_ha, fireType: f.fire_type });
+      dayMap.set(day, { day, peakRos: f.head_ros_m_min, peakHfi: f.max_hfi_kw_m, finalAreaHa: f.area_ha, fireType: f.fire_type, fwi: f.day_fwi ?? null });
     } else {
       if (f.head_ros_m_min > existing.peakRos) existing.peakRos = f.head_ros_m_min;
       if (f.max_hfi_kw_m > existing.peakHfi) existing.peakHfi = f.max_hfi_kw_m;
       existing.finalAreaHa = f.area_ha;
+      // The synthetic T=0 frame has no day_fwi: take the day's codes from its first real frame
+      existing.fwi = existing.fwi ?? f.day_fwi ?? null;
       existing.fireType = f.fire_type;
     }
   }
@@ -468,15 +475,21 @@ export default function EOCSummary({
               <span>Day</span>
               <span>Area (ha)</span>
               <span>Peak HFI</span>
+              {dayStats.some((d) => d.fwi) && <span>FWI (carried over)</span>}
             </div>
-            {dayStats.map(({ day, finalAreaHa, peakHfi }) => {
+            {dayStats.map(({ day, finalAreaHa, peakHfi, fwi }) => {
               return (
-                <div className="eoc-bp-row" key={day}>
+                <div className="eoc-bp-row" key={day} data-testid={`day-row-${day}`}>
                   <span className="eoc-bp-label">Day {day}</span>
                   <span className="eoc-bp-val">{finalAreaHa.toFixed(0)}</span>
                   <span className="eoc-bp-val">
                     {peakHfi.toFixed(0)} <HfiClassChip hfi={peakHfi} />
                   </span>
+                  {fwi && (
+                    <span className="eoc-bp-val" title={`FFMC ${fwi.ffmc} · DMC ${fwi.dmc} · DC ${fwi.dc} · ISI ${fwi.isi} · BUI ${fwi.bui}`}>
+                      {fwi.fwi.toFixed(1)} <FwiClassChip fwi={fwi.fwi} />
+                    </span>
+                  )}
                 </div>
               );
             })}

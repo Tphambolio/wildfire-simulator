@@ -29,6 +29,12 @@ export interface Fixture {
 export const fixture: Fixture = JSON.parse(readFileSync(FIXTURES + "terwillegar_grass_4h.json", "utf8"));
 /** A run with structure_spread on (record_fixture.py --structure): counts per frame, involved units on the last */
 export const structureFixture: Fixture = JSON.parse(readFileSync(FIXTURES + "structure_spread_4h.json", "utf8"));
+/**
+ * A recorded 3-day POST /simulations/multiday run (record_fixture.py --multiday): Terwillegar
+ * grass, 120 min snapshots, burning period 10-20, rain on day 3; frames carry `day` and the
+ * day's carried-over FWI codes `day_fwi`, incremental cells (whole frame at each day start).
+ */
+export const multidayFixture: Fixture = JSON.parse(readFileSync(FIXTURES + "terwillegar_multiday_3d.json", "utf8"));
 const fuelGridImage = readFileSync(FIXTURES + "fuel_grid_image.json", "utf8");
 const arrival = readFileSync(FIXTURES + "arrival.json", "utf8");
 /** The completed 30-member ensemble of the same run (GET /simulations/{id}/ensemble) */
@@ -84,6 +90,33 @@ export interface MockOptions {
   phaseDelayMs?: number;
   /** Keep the ensemble "running" (never completes), as a slow server ensemble does */
   ensembleNeverCompletes?: boolean;
+  /** Multi-day runs replay the recorded engine fixture (first N days of it) instead of the
+   * synthetic multiDayFrames */
+  multidayRecorded?: boolean;
+  /** Shift every coordinate of the replayed frames by [dLat, dLng] (runs outside Edmonton) */
+  translate?: [number, number];
+  /** Each POST /simulations gets its own ID (fixture ID, then `<fixture ID>-2`, `-3`, ...);
+   * the same frames are replayed for each */
+  distinctRunIds?: boolean;
+}
+
+/** Frames with every coordinate shifted by [dLat, dLng] (perimeter, cells, head, spot fires). */
+export function translateFrames(frames: Fixture["frames"], [dLat, dLng]: [number, number]): Fixture["frames"] {
+  const pt = <T extends { lat: number; lng: number }>(c: T): T => ({ ...c, lat: c.lat + dLat, lng: c.lng + dLng });
+  return frames.map((f) => ({
+    ...f,
+    perimeter: Array.isArray(f.perimeter) ? (f.perimeter as number[][]).map(([la, ln]) => [la + dLat, ln + dLng]) : f.perimeter,
+    burned_cells: Array.isArray(f.burned_cells) ? (f.burned_cells as Array<{ lat: number; lng: number }>).map(pt) : f.burned_cells,
+    head: f.head ? pt(f.head as { lat: number; lng: number }) : f.head,
+    spot_fires: Array.isArray(f.spot_fires) ? (f.spot_fires as Array<{ lat: number; lng: number }>).map(pt) : f.spot_fires,
+    building_exposure: null,
+    building_exposure_detail: null,
+  }));
+}
+
+/** The recorded multi-day frames for a request of `days` days (the fixture has 3). */
+export function recordedMultiDayFrames(days: number): Fixture["frames"] {
+  return multidayFixture.frames.filter((f) => ((f as { day?: number }).day ?? 1) <= days);
 }
 
 /** Simulation ID the mocked POST /simulations/multiday returns */
@@ -125,6 +158,10 @@ export interface MockState {
   ensemblePollIds: string[];
   /** Simulation ID of every DELETE /simulations/{id}/ensemble (the app stopping an old ensemble) */
   ensembleCancels: string[];
+  /** Simulation IDs the "server" no longer has (GET answers 404, as after a restart or deploy) */
+  gone: Set<string>;
+  /** Simulation ID of every GET /simulations/{id} */
+  getIds: string[];
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -136,8 +173,11 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
   const frameDelayMs = opts.frameDelayMs ?? 40;
   const state: MockState = {
     posts: [], overridePosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0, multidayPosts: [], ensemblePollIds: [],
-    ensembleCancels: [],
+    ensembleCancels: [], gone: new Set(), getIds: [],
   };
+  const shift = (frames: Fixture["frames"]) => (opts.translate ? translateFrames(frames, opts.translate) : frames);
+  const mdFrames = (n: number) => shift(opts.multidayRecorded ? recordedMultiDayFrames(n) : multiDayFrames(n));
+  const fxFrames = shift(fx.frames);
   let multiDays = 3;
   const ensembleStep = opts.ensembleStep ?? 8;
 
@@ -162,7 +202,9 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === "/api/v1/simulations" && req.method() === "POST") {
       const body = req.postDataJSON() as Record<string, unknown>;
       state.posts.push(body);
-      return json(route, { simulation_id: fx.simulation_id, status: "running", config: fx.config, frames: [], error: null });
+      const n = state.posts.length;
+      const id = opts.distinctRunIds && n > 1 ? `${fx.simulation_id}-${n}` : fx.simulation_id;
+      return json(route, { simulation_id: id, status: "running", config: fx.config, frames: [], error: null });
     }
     if (path === "/api/v1/simulations/perimeter-override" && req.method() === "POST") {
       // The restart replays the same fixture frames
@@ -181,10 +223,25 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return json(route, { simulation_id: ens[1], status: "running", cancel_requested: true });
     }
     if (ens) state.ensemblePollIds.push(ens[1]);
+    const one = path.match(/^\/api\/v1\/simulations\/([^/]+)$/);
+    if (one && req.method() === "GET") {
+      state.getIds.push(one[1]);
+      if (state.gone.has(one[1])) return json(route, { detail: "Simulation not found" }, 404);
+      if (one[1] === MULTIDAY_ID) {
+        return json(route, { simulation_id: MULTIDAY_ID, status: "completed", config: null, frames: mdFrames(multiDays), error: null });
+      }
+      if (opts.distinctRunIds && one[1].startsWith(`${fx.simulation_id}-`)) {
+        state.polls++;
+        return json(route, { ...fx, simulation_id: one[1], frames: fxFrames });
+      }
+    }
     if (path === `/api/v1/simulations/${MULTIDAY_ID}/ensemble`) {
       return json(route, { detail: "No ensemble requested for this run" }, 404);
     }
     if (path === `/api/v1/simulations/${fx.simulation_id}/arrival`) return json(route, arrival);
+    if (opts.distinctRunIds && path.startsWith(`/api/v1/simulations/${fx.simulation_id}-`) && path.endsWith("/arrival")) {
+      return json(route, arrival);
+    }
     if (path === `/api/v1/simulations/${fx.simulation_id}/ensemble`) {
       if (!opts.ensemble) return json(route, { detail: "No ensemble requested for this run" }, 404);
       const n = ++state.ensemblePolls;
@@ -197,7 +254,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     }
     if (path === `/api/v1/simulations/${fx.simulation_id}` && req.method() === "GET") {
       state.polls++;
-      return json(route, fx);
+      return json(route, opts.translate ? { ...fx, frames: fxFrames } : fx);
     }
     if (path === "/api/v1/health") return json(route, { status: "ok" });
     if (path === "/api/v1/version") return json(route, { version: "3.0.0", git_sha: "e2e0sha" });
@@ -211,7 +268,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return;
     }
     const simId = ws.url().split("/").pop();
-    const frames = simId === MULTIDAY_ID ? multiDayFrames(multiDays) : fx.frames;
+    const frames = simId === MULTIDAY_ID ? mdFrames(multiDays) : fxFrames;
     let i = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const statuses: Array<[string, number | null]> = opts.phases
