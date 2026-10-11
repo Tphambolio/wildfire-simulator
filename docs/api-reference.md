@@ -167,6 +167,10 @@ Start a new fire spread simulation.
 
 ### GET /api/v1/simulations/{id}
 
+Runs are kept in server memory only: lost on a deploy or machine restart, and beyond
+`FIRESIM_MAX_STORED_RUNS` (default 40) the oldest finished runs are dropped (runs still
+computing, or with an ensemble computing, are kept). A dropped run answers 404.
+
 Get simulation status and results.
 
 **Response (200):**
@@ -352,7 +356,10 @@ Multi-day scenario: `days` is a list of 1-7 daily noon weather records
 (`wind_speed`, `wind_direction`, `temperature`, `relative_humidity`, `precipitation_24h`); the FWI
 codes are advanced day to day from `fwi_overrides` (Van Wagner & Pickett 1985; `month` sets
 the day-length factors) and each day's
-grid run continues from the previous day's burned area. Frames carry `day`. `cells_mode`
+grid run continues from the previous day's burned area. Frames carry `day` and `day_fwi`
+(that day's `ffmc`, `dmc`, `dc`, `isi`, `bui`, `fwi` after the daily carry-over), on the
+WebSocket and, since 2026-10-11, on GET `/simulations/{id}` too (GET used to drop `day`).
+Buildings are not used by multi-day runs (`buildings_path` is accepted and ignored). `cells_mode`
 (grid runs): `"cumulative"` (default) or `"incremental"` as for single runs, except that a
 frame whose cells do not extend the previous frame's (the first frame of each day after the
 first) is sent whole with `cells_offset` 0; a 3-day Edmonton grid run streams about 1.7 MB

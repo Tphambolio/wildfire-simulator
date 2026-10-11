@@ -58,7 +58,10 @@ def _cell_offsets(run, frames: list[SimulationFrame]) -> list[int]:
     return [_offset(run, frames[i - 1] if i else None, f) for i, f in enumerate(frames)]
 
 
-def _frame_to_schema(frame: SimulationFrame, day: int | None = None, offset: int = 0) -> FrameSchema:
+def _frame_to_schema(
+    frame: SimulationFrame, day: int | None = None, offset: int = 0,
+    day_fwi: dict[str, float] | None = None,
+) -> FrameSchema:
     """Convert engine SimulationFrame to API schema.
 
     ``offset`` > 0 sends only the cells after the first ``offset`` (frames' cells are
@@ -79,6 +82,7 @@ def _frame_to_schema(frame: SimulationFrame, day: int | None = None, offset: int
         cells_offset=offset if frame.burned_cells else 0,
         head=frame.head,
         day=day,
+        day_fwi=day_fwi,
         buildings_at_risk=frame.buildings_at_risk,
         ignition_snapped_m=round(frame.ignition_snapped_m, 1),
         building_exposure=frame.building_exposure,
@@ -137,7 +141,8 @@ def _on_multiday_frame(sim_id: str, frame: SimulationFrame, day: int) -> None:
     event = {
         "type": "simulation.frame",
         "simulation_id": sim_id,
-        "frame": _frame_to_schema(frame, day=day, offset=offset).model_dump(),
+        "frame": _frame_to_schema(frame, day=day, offset=offset,
+                                  day_fwi=run.day_fwi.get(day) if run is not None else None).model_dump(),
     }
     ws_manager.broadcast_from_thread(sim_id, event)
 
@@ -267,9 +272,12 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
     # with frames missing; the client then stops polling. Seen in CI 2026-10-11.)
     status, error, phase, progress = run.status, run.error, run.phase, run.progress
     engine_frames = run.get_frames()
+    # Multi-day runs: each frame's day and that day's FWI codes (were dropped here, so a
+    # polling client lost the day tags; QA 2026-10-11)
     frames = [
-        _frame_to_schema(f, offset=o)
-        for f, o in zip(engine_frames, _cell_offsets(run, engine_frames))
+        _frame_to_schema(f, offset=o, day=d, day_fwi=fwi)
+        for f, o, (d, fwi) in zip(engine_frames, _cell_offsets(run, engine_frames),
+                                  run.frame_meta(len(engine_frames)))
     ]
 
     # Only include config in response for single-day simulations
@@ -421,11 +429,12 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
         # meanwhile gets its "completed" from the loop below, after them.
         status0 = run.status
         existing = run.get_frames()
-        for frame, offset in zip(existing, _cell_offsets(run, existing)):
+        for frame, offset, (day, day_fwi) in zip(existing, _cell_offsets(run, existing),
+                                                  run.frame_meta(len(existing))):
             await websocket.send_json({
                 "type": "simulation.frame",
                 "simulation_id": sim_id,
-                "frame": _frame_to_schema(frame, offset=offset).model_dump(),
+                "frame": _frame_to_schema(frame, offset=offset, day=day, day_fwi=day_fwi).model_dump(),
             })
 
         # A client joining a run still computing gets its current phase first
@@ -480,10 +489,12 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
             # Status already sent on cancel action; send final frame if available
             frames = run.get_frames()
             if frames:
+                day, day_fwi = run.frame_meta(len(frames))[-1]
                 await websocket.send_json({
                     "type": "simulation.frame",
                     "simulation_id": sim_id,
-                    "frame": _frame_to_schema(frames[-1], offset=_cell_offsets(run, frames)[-1]).model_dump(),
+                    "frame": _frame_to_schema(frames[-1], offset=_cell_offsets(run, frames)[-1],
+                                              day=day, day_fwi=day_fwi).model_dump(),
                 })
         elif run.status == SimulationStatus.FAILED and status0 != SimulationStatus.FAILED:
             # failed after the snapshot above

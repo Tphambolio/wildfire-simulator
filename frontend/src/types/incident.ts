@@ -145,6 +145,8 @@ export interface OperationalPeriod {
   evacuationDecisions: EvacDecisionRecord[];
   objectives: string[];                 // ICS-202 objectives for this period
   situationNarrative: string;
+  /** Clock start of this period's run (ISO), to restore its timeline after a reload */
+  runStartIso?: string | null;
 }
 
 // ── Incident session ──────────────────────────────────────────────────────────

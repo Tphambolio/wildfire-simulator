@@ -51,6 +51,14 @@ export default function FireMetrics({ frame }: FireMetricsProps) {
       </div>
 
       <div className="metrics-rows">
+        {frame.day != null && frame.day_fwi && (
+          <div className="metric-row" data-testid="day-fwi">
+            <span className="metric-label">Day {frame.day} FWI (carried over)</span>
+            <span className="metric-value">
+              {frame.day_fwi.fwi.toFixed(1)} · FFMC {frame.day_fwi.ffmc.toFixed(1)} · DMC {frame.day_fwi.dmc.toFixed(1)} · DC {frame.day_fwi.dc.toFixed(0)}
+            </span>
+          </div>
+        )}
         {showMaxHfi && (
           <div className="metric-row">
             <span className="metric-label">Max HFI on the front</span>
