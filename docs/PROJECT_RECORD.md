@@ -631,6 +631,11 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into â€
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-11 | `e40e8ef` | docs: Alberta Wildfire fuel grid default (fuel-grid-alberta, record, model card, API, deployment); indicative fire-day script |
+| 2026-10-11 | `84d240d` | feat(frontend): label the Alberta Wildfire fuel grid (InfoTip, About & sources, OGL-Alberta) |
+| 2026-10-11 | `565a557` | feat(api): Alberta Wildfire grid as the default fuel outside the City grid; fuel_source on runs |
+| 2026-10-11 | `c190f7b` | feat(engine): Alberta Wildfire FBP fuel scheme, per-cell percent conifer, seasonal swap, windowed provincial reads |
+| 2026-10-10 | `8743ad5` | Merge pull request #53 from Tphambolio/feat/structure-burnout |
 | 2026-10-10 | `ac29edc` | Merge pull request #52 from Tphambolio/feat/wui-20m-window |
 | 2026-10-10 | `fcfa8db` | Merge pull request #50 from Tphambolio/feat/pyra-starting-codes |
 | 2026-10-10 | `2037266` | docs: test results after merging master 3abdf3b (#51); work log |
