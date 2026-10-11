@@ -47,8 +47,12 @@ cells inside the OSM city boundary; **St. Albert** inside its OSM boundary plus 
 (796 × 790 cells, origin 15820 E / 5953600 N).
 
 The `canopy_lidar` scheme has no leafless codes, so the leaf-off grid exists only in CIFFC codes.
-The engine does not yet read percent conifer per cell (it uses the request value), so the PC carried
-in 4xx/5xx codes is preserved but not used until the engine is extended.
+Since 2026-10-11 the engine reads percent conifer per cell from the CIFFC 4xx/5xx/6xx codes
+(`FuelGrid.pc`, used for M-1/M-2 cells; `load_fuel_grid(path, code_scheme="cfs_national")`), and
+the leaf-on / leaf-off swap of D-1, M-1 and M-3 labels by run date is `firesim.fbp.season`
+(day of year 150 / 258), applied automatically only to the provincial default fuel
+(`docs/fuel-grid-alberta.md`); for an open-data grid passed as `fuel_grid_path`, choose the
+leaf-on or leaf-off file.
 
 ## 3. Inputs
 

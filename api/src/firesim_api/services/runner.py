@@ -28,6 +28,10 @@ from firesim_api.schemas.simulation import (
 logger = logging.getLogger(__name__)
 
 
+#: Provincial fuel windows kept in memory (2 GB API machine: keep this small)
+_WINDOW_CACHE_SIZE = 2
+
+
 class RunCancelled(Exception):
     """Raised from the progress callback to stop a cancelled run mid-computation."""
 
@@ -62,6 +66,8 @@ class SimulationRun:
         self.progress: float | None = None
         self.on_status: Callable[[str, str, float | None], None] | None = None
         self._last_sent: tuple[str | None, float] = (None, -1.0)
+        # Fuel data used (FuelSourceInfo fields), set when the grids are loaded
+        self.fuel_source: dict | None = None
 
     def set_phase(self, phase: str, progress: float | None = None) -> None:
         """Record the run's phase and progress; notify ``on_status`` when the phase changes
@@ -125,6 +131,14 @@ def _fuel_kwargs(params) -> dict:
     return params.fuel_modifiers.config_kwargs()
 
 
+def run_day_of_year(params) -> int | None:
+    """Day of year of a request: fuel_modifiers.day_of_year, else start_time's local date."""
+    doy = params.fuel_modifiers.day_of_year
+    if doy is None and getattr(params, "start_time", None) is not None:
+        doy = params.start_time.timetuple().tm_yday
+    return doy
+
+
 def _burning_period(params) -> tuple[float, float] | None:
     """Engine burning period (local clock hours) from an API request, if set."""
     bp = getattr(params, "burning_period", None)
@@ -183,6 +197,10 @@ class SimulationRunner:
         # one byte per cell (~3 MB for Edmonton)
         self._fine_cache: dict[tuple, object] = {}
         self._fine_lock = threading.Lock()
+        # Provincial fuel windows (runs outside the City grid), most recent last; at most
+        # _WINDOW_CACHE_SIZE kept (each ~10-20 MB of Python lists for a 40 km window at 50 m)
+        self._window_cache: dict[tuple, object] = {}
+        self._window_lock = threading.Lock()
 
     def create(
         self,
@@ -280,21 +298,24 @@ class SimulationRunner:
                 cache[path] = None
         return cache[path]
 
-    def _get_fine_source(self, fuel_path: str | None, water_path: str | None, run_grid):
+    def _get_fine_source(self, fuel_path: str | None, water_path: str | None, run_grid,
+                         fill_path: str | None = None):
         """The fuel raster at its native cell size for the 20 m WUI window, or None (disabled,
-        no raster, or the run grid is not coarser than the raster)."""
+        no raster, or the run grid is not coarser than the raster). ``fill_path``: the Alberta
+        grid filling the raster's no-data cells, as on the run grid."""
         from firesim_api.settings import settings
 
         if not fuel_path or run_grid is None or not settings.wui_fine_grid:
             return None
-        key = (fuel_path, water_path)
+        key = (fuel_path, water_path, fill_path)
         with self._fine_lock:
             if key in self._fine_cache:
                 return self._fine_cache[key]
         from firesim.data.fine_grid import FineFuelSource
 
         try:
-            src = FineFuelSource.from_raster(fuel_path, water_path=water_path)
+            src = FineFuelSource.from_raster(fuel_path, water_path=water_path,
+                                             fill_path=fill_path)
         except Exception:  # noqa: BLE001 - the 50 m run still works without it
             logger.exception("Native fuel grid for the 20 m window could not be loaded")
             src = None
@@ -308,8 +329,12 @@ class SimulationRunner:
         water_path: str | None,
         wui_path: str | None,
         dem_path: str | None = None,
+        fill_path: str | None = None,
     ) -> tuple:
         """Load fuel grid, WUI modifiers, and terrain grid, caching by path combo.
+
+        ``fill_path``: a raster (the Alberta Wildfire grid) filling the fuel grid's no-data
+        cells (``load_fuel_grid``).
 
         Grids are purely spatial — independent of weather/FWI/ignition point,
         so they're safe to reuse across simulations. Buildings are NOT baked in
@@ -321,7 +346,7 @@ class SimulationRunner:
         if not fuel_path and not dem_path:
             return None, None, None
 
-        cache_key = (fuel_path, water_path, wui_path, dem_path)
+        cache_key = (fuel_path, water_path, wui_path, dem_path, fill_path)
 
         with self._grid_cache_lock:
             if cache_key in self._grid_cache:
@@ -349,6 +374,7 @@ class SimulationRunner:
                 fuel_grid = load_fuel_grid(
                     fuel_path,
                     water_path=water_path,
+                    fill_path=fill_path,
                     # buildings_path intentionally omitted — applied per-simulation
                     # via BuildingIndex neighbourhood filter in _execute.
                 )
@@ -404,6 +430,138 @@ class SimulationRunner:
 
         return result
 
+    # ── Provincial default fuel (docs/fuel-grid-alberta.md) ────────────────────────────────
+
+    @staticmethod
+    def fuel_sources():
+        """``FuelSources`` when the Alberta grid is installed, else None (City grid only)."""
+        from firesim.data.provincial import FuelSources
+        from firesim_api.settings import settings
+
+        ab = settings.ab_fuel_grid_path
+        if not ab or not os.path.exists(ab):
+            return None
+        city = settings.city_fuel_grid_path
+        national = settings.national_fuel_grid_path
+        return FuelSources(
+            ab_path=ab,
+            city_path=city if city and os.path.exists(city) else None,
+            national_path=national if national and os.path.exists(national) else None,
+            national_scheme=settings.national_fuel_scheme,
+            window_km=settings.provincial_window_km,
+            city_margin_km=settings.city_margin_km,
+        )
+
+    @staticmethod
+    def _is_city_grid(path: str | None) -> bool:
+        from firesim_api.settings import settings
+
+        city = settings.city_fuel_grid_path
+        if not path or not city:
+            return False
+        return os.path.realpath(path) == os.path.realpath(city)
+
+    def provincial_applies(self, params) -> bool:
+        """The request asks for the default fuel: the City grid by path (or CA mode loading it),
+        ``provincial_fuel`` on, and the Alberta grid installed."""
+        from firesim_api.settings import settings
+
+        if not getattr(params, "provincial_fuel", True) or self.fuel_sources() is None:
+            return False
+        path = params.fuel_grid_path
+        if path is None and getattr(params, "use_ca_mode", False):
+            path = settings.fuel_grid_path
+        return self._is_city_grid(path)
+
+    def _provincial_window(self, sources, lat: float, lng: float, water_path: str | None):
+        """Cached ``provincial_window`` (keyed by the snapped window, LRU of _WINDOW_CACHE_SIZE)."""
+        from firesim.data.provincial import Lattice, provincial_window
+
+        lat_ = Lattice.around(lat, lng, sources.window_km, sources.cell_m)
+        key = (round(lat_.lat_max, 7), round(lat_.lng_min, 7), lat_.rows, sources, water_path)
+        with self._window_lock:
+            hit = self._window_cache.pop(key, None)
+            if hit is not None:
+                self._window_cache[key] = hit
+                return hit
+        stacked = provincial_window(sources, lat, lng, water_path=water_path)
+        with self._window_lock:
+            self._window_cache[key] = stacked
+            while len(self._window_cache) > _WINDOW_CACHE_SIZE:
+                self._window_cache.pop(next(iter(self._window_cache)))
+        return stacked
+
+    def resolve_provincial(self, params, day_of_year: int | None, dem_path: str | None,
+                           wui_path: str | None = None, water_path: str | None = None):
+        """(fuel_grid, spread_modifier_grid, terrain_grid, fine_source_or_None, fuel_source dict)
+        for a request that asks for the default fuel (``provincial_applies``).
+
+        Inside the City grid (ignition at least ``city_margin_km`` inside its box): the City
+        grid on its own 50 m lattice, the Alberta grid filling its no-data cells, and the 20 m
+        window source filled the same way. Elsewhere in Alberta: a ``window_km`` window centred
+        on the ignition (City cells where mapped, Alberta elsewhere, national outside Alberta if
+        configured); no 20 m window. Outside every grid: no grid (the uniform ``fuel_type``).
+        The season (D-1/D-2, M-1/M-2) is applied per run on a copy; cached grids stay unseasoned.
+        """
+        from firesim.data.provincial import choose_fuel
+        from firesim.fbp.season import apply_season, season_label
+
+        sources = self.fuel_sources()
+        choice = choose_fuel(sources, params.ignition_lat, params.ignition_lng,
+                             getattr(params, "fuel_type", "C2"))
+        info = {"kind": choice.kind, "label": choice.label, "attribution": choice.attribution,
+                "season": None, "share": None}
+        fine = None
+        if choice.kind == "city":
+            fuel_grid, wui_grid, terrain = self._load_grids(
+                sources.city_path, water_path, wui_path, dem_path, fill_path=sources.ab_path)
+            fine = self._get_fine_source(sources.city_path, water_path, fuel_grid,
+                                         fill_path=sources.ab_path)
+        elif choice.kind in ("provincial", "national"):
+            stacked = self._provincial_window(sources, params.ignition_lat, params.ignition_lng,
+                                              water_path)
+            fuel_grid = stacked.grid
+            info["share"] = {k: round(v, 4) for k, v in stacked.share.items()}
+            from firesim.data.provincial import AB_LABEL, CITY_LABEL, NATIONAL_LABEL
+
+            parts = [(stacked.share.get("city", 0.0), f"{CITY_LABEL} where mapped"),
+                     (stacked.share.get("ab_wildfire", 0.0), AB_LABEL),
+                     (stacked.share.get("national", 0.0),
+                      f"{NATIONAL_LABEL} ({sources.national_scheme}) outside Alberta")]
+            info["label"] = "; ".join(text for share, text in parts if share > 0) or choice.label
+            wui_grid = None
+            if wui_path:
+                from firesim.data.wui_loader import load_wui_modifiers
+
+                wui_grid = load_wui_modifiers(
+                    wui_path, bounds=(fuel_grid.lat_min, fuel_grid.lat_max, fuel_grid.lng_min,
+                                      fuel_grid.lng_max), rows=fuel_grid.rows, cols=fuel_grid.cols)
+            terrain = self._load_grids(None, None, None, dem_path)[2] if dem_path else None
+        else:  # uniform: outside every grid
+            fuel_grid, wui_grid = None, None
+            terrain = self._load_grids(None, None, None, dem_path)[2] if dem_path else None
+        if fuel_grid is not None:
+            fuel_grid = apply_season(fuel_grid, day_of_year)
+            info["season"] = season_label(day_of_year)
+            if fine is not None:
+                fine = fine.with_season(day_of_year)
+        logger.info("Fuel source: %s (%s)", choice.kind, choice.label)
+        return fuel_grid, wui_grid, terrain, fine, info
+
+    def _legacy_fuel_source(self, params, fuel_grid, grid_path: str | None) -> dict:
+        """FuelSourceInfo fields for a run that did not use the provincial default."""
+        from firesim.data.provincial import CITY_LABEL
+
+        if fuel_grid is None:
+            kind, label = "uniform", f"Uniform {getattr(params, 'fuel_type', 'C2')}"
+        elif grid_path is None:
+            kind, label = "synthetic", "Synthetic demo fuel mosaic"
+        elif self._is_city_grid(grid_path):
+            kind, label = "city", f"{CITY_LABEL} (20 m, 2025)"
+        else:
+            kind, label = "user_grid", f"Fuel grid {os.path.basename(grid_path)}"
+        return {"kind": kind, "label": label, "attribution": None, "season": None, "share": None}
+
     def _execute(
         self,
         run: SimulationRun,
@@ -452,16 +610,28 @@ class SimulationRunner:
             # Load spatial grids (cached — only loads once per unique path combo).
             # Buildings are NOT baked in here; applied per-simulation below.
             run.set_phase("loading")
-            fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
-                params.fuel_grid_path,
-                params.water_path,
-                getattr(params, "wui_zones_path", None),
-                dem_path,
-            )
-
-            fine_key = (params.fuel_grid_path, params.water_path)
+            # Default fuel (City grid where mapped, Alberta Wildfire grid elsewhere) when the
+            # request names the City grid and the Alberta grid is installed
+            provincial = self.provincial_applies(params)
+            prov_fine = None
+            if provincial:
+                water = params.water_path or (
+                    settings.water_path if not params.fuel_grid_path else None)
+                (fuel_grid, spread_modifier_grid, terrain_grid, prov_fine,
+                 run.fuel_source) = self.resolve_provincial(
+                    params, config.day_of_year, dem_path,
+                    getattr(params, "wui_zones_path", None), water)
+                fine_key = (None, None)
+            else:
+                fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
+                    params.fuel_grid_path,
+                    params.water_path,
+                    getattr(params, "wui_zones_path", None),
+                    dem_path,
+                )
+                fine_key = (params.fuel_grid_path, params.water_path)
             # CA mode: load real grid from settings env var, fall back to synthetic
-            if fuel_grid is None and getattr(params, "use_ca_mode", False):
+            if not provincial and fuel_grid is None and getattr(params, "use_ca_mode", False):
                 default_fuel_path = settings.fuel_grid_path
                 if default_fuel_path and os.path.exists(default_fuel_path):
                     logger.info("CA mode: loading real fuel grid from %s", default_fuel_path)
@@ -501,6 +671,9 @@ class SimulationRunner:
                         fuel_grid.rows, fuel_grid.cols,
                         params.ignition_lat, params.ignition_lng,
                     )
+
+            if run.fuel_source is None:
+                run.fuel_source = self._legacy_fuel_source(params, fuel_grid, fine_key[0])
 
             # Apply neighbourhood-filtered building mask per simulation.
             # Uses BuildingIndex (loaded once, cached) to find the 4 nearest
@@ -579,7 +752,7 @@ class SimulationRunner:
                 progress=run.set_phase,
                 # 20 m WUI window (mechanics decision M5): tried when buildings are near the
                 # fire, kept only within the memory guards (firesim.spread.wui_window)
-                fine_fuel=(self._get_fine_source(*fine_key, fuel_grid)
+                fine_fuel=((prov_fine if provincial else self._get_fine_source(*fine_key, fuel_grid))
                            if building_geoms else None),
                 fine_building_mask=building_geoms or None,
             )
@@ -698,12 +871,19 @@ class SimulationRunner:
             from firesim_api.settings import settings
 
             dem_path = getattr(params, "dem_path", None) or settings.dem_path
-            fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
-                params.fuel_grid_path,
-                params.water_path,
-                None,  # no WUI for multiday
-                dem_path,
-            )
+            if self.provincial_applies(params):
+                (fuel_grid, spread_modifier_grid, terrain_grid, _,
+                 run.fuel_source) = self.resolve_provincial(
+                    params, run_day_of_year(params), dem_path,
+                    None, params.water_path)
+            else:
+                fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
+                    params.fuel_grid_path,
+                    params.water_path,
+                    None,  # no WUI for multiday
+                    dem_path,
+                )
+                run.fuel_source = self._legacy_fuel_source(params, fuel_grid, params.fuel_grid_path)
 
             # Initialise FWI carry-in state from user overrides or spring defaults
             fwi_ov = params.fwi_overrides
@@ -942,12 +1122,19 @@ class SimulationRunner:
 
             dem_path = params.dem_path or settings.dem_path
             run.set_phase("loading")
-            fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
-                params.fuel_grid_path,
-                params.water_path,
-                params.wui_zones_path,
-                dem_path,
-            )
+            if self.provincial_applies(params):  # same fuel as the source run
+                (fuel_grid, spread_modifier_grid, terrain_grid, _,
+                 run.fuel_source) = self.resolve_provincial(
+                    params, config.day_of_year, dem_path, params.wui_zones_path,
+                    params.water_path)
+            else:
+                fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
+                    params.fuel_grid_path,
+                    params.water_path,
+                    params.wui_zones_path,
+                    dem_path,
+                )
+                run.fuel_source = self._legacy_fuel_source(params, fuel_grid, params.fuel_grid_path)
 
             simulator = Simulator(
                 config,

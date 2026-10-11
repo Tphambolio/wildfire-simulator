@@ -6,6 +6,7 @@ fuel / canopy group with ``fbp_ellipse_arrays``. These tests rebuild the table t
 check that the parameters and a full hourly run with terrain and mixed fuel are unchanged.
 """
 
+import dataclasses
 import math
 
 import numpy as np
@@ -21,8 +22,9 @@ def _scalar_evaluate(cls, cell_keys, conditions):
     """The original one-call-per-cell-type table (reference)."""
     fuel, index, keys = cell_keys[:3]
     table = np.zeros((max(len(keys), 1), 10))
-    for k, (ft, slope, aspect, cbh, cfl, rm, im) in enumerate(keys):
-        f = fbp_for_conditions(conditions, ft, float(slope), float(aspect), cbh, cfl)
+    for k, (ft, slope, aspect, cbh, cfl, rm, im, pc) in enumerate(keys):
+        cond = conditions if pc is None else dataclasses.replace(conditions, pc=pc)
+        f = fbp_for_conditions(cond, ft, float(slope), float(aspect), cbh, cfl)
         m = rm * conditions.ros_multiplier
         table[k] = (f.ros_final * m, f.back_ros * m, f.flank_ros * m, f.raz, f.sfc, f.cfl,
                     f.rso if math.isfinite(f.rso) else 1e12, im,

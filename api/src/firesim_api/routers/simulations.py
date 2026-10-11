@@ -188,7 +188,10 @@ async def fuel_grid_image(fuel_grid_path: str) -> dict:
         from firesim.data.fuel_loader import ALL_CODES, _detect_code_map, normalize_fuel_codes
 
         with rasterio.open(path) as src:
-            data = src.read(1)
+            # Decimated read for large rasters (e.g. the provincial grid, 7856 x 15002 cells):
+            # the image is at most 512 px anyway, and a full read would need ~240 MB
+            step = max(1, max(src.width, src.height) // 2048)
+            data = src.read(1, out_shape=(max(1, src.height // step), max(1, src.width // step)))
             nodata = src.nodata
             src_crs = src.crs
             src_bounds = src.bounds
@@ -280,6 +283,7 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
         error=error,
         phase=phase,
         progress=progress,
+        fuel_source=run.fuel_source,
     )
 
 
@@ -432,6 +436,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
             await websocket.send_json({
                 "type": "simulation.completed",
                 "simulation_id": sim_id,
+                "fuel_source": run.fuel_source,
             })
         elif status0 == SimulationStatus.FAILED:
             await websocket.send_json({
@@ -466,6 +471,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
             await websocket.send_json({
                 "type": "simulation.completed",
                 "simulation_id": sim_id,
+                "fuel_source": run.fuel_source,
             })
         elif run.status == SimulationStatus.CANCELLED:
             # Status already sent on cancel action; send final frame if available
@@ -556,7 +562,6 @@ async def create_perimeter_override(req: PerimeterOverrideRequest) -> Simulation
 # ---------------------------------------------------------------------------
 
 
-@router.post("/burn-probability", response_model=BurnProbabilityResponse)
 def _foliar_moisture(params: BurnProbabilityRequest) -> float:
     """FMC override, else ST-X-3 model from ignition point and date, else 100 %."""
     mods = params.fuel_modifiers
@@ -571,6 +576,9 @@ def _foliar_moisture(params: BurnProbabilityRequest) -> float:
     return 100.0
 
 
+# The route decorator sat on _foliar_moisture from 2026-10-05 (289a1d0) to 2026-10-11, so the
+# endpoint returned a validation error; it belongs here.
+@router.post("/burn-probability", response_model=BurnProbabilityResponse)
 async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbabilityResponse:
     """Run Monte Carlo burn probability analysis.
 
@@ -591,13 +599,43 @@ async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbab
     # Resolve fuel grid path (explicit > env var)
     fuel_path = params.fuel_grid_path or settings.fuel_grid_path
 
-    if fuel_path and not os.path.exists(fuel_path):
+    # Default fuel (City grid where mapped, Alberta Wildfire grid elsewhere; docs/fuel-grid-alberta.md)
+    provincial_grid = None
+    if runner is not None and fuel_path and runner.provincial_applies(
+            params.model_copy(update={"fuel_grid_path": fuel_path})):
+        from firesim.data.environment import load_environment_mask
+        from firesim_api.services.runner import run_day_of_year
+
+        def _load_provincial():
+            grid = runner.resolve_provincial(params, run_day_of_year(params), None, None,
+                                             params.water_path or settings.water_path)[0]
+            bpath = params.buildings_path or settings.buildings_path
+            if grid is not None and bpath:
+                import dataclasses
+
+                mask = load_environment_mask(
+                    bounds=(grid.lat_min, grid.lat_max, grid.lng_min, grid.lng_max),
+                    rows=grid.rows, cols=grid.cols, buildings_path=bpath)
+                grid = dataclasses.replace(grid, fuel_types=[
+                    [None if mask[r, c] else ft for c, ft in enumerate(row)]
+                    for r, row in enumerate(grid.fuel_types)])
+            return grid
+
+        provincial_grid = await asyncio.get_event_loop().run_in_executor(None, _load_provincial)
+        if provincial_grid is None:
+            raise HTTPException(status_code=422, detail=(
+                "Burn probability needs a fuel grid; no fuel grid covers this ignition "
+                "(outside Alberta)"))
+
+    if fuel_path and not os.path.exists(fuel_path) and provincial_grid is None:
         raise HTTPException(
             status_code=422,
             detail=f"Fuel grid file not found: {fuel_path!r}",
         )
 
-    if fuel_path:
+    if provincial_grid is not None:
+        fuel_grid = provincial_grid
+    elif fuel_path:
         # Load real fuel grid from file
         try:
             water_path = params.water_path or settings.water_path

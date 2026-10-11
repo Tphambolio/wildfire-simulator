@@ -50,6 +50,22 @@ Start a new fire spread simulation.
     `/simulations/multiday` and `/simulations/burn-probability` (the latter has no
     `start_time`: use `fuel_modifiers.day_of_year`). Sources: `engine/src/firesim/fbp/curing.py`,
     `docs/model-card.md`.
+- `fuel_grid_path` / `provincial_fuel` (added 2026-10-11; `docs/fuel-grid-alberta.md`): when
+  `fuel_grid_path` is the bundled City of Edmonton grid (server setting
+  `FIRESIM_CITY_FUEL_GRID_PATH`, default `/app/data/Edmonton_FBP_FuelLayer_20251105_10m.tif`; or
+  `use_ca_mode` loads it), `provincial_fuel` is true (default) and the server has the Alberta
+  Wildfire FBP grid (`FIRESIM_AB_FUEL_GRID_PATH`), the run uses the City grid where it has data
+  and the **Alberta Wildfire FBP fuel types 2025, 100 m** elsewhere: ignitions at least 5 km
+  inside the City grid's box run on the City grid's 50 m lattice with its no-data cells filled
+  from the Alberta grid; other ignitions in Alberta get a 40 km window centred on them (City
+  cells where mapped, Alberta 100 m → 50 m nearest neighbour elsewhere); outside Alberta a
+  national grid if the server has one (`FIRESIM_NATIONAL_FUEL_GRID_PATH`), else the uniform
+  `fuel_type`. D-1/D-2 and M-1/M-2 cells are leaf-on (D-2, M-2) from day of year 150 to 257, else
+  leaf-off (also with no date); M-1/M-2 percent conifer comes from the grid per cell; O-1 is O-1b.
+  `provincial_fuel: false` keeps the City grid only; any other `fuel_grid_path` is used as given.
+  Same on `/simulations/multiday`, `/simulations/burn-probability` (422 when no grid covers the
+  ignition) and perimeter overrides (the source run's request). The response says what was used
+  (`fuel_source`, below).
 - `start_time` (optional): scenario start (ignition) time, ISO 8601 with a UTC offset, e.g.
   `"2026-04-28T13:40:00-06:00"` (a time without an offset is rejected with 422). Frame
   `time_hours` and `hourly_weather[].hours_from_start` count from it, and when
@@ -164,9 +180,25 @@ Get simulation status and results.
   ],
   "error": null,
   "phase": "finishing",
-  "progress": 1.0
+  "progress": 1.0,
+  "fuel_source": {
+    "kind": "provincial",
+    "label": "Alberta Wildfire FBP fuel types 2025, 100 m",
+    "attribution": "Contains information licensed under the Open Government Licence – Alberta (Alberta Wildfire FBP Fuel Type, © Government of Alberta).",
+    "season": "leaf-on",
+    "share": {"ab_wildfire": 1.0}
+  }
 }
 ```
+
+`fuel_source` (added 2026-10-11; `null` until the grids are loaded): `kind` is `city` (City
+grid lattice, Alberta grid in its no-data cells), `provincial` (40 km window: City grid where
+mapped, Alberta grid elsewhere, national grid outside Alberta if configured), `national`,
+`user_grid` (a `fuel_grid_path` other than the City grid), `synthetic` or `uniform`; `label` is
+the text to show, `attribution` the licence line to show with it (Alberta grid: OGL-Alberta),
+`season` the leaf-on / leaf-off state used for the seasonal pairs (provincial and national
+cells only; `null` otherwise) and `share` the fraction of the window's cells each source
+supplied (`city`, `ab_wildfire`, `national`; windows only).
 
 Status values: `running`, `completed`, `failed`, `cancelled`
 
@@ -214,9 +246,11 @@ Stream simulation frames in real-time.
 ```json
 {"type": "simulation.status", "simulation_id": "abc123", "phase": "spread", "progress": 0.42}
 {"type": "simulation.frame", "frame": { ... }}
-{"type": "simulation.completed"}
+{"type": "simulation.completed", "fuel_source": { ... }}
 {"type": "simulation.error", "error": "message"}
 ```
+
+`simulation.completed` carries the run's `fuel_source` (as in GET, added 2026-10-11).
 
 `simulation.status` (added 2026-10-10; single runs and perimeter restarts) reports the run's
 phase while it computes: `loading`, `buildings`, `spread` (with `progress` 0-1, rounded to 3
@@ -329,11 +363,16 @@ Monte Carlo burn probability (synchronous). Varies the ignition point (`jitter_m
 (`wind_speed_pct`) and RH (`rh_abs`, applied as an FFMC change) over `n_iterations` grid runs
 of `duration_hours`; returns `burn_probability[rows][cols]` (fraction of iterations that
 burned each cell) with the grid bounds. Not a Burn-P3-style analysis over historical weather.
+The fuel follows the `fuel_grid_path` / `provincial_fuel` rule above (422 when no grid covers the
+ignition). From 2026-10-05 to 2026-10-11 the route was attached to the wrong function and the
+endpoint returned a response-validation error; fixed 2026-10-11.
 
 ### GET /api/v1/simulations/fuel-grid-image?fuel_grid_path=...
 
 The fuel grid as a base64 PNG for the map overlay, its WGS84 `bounds`, and a `legend` of the
-FBP fuel types drawn with their colours.
+FBP fuel types drawn with their colours. Large rasters are read decimated (at most about
+2,048 px on the long side; added 2026-10-11 so a request for the provincial grid cannot read
+all 118 M cells).
 
 ### POST /api/v1/fwi/calculate, POST /api/v1/fwi/multi-day
 

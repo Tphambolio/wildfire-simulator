@@ -90,7 +90,17 @@ export const TIPS = {
     "10 m), fuel types C-2, D-2, M-2, O-1a and O-1b. The run uses 50 m cells (the main fuel " +
     "type in each); when buildings are near the fire it is repeated on the native 20 m cells " +
     "in a window around the fire, if the fire is small enough. " +
-    `Cells without fuel data use ${fallbackFuel}.`,
+    `Cells without fuel data use ${fallbackFuel}. ` +
+    "Outside the City grid's mapped area the Alberta Wildfire provincial grid is used " +
+    "(see the Alberta grid tip).",
+  albertaGrid:
+    "Alberta Wildfire FBP fuel types 2025, 100 m (Government of Alberta). Used where the City " +
+    "grid has no data and for ignitions outside it (a 40 km window around the ignition, 50 m " +
+    "cells). D-1/D-2 aspen and M-1/M-2 mixedwood (percent conifer from the map) are leaf-on " +
+    "30 May-14 Sept; O-1 grass runs as standing grass (O-1b); vegetated non-fuel is non-fuel. " +
+    "Partly built from the Alberta Vegetation Inventory; it maps little vegetation inside " +
+    "Edmonton. Outside Alberta the fuel type chosen in Setup is used. Contains information " +
+    "licensed under the Open Government Licence – Alberta.",
   syntheticCA: "Generates a 5 km mixed-fuel demo grid around the ignition point and runs the grid model on it.",
   spotting:
     "Crown fires loft embers downwind and seed new ignitions. Maximum distance from Albini (1979); " +

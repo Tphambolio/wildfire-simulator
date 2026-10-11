@@ -93,6 +93,45 @@ class Settings:
         return os.environ.get("FIRESIM_WUI_FINE_GRID", "1").strip().lower() not in ("0", "false", "no", "off")
 
     @property
+    def ab_fuel_grid_path(self) -> str | None:
+        """Alberta Wildfire FBP fuel-type grid (2025, 100 m; a cloud-optimised GeoTIFF).
+
+        When set and the file exists, runs on the City grid fill its no-data cells from this
+        grid and runs outside the City grid use a window of it (``firesim.data.provincial``;
+        docs/fuel-grid-alberta.md). Read by windowed reads only. Unset: City grid only.
+        """
+        return os.environ.get("FIRESIM_AB_FUEL_GRID_PATH") or None
+
+    @property
+    def city_fuel_grid_path(self) -> str:
+        """The City of Edmonton grid: a request naming this file gets the provincial default
+        (City grid where mapped, Alberta grid elsewhere). Any other ``fuel_grid_path`` is used
+        as given."""
+        return os.environ.get(
+            "FIRESIM_CITY_FUEL_GRID_PATH", "/app/data/Edmonton_FBP_FuelLayer_20251105_10m.tif")
+
+    @property
+    def national_fuel_grid_path(self) -> str | None:
+        """Optional national FBP grid used outside Alberta (none is bundled)."""
+        return os.environ.get("FIRESIM_NATIONAL_FUEL_GRID_PATH") or None
+
+    @property
+    def national_fuel_scheme(self) -> str:
+        """Code scheme of ``national_fuel_grid_path`` ("cfs_national" or "cfs_national_2014")."""
+        return os.environ.get("FIRESIM_NATIONAL_FUEL_SCHEME", "cfs_national")
+
+    @property
+    def provincial_window_km(self) -> float:
+        """Side of the square fuel window for runs outside the City grid (km, default 40)."""
+        return float(os.environ.get("FIRESIM_PROVINCIAL_WINDOW_KM", "40"))
+
+    @property
+    def city_margin_km(self) -> float:
+        """Ignitions at least this far inside the City grid's box run on the City lattice
+        (km, default 5); others get a window centred on the ignition."""
+        return float(os.environ.get("FIRESIM_CITY_MARGIN_KM", "5"))
+
+    @property
     def pyra_source(self) -> bool:
         """Use Pyra's chain for the starting FWI codes (``/api/v1/weather/current`` "pyra" tier).
 
