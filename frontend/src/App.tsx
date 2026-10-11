@@ -46,6 +46,7 @@ import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
+import AppErrorBoundary from "./components/AppErrorBoundary";
 import TopBar, { type AppTab } from "./components/TopBar";
 import Badge from "./components/Badge";
 import InfoTip from "./components/InfoTip";
@@ -915,6 +916,7 @@ export default function App() {
       )}
       {activeTab === "eoc" && incident && (
         <div className="eoc-tab-wrapper">
+          <AppErrorBoundary area="EOC console" resetKey={activeTab} onReset={() => setActiveTab("simulation")}>
           <OperationalPeriodPanel
             incident={incident}
             activePeriod={activePeriod}
@@ -961,6 +963,7 @@ export default function App() {
             onIncidentNameChange={(name) => updateIncidentField("name", name)}
           />
           </Suspense>
+          </AppErrorBoundary>
         </div>
       )}
 
