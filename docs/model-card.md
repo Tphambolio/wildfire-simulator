@@ -67,7 +67,9 @@ the FFMC spin-up), FWI codes, burning period (local hours), FBP
 fuel grid (Edmonton: City canopy-LiDAR product; from 2026-10-11 the Alberta Wildfire FBP fuel
 types 2025, 100 m, wherever the City grid has no data and for ignitions outside it, with D-1/D-2
 and M-1/M-2 leaf-on from day of year 150 to 257, per-cell percent conifer from the map and O-1 as
-O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optional DEM, water
+O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optional DEM
+(Edmonton 30 m DEM on the City grid; from 2026-10-11 NRCan MRDEM-30 at ~100 m, read by window,
+for runs outside it; `docs/terrain-alberta.md`), water
 and building masks (from 2026-10-11 Microsoft building footprints for all of Alberta, read by
 window; Edmonton runs unchanged; `docs/buildings-alberta.md`),
 grass curing, percent conifer / dead fir, foliar moisture or date. Grass curing (decision M1,
@@ -91,7 +93,11 @@ from City of Edmonton Open Data, the Government of Alberta continuing care list 
 geocoded with City address points), Statistics Canada ODHF (2020) and OpenStreetMap (ODbL),
 every source recorded per asset; major roads (motorway to secondary with ramps, OSM
 2026-10-08); neighbourhoods from City Open Data. No manual points (the EOC is left out: no
-public source gives its location). Sources, licences,
+public source gives its location). Outside Edmonton (2026-10-11) the API serves, for about
+28 km around the ignition, Alberta critical assets (3,901: Statistics Canada ODHF 2020 and
+OpenStreetMap, ODbL; new category EMS stations) and major roads (OSM, Geofabrik 2026-10-08),
+each asset tagged with its source; their completeness depends on OpenStreetMap mapping (e.g. no
+fire station mapped within 28 km of Hinton). Sources, licences,
 dates, match rates and the refresh commands: `docs/data-sources.md`. Asset arrival depends on
 the completeness and positions of these layers: group homes and care sites under 10 units are
 not included, 2 Alberta sites and 2 ODHF records could not be positioned, and 13 care sites in
@@ -154,10 +160,14 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   with accuracy "unknown" in its own metadata, partly built from the Alberta Vegetation
   Inventory, 100 m cells; it maps little vegetation inside towns; "vegetated non-fuel" (12 % of
   the province's mapped cells) is non-fuel, so modelled fire can stop where shrub or wetland
-  burns; O-1 runs as standing grass (O-1b); fixed green-up / leaf-off dates; no terrain outside
-  the Edmonton DEM. Recent burns are re-typed (non-fuel, regenerating aspen, grass), which
+  burns; O-1 runs as standing grass (O-1b); fixed green-up / leaf-off dates. Recent burns are re-typed (non-fuel, regenerating aspen, grass), which
   matters for current fires but confounds tests on past fires (indicative check on 7
   calibration fire-days: F1 0.287 → 0.295, area bias +0.28 → +0.08; not a skill estimate).
+- Terrain outside Edmonton (2026-10-11): NRCan MRDEM-30 averaged to ~100 m, so short steep
+  pitches and ridges are smoothed (slopes on cliffs and gullies lower than at 30 m); slope acts
+  only through the FBP slope-equivalent wind (no valley or diurnal slope winds). The behavioural
+  check (Hinton +5 % area; Canmore: the run turned upslope into steep non-fuel and burned 26 ha
+  instead of 180 ha on the flat) is not a validation: no mountain fire has been scored with it.
 - Buildings outside Edmonton (2026-10-11): Microsoft Canadian Building Footprints (2019 release)
   for all of Alberta. Coverage is uneven (e.g. ~640 footprints within 5 km of Hinton, a town
   of about 10,000), footprints miss many sheds and garages that municipal layers have (ODB

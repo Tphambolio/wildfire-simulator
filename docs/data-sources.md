@@ -185,6 +185,60 @@ neighbourhoods), simplified to ~30 m (topology preserved), 5-decimal coordinates
 frontend/public/alberta/census_subdivisions.geojson`. The app merges them with the Edmonton
 neighbourhoods (`mergeCommunities`) and tags them "CSD" in the Neighbourhoods card.
 
+## Alberta assets and roads (served by area, outside Edmonton)
+
+Added 2026-10-11 (owner-approved task; report [R28] in `PROJECT_RECORD.md`). The bundled
+Edmonton layers stay as they are. For the rest of the province the API serves two FlatGeobuf
+files by box (`GET /api/v1/layers/assets|roads`, `docs/api-reference.md`); the app asks for
+about 28 km around an ignition and drops Alberta features inside the Edmonton layers' box, so
+nothing is counted twice and the province is never sent to the browser. Neither file holds
+addresses, phone numbers, e-mails or any other personal data.
+
+| File | Content | Sources and licences | Size, SHA-256 |
+|---|---|---|---|
+| `ab_assets_2026.fgb` (`scripts/build_ab_assets.py`) | 3,901 points (plant sites with their outline): hospitals and care facilities 330, schools 1,561, fire stations 270, police 134, EMS stations 25 (new category `ems`), recreation / community centres (candidate reception centres) 695, seniors centres 30, water and wastewater plants 109, power plants and substations ≥ 69 kV 661, LRT stations 86 | Statistics Canada ODHF v1.1 (2020-04; Open Government Licence – Canada): Alberta hospitals and nursing / residential care (outpatient clinics left out). OpenStreetMap via Overpass, data 2026-10-11 (ODbL 1.0, © OpenStreetMap contributors): everything else, and care facilities ODHF lacks | 1,459,376 B, `b61daf342bbf371010d786bbd99bd3119d932e8d4f70f175fa47cf5c7140028e` |
+| `ab_major_roads_osm.fgb` (`scripts/build_ab_roads.py --pbf`) | 17,184 line pieces (≤ 5 km) of motorway, trunk, primary, secondary and their ramps (48,198 OSM ways), joined per road, Douglas-Peucker 5 m; `name`, `highway`, `ref`, `link` | OpenStreetMap, Geofabrik Alberta extract of 2026-10-08 (ODbL 1.0, © OpenStreetMap contributors) | 4,133,568 B, `40ee4de4af7c7180e649074f20a66c0da6362edd836e151cd570e4595142283b` |
+
+Both: GitHub release `data-ab-infra-2026-10` (owner step), fetched by `api/Dockerfile` with the
+SHA-256 checked; `FIRESIM_AB_ASSETS_PATH`, `FIRESIM_AB_ROADS_PATH`. Without them the endpoints
+answer `available: false` and the app shows the Edmonton layers only.
+
+**Care facilities.** ODHF records with coordinates (148 of 287 kept in Alberta; 4 with a positive, i.e. sign-flipped, longitude are corrected) are matched to
+OSM records with an agreeing name within 300 m. ODHF has no coordinates for the rest; they are
+placed only when exactly one OSM care record in the same census subdivision (2021, by name) has
+an agreeing name (31 placed); 108 are left out (no address geocoding outside Edmonton: no open
+province-wide address points). Single-source sites carry `verify` ("ODHF (2020) only, verify",
+"OpenStreetMap only, verify"). The Alberta continuing care list used for Edmonton has civic
+addresses only (no coordinates), so it is not used outside Edmonton.
+
+**Schools.** Alberta Education's *Schools and authorities* list (open.alberta.ca
+`alberta-education-schools-and-authorities`, Open Government Licence – Alberta, extract
+2026-10-10; 2,688 school records, including special, colony and online schools) has addresses and
+contact details but no coordinates: not used (it would need address geocoding, and its contact
+columns are never wanted here). Schools come from OSM `amenity=school` (named): 1,561, so
+coverage, rural above all, is incomplete.
+
+**Roads.** Alberta Transportation's provincial highway network was not used: no province-wide
+open download under OGL – Alberta could be confirmed, and OSM carries the numbered highways
+with their `ref`. The Overpass route of `build_ab_roads.py` (2° tiles) was too slow on
+2026-10-11 (9 of 30 tiles in 20 minutes); the release file was built from the Geofabrik extract
+through GDAL's OSM driver (peak RSS 297 MB).
+
+**Coverage.** OSM completeness varies by town: around Hinton (28 km) the file has 16 assets and
+no fire station; around Canmore 49 (6 fire stations), Slave Lake 14. The card's tip says that
+coverage depends on OSM mapping, and each Alberta asset is tagged with its source ("ODHF ·
+OSM").
+
+```bash
+python3 scripts/build_ab_assets.py OUT_DIR --cache-dir CACHE          # Overpass + ODHF (~6 min)
+python3 scripts/build_ab_roads.py OUT_DIR --pbf alberta-YYMMDD.osm.pbf  # Geofabrik extract
+```
+
+## Terrain outside Edmonton (engine data)
+
+NRCan MRDEM-30 elevation averaged to ~100 m (`ab_terrain_mrdem30_100m.tif`, 91.7 MB, Open
+Government Licence – Canada): `docs/terrain-alberta.md`.
+
 ## Buildings (engine data)
 
 Microsoft Canadian Building Footprints (2019), Alberta, © Microsoft, Open Data Commons Open

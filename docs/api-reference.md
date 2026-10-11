@@ -76,6 +76,14 @@ Start a new fire spread simulation.
   `FIRESIM_BUILDINGS_MAX_NEAR` (30,000) nearest the ignition when there are more. `null` = no
   buildings; any other path is used as given (`.fgb` read by window, GeoJSON whole). The
   response says what was used (`buildings_source`, below; `docs/buildings-alberta.md`).
+- `dem_path` (optional): DEM for slope and aspect. The app sends `/app/data/edmonton_dem.tif`
+  when terrain is on. When the server has the Alberta terrain file (`FIRESIM_AB_TERRAIN_PATH`,
+  added 2026-10-11) and the run uses a provincial / national fuel window (ignition outside the
+  City grid), that path reads a window of the Alberta file instead (NRCan MRDEM-30, ~100 m,
+  slope and aspect on the run's 50 m lattice); runs on the City grid's lattice keep the Edmonton
+  DEM. `null` = flat; any other path is used as given. Same on multi-day, perimeter override and
+  burn probability. The response says what was used (`terrain_source`, below;
+  `docs/terrain-alberta.md`).
 - `start_time` (optional): scenario start (ignition) time, ISO 8601 with a UTC offset, e.g.
   `"2026-04-28T13:40:00-06:00"` (a time without an offset is rejected with 422). Frame
   `time_hours` and `hourly_weather[].hours_from_start` count from it, and when
@@ -205,6 +213,11 @@ Get simulation status and results.
     "selection": "run area",
     "buildings": 787,
     "capped": false
+  },
+  "terrain_source": {
+    "kind": "provincial",
+    "label": "NRCan MRDEM-30 elevation, ~100 m (Alberta)",
+    "attribution": "Contains information licensed under the Open Government Licence – Canada (NRCan Medium Resolution Digital Elevation Model, MRDEM-30)."
   }
 }
 ```
@@ -226,6 +239,11 @@ footprints: ODbL), `selection` which buildings in words, `buildings` how many we
 mask, exposure and counts, `capped` true when the run area held more than
 `FIRESIM_BUILDINGS_MAX_NEAR` and only the nearest were kept (structure spread still reads every
 footprint in its reachable box).
+
+`terrain_source` (added 2026-10-11; `null` when the run has no terrain, i.e. flat): `kind` is
+`city_dem` (the Edmonton 30 m DEM; label "Edmonton 30 m DEM (flat outside Edmonton)" when a
+window outside Edmonton had no Alberta terrain file to use), `provincial` (window of the
+Alberta MRDEM-30 file) or `user_dem`; `label` and `attribution` as for `fuel_source`.
 
 Status values: `running`, `completed`, `failed`, `cancelled`
 
@@ -273,12 +291,12 @@ Stream simulation frames in real-time.
 ```json
 {"type": "simulation.status", "simulation_id": "abc123", "phase": "spread", "progress": 0.42}
 {"type": "simulation.frame", "frame": { ... }}
-{"type": "simulation.completed", "fuel_source": { ... }, "buildings_source": { ... }}
+{"type": "simulation.completed", "fuel_source": { ... }, "buildings_source": { ... }, "terrain_source": { ... }}
 {"type": "simulation.error", "error": "message"}
 ```
 
-`simulation.completed` carries the run's `fuel_source` and `buildings_source` (as in GET, added
-2026-10-11).
+`simulation.completed` carries the run's `fuel_source`, `buildings_source` and `terrain_source`
+(as in GET, added 2026-10-11).
 
 `simulation.status` (added 2026-10-10; single runs and perimeter restarts) reports the run's
 phase while it computes: `loading`, `buildings`, `spread` (with `progress` 0-1, rounded to 3
@@ -394,6 +412,31 @@ burned each cell) with the grid bounds. Not a Burn-P3-style analysis over histor
 The fuel follows the `fuel_grid_path` / `provincial_fuel` rule above (422 when no grid covers the
 ignition). From 2026-10-05 to 2026-10-11 the route was attached to the wrong function and the
 endpoint returned a response-validation error; fixed 2026-10-11.
+
+### GET /api/v1/layers/assets, GET /api/v1/layers/roads
+
+Added 2026-10-11. Alberta critical assets and major roads in a box:
+`?south=&west=&north=&east=` (degrees; at most `FIRESIM_LAYERS_MAX_BOX_DEG` (1.0) of latitude
+and twice that of longitude, else 422; south < north and west < east). Read by box from
+FlatGeobuf files with packed R-trees (`FIRESIM_AB_ASSETS_PATH`, `FIRESIM_AB_ROADS_PATH`), so the
+province is never loaded or sent. The app asks for about 28 km around an ignition (its
+Edmonton layers stay bundled; Alberta features inside the Edmonton layers' box are dropped by
+the app). Response: a GeoJSON FeatureCollection in the schema of the bundled Edmonton layers,
+with
+
+```json
+{"metadata": {"available": true, "label": "Alberta critical assets (Statistics Canada ODHF, OpenStreetMap)",
+              "attribution": "Statistics Canada Open Database of Healthcare Facilities (Open Government Licence – Canada) · © OpenStreetMap contributors (ODbL)",
+              "bbox": [-117.9, 53.2, -117.2, 53.6], "count": 64, "truncated": false}}
+```
+
+Assets: Point (or the site outline as Polygon with `anchor`), properties `name`, `category`
+(`hospital`, `fire_station`, `police`, `ems`, `reception`, `seniors`, `school`, `water`,
+`power`, `transit`), `detail`, `source`, `source_id`, `licence`, `sources` (list of
+`{source, source_id}`), `verify` (single-source care facilities). Roads: LineString pieces of
+at most 5 km with `name` (when named), `highway` (motorway, trunk, primary, secondary), `ref`,
+`link` (1 for ramps). At most 5,000 assets / 20,000 road pieces (`truncated`). Without the
+files: `available: false` and no features. No addresses or other personal data.
 
 ### GET /api/v1/simulations/fuel-grid-image?fuel_grid_path=...
 
