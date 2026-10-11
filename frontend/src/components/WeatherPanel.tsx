@@ -1333,7 +1333,7 @@ function WeatherPanel({
                   checked={includeBuildings}
                   onChange={(e) => setIncludeBuildings(e.target.checked)}
                 />
-                Buildings (346,238 footprints)
+                Buildings (Microsoft footprints, Alberta)
               </label>
               <InfoTip label="About the building footprints" text={TIPS.buildings} />
             </div>

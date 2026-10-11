@@ -36,6 +36,27 @@ class Settings:
         """Default building footprints GeoJSON for non-fuel masking."""
         return os.environ.get("FIRESIM_BUILDINGS_PATH")
 
+    @property
+    def ab_buildings_path(self) -> str | None:
+        """Alberta building footprints (FlatGeobuf with a spatial index; Microsoft Canadian
+        Building Footprints, ODbL), read by window only. When set and the file exists, a
+        request naming the Edmonton buildings file reads this file instead: Edmonton runs get the same buildings as before and
+        runs elsewhere in Alberta get buildings too (docs/buildings-alberta.md). Unset or
+        missing: the Edmonton file only."""
+        return os.environ.get("FIRESIM_AB_BUILDINGS_PATH") or None
+
+    @property
+    def city_buildings_path(self) -> str:
+        """The bundled Edmonton buildings file that ``ab_buildings_path`` stands in for."""
+        return os.environ.get("FIRESIM_CITY_BUILDINGS_PATH",
+                              "/app/data/edmonton_buildings.geojson.gz")
+
+    @property
+    def buildings_max_near(self) -> int:
+        """Most buildings selected around an ignition outside Edmonton (building mask,
+        exposure and inside-perimeter counts; default 30,000)."""
+        return int(os.environ.get("FIRESIM_BUILDINGS_MAX_NEAR", "30000"))
+
     def _sibling_of_buildings(self, env: str, name: str) -> str | None:
         v = os.environ.get(env)
         if v:

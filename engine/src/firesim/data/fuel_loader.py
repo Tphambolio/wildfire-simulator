@@ -28,6 +28,8 @@ def _warn_geojson_crs(path: str, context: str) -> None:
     WGS84 coordinates and the file is in something else, features will be
     misaligned.
     """
+    if str(path).lower().endswith(".fgb"):
+        return  # FlatGeobuf carries its own CRS (EPSG:4326 for the Alberta buildings file)
     try:
         import gzip
         import json

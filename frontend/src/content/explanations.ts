@@ -109,8 +109,9 @@ export const TIPS = {
     "OpenStreetMap water polygons as extra non-fuel. Off by default: it covers about 3,700 ha the " +
     "LiDAR grid maps as vegetation, and the grid already maps water as non-fuel.",
   buildings:
-    "Microsoft Canadian Building Footprints (ODbL), 346,238 footprints: non-fuel cells and the " +
-    "building exposure counts.",
+    "Microsoft Canadian Building Footprints (2019; © Microsoft, Open Database License ODbL), " +
+    "Alberta, 1,777,439 footprints (346,238 in the Edmonton area): non-fuel cells, building " +
+    "exposure counts and house-to-house spread. Coverage varies; some towns are incomplete.",
   structureOption:
     "Fire passing from building to building (Hamada model), from the buildings the modelled front " +
     "reaches; a building stops passing fire when its 66 min design fire ends (burnt out). " +

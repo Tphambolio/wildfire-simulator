@@ -120,6 +120,48 @@ export interface NeighbourhoodArrival {
   feature: GeoJSON.Feature;
 }
 
+// ── Community units: Edmonton neighbourhoods + StatCan census subdivisions ──
+
+/** Source label of the City's neighbourhood polygons. */
+export const EDMONTON_NEIGHBOURHOOD_SOURCE = "City of Edmonton neighbourhood";
+/** Source label of the census subdivisions used elsewhere in Alberta. */
+export const CSD_SOURCE = "Statistics Canada census subdivision (2021)";
+
+/**
+ * One communities layer: Edmonton keeps its neighbourhoods; elsewhere in Alberta the census
+ * subdivisions (municipalities, counties, First Nations reserves; Edmonton's own CSD is not
+ * in the file) are the community units. Every feature carries a `source` property.
+ */
+export function mergeCommunities(
+  edmonton: GeoJSON.FeatureCollection | null,
+  csd: GeoJSON.FeatureCollection | null,
+): GeoJSON.FeatureCollection | null {
+  if (!edmonton && !csd) return null;
+  const tag = (f: GeoJSON.Feature, source: string): GeoJSON.Feature => ({
+    ...f,
+    properties: { ...(f.properties ?? {}), source: (f.properties as Record<string, unknown> | null)?.source ?? source },
+  });
+  const names = new Set((edmonton?.features ?? []).map((f) => featureName(f)));
+  return {
+    type: "FeatureCollection",
+    features: [
+      ...(edmonton?.features ?? []).map((f) => tag(f, EDMONTON_NEIGHBOURHOOD_SOURCE)),
+      // A CSD named like an Edmonton neighbourhood is suffixed so names stay unique
+      ...(csd?.features ?? []).map((f) => {
+        const t = tag(f, CSD_SOURCE);
+        const n = featureName(t);
+        return names.has(n) ? { ...t, properties: { ...t.properties, name: `${n} (CSD)` } } : t;
+      }),
+    ],
+  };
+}
+
+/** Short tag for a community's source in the card ("CSD" for census subdivisions, else null). */
+export function communitySourceTag(f: GeoJSON.Feature | undefined): string | null {
+  const src = (f?.properties as Record<string, unknown> | null | undefined)?.source;
+  return src === CSD_SOURCE ? "CSD" : null;
+}
+
 /** Feature name from common GeoJSON property conventions. */
 export function featureName(f: GeoJSON.Feature): string {
   const p = f.properties as Record<string, unknown> | null;
