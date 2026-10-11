@@ -740,6 +740,13 @@ FireSim's plan:
      from the same fire). Results are in `docs/PROJECT_RECORD.md` §4.4 ([R22]).
    - **Edmonton sensitivity** (`scripts/structure_sensitivity.py --step3`): the [R8] sites and
      days with the bridge and the roof scenario; results in [R22].
+   - **Results (2026-10-10/11, [R22]):** the decision rule was **not met**. Eaton (independent):
+     from the documented first-structure areas structure-only Hamada reaches almost none of the
+     7,195 destroyed units (H30 κ −0.019, VB −0.021; VB − H30 −0.002, −0.010 to +0.003; VB − (e1)
+     −0.019, −0.040 to −0.004). Camp (secondary): VB κ 0.010 vs H30 0.002 (+0.009, +0.004 to
+     +0.014) but VB − (e1) +0.001 (−0.002 to +0.005), recall 4 %. Jasper: VB 0.438 vs H30 0.472,
+     distance band 0.516. The roof scenario ignited nothing anywhere. The bridge stays an opt-in
+     labelled rule; it is not adopted.
 
 ## 9. Limits
 
