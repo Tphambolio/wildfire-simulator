@@ -110,7 +110,7 @@ Start a new fire spread simulation.
   gives the published Hamada model.
 - `cells_mode` (grid runs): `"cumulative"` (default) repeats every burned cell in each frame;
   `"incremental"` sends only the cells burned since the previous frame (a 24 h run: about
-  1.6 MB instead of 35 MB). Multi-day runs are always cumulative.
+  1.6 MB instead of 35 MB). Multi-day runs have their own `cells_mode` (below).
 
 **Response (201):**
 
@@ -244,6 +244,7 @@ and the percentiles, burn probability and area range are over the `members_ok` m
 finished. Members that burned nothing (their ignition cell cannot carry fire under their
 perturbed weather) are finished members with `area_ha` 0 and count in every statistic. The
 ensemble is `"status": "failed"` (with `error`) only when fewer than half the members finish.
+`"status": "cancelled"` when the client stopped it (`DELETE` below); there is no partial result.
 
 Default perturbations (`EnsembleParams`; calibrated on observed Alberta fires, see
 `docs/validation.md` "Ensemble calibration" for sources and held-out scores): `wind_dir_sd_deg`
@@ -257,14 +258,29 @@ footprint held at least 90 % of the observed growth on only 29 % of fire-days. G
 near 58.8 % curing are very sensitive to the curing perturbation (the FBP curing factor
 changes slope there); the curing and foliar-moisture sizes are not validated.
 
+### DELETE /api/v1/simulations/{id}/ensemble
+
+Stop a run's ensemble: it stops before its next member (the member in progress finishes), or
+never starts if the deterministic run is still computing. The app calls this when a new run
+starts or the results are cleared while the previous run's ensemble is pending or running, so
+an abandoned ensemble (minutes of CPU on the 1-vCPU server) does not slow the new run. A
+completed or failed ensemble is left as it is. Response:
+`{"simulation_id": "...", "status": "running" | "cancelled" | "completed" | "failed" | "pending", "cancel_requested": true}`
+(`status` is the state at the time of the request; poll GET for `"cancelled"`). 404 when the
+run is unknown or has no ensemble.
+
 ### POST /api/v1/simulations/multiday
 
 Multi-day scenario: `days` is a list of 1-7 daily noon weather records
 (`wind_speed`, `wind_direction`, `temperature`, `relative_humidity`, `precipitation_24h`); the FWI
 codes are advanced day to day from `fwi_overrides` (Van Wagner & Pickett 1985; `month` sets
 the day-length factors) and each day's
-grid run continues from the previous day's burned area. Frames carry `day`. Cells are always
-cumulative. Optional `start_time` (each day runs 24 h from its clock time) and
+grid run continues from the previous day's burned area. Frames carry `day`. `cells_mode`
+(grid runs): `"cumulative"` (default) or `"incremental"` as for single runs, except that a
+frame whose cells do not extend the previous frame's (the first frame of each day after the
+first) is sent whole with `cells_offset` 0; a 3-day Edmonton grid run streams about 1.7 MB
+instead of 21 MB (the app asks for incremental). No ensemble, structure spread or 20 m WUI
+window for multi-day runs. Optional `start_time` (each day runs 24 h from its clock time) and
 `burning_period` (as above, applied every day; needs `start_time`). No FFMC spin-up: multi-day
 runs have daily weather only.
 
