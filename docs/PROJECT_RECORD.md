@@ -682,6 +682,8 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into â€
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-11 | `f221548` | feat(engine+api+frontend): buildings for all of Alberta, read by window |
+| 2026-10-11 | `1b377b9` | Merge pull request #55 from Tphambolio/feat/ab-wildfire-fuel-default |
 | 2026-10-11 | `399cb46` | Merge pull request #57 from Tphambolio/feat/structure-veg-roof |
 | 2026-10-11 | `0d1f728` | Merge pull request #56 from Tphambolio/fix/rerun-and-multiday |
 | 2026-10-11 | `0828249` | fix(api): never report "completed" with frames missing (GET/WebSocket race) |
