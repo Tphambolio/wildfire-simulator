@@ -263,8 +263,12 @@ export function useIncident() {
       fwi?: OperationalPeriod["fwi"];
     }) => {
       updateActiveIncident((incident) => {
-        const currentPeriod = incident.operationalPeriods[incident.activePeriodIndex];
-        const nextDay = currentPeriod.day + 1;
+        const periods = incident.operationalPeriods ?? [];
+        // A stale activePeriodIndex (old stored incident) falls back to the last period
+        const currentPeriod = periods[incident.activePeriodIndex] ?? periods[periods.length - 1];
+        if (!currentPeriod) return incident;
+        // The new period is appended after the last one (and becomes active)
+        const nextDay = (periods[periods.length - 1]?.day ?? currentPeriod.day) + 1;
         const newPeriod: OperationalPeriod = {
           ...makeOperationalPeriod(nextDay, opts.date),
           weather: opts.weather ?? currentPeriod.weather,
@@ -277,8 +281,8 @@ export function useIncident() {
         };
         return {
           ...incident,
-          operationalPeriods: [...incident.operationalPeriods, newPeriod],
-          activePeriodIndex: incident.activePeriodIndex + 1,
+          operationalPeriods: [...periods, newPeriod],
+          activePeriodIndex: periods.length,
         };
       });
     },

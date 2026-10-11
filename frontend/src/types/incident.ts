@@ -140,7 +140,7 @@ export interface OperationalPeriod {
   simulationStatus: string | null;
   durationHours: number;
   frameSummaries: FrameSummary[];       // metrics only, no burned_cells
-  finalPerimeter: [number, number][] | null;  // last frame perimeter — seeds Day N+1
+  finalPerimeter: [number, number][] | null;  // last frame perimeter, [lat, lng] (API frame order) — seeds Day N+1
   annotations: IncidentAnnotation[];
   evacuationDecisions: EvacDecisionRecord[];
   objectives: string[];                 // ICS-202 objectives for this period

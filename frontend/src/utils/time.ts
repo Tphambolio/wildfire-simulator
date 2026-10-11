@@ -162,3 +162,16 @@ export function edmontonDayOfYear(ms: number): number {
   const w = wallParts(ms);
   return Math.round((Date.UTC(w.y, w.mo - 1, w.d) - Date.UTC(w.y, 0, 0)) / 86_400_000);
 }
+
+/**
+ * The day after `date` ("YYYY-MM-DD"), for the next operational period; today's Edmonton date
+ * when `date` is missing or not a valid date (an incident stored by an older version).
+ */
+export function nextPeriodDate(date: string | null | undefined, now: number = Date.now()): string {
+  const m = typeof date === "string" ? date.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+  if (m) {
+    const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1);
+    if (Number.isFinite(t)) return new Date(t).toISOString().slice(0, 10);
+  }
+  return toDateTimeInputs(now).date;
+}
