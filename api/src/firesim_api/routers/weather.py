@@ -1,7 +1,16 @@
 """Live fire weather endpoint.
 
-Fetches fire weather observations and FWI codes from the CWFIS (Canadian Wildland Fire
-Information System) public GeoServer WFS and selects the nearest station that has FWI codes.
+Source tiers, in order (``source_tier`` in the response):
+
+1. ``pyra`` — the codes Pyra (the team's fire-weather app, https://tphambolio.github.io/FWI/)
+   shows today for the nearest Pyra station: Pyra's published CWFIS carry-over stepped one day
+   with the GEM noon-LST weather, exactly as Pyra's station page does (``services/pyra.py``).
+   Alberta only; off with ``FIRESIM_PYRA_SOURCE=0``.
+2. ``cwfis`` / ``cwfis_archive`` — the nearest CWFIS station with FWI codes, as published.
+3. ``gem_estimate`` — a one-day cold-start estimate from the GEM noon-LST forecast.
+
+The CWFIS tiers fetch fire weather observations and FWI codes from the CWFIS (Canadian Wildland
+Fire Information System) public GeoServer WFS and select the nearest station that has FWI codes.
 
 Source: Natural Resources Canada CWFIS WFS
   https://cwfis.cfs.nrcan.gc.ca/geoserver/public/ows
@@ -38,6 +47,9 @@ from pydantic import BaseModel
 from firesim.fwi.calculator import FWICalculator
 from firesim.fwi.classes import fwi_class
 
+from ..services import pyra as pyra_source
+from ..settings import settings
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/weather", tags=["weather"])
@@ -72,6 +84,43 @@ _STD_OFFSET_H = {
 }
 
 
+class PyraDetails(BaseModel):
+    """How the "pyra" tier got its codes (present only when ``source_tier == "pyra"``)."""
+
+    # Pyra station the point maps to (nearest in Pyra's Alberta list) and its distance from the point
+    station_name: str
+    station_lat: float
+    station_lng: float
+    station_distance_km: float
+    # Pyra's station page for that station (where the same numbers are shown)
+    page_url: str
+    # Where the carried codes came from: "cwfis_live" (CWFIS current layer, Pyra's holding cache)
+    # or "pyra_cwfis_prev" (Pyra's published data/cwfis_prev.json)
+    chain_source: str
+    chain_station_name: str | None = None
+    chain_station_id: str | None = None
+    # Distance from the Pyra station to the station whose codes were carried
+    chain_distance_km: float | None = None
+    # Noon-LST date of the carried codes
+    chain_date: str | None = None
+    # How today's codes were made: "none" (codes used as published), "gem_noon_forecast"
+    # (pre-noon: stepped with the GEM noon-LST forecast), "gem_noon" (after noon: GEM noon-LST
+    # value), "cwfis_obs" (after noon: a weather-only CWFIS station's observation)
+    step: str
+    # 24 h rain (mm) to noon LST used for the step
+    rain_24h: float | None = None
+    # Pyra's "peak burn" indices: the same codes with the 16:00 MDT GEM wind (display only)
+    peak_wind_speed: float | None = None
+    peak_isi: float | None = None
+    peak_fwi: float | None = None
+    # ``generated`` time and URL of the carry-over file that was read
+    carry_over_generated: str | None = None
+    carry_over_url: str | None = None
+    # Pyra commit FireSim's port (station list, rules) was checked against
+    pyra_commit: str
+    notes: list[str] = []
+
+
 class CurrentWeather(BaseModel):
     """Live fire weather values for a location."""
 
@@ -95,12 +144,18 @@ class CurrentWeather(BaseModel):
     distance_km: float | None = None
     # Date (YYYY-MM-DD, noon LST) the FWI codes are valid for
     codes_date: str | None = None
-    # "today" | "yesterday" | "older" (station codes) | "estimate" (cold-start estimate)
+    # "today" | "yesterday" | "older" (station codes) | "estimate" (cold-start estimate) |
+    # "forecast" (pyra, before noon LST: stepped with the noon-LST forecast) |
+    # "stepped" (pyra, after noon LST: carried from an earlier chain with today's noon weather)
     codes_status: str | None = None
     # Human-readable age of the codes, e.g. "Yesterday's codes (as of noon LST 2026-10-09)"
     codes_label: str | None = None
     # Open-Meteo model used for any value in this response (None = station data only)
     weather_model: str | None = None
+    # Which tier answered: "pyra" | "cwfis" | "cwfis_archive" | "gem_estimate" (None = unavailable)
+    source_tier: str | None = None
+    # Details of the "pyra" tier
+    pyra: PyraDetails | None = None
 
 
 def _now() -> datetime:
@@ -113,9 +168,9 @@ async def get_current_weather(
     lat: Annotated[float, Query(ge=-90, le=90, description="Latitude")],
     lng: Annotated[float, Query(ge=-180, le=180, description="Longitude")],
 ) -> CurrentWeather:
-    """Fetch current fire weather for a location from the nearest CWFIS station with FWI codes.
+    """Current fire weather and starting FWI codes for a location.
 
-    Queries the CWFIS GeoServer WFS for fire weather stations within ±2° of the point and uses
+    In Alberta the "pyra" tier answers first (below). Otherwise: queries the CWFIS GeoServer WFS for fire weather stations within ±2° of the point and uses
     the closest station that reports FFMC, DMC and DC (stations without codes are skipped; their
     distance is not reported). If the current layer is empty (it is refreshed around 19 UTC),
     the archive layer's newest reports at most two days old are used.
@@ -124,9 +179,64 @@ async def get_current_weather(
     are. If no station has codes (off-season), or CWFIS is unreachable, the codes are a
     cold-start estimate from the Open-Meteo GEM noon-LST forecast, labelled as such.
 
+    Before all of that, in Alberta, the "pyra" tier returns the codes Pyra's station page shows
+    today for the nearest Pyra station (see ``services/pyra.py``); if it has no value the reason is
+    appended to the message of the tier that answers.
+
     Returns available=false only when neither CWFIS nor Open-Meteo gives anything usable.
     """
     now = _now()
+    pyra_note: str | None = None
+    if settings.pyra_source:
+        try:
+            got = await pyra_source.pyra_today(lat, lng, now)
+        except Exception as exc:  # never let the Pyra tier break the endpoint
+            logger.warning("Pyra tier failed: %s", exc)
+            got = f"Pyra tier error ({type(exc).__name__})"
+        if isinstance(got, pyra_source.PyraResult):
+            return _from_pyra(lat, lng, got)
+        pyra_note = f"Pyra chain not used: {got}"
+    resp = await _cwfis_chain(lat, lng, now)
+    if pyra_note:
+        resp.message = f"{resp.message} · {pyra_note}"
+    return resp
+
+
+def _from_pyra(lat: float, lng: float, r: "pyra_source.PyraResult") -> CurrentWeather:
+    """Response from the "pyra" tier."""
+    msg = f"FWI {r.fwi:.1f} — {_fwi_label(r.fwi)} · {r.codes_label}"
+    if r.notes:
+        msg += " · " + "; ".join(r.notes)
+    logger.info(
+        "Pyra tier '%s' %.1f km from (%.3f, %.3f): FWI=%.2f codes %s (%s, chain %s %s)",
+        r.station_name, r.station_distance_km, lat, lng, r.fwi, r.codes_date, r.codes_status,
+        r.chain_station_name, r.chain_date,
+    )
+    return CurrentWeather(
+        lat=lat, lng=lng,
+        ffmc=r.ffmc, dmc=r.dmc, dc=r.dc, isi=r.isi, bui=r.bui, fwi=r.fwi,
+        wind_speed=r.wind_speed, wind_direction=r.wind_direction,
+        temperature=r.temperature, relative_humidity=r.relative_humidity,
+        source=r.source, available=True, message=msg,
+        data_timestamp=r.data_timestamp, station_name=r.station_name,
+        distance_km=r.station_distance_km,
+        codes_date=r.codes_date, codes_status=r.codes_status, codes_label=r.codes_label,
+        weather_model=r.weather_model, source_tier="pyra",
+        pyra=PyraDetails(
+            station_name=r.station_name, station_lat=r.station_lat, station_lng=r.station_lng,
+            station_distance_km=r.station_distance_km, page_url=r.page_url,
+            chain_source=r.chain_source, chain_station_name=r.chain_station_name,
+            chain_station_id=r.chain_station_id, chain_distance_km=r.chain_distance_km,
+            chain_date=r.chain_date, step=r.step, rain_24h=r.rain_24h,
+            peak_wind_speed=r.peak_wind_speed, peak_isi=r.peak_isi, peak_fwi=r.peak_fwi,
+            carry_over_generated=r.prev_generated, carry_over_url=r.prev_url,
+            pyra_commit=pyra_source.PYRA_COMMIT, notes=r.notes,
+        ),
+    )
+
+
+async def _cwfis_chain(lat: float, lng: float, now: datetime) -> CurrentWeather:
+    """The CWFIS → archive → GEM cold-start chain (tiers 2 and 3)."""
     features: list[dict] = []
     archive = False
     cwfis_problem: str | None = None
@@ -173,6 +283,7 @@ async def get_current_weather(
             message=f"Weather loaded — FWI codes unavailable (off-season; no station with codes; {reason})",
             data_timestamp=_timestamp(props, now), station_name=station_name,
             distance_km=round(dist_km, 1) if dist_km is not None else None,
+            source_tier="cwfis_archive" if archive else "cwfis",
         )
 
     result, noon = estimated
@@ -206,7 +317,7 @@ async def get_current_weather(
         station_name=station_name,
         distance_km=round(dist_km, 1) if dist_km is not None else None,
         codes_date=noon["date"], codes_status="estimate", codes_label=label,
-        weather_model=FORECAST_MODEL,
+        weather_model=FORECAST_MODEL, source_tier="gem_estimate",
     )
 
 
@@ -261,6 +372,7 @@ def _from_station(
         codes_date=codes_date,
         codes_status=status,
         codes_label=label,
+        source_tier="cwfis_archive" if archive else "cwfis",
     )
 
 

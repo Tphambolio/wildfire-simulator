@@ -136,7 +136,7 @@ async def test_involved_units_detail_on_the_final_frame_only(client, files):
     assert sum(u["mechanism"] == "front" for u in detail) == counts["units_front_contact"]
     assert sum(u["mechanism"] == "b2b" for u in detail) == counts["units_structure_to_structure"]
     for u in detail:
-        assert set(u) == {"id", "t_h", "mechanism", "source_id", "polygon"}
+        assert set(u) == {"id", "t_h", "t_out_h", "mechanism", "source_id", "polygon"}
         assert 0 <= u["t_h"] <= 1.5
         ring = u["polygon"][0]
         assert ring[0] == ring[-1] and len(ring) >= 4
@@ -233,3 +233,141 @@ async def test_structure_spread_without_embers_has_no_ember_fields(client, files
     data = await _finish(client, _payload(files, structure_spread=True))
     c = data["frames"][-1]["structure_spread"]
     assert "units_ember" not in c and "embers" not in c
+
+
+# ------------------------------------------------------------------ burn-out (spec §4.3)
+
+
+def test_burnout_defaults_on():
+    from firesim_api.schemas.simulation import SimulationCreate
+
+    req = SimulationCreate(ignition_lat=53.5, ignition_lng=-113.5,
+                           weather={"wind_speed": 10.0, "wind_direction": 270.0},
+                           structure_spread=True)
+    assert req.structure_burnout is True and req.structure_design_fire_kw_m2 == 150
+
+
+@pytest.mark.parametrize("design_fire,burnout_min", [(150, 66.0), (400, 70.0)])
+async def test_burnout_counts_and_detail(client, files, design_fire, burnout_min):
+    data = await _finish(client, _payload(files, structure_spread=True, duration_hours=3.0,
+                                          structure_design_fire_kw_m2=design_fire))
+    assert data["status"] == "completed", data
+    assert data["config"]["structure_burnout"] is True
+    for f in data["frames"]:
+        c = f["structure_spread"]
+        assert c["burnout"] is True and c["burnout_min"] == pytest.approx(burnout_min)
+        assert c["design_fire_kw_m2"] == design_fire
+        assert c["units_burning"] + c["units_burnt_out"] == c["units_involved"]
+    last = data["frames"][-1]
+    detail = last["structure_spread_detail"]
+    for u in detail:
+        assert u["t_out_h"] == pytest.approx(u["t_h"] + burnout_min / 60.0, abs=2e-3)
+    t_end = last["time_hours"]
+    assert last["structure_spread"]["units_burnt_out"] == sum(u["t_out_h"] <= t_end + 1e-6
+                                                             for u in detail)
+    assert last["structure_spread"]["units_burnt_out"] >= 1  # 3 h run: early units burnt out
+
+
+async def test_burnout_off_is_the_published_hamada(client, files):
+    data = await _finish(client, _payload(files, structure_spread=True, duration_hours=3.0,
+                                          structure_burnout=False))
+    assert data["status"] == "completed", data
+    last = data["frames"][-1]
+    c = last["structure_spread"]
+    assert c["burnout"] is False and c["burnout_min"] is None
+    assert c["units_burnt_out"] == 0 and c["units_burning"] == c["units_involved"]
+    assert all(u["t_out_h"] is None for u in last["structure_spread_detail"])
+
+
+# ------------------------------------------------------------------ structure step 3 (spec §4.6, §6.2)
+
+
+def test_step3_options_default_off_and_validation():
+    from pydantic import ValidationError
+
+    from firesim_api.schemas.simulation import SimulationCreate
+
+    base = dict(ignition_lat=53.5, ignition_lng=-113.5,
+                weather={"wind_speed": 10.0, "wind_direction": 270.0})
+    req = SimulationCreate(**base)
+    assert req.structure_vegetation_bridge is False
+    assert req.structure_combustible_roof_share == 0.0
+    with pytest.raises(ValidationError):  # bridge needs structure spread
+        SimulationCreate(**base, structure_vegetation_bridge=True)
+    with pytest.raises(ValidationError):  # roof scenario needs embers
+        SimulationCreate(**base, structure_spread=True, structure_combustible_roof_share=0.15)
+    with pytest.raises(ValidationError):  # only the pre-specified shares
+        SimulationCreate(**base, structure_spread=True, structure_embers=True,
+                         structure_combustible_roof_share=0.1)
+    for share in (0.0, 0.05, 0.15, 0.30):
+        ok = SimulationCreate(**base, structure_spread=True, structure_embers=True,
+                              structure_vegetation_bridge=True,
+                              structure_combustible_roof_share=share)
+        assert ok.structure_combustible_roof_share == share
+
+
+async def test_roof_scenario_without_embers_is_422(client, files):
+    resp = await client.post("/api/v1/simulations", json=_payload(
+        files, structure_spread=True, structure_combustible_roof_share=0.15))
+    assert resp.status_code == 422
+
+
+def _canopy_tif(path, value):
+    """A uint8 canopy-share raster (percent) on EPSG:3857 covering the test area."""
+    with rasterio.open(path, "w", driver="GTiff", height=400, width=400, count=1, dtype="uint8",
+                       crs=CRS.from_epsg(3857), nodata=255,
+                       transform=from_origin(-12_640_000.0, 7_100_000.0, 10.0, 10.0)) as dst:
+        dst.write(np.full((400, 400), value, dtype=np.uint8), 1)
+
+
+async def test_vegetation_bridge_counts(client, files, tmp_path, monkeypatch):
+    tif = tmp_path / "canopy.tif"
+    _canopy_tif(tif, 50)
+    monkeypatch.setenv("FIRESIM_CANOPY_PATH", str(tif))
+    data = await _finish(client, _payload(files, structure_spread=True,
+                                          structure_vegetation_bridge=True))
+    assert data["status"] == "completed", data
+    c = data["frames"][-1]["structure_spread"]
+    assert c["label"] == LABEL
+    assert c["vegetation_bridged_cutoff"] is True and c["neighbour_cutoff_m"] == 20.0
+    assert c["bridge_max_cutoff_m"] == 45.0 and c["bridge_min_gap_cover"] == 0.2
+    assert c["units_involved"] >= 1  # the three houses are 6 m apart: linked as before
+    assert {"links_tested", "links_bridged", "bridge_canopy_data"} <= set(c)
+
+
+async def test_roof_scenario_counts_label_and_detail(client, files):
+    data = await _finish(client, _payload(files, structure_spread=True, structure_embers=True,
+                                          structure_combustible_roof_share=0.30, seed=5))
+    assert data["status"] == "completed", data
+    last = data["frames"][-1]
+    rs = last["structure_spread"]["roof_scenario"]
+    assert rs["label"] == "scenario: 30 % combustible roofs (not observed roofs)"
+    assert rs["combustible_roof_share"] == 0.30 and rs["psi_factor"] == 0.375
+    flagged = [u for u in last["structure_spread_detail"] if u.get("combustible_roof_scenario")]
+    assert len(flagged) == rs["units_involved_combustible_roof"]
+    again = await _finish(client, _payload(files, structure_spread=True, structure_embers=True,
+                                           structure_combustible_roof_share=0.30, seed=5))
+    assert again["frames"][-1]["structure_spread"]["roof_scenario"] == rs  # deterministic
+
+
+async def test_vegetation_attributes_in_detail(client, files, tmp_path, monkeypatch):
+    import gzip
+
+    src = json.loads(Path(files["buildings"]).read_text())
+    for k, f in enumerate(src["features"]):
+        f["properties"] = {"id": 500 + k}
+    bpath = tmp_path / "buildings_ids.geojson"
+    bpath.write_text(json.dumps(src))
+    veg = tmp_path / "veg.csv.gz"
+    with gzip.open(veg, "wt") as f:
+        f.write("id,cc_0_5,cc_5_10,cc_10_30,cc_0_10,overhang_frac,dist_stand_1ha_m\n")
+        for k in range(3):
+            f.write(f"{500 + k},0.1,0.2,0.3,0.15,0,{100 + k}\n")
+    monkeypatch.setenv("FIRESIM_BUILDING_VEGETATION_PATH", str(veg))
+    data = await _finish(client, {**_payload(files, structure_spread=True),
+                                  "buildings_path": str(bpath)})
+    assert data["status"] == "completed", data
+    last = data["frames"][-1]
+    assert last["structure_spread"]["vegetation_attributes"] is True
+    detail = last["structure_spread_detail"]
+    assert detail and all(u["veg"]["cc_10_30"] == 0.3 for u in detail)

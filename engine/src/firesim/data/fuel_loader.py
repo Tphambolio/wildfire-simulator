@@ -9,7 +9,6 @@ import sys
 import numpy as np
 import rasterio
 import rasterio.errors
-from rasterio.warp import Resampling
 
 from firesim.fbp.constants import FuelType
 from firesim.data.raster_grid import read_to_latlng
@@ -29,6 +28,8 @@ def _warn_geojson_crs(path: str, context: str) -> None:
     WGS84 coordinates and the file is in something else, features will be
     misaligned.
     """
+    if str(path).lower().endswith(".fgb"):
+        return  # FlatGeobuf carries its own CRS (EPSG:4326 for the Alberta buildings file)
     try:
         import gzip
         import json
@@ -175,6 +176,43 @@ CFS_NATIONAL_2014_CODES: dict[int, FuelType | None] = {
 }
 
 
+# ``ab_wildfire``: Alberta Wildfire "Fire Behavior Prediction (FBP) Fuel Type - Raster"
+# (WildfireRasters.GDB.WF_FBP_FUEL_TYPE, 100 m, EPSG:3400, dataset date 2025-07-16; Government of
+# Alberta, Open Government Licence - Alberta). Codes per the service's raster attribute table
+# (33 rows, 2026-10-10 download). Rules (docs/fuel-grid-alberta.md):
+# - 13 "D-1/D-2" and 610-690 "M-1/M-2 (xx PC)" map to the leafless label (D-1, M-1); the run
+#   swaps in D-2 / M-2 between green-up and leaf-off (firesim.fbp.season). The 6xx codes carry
+#   percent conifer (650 = 50 %), read per cell by ``percent_conifer_for_code``.
+# - 31 "O-1" (grass, matted or standing not stated) maps to O-1b standing grass, the faster of
+#   the two (owner decision pending; docs/fuel-grid-alberta.md section 3).
+# - 105 "Vegetated Non-Fuel", 104 "Unclassified", 101 "Non-Fuel" and 102 "Water" are non-fuel.
+#   105 covers vegetation with no FBP type (e.g. some wetland and shrub land); treating it as
+#   non-fuel is the convention of FBP grids (CIFFC 105) but it can stop modelled fire where real
+#   fire burns (limitation).
+# - 0 is outside the service extent and 32767 no data inside it. -1 (29,544 cells, not in the
+#   attribute table) occurs only west of 120 W near 59 N, in British Columbia: outside extent.
+AB_WILDFIRE_CODES: dict[int, FuelType | None] = {
+    -9999: None,
+    -1: None,
+    0: None,
+    32767: None,
+    1: FuelType.C1, 2: FuelType.C2, 3: FuelType.C3, 4: FuelType.C4,
+    5: FuelType.C5, 6: FuelType.C6, 7: FuelType.C7,
+    13: FuelType.D1,  # D-1/D-2 (aspen): seasonal
+    21: FuelType.S1, 22: FuelType.S2, 23: FuelType.S3,
+    31: FuelType.O1b,  # O-1 (grass): standing grass
+    101: None,  # Non-Fuel
+    102: None,  # Water
+    104: None,  # Unclassified
+    105: None,  # Vegetated Non-Fuel
+    **{600 + p: FuelType.M1 for p in range(10, 95, 5)},  # M-1/M-2 (10-90 PC): seasonal
+}
+
+#: Grid codes that mean "outside the grid's extent or no data" in the Alberta grid (filled from
+#: another grid where one is given; ``firesim.data.provincial``)
+AB_WILDFIRE_NODATA = frozenset({0, 32767, -9999, -1})
+
+
 def cfs_national_modifier(code: int) -> tuple[str, float] | None:
     """("pc", percent conifer) or ("pdf", percent dead fir) carried by a CIFFC mixedwood code.
 
@@ -191,6 +229,21 @@ def cfs_national_modifier(code: int) -> tuple[str, float] | None:
     return None
 
 
+def percent_conifer_for_code(code: int, scheme: str) -> float | None:
+    """Percent conifer carried by an M-1/M-2 code of ``scheme``, or None.
+
+    ``ab_wildfire``: 610-690 -> 10-90 %. ``cfs_national``: 4xx/5xx/6xx -> xx %. Other schemes
+    carry no percent conifer (the run's ``percent_conifer`` applies).
+    """
+    code = int(code)
+    if scheme == "ab_wildfire":
+        return float(code - 600) if 610 <= code <= 690 and code % 5 == 0 else None
+    if scheme == "cfs_national":
+        mod = cfs_national_modifier(code)
+        return mod[1] if mod is not None and mod[0] == "pc" else None
+    return None
+
+
 # Named schemes, in tie-break priority order (earlier wins when a raster's codes fit several).
 CODE_SCHEMES: dict[str, dict[int, FuelType | None]] = {
     "edmonton_fbp": FBP_RASTER_CODES,
@@ -199,11 +252,15 @@ CODE_SCHEMES: dict[str, dict[int, FuelType | None]] = {
     "terra_pipeline": TERRA_PIPELINE_CODES,
     "cfs_national_2014": CFS_NATIONAL_2014_CODES,
     "cfs_national": CFS_NATIONAL_CODES,
+    "ab_wildfire": AB_WILDFIRE_CODES,
 }
 
 # Schemes only used when named explicitly: the CIFFC codes reuse 1-7, 11-13, 21-23, 31/32
 # with meanings that differ from the local schemes, so auto-detection would mislabel them.
-_EXPLICIT_ONLY_SCHEMES = {"cfs_national"}
+_EXPLICIT_ONLY_SCHEMES = {"cfs_national", "ab_wildfire"}
+
+# Schemes whose M-1/M-2 codes carry percent conifer (``percent_conifer_for_code``)
+_PC_SCHEMES = {"ab_wildfire", "cfs_national"}
 
 # Codes that mean "no data" in every scheme; ignored when matching a raster to a scheme.
 _NODATA_CODES = {-9999, 0}
@@ -296,18 +353,34 @@ def load_fuel_grid(
     water_path: str | None = None,
     buildings_path: str | None = None,
     code_scheme: str = "auto",
+    resampling: str = "categorical",
+    fill_path: str | None = None,
+    fill_scheme: str = "ab_wildfire",
 ) -> FuelGrid:
     """Load a GeoTIFF fuel raster and return a FuelGrid.
 
     Args:
         path: Path to GeoTIFF with integer FBP fuel codes.
         target_resolution_m: Target cell size in meters for downsampling.
-            Smaller = more detail but more memory. Default 50m.
+            Smaller = more detail but more memory. Default 50m. Coarsening takes the
+            majority (mode) class of the source cells in each target cell; at or below the
+            source resolution cells are copied by nearest neighbour
+            (``firesim.data.raster_grid.categorical_resampling``).
         water_path: Optional path to water body GeoJSON for masking.
         buildings_path: Optional path to building footprint GeoJSON for masking.
         code_scheme: Raster code table: "auto" (detect from the codes present) or a
             key of CODE_SCHEMES ("edmonton_fbp", "uplvi", "canopy_lidar", "terra_pipeline",
             "cfs_national_2014", "cfs_national"; the last is never auto-detected).
+        resampling: "categorical" (default: mode when coarsening, nearest otherwise) or
+            "nearest" (the rule before 2026-10-10; kept for comparisons only).
+        fill_path: Optional second raster (e.g. the Alberta Wildfire provincial grid) read on
+            the same lattice (windowed) for the cells where ``path`` has no data (code 0 /
+            -9999 / NaN, i.e. outside the City grid's mapped area; mapped non-fuel and water
+            are kept). Its codes use ``fill_scheme``.
+        fill_scheme: Code scheme of ``fill_path`` (default "ab_wildfire").
+
+    Grids whose codes carry percent conifer (``ab_wildfire`` 6xx, ``cfs_national`` 4xx-6xx)
+    get a per-cell ``pc`` layer, used for M-1/M-2 cells in place of the run's value.
 
     Returns:
         FuelGrid ready for use with Simulator.
@@ -330,10 +403,16 @@ def load_fuel_grid(
         _warn_geojson_crs(buildings_path, "buildings")
 
     # Reproject onto a regular lat/lng grid (FuelGrid indexes cells linearly in lat/lng).
-    # Nearest neighbour keeps the integer codes; float64 with NaN no-data covers integer
-    # and float rasters alike (normalize_fuel_codes rounds and fills).
+    # Mode (coarsening) and nearest neighbour both keep the integer codes; float64 with NaN
+    # no-data covers integer and float rasters alike (normalize_fuel_codes rounds and fills).
+    # Until 2026-10-10 coarsening was nearest neighbour, a point sample that discards ~84 % of
+    # the Edmonton 20 m cells (reports "Fuel type grids Canada global", "WUI 20 m grid").
     try:
-        grid = read_to_latlng(path, target_resolution_m, Resampling.nearest, "float64", np.nan)
+        from rasterio.warp import Resampling
+
+        grid = read_to_latlng(path, target_resolution_m,
+                              Resampling.nearest if resampling == "nearest" else "categorical",
+                              "float64", np.nan)
     except rasterio.errors.RasterioIOError as exc:
         raise rasterio.errors.RasterioIOError(
             f"Cannot open fuel grid GeoTIFF {path!r}: {exc}. "
@@ -359,15 +438,34 @@ def load_fuel_grid(
     # Detect code mapping from unique values
     unique_codes = set(np.unique(data).tolist())
     code_map = _detect_code_map(unique_codes, code_scheme)
+    scheme_name = next((n for n, m in CODE_SCHEMES.items() if m is code_map), None)
 
-    # Map integer codes to FuelType enums
-    fuel_types: list[list[FuelType | None]] = []
-    for r in range(rows):
-        row_list: list[FuelType | None] = []
-        for c in range(cols):
-            code = int(data[r, c])
-            row_list.append(code_map.get(code))
-        fuel_types.append(row_list)
+    # Map integer codes to FuelType enums (and percent conifer where the codes carry it)
+    fuel_types: list[list[FuelType | None]]
+    pc_layer: list[list[float | None]] | None = None
+    if fill_path is not None or scheme_name in _PC_SCHEMES:
+        from firesim.data.provincial import Lattice, read_codes_on_lattice, stack_sources
+
+        lattice = Lattice(lat_max, lng_min, (lat_max - lat_min) / rows, (lng_max - lng_min) / cols,
+                          rows, cols)
+        sources = [(os.path.basename(path), data, scheme_name or code_map)]
+        if fill_path is not None:
+            sources.append((os.path.basename(fill_path),
+                            read_codes_on_lattice(fill_path, lattice), fill_scheme))
+        stacked = stack_sources(sources, lattice)
+        fuel_types, pc_layer = stacked.grid.fuel_types, stacked.grid.pc
+        if fill_path is not None:
+            logger.info("Fuel grid %s filled from %s: %s", os.path.basename(path),
+                        os.path.basename(fill_path),
+                        {k: round(v, 3) for k, v in stacked.share.items()})
+    else:
+        fuel_types = []
+        for r in range(rows):
+            row_list: list[FuelType | None] = []
+            for c in range(cols):
+                code = int(data[r, c])
+                row_list.append(code_map.get(code))
+            fuel_types.append(row_list)
 
     # Apply environment mask (water bodies, buildings → non-fuel)
     if water_path or buildings_path:
@@ -396,6 +494,7 @@ def load_fuel_grid(
         lng_max=lng_max,
         rows=rows,
         cols=cols,
+        pc=pc_layer,
     )
 
     # Log summary and memory estimate

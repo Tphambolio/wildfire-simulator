@@ -1973,6 +1973,13 @@ label.field > input[aria-invalid="true"] {
   margin: 0 0 var(--sp-2);
 }
 
+.evac-source-tag {
+  font-size: 0.75em;
+  font-weight: 400;
+  color: var(--text-muted, #9aa4b2);
+  margin-left: 0.25em;
+}
+
 .evac-arrival-table {
   width: 100%;
   border-collapse: collapse;
@@ -3497,6 +3504,45 @@ label.field.evac-pick-tier {
   padding: var(--sp-5);
   color: var(--text);
   text-align: center;
+}
+
+/* Recoverable error panel (AppErrorBoundary): top level and around the EOC console */
+.app-error-fallback {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  min-height: 60vh;
+  padding: var(--sp-5);
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+}
+.app-error-title {
+  margin: 0;
+  font-size: var(--fs-lg, 18px);
+  color: var(--danger-text);
+}
+.app-error-text {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--text-2);
+}
+.app-error-detail {
+  max-width: 70ch;
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  white-space: pre-wrap;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.app-error-btn {
+  width: auto;
 }
 
 /* Feature popups on the map */

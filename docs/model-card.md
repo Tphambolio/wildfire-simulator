@@ -48,14 +48,15 @@ head fire intensity and FWI codes mean.
 | Fire behaviour | FBP System, 18 fuel types | ST-X-3 (1992), GLC-X-10 (2009); `cffdrs` |
 | Weather / moisture | FWI System; hourly FFMC | Van Wagner & Pickett (1985); Van Wagner (1977) PS-X-69; `cffdrs` |
 | Diurnal burning (opt-in in the API, on by default in the UI) | Hourly FFMC spin-up from 17:00 local before the start; burning period (spread only between set hours, 10-20 h validated; a point ignition outside it waits for it) | Beck et al. (2002); Lawson et al. (1996); Tymstra et al. (2010) |
-| Growth (spatial fuel) | Level set advected with the Huygens velocity of each cell's FBP ellipse | Richards (1990); Lautenberger (2013) (level-set framework only; discretisation differs, `docs/verification.md`) |
+| Growth (spatial fuel) | Level set advected with the Huygens velocity of each cell's FBP ellipse; 50 m cells (majority fuel class per cell), repeated on the fuel grid's native 20 m cells in a window around the fire when buildings are near and the fire is small enough (2026-10-10, M5; frame `grid`) | Richards (1990); Lautenberger (2013) (level-set framework only; discretisation differs, `docs/verification.md`) |
 | Growth (uniform fuel) | Huygens wavelets (convex front) | Richards (1990) |
 | Crown fire | Van Wagner (1977) initiation; CFB eq 58; C-6 crown rate | ST-X-3; Cruz et al. (2006) found foliar moisture matters much less than Van Wagner assumes (context, not implemented) |
 | Flame length | Byram (surface), Thomas (CFB >= 0.1; approximate for crown fires) | Byram's form: Alexander & Cruz (2012) Table 1, p.98; Thomas for crown fires suggested by Rothermel (1991), via Alexander & Cruz (2012) p.99 |
 | Spotting (opt-in) | Albini/Chase/Morris maximum distance; heuristic emission and landing | USDA FS INT reports 1979-1987 |
 | Building exposure | Distance bands; Cohen solid-flame radiant flux; flux-time index | Cohen (2004); NRC (2021) |
 | Ember ignition of buildings (opt-in under house-to-house spread, app option "Ember ignition", API `structure_embers`; **illustrative — not validated in Canada**) | Design fire per building (150 kW/m² default, 400 scenario), ember generation proportional to heat release, Himoto lognormal transport between buildings and Sardoy from the burning grid cells, embers pooled per footprint, ignition past the ψ criterion (pressure-treated wood) after 42 s + 300 s; deterministic | Qin et al. (2026) FSJ 104686; Qin (2025); Himoto & Tanaka (2008); Purnomo et al. (2024) PROCI; `docs/structure-spread-spec.md` §6.1 |
-| Structure-to-structure spread (opt-in, app option "House-to-house spread"; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); `docs/structure-spread-spec.md` |
+| Structure-to-structure spread (opt-in, app option "House-to-house spread"; **illustrative — not validated in Canada**) | Hamada empirical urban-fire spread between building units (one per footprint), started where the FBP front reaches a grid cell next to one the footprint touches (10 m contact, measured from the building's cells; 2026-10-09); 30 m neighbour cutoff; a building stops passing fire when its design fire ends, 66 min after involvement (burn-out, 2026-10-10; API `structure_burnout`, default on; a FireSim extension, Hamada has none) | Purnomo et al. (2026) FSJ 104651; Qin (2025); Himoto & Tanaka (2008); Purnomo et al. (2024) PROCI p.3 (design fire); `docs/structure-spread-spec.md` §4.3 |
+| Structure step 3 (opt-in, 2026-10-10; **illustrative — not validated in Canada**) | Per-building open-data vegetation attributes (canopy cover in rings 0-5 / 5-10 / 10-30 m, roof overhang, distance to a 1 ha stand; context only); "Tree-bridged gaps": buildings 20-45 m apart link only across ≥ 20 % gap woody cover (FireSim rule, API `structure_vegetation_bridge`); "Combustible roofs": a seeded random 5 / 15 / 30 % of buildings ignite from embers at 0.375 of the threshold (API `structure_combustible_roof_share`; **a scenario, not observed roofs**) | Meta/WRI 1 m canopy height (Tolan et al. 2024, CC BY 4.0); FPInnovations WF TR 2025 n.04 p.24 (20 %); DeBeer (2023) UMD PhD Tables 10-1, 10-4 (0.375); `docs/structure-spread-spec.md` §2.1, §4.6, §6.2 |
 | Burn probability | Monte Carlo over ignition point, wind speed and RH | (method, not a validated product) |
 | Classes | HFI classes 1-6; FWI classes | Cole & Alexander (1995) and CWFIS HFI map; CWFIS FWI map |
 
@@ -63,7 +64,12 @@ Inputs: ignition point or observed perimeter (optionally with its active edges: 
 along the perimeter or whole sides, from an RPAS thermal flight; the rest is treated as burned
 out), start time, weather (constant or hourly, optionally from 17:00 the evening before for
 the FFMC spin-up), FWI codes, burning period (local hours), FBP
-fuel grid (Edmonton: City canopy-LiDAR product), optional DEM, water and building masks,
+fuel grid (Edmonton: City canopy-LiDAR product; from 2026-10-11 the Alberta Wildfire FBP fuel
+types 2025, 100 m, wherever the City grid has no data and for ignitions outside it, with D-1/D-2
+and M-1/M-2 leaf-on from day of year 150 to 257, per-cell percent conifer from the map and O-1 as
+O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optional DEM, water
+and building masks (from 2026-10-11 Microsoft building footprints for all of Alberta, read by
+window; Edmonton runs unchanged; `docs/buildings-alberta.md`),
 grass curing, percent conifer / dead fir, foliar moisture or date. Grass curing (decision M1,
 2026-10-10): 95 % by default from 1 March to 29 May (day of year 60-149, between snow-melt and
 green-up), a required entry outside that window whenever O-1 grass can burn (API 422; the UI
@@ -103,6 +109,7 @@ EOC summary and ICS-209) is labelled as Monte Carlo/ensemble model output.
 | Spotting maximum distance | Reproduces published worked examples | engine/tests/spread/test_albini.py |
 | Radiant exposure | Reproduces Cohen (2004) worked values within 3.5 % | engine/tests/test_exposure.py |
 | Ember ignition | Reproduces the published check values: X_max 65 / 84 / 109 m, ψ* 0.059 g/cm² and 2.95 × 10⁵ embers, 33 % on the next structure, second-structure ignition 2,703 s vs 2,705 s, ROS ≈ 0.01 m/s (Qin et al. 2026 pp.3-6); Sardoy μ 2.18 / σ 1.23 (Qin 2025 p.124). Two wind heights inferred from these values (spec C17, C18). Jasper 2024: ignited no building in 17 pre-registered runs; no change to the Hamada result (κ 0.47 vs 0.52 distance band) | engine/tests/structures/test_embers.py; `docs/structure-spread-spec.md` §6.1, §8 item 7 |
+| Structure step 3 (vegetation bridge, roof scenario) | Pre-registered (`PREREG_STEP3`, before any score). See `docs/PROJECT_RECORD.md` §4.4 for the Jasper (non-independent) and CAL FIRE Eaton 2025 (independent) results; the bridge is shown only as an opt-in and is not adopted unless it beats plain Hamada and the distance and distance + vegetation baselines on the independent fire. The roof scenario changed nothing at Jasper or on the Edmonton test sites (no ember ignition) | scripts/structure_step3_validation.py; engine/tests/structures/test_vegetation_roofs.py |
 | Structure spread (Hamada) | Equations and coefficients as published (hand-checked values, zero-wind isotropy, monotone in wind); Qin (2025)'s worked rate of 0.34 m/s is **not** reproduced (equations give 0.197 m/s; unexplained). No validation against observed structure losses anywhere in Canada | engine/tests/structures/; `docs/structure-spread-spec.md` §4.5, §8 |
 | **Observed fires (first results)** | 143 fire-days, 32 Alberta fires 2014-2024 (CFSDS), one burn day from the observed perimeter, Bennett et al. (2026) protocol. F1 at the default 06-23 h window: 0.15 started from the whole perimeter (operational), 0.24 with Bennett's ignition (WISE: 0.26); best burn hour 0.22 / 0.38 (WISE 0.50). Growth over-predicted on 73-93 % of days (normalised area difference +0.29 to +0.67); head direction error median about 50°; spread distance within ±35 % on about 20 % of days. Head runs on the largest Horse River days under-predicted. | docs/validation.md |
 | **Observed fires, held-out test (second round)** | Fires split in half by fire; settings chosen on 16 calibration fires, scored on 16 unseen fires (79 fire-days). Marking active edges (previous days' growth, as an RPAS thermal flight would), FFMC spin-up from the previous afternoon and a 10-20 h burning period: one-day F1 0.118 -> 0.208 (+0.091, 95 % CI +0.056 to +0.125, bootstrap by fire); area difference +0.72 -> +0.27; spread distance within ±35 % on 24 % of days. Oracle start (Bennett ignition): 0.245. The biggest wind-driven runs are under-predicted further. Deterministic skill; RPAS mid-day restarts not yet measured. | docs/validation.md |
@@ -125,9 +132,14 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
 - No suppression is modelled.
 - Weather: constant or hourly; DMC and DC fixed within a run; the hourly forecast is
   Open-Meteo GEM (`gem_seamless`, pinned 2026-10-10, the model the ensemble's error climatology
-  was measured on). Current codes come from the nearest CWFIS station with codes, labelled with
-  their date (before noon LST they are yesterday's); off-season codes are a labelled one-day
-  cold-start estimate whose DMC, DC and BUI are far too low. Wind direction is the dominant source of error in fire growth models.
+  was measured on). In Alberta the starting codes are the ones Pyra (the team's fire-weather app)
+  shows for the nearest Pyra station: CWFIS carry-over stepped one day with the GEM noon-LST
+  weather (before noon LST a forecast), the same numbers as Pyra's station page (checked against
+  Pyra's engine and live page, 2026-10-10). They are only as good as that one-station chain: a
+  station tens of km away, model noon weather, no overwinter DC. Elsewhere, or when Pyra's chain
+  has no value, codes come from the nearest CWFIS station with codes, labelled with their date
+  (before noon LST they are yesterday's); off-season codes are a labelled one-day cold-start
+  estimate whose DMC, DC and BUI are far too low. Codes typed by the user always win. Wind direction is the dominant source of error in fire growth models.
 - Grass curing is not observed: in spring FireSim assumes 95 % (an early or late green-up moves
   the real window by weeks); outside the window it is whatever the user enters. Grass is about
   3 % of the observed growth in the validation fires, so the CFSDS harness hardly tests it
@@ -138,6 +150,22 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
 - Spotting is illustrative; active crown fire spotting is underestimated.
 - Burn probability varies only ignition, wind speed and RH (not a Burn-P3-style analysis).
 - Huygens perimeters are convex; use the grid model on heterogeneous fuel.
+- Alberta Wildfire fuel grid (default outside the City grid, 2026-10-11): an operational map
+  with accuracy "unknown" in its own metadata, partly built from the Alberta Vegetation
+  Inventory, 100 m cells; it maps little vegetation inside towns; "vegetated non-fuel" (12 % of
+  the province's mapped cells) is non-fuel, so modelled fire can stop where shrub or wetland
+  burns; O-1 runs as standing grass (O-1b); fixed green-up / leaf-off dates; no terrain outside
+  the Edmonton DEM. Recent burns are re-typed (non-fuel, regenerating aspen, grass), which
+  matters for current fires but confounds tests on past fires (indicative check on 7
+  calibration fire-days: F1 0.287 → 0.295, area bias +0.28 → +0.08; not a skill estimate).
+- Buildings outside Edmonton (2026-10-11): Microsoft Canadian Building Footprints (2019 release)
+  for all of Alberta. Coverage is uneven (e.g. ~640 footprints within 5 km of Hinton, a town
+  of about 10,000), footprints miss many sheds and garages that municipal layers have (ODB
+  windows: 5-37 % more footprints), and buildings built since the imagery are missing, so
+  exposure and house-to-house counts outside the major cities can be low. Outside the Edmonton
+  area the mask, exposure and inside-perimeter counts use at most 30,000 buildings nearest the
+  ignition; community units there are Statistics Canada census subdivisions (municipalities and
+  counties), much coarser than Edmonton neighbourhoods. Edmonton results are unchanged.
 - Edmonton fuel grid: urban trees are non-fuel. Structure-to-structure spread is only an
   opt-in, illustrative Hamada layer (API `structure_spread`): Japanese empirical coefficients,
   California-only published tests (recall 78-97 %, precision 9-77 %), FireSim's own 10 m
@@ -145,9 +173,16 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   Canada. Ember ignition is a separate opt-in (`structure_embers`): the published short-range
   firebrand model (≲ 100 m), one target material, California-tuned generation; at the 150 kW/m²
   default design fire it almost never ignites a building, and at Jasper 2024 it ignited none, so
-  it does not explain the destroyed groups 250-500 m from the first ignitions. Front contact is measured from the building's own grid cells, so on the
+  it does not explain the destroyed groups 250-500 m from the first ignitions. Structure step 3
+  options (2026-10-10, opt-in): the tree-bridged gap rule uses a FireSim corridor definition and
+  a threshold from the Jasper fire itself; the canopy map misses shrubs under 2 m and is 2015-2020
+  imagery in Edmonton; the roof scenario places combustible roofs at random (no spatial skill),
+  acts only through the ember threshold and uses a lab-derived factor read as a threshold [H].
+  Front contact is measured from the building's own grid cells, so on the
   50 m grid it happens when the front reaches a cell next to the building's cells (typically
-  20-40 m, up to ~70 m from the footprint); this removed a grid artefact of the first rule
+  20-40 m, up to ~70 m from the footprint; 9-15 m, up to ~30 m, on the 20 m WUI window used near
+  buildings since 2026-10-10, which changed involved counts by −52 % to +33 % on the test sites
+  and made the 20 m fire areas 0-410 % larger); this removed a grid artefact of the first rule
   (contact 5 / 20 m had changed counts by −71 % to +557 %) and raised involved buildings by
   +38 % to +751 % on the test sites. Sensitivity on Edmonton footprints (2026-10-09,
   `scripts/structure_sensitivity.py`): involved buildings at 6 h change by −58 % to +170 % for a
@@ -155,6 +190,11 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   when footprints under 40 m² are dropped. Units are built only for the area the spread can
   reach (identical counts; 2026-10-10 fix for an out-of-memory crash on the API), and a run
   whose reachable area holds more than 60,000 buildings reports "not computed" instead.
+  Burn-out (2026-10-10, on by default): a building stops passing fire when its design fire ends
+  (66 min; 70 min at 400 kW/m²). It removes only crossings longer than that, so it changed
+  nothing in the Jasper 2024 end state (κ 0.472 in 11 of 12 pre-registered runs; −0.008 at the
+  45 m cutoff) and 0 % to −10 % of involved buildings at 6 h on the Edmonton sites; it does not
+  stop the counts from growing with run length.
 - Building exposure uses worst-case radiant assumptions and ignores embers, burning buildings
   and yard fuels (usually the main causes of loss).
 - WUI zone modifiers in the repository have no source and are off by default.

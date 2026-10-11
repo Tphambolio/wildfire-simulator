@@ -24,6 +24,7 @@ export const BADGES = {
   modelOutput: "Model output",
   unsourced: "Unsourced",
   illustrative: "Illustrative",
+  scenario: "Scenario",
   exposureNotIgnition: "Exposure, not ignition",
   setByPlanning: "Status set by Planning",
   c2Generalisation: "C-2 generalisation",
@@ -86,8 +87,20 @@ export const TIPS = {
   // ── Setup: 3 Fuel & landscape ──
   edmontonGrid: (fallbackFuel: string) =>
     "City of Edmonton canopy-LiDAR FBP fuel product: 20 m cells (EPSG:3776; the file name says " +
-    "10 m), fuel types C-2, D-2, M-2, O-1a and O-1b. The engine resamples it to 50 m cells for " +
-    `the run. Cells without fuel data use ${fallbackFuel}.`,
+    "10 m), fuel types C-2, D-2, M-2, O-1a and O-1b. The run uses 50 m cells (the main fuel " +
+    "type in each); when buildings are near the fire it is repeated on the native 20 m cells " +
+    "in a window around the fire, if the fire is small enough. " +
+    `Cells without fuel data use ${fallbackFuel}. ` +
+    "Outside the City grid's mapped area the Alberta Wildfire provincial grid is used " +
+    "(see the Alberta grid tip).",
+  albertaGrid:
+    "Alberta Wildfire FBP fuel types 2025, 100 m (Government of Alberta). Used where the City " +
+    "grid has no data and for ignitions outside it (a 40 km window around the ignition, 50 m " +
+    "cells). D-1/D-2 aspen and M-1/M-2 mixedwood (percent conifer from the map) are leaf-on " +
+    "30 May-14 Sept; O-1 grass runs as standing grass (O-1b); vegetated non-fuel is non-fuel. " +
+    "Partly built from the Alberta Vegetation Inventory; it maps little vegetation inside " +
+    "Edmonton. Outside Alberta the fuel type chosen in Setup is used. Contains information " +
+    "licensed under the Open Government Licence – Alberta.",
   syntheticCA: "Generates a 5 km mixed-fuel demo grid around the ignition point and runs the grid model on it.",
   spotting:
     "Crown fires loft embers downwind and seed new ignitions. Maximum distance from Albini (1979); " +
@@ -96,14 +109,24 @@ export const TIPS = {
     "OpenStreetMap water polygons as extra non-fuel. Off by default: it covers about 3,700 ha the " +
     "LiDAR grid maps as vegetation, and the grid already maps water as non-fuel.",
   buildings:
-    "Microsoft Canadian Building Footprints (ODbL), 346,238 footprints: non-fuel cells and the " +
-    "building exposure counts.",
+    "Microsoft Canadian Building Footprints (2019; © Microsoft, Open Database License ODbL), " +
+    "Alberta, 1,777,439 footprints (346,238 in the Edmonton area): non-fuel cells, building " +
+    "exposure counts and house-to-house spread. Coverage varies; some towns are incomplete.",
   structureOption:
     "Fire passing from building to building (Hamada model), from the buildings the modelled front " +
-    "reaches. Illustrative, not validated in Canada. Needs the Edmonton grid and buildings.",
+    "reaches; a building stops passing fire when its 66 min design fire ends (burnt out). " +
+    "Illustrative, not validated in Canada. Needs the Edmonton grid and buildings.",
   structureEmbers:
     "Buildings also ignited by short-range embers from burning buildings and the front (published " +
     "Californian firebrand model, 150 kW/m² design fire). Illustrative. Needs house-to-house spread.",
+  structureVegBridge:
+    "Buildings up to 20 m apart pass fire as usual; 20–45 m apart only where trees cover at least " +
+    "20 % of the gap (open 1 m canopy map). FireSim rule from the FPInnovations Jasper threshold; " +
+    "not validated.",
+  structureRoofs:
+    "A scenario, not observed roofs: no open data says which roofs are wood shake. This share of " +
+    "buildings, picked at random with the run seed, ignite from embers at 0.375 of the threshold " +
+    "(lab firebrand tests, cedar vs treated pine). Needs ember ignition.",
   wui:
     "425 park-buffer zones with spread ×0.7, intensity ×1.2 and embers ×3.0. These values have no " +
     "documented source; leave off unless testing.",

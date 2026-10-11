@@ -71,6 +71,7 @@
   --struct-front: #e94ccf;  /* house-to-house spread: front contact (utils/structureSpread.ts) */
   --struct-b2b: #2fd9c5;    /* house-to-house spread: building to building */
   --struct-ember: #c6f432;  /* house-to-house spread: ember ignition */
+  --struct-burnt: #3b3f46;  /* house-to-house spread: burnt out (design fire ended) */
 
   /* ── Type (12 px minimum anywhere) ── */
   --font-ui: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif;

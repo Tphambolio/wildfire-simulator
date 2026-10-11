@@ -154,10 +154,11 @@ export default function AboutPanel({ section = null }: { section?: AboutSectionI
         <Section id="about-data" title="4. Data sources and licences">
           <ul>
             <li><strong>Edmonton fuel grid.</strong> {TIPS.edmontonGrid("C-2 (or the fuel type chosen in Setup)")}</li>
+            <li><strong>Alberta Wildfire FBP fuel types 2025, 100 m.</strong> {TIPS.albertaGrid} Data use is governed by the Open Government Licence – Alberta; the image service carries the Government of Alberta disclaimer (provided "as is", no warranty).</li>
             <li><strong>Terrain.</strong> 30 m DEM, UTM 12N (file dated 2011; recorded as Open Government Canada, likely NRCan CDEM, unverified).</li>
             <li><strong>Extra water mask.</strong> {TIPS.waterMask} © OpenStreetMap contributors (ODbL).</li>
             <li><strong>Buildings.</strong> {TIPS.buildings}</li>
-            <li><strong>Neighbourhoods.</strong> City of Edmonton Open Data, Neighbourhoods (Open Government Licence – City of Edmonton), 407 polygons.</li>
+            <li><strong>Neighbourhoods.</strong> City of Edmonton Open Data, Neighbourhoods (Open Government Licence – City of Edmonton), 407 polygons. Elsewhere in Alberta: Statistics Canada 2021 census subdivisions (Statistics Canada Open Licence), tagged "CSD".</li>
             <li><strong>WUI zone modifiers</strong> <span className="ui-badge ui-badge-warn">{BADGES.unsourced}</span>: {TIPS.wui}</li>
             <li><strong>Critical assets and major roads.</strong> City of Edmonton Open Data (Open Government Licence – City of Edmonton) · Government of Alberta continuing care list (Open Government Licence – Alberta) · Statistics Canada ODHF (Open Government Licence – Canada) · © OpenStreetMap contributors (ODbL). Care facilities found only in OpenStreetMap are marked "verify": they are in no current official list.</li>
             <li><strong>Weather.</strong> Current FWI codes from the CWFIS station network (Natural Resources Canada); hourly forecast from Open-Meteo.</li>

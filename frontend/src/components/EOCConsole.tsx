@@ -39,6 +39,7 @@ import {
   buildICS214HTML,
   buildFullIAPHTML,
 } from "../utils/icsForms";
+import { ghostPerimeterPath } from "../utils/ghostPerimeter";
 import { openICS209Report, type ICS209RunContext } from "../utils/ics209";
 import { getVersion } from "../services/api";
 import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
@@ -85,7 +86,7 @@ interface EOCConsoleProps {
   onClearLayer?: (layer: AnnotationLayer) => void;
   onFetchFacilities?: () => Promise<number>;
   /** Previous operational period's final perimeter — shown as ghost on Day 2+ */
-  ghostPerimeter?: [number, number][] | null;
+  ghostPerimeter?: [number, number][] | null; // [lat, lng] pairs (API frame order)
   incidentName?: string;
   /** Run ID, start time and ensemble, for the ICS 209-WF */
   run209?: ICS209RunContext | null;
@@ -568,11 +569,9 @@ export default function EOCConsole({
           >
             {/* Ghost perimeter from previous operational period */}
             {ghostPerimeter && ghostPerimeter.length > 0 && (() => {
-              const d = ghostPerimeter.map(([lng, lat], i) => {
-                const { x, y } = geoToPixel({ lng, lat });
-                return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
-              }).join(" ") + " Z";
-              return <path d={d} className="eoc-ghost-perimeter" />;
+              // Stored as [lat, lng] (the API frame order); see utils/ghostPerimeter.ts
+              const d = ghostPerimeterPath(ghostPerimeter, ([lng, lat]) => geoToPixel({ lng, lat }));
+              return d ? <path d={d} className="eoc-ghost-perimeter" /> : null;
             })()}
 
             {/* Incident annotations — dimmed if not on active layer */}

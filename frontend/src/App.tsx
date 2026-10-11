@@ -15,12 +15,12 @@ import EvacStatusPanel from "./components/EvacStatusPanel";
 import { FUEL_TYPES } from "./types/simulation";
 import { useSimulation } from "./hooks/useSimulation";
 import { useScenarios } from "./hooks/useScenarios";
-import { computeBurnProbability, fetchFuelGridImage } from "./services/api";
+import { cancelEnsemble, computeBurnProbability, fetchFuelGridImage } from "./services/api";
 import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { useRecon } from "./hooks/useRecon";
 import { clockAt, formatClock, zoneAbbrev } from "./utils/time";
 import StructureSpreadPanel from "./components/StructureSpreadPanel";
-import { structureCaveat, structureDetail, structureUnitsGeoJSON } from "./utils/structureSpread";
+import { caveatFor, roofScenarioLabel, structureDetail, structureUnitsGeoJSON } from "./utils/structureSpread";
 import {
   ARRIVAL_BUFFER_M,
   arrivalsToGeoJSON,
@@ -30,6 +30,7 @@ import {
   planningZones,
   planningZonesToGeoJSON,
   upsertTier,
+  mergeCommunities,
   type EvacTier,
   type EvacTierRecord,
 } from "./utils/evacZones";
@@ -45,6 +46,7 @@ import { useIncident } from "./hooks/useIncident";
 import { computeIsochrones, DEFAULT_ISO_HOURS } from "./utils/isochrones";
 import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
+import AppErrorBoundary from "./components/AppErrorBoundary";
 import TopBar, { type AppTab } from "./components/TopBar";
 import Badge from "./components/Badge";
 import InfoTip from "./components/InfoTip";
@@ -288,6 +290,8 @@ export default function App() {
   const [isochronesVisible, setIsochronesVisible] = useState(false);
   // House-to-house spread map layer: on by default when the run has it (opt-in run option)
   const [structureVisible, setStructureVisible] = useState(true);
+  // Roof scenario runs: outline the buildings the scenario gave combustible roofs (not observed)
+  const [structureRoofOutline, setStructureRoofOutline] = useState(true);
   const [isoTargetHours, setIsoTargetHours] = useState<number[]>(DEFAULT_ISO_HOURS);
   const [fuelGridImage, setFuelGridImage] = useState<{ image: string; bounds: [number, number, number, number]; legend?: Array<{ fuel: string; color: string }> } | null>(null);
   const [fuelGridVisible, setFuelGridVisible] = useState(true);
@@ -367,11 +371,18 @@ export default function App() {
     setUserLayers((prev) => prev.filter((l) => l.id !== id));
   }, []);
 
-  // Pre-load Edmonton neighbourhoods on startup (arrival outlines and evacuation status).
+  // Pre-load community units on startup (arrival outlines and evacuation status): Edmonton
+  // neighbourhoods, and Statistics Canada census subdivisions elsewhere in Alberta.
   useEffect(() => {
-    fetch("./edmonton/neighbourhoods.geojson")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((fc) => { if (fc) setCommunities(fc as GeoJSON.FeatureCollection); })
+    const get = (url: string) =>
+      fetch(url)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null) as Promise<GeoJSON.FeatureCollection | null>;
+    Promise.all([get("./edmonton/neighbourhoods.geojson"), get("./alberta/census_subdivisions.geojson")])
+      .then(([edm, csd]) => {
+        const merged = mergeCommunities(edm, csd);
+        if (merged) setCommunities(merged);
+      })
       .catch(() => {});
   }, []);
 
@@ -386,6 +397,7 @@ export default function App() {
     startSimulation,
     startMultiDaySimulation,
     startPerimeterOverride,
+    prepareRun,
     setFrameIndex,
     pauseSimulation,
     resumeSimulation,
@@ -403,6 +415,22 @@ export default function App() {
 
   // Ensemble size requested with the current run (null = none: multi-day, perimeter restart)
   const [ensembleMembers, setEnsembleMembers] = useState<number | null>(null);
+  // The run whose ensemble the server may still be computing (pending or running), if any
+  const activeEnsembleIdRef = useRef<string | null>(null);
+
+  /**
+   * Leave the current run before any new one (single, multi-day, perimeter restart) or
+   * "Clear results": stop polling its ensemble and ask the server to stop computing it, so
+   * the next run neither shows the old range of outcomes nor competes with it for the CPU.
+   * Frames, structure layers, arrivals and the timeline all derive from useSimulation's
+   * frames, which the run start resets.
+   */
+  const leaveCurrentRun = useCallback(() => {
+    const old = activeEnsembleIdRef.current;
+    activeEnsembleIdRef.current = null;
+    if (old) cancelEnsemble(old);
+    setEnsembleMembers(null);
+  }, []);
 
   // Spread-skill options: Setup's current settings (reused by the perimeter restart), and the
   // burning period of the current run (timeline shading, Situation note)
@@ -417,24 +445,35 @@ export default function App() {
   const handlePerimeterOverride = useCallback(
     (req: PerimeterOverrideRequest) => {
       const at = req.start_time ? Date.parse(req.start_time) : NaN;
+      leaveCurrentRun();
       setScenarioStart(new Date(Number.isFinite(at) ? at : Date.now()));
-      setEnsembleMembers(null);
       setRunBurningPeriod(req.burning_period ?? null);
+      setLastRunSpinUp(false);
       cancelReconDrawing();
       startPerimeterOverride(req);
     },
-    [startPerimeterOverride, cancelReconDrawing]
+    [startPerimeterOverride, cancelReconDrawing, leaveCurrentRun]
   );
 
   const handleStartMultiDay = useCallback(
     (req: Parameters<typeof startMultiDaySimulation>[0], startMs: number) => {
+      leaveCurrentRun();
       setScenarioStart(new Date(startMs));
-      setEnsembleMembers(null);
       setRunBurningPeriod(req.burning_period ?? null);
       setLastRunSpinUp(false);
       startMultiDaySimulation(req);
     },
-    [startMultiDaySimulation]
+    [startMultiDaySimulation, leaveCurrentRun]
+  );
+
+  // Run pressed but the request is still being prepared (hourly forecast fetch): leave the
+  // previous run now rather than after the fetch
+  const handleRunRequested = useCallback(
+    (durationHours: number) => {
+      leaveCurrentRun();
+      prepareRun(durationHours);
+    },
+    [leaveCurrentRun, prepareRun]
   );
 
   // After the first completed run: fit the map to the fire; later runs keep the user's view
@@ -470,6 +509,11 @@ export default function App() {
 
   // ── Ensemble (range of outcomes): polled after the single run, the headline once in ──
   const ensemble = useEnsemble(simulationId, ensembleMembers, status);
+  // Remember which run's ensemble may still be computing on the server (leaveCurrentRun)
+  useEffect(() => {
+    activeEnsembleIdRef.current =
+      simulationId && (ensemble.phase === "waiting" || ensemble.phase === "running") ? simulationId : null;
+  }, [simulationId, ensemble.phase]);
   const ensGrids = ensemble.grids;
   const [ensToggles, setEnsToggles] = useState<EnsembleToggles>({ lines: true, p50: true, p90: false, prob: false });
   const handleEnsToggle = useCallback(
@@ -684,6 +728,7 @@ export default function App() {
     (params: SimulationCreate) => {
       lastStartRef.current = params;
       setDismissedError(null);
+      leaveCurrentRun();
       const start = params.start_time ? Date.parse(params.start_time) : NaN;
       setScenarioStart(new Date(Number.isFinite(start) ? start : Date.now()));
       setEnsembleMembers(params.ensemble?.n_members ?? null);
@@ -691,7 +736,7 @@ export default function App() {
       setLastRunSpinUp(!!params.ffmc_spin_up);
       startSimulation(params);
     },
-    [startSimulation]
+    [startSimulation, leaveCurrentRun]
   );
 
 
@@ -792,6 +837,7 @@ export default function App() {
             runBarTarget={runBarEl}
             onSkillOptions={setSkillOptions}
             onNewIgnition={!isRunning && frames.length > 0 ? armNewIgnition : undefined}
+            onRunRequested={handleRunRequested}
           />
           <div className="setup-more-label">More</div>
           <SetupSection
@@ -870,6 +916,7 @@ export default function App() {
       )}
       {activeTab === "eoc" && incident && (
         <div className="eoc-tab-wrapper">
+          <AppErrorBoundary area="EOC console" resetKey={activeTab} onReset={() => setActiveTab("simulation")}>
           <OperationalPeriodPanel
             incident={incident}
             activePeriod={activePeriod}
@@ -916,6 +963,7 @@ export default function App() {
             onIncidentNameChange={(name) => updateIncidentField("name", name)}
           />
           </Suspense>
+          </AppErrorBoundary>
         </div>
       )}
 
@@ -986,7 +1034,9 @@ export default function App() {
             structureUnits={structureUnits}
             structureVisible={structureVisible}
             structureLabel={structureSummary?.label}
-            structureCaveat={structureSummary ? structureCaveat(structureSummary.label, structureSummary.neighbour_cutoff_m, 50, structureSummary.embers ? structureSummary.design_fire_kw_m2 : undefined) : ""}
+            structureCaveat={caveatFor(structureSummary)}
+            structureRoofLabel={roofScenarioLabel(structureSummary)}
+            structureRoofOutline={structureRoofOutline}
             structureClock={scenarioStart ? structureClock : undefined}
           />
         </MapErrorBoundary>
@@ -1029,8 +1079,8 @@ export default function App() {
                   className="btn-secondary btn-inline"
                   tip={TIPS.clearResults}
                   onClick={() => {
+                    leaveCurrentRun();
                     clearResults();
-                    setEnsembleMembers(null);
                     setRunBurningPeriod(null);
                   }}
                 >
@@ -1053,6 +1103,8 @@ export default function App() {
               mapVisible={structureVisible}
               onMapVisible={setStructureVisible}
               mapAvailable={structureUnits !== null}
+              roofOutline={structureRoofOutline}
+              onRoofOutline={setStructureRoofOutline}
             />
           )}
           <EvacStatusPanel

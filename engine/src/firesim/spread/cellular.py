@@ -75,6 +75,8 @@ BAND_CELLS = 6
 CARRY_ROS = 1e-5
 # cffdrs floors a zero ROS at 1e-6 m/min ("no spread"); see _CellParams.evaluate
 _FBP_ROS_FLOOR = 1e-6
+# Fuel types whose spread depends on percent conifer (per-cell ``FuelGrid.pc``)
+_MIXEDWOOD = frozenset({FuelType.M1, FuelType.M2})
 
 
 @dataclass
@@ -112,6 +114,7 @@ class CellularFrame:
     # was reached.
     head: dict | None = None
     arrival: np.ndarray | None = None  # arrival minutes per cell, inf = unburned (last frame only)
+    spots_off_grid: int = 0  # spot fires that landed outside the grid (last frame only)
 
 
 def wavelet_normal_speed(a, b, c, nh, nk):
@@ -150,6 +153,7 @@ def run_cellular_simulation(
     active_edge_buffer_m: float | None = None,
     seed: int | str | None = None,
     progress=None,
+    spot_sample_spacing_m: float | None = None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -198,6 +202,10 @@ def run_cellular_simulation(
             ``config`` and the first weather period (``derive_seed``), so a run is repeatable
             either way; the global ``random`` module is never used. A string is hashed by
             ``random.Random`` deterministically (SHA-512, seeding version 2).
+        spot_sample_spacing_m: Spacing (m) of the front cells sampled as ember sources.
+            None = every 3rd newly burned cell (the original rule, 150 m on a 50 m grid);
+            the 20 m WUI window passes 150 m so the number of sources per metre of front does
+            not grow with resolution.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -227,6 +235,9 @@ def run_cellular_simulation(
     arrival = np.full((rows, cols), np.inf)
     cross_ros = np.zeros((rows, cols))
     spot_events: list[tuple[float, SpotFire]] = []
+    spots_off_grid = 0
+    spot_stride = 3 if spot_sample_spacing_m is None else max(
+        1, int(round(spot_sample_spacing_m / math.sqrt(dx * dy))))
 
     start = _initial_region(fuel_grid, fuel, initial_perimeter, initial_burned, cell_lat, cell_lng)
     snapped_m = 0.0
@@ -335,11 +346,14 @@ def run_cellular_simulation(
                     newly = np.argwhere((arrival > slice_start) & (arrival <= t))
                     for spot in _spot_from_front(
                         newly, center, conditions, fuel_grid, spread_modifier_grid,
-                        default_fuel, t - slice_start, spotting_intensity, rng,
+                        default_fuel, t - slice_start, spotting_intensity, rng, spot_stride,
                     ):
                         r = int((lat_max - spot.lat) / cell_lat)
                         c = int((spot.lng - lng_min) / cell_lng)
-                        if 0 <= r < rows and 0 <= c < cols and fuel[r, c] and arrival[r, c] == np.inf:
+                        if not (0 <= r < rows and 0 <= c < cols):
+                            spots_off_grid += 1
+                            continue
+                        if fuel[r, c] and arrival[r, c] == np.inf:
                             phi[r, c] = -0.5 * h_min
                             arrival[r, c] = t
                             cross_ros[r, c] = params.head[r, c]
@@ -353,6 +367,7 @@ def run_cellular_simulation(
     )
     if frames:
         frames[-1].arrival = np.where(arrival <= duration, arrival, np.inf)
+        frames[-1].spots_off_grid = spots_off_grid
     if compute_perimeter and frames:
         frames[-1].emitters = flame_emitters(arrival, cross_ros, params, duration, dx, dy)
         frames[-1].emitters.lat0, frames[-1].emitters.lng0 = lat_max, lng_min
@@ -548,11 +563,11 @@ class _CellParams:
         fuel, index, keys, *groups = cell_keys  # groups: _key_groups(keys), precomputed
         table = np.zeros((len(keys) + 1, 10))  # last row: non-fuel (index -1)
         groups = groups[0] if groups else _key_groups(keys)
-        for (ft, cbh, cfl), (rows, slope, aspect, rm, im) in groups.items():
+        for (ft, cbh, cfl, pc), (rows, slope, aspect, rm, im) in groups.items():
             f = fbp_ellipse_arrays(
                 ft, conditions.wind_speed, conditions.wind_direction, conditions.ffmc,
                 conditions.dmc, conditions.dc, np.where(slope >= 1.0, slope, 0.0), aspect,
-                pc=conditions.pc, grass_cure=conditions.grass_cure, fmc=conditions.fmc,
+                pc=conditions.pc if pc is None else pc, grass_cure=conditions.grass_cure, fmc=conditions.fmc,
                 pdf=conditions.pdf, gfl=conditions.gfl, cbh=cbh, cfl=cfl,
             )
             m = rm * conditions.ros_multiplier
@@ -585,10 +600,11 @@ class _CellParams:
 
 
 def _key_groups(keys) -> dict:
-    """Cell types grouped by (fuel, CBH, CFL): row numbers and slope, aspect, multiplier arrays."""
+    """Cell types grouped by (fuel, CBH, CFL, percent conifer): row numbers and slope, aspect,
+    multiplier arrays."""
     groups: dict[tuple, list] = {}
-    for k, (ft, slope, aspect, cbh, cfl, rm, im) in enumerate(keys):
-        groups.setdefault((ft, cbh, cfl), []).append((k, slope, aspect, rm, im))
+    for k, (ft, slope, aspect, cbh, cfl, rm, im, pc) in enumerate(keys):
+        groups.setdefault((ft, cbh, cfl, pc), []).append((k, slope, aspect, rm, im))
     out = {}
     for g, items in groups.items():
         arr = np.array([it[1:] for it in items], dtype=float).reshape(-1, 4)
@@ -602,14 +618,16 @@ def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
     grouped by fuel and canopy for the vectorised FBP).
 
     A cell type is (fuel, slope % rounded, upslope azimuth rounded, CBH, CFL, ROS and
-    intensity multipliers): everything FBP needs apart from the weather, so FBP runs once
-    per type and weather period instead of once per cell.
+    intensity multipliers, percent conifer): everything FBP needs apart from the weather, so FBP
+    runs once per type and weather period instead of once per cell. Percent conifer is per cell
+    only for M-1/M-2 cells of a grid with a ``pc`` layer; elsewhere it is None (the run's value).
     """
     rows, cols = fuel_grid.rows, fuel_grid.cols
     fuel = np.zeros((rows, cols), dtype=bool)
     index = np.full((rows, cols), -1, dtype=np.int32)
     lookup: dict[tuple, int] = {}
     has_canopy = fuel_grid.cbh is not None or fuel_grid.cfl is not None
+    pc_layer = getattr(fuel_grid, "pc", None)
     for r in range(rows):
         for c in range(cols):
             ft = fuel_grid.fuel_types[r][c]
@@ -627,7 +645,8 @@ def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
                     cbh, cfl = fuel_grid.get_canopy_at(lat, lng)
                 if spread_modifier_grid is not None:
                     rm, im, _ = spread_modifier_grid.get_modifiers_at(lat, lng)
-            key = (ft, round(slope), round(aspect) % 360, cbh, cfl, rm, im)
+            pc = pc_layer[r][c] if pc_layer is not None and ft in _MIXEDWOOD else None
+            key = (ft, round(slope), round(aspect) % 360, cbh, cfl, rm, im, pc)
             index[r, c] = lookup.setdefault(key, len(lookup))
     keys = list(lookup)
     return fuel, index, keys, _key_groups(keys)
@@ -937,12 +956,13 @@ def _spot_from_front(
     dt_minutes: float,
     spotting_intensity: float,
     rng: random.Random,
+    stride: int = 3,
 ) -> list[SpotFire]:
     """Ember spotting (Albini 1979) from cells the front reached in the last interval."""
     if len(front) == 0:
         return []
-    # Cap the sample for performance — every 3rd front cell
-    vertices = [FireVertex(*center(int(r), int(c))) for r, c in front[::3]]
+    # Cap the sample for performance — every ``stride``-th front cell (3 on the 50 m grid)
+    vertices = [FireVertex(*center(int(r), int(c))) for r, c in front[::stride]]
     return check_ember_spotting(
         front=vertices,
         conditions=conditions,

@@ -50,6 +50,32 @@ Start a new fire spread simulation.
     `/simulations/multiday` and `/simulations/burn-probability` (the latter has no
     `start_time`: use `fuel_modifiers.day_of_year`). Sources: `engine/src/firesim/fbp/curing.py`,
     `docs/model-card.md`.
+- `fuel_grid_path` / `provincial_fuel` (added 2026-10-11; `docs/fuel-grid-alberta.md`): when
+  `fuel_grid_path` is the bundled City of Edmonton grid (server setting
+  `FIRESIM_CITY_FUEL_GRID_PATH`, default `/app/data/Edmonton_FBP_FuelLayer_20251105_10m.tif`; or
+  `use_ca_mode` loads it), `provincial_fuel` is true (default) and the server has the Alberta
+  Wildfire FBP grid (`FIRESIM_AB_FUEL_GRID_PATH`), the run uses the City grid where it has data
+  and the **Alberta Wildfire FBP fuel types 2025, 100 m** elsewhere: ignitions at least 5 km
+  inside the City grid's box run on the City grid's 50 m lattice with its no-data cells filled
+  from the Alberta grid; other ignitions in Alberta get a 40 km window centred on them (City
+  cells where mapped, Alberta 100 m → 50 m nearest neighbour elsewhere); outside Alberta a
+  national grid if the server has one (`FIRESIM_NATIONAL_FUEL_GRID_PATH`), else the uniform
+  `fuel_type`. D-1/D-2 and M-1/M-2 cells are leaf-on (D-2, M-2) from day of year 150 to 257, else
+  leaf-off (also with no date); M-1/M-2 percent conifer comes from the grid per cell; O-1 is O-1b.
+  `provincial_fuel: false` keeps the City grid only; any other `fuel_grid_path` is used as given.
+  Same on `/simulations/multiday`, `/simulations/burn-probability` (422 when no grid covers the
+  ignition) and perimeter overrides (the source run's request). The response says what was used
+  (`fuel_source`, below).
+- `buildings_path` (optional): building footprints for the building mask, exposure,
+  inside-perimeter counts and structure spread. The app sends
+  `/app/data/edmonton_buildings.geojson.gz`; when the server has the Alberta buildings file
+  (`FIRESIM_AB_BUILDINGS_PATH`, added 2026-10-11) that path reads it instead, by window:
+  ignitions in the Edmonton area (53.39-53.71 N, 113.75-113.25 W) get the same buildings as
+  before (the 4 City neighbourhoods nearest the ignition; structure spread over the same
+  footprints), ignitions elsewhere in Alberta the buildings in the run area, the
+  `FIRESIM_BUILDINGS_MAX_NEAR` (30,000) nearest the ignition when there are more. `null` = no
+  buildings; any other path is used as given (`.fgb` read by window, GeoJSON whole). The
+  response says what was used (`buildings_source`, below; `docs/buildings-alberta.md`).
 - `start_time` (optional): scenario start (ignition) time, ISO 8601 with a UTC offset, e.g.
   `"2026-04-28T13:40:00-06:00"` (a time without an offset is rejected with 422). Frame
   `time_hours` and `hourly_weather[].hours_from_start` count from it, and when
@@ -79,7 +105,7 @@ Start a new fire spread simulation.
   (docs/verification.md, "Spotting is repeatable").
 - `structure_spread` (optional, default `false`): **illustrative — not validated in Canada.**
   Grid runs with building footprints (`buildings_path` or `FIRESIM_BUILDINGS_PATH`, and
-  `FIRESIM_NEIGHBOURHOODS_PATH`): every footprint in the run area can become a building unit
+  `FIRESIM_NEIGHBOURHOODS_PATH` or the Alberta file): every footprint in the run area can become a building unit
   (units are built only for the area the spread can reach, which gives the same result as
   building them all; spec §2), a unit is involved when the front reaches a grid cell its footprint touches or one of their
   8 neighbours (10 m contact measured from the building's grid cells), and fire passes
@@ -99,12 +125,33 @@ Start a new fire spread simulation.
   random draws) and ignite it past the ψ criterion of Qin et al. (2026), after 42 s + 300 s. The
   reachable area and the memory guard include the ember reach. Short range by design (≲ 100 m from
   buildings); at the 150 kW/m² default it rarely ignites anything (spec §6.1).
-- `structure_design_fire_kw_m2` (optional, `150` default or `400`): the building design fire for
-  the ember stage, 150 kW/m² (5 / 1 / 60 min, Purnomo et al. 2024) or 400 kW/m² (300 / 3600 /
-  300 s, Qin et al. 2026). Other values: 422.
+- `structure_design_fire_kw_m2` (optional, `150` default or `400`): the building design fire,
+  150 kW/m² (5 / 1 / 60 min, Purnomo et al. 2024) or 400 kW/m² (300 / 3600 / 300 s, Qin et al.
+  2026): the ember stage's heat release curve and the burn-out time (66 / 70 min). Other
+  values: 422.
+- `structure_burnout` (optional, default `true`; used with `structure_spread`): a building stops
+  passing fire (building to building and embers) when its design fire ends, 66 min (150 kW/m²)
+  or 70 min (400) after it is involved; a Hamada crossing not complete by then never arrives
+  (`docs/structure-spread-spec.md` §4.3; a FireSim extension, Hamada has no burnout). `false`
+  gives the published Hamada model.
+- `structure_vegetation_bridge` (optional, default `false`; **needs `structure_spread: true`**,
+  else 422): the vegetation-bridged cutoff (spec §4.6, a FireSim heuristic): buildings ≤ 20 m
+  apart link as usual, 20-45 m apart only when the gap between them carries ≥ 20 % woody cover
+  (FPInnovations WF TR 2025 n.04 p.24), measured on the open Meta 1 m canopy height map
+  (server file `FIRESIM_CANOPY_PATH`, default `edmonton_canopy_5m.tif` next to the buildings
+  file). Replaces the 30 m cutoff. Where no canopy data cover the run area nothing is bridged
+  (plain 20 m cutoff; counts say `bridge_canopy_data: false`).
+- `structure_combustible_roof_share` (optional, default `0`; one of `0`, `0.05`, `0.15`, `0.30`,
+  else 422; values above 0 **need `structure_embers: true`**, else 422): the combustible-roof
+  scenario (spec §6.2). That share of buildings, chosen at random from the run `seed` and the
+  building id, ignite from embers at 0.375 × ψ* (DeBeer 2023, firebrand piles on cedar vs pine
+  treated wood). **A scenario, not observed roofs.**
+- Per-building vegetation attributes (spec §2.1; no request flag): when the server has
+  `FIRESIM_BUILDING_VEGETATION_PATH` (default `edmonton_building_vegetation.csv.gz` next to the
+  buildings file) and the footprints carry an `id`, involved units in the detail gain `veg`.
 - `cells_mode` (grid runs): `"cumulative"` (default) repeats every burned cell in each frame;
   `"incremental"` sends only the cells burned since the previous frame (a 24 h run: about
-  1.6 MB instead of 35 MB). Multi-day runs are always cumulative.
+  1.6 MB instead of 35 MB). Multi-day runs have their own `cells_mode` (below).
 
 **Response (201):**
 
@@ -143,9 +190,42 @@ Get simulation status and results.
   ],
   "error": null,
   "phase": "finishing",
-  "progress": 1.0
+  "progress": 1.0,
+  "fuel_source": {
+    "kind": "provincial",
+    "label": "Alberta Wildfire FBP fuel types 2025, 100 m",
+    "attribution": "Contains information licensed under the Open Government Licence – Alberta (Alberta Wildfire FBP Fuel Type, © Government of Alberta).",
+    "season": "leaf-on",
+    "share": {"ab_wildfire": 1.0}
+  },
+  "buildings_source": {
+    "kind": "near_ignition",
+    "label": "Microsoft Canadian Building Footprints, Alberta (2019)",
+    "attribution": "Building footprints: Microsoft Canadian Building Footprints (2019), Open Data Commons ODbL",
+    "selection": "run area",
+    "buildings": 787,
+    "capped": false
+  }
 }
 ```
+
+`fuel_source` (added 2026-10-11; `null` until the grids are loaded): `kind` is `city` (City
+grid lattice, Alberta grid in its no-data cells), `provincial` (40 km window: City grid where
+mapped, Alberta grid elsewhere, national grid outside Alberta if configured), `national`,
+`user_grid` (a `fuel_grid_path` other than the City grid), `synthetic` or `uniform`; `label` is
+the text to show, `attribution` the licence line to show with it (Alberta grid: OGL-Alberta),
+`season` the leaf-on / leaf-off state used for the seasonal pairs (provincial and national
+cells only; `null` otherwise) and `share` the fraction of the window's cells each source
+supplied (`city`, `ab_wildfire`, `national`; windows only).
+
+`buildings_source` (added 2026-10-11; `null` until buildings are selected, or when the run has
+none): `kind` is `edmonton_neighbourhoods` (ignition in the Edmonton area: the 4 City
+neighbourhoods nearest the ignition, as before) or `near_ignition` (elsewhere: buildings in the
+run area); `label` the data source, `attribution` the licence line to show (Microsoft
+footprints: ODbL), `selection` which buildings in words, `buildings` how many were used for the
+mask, exposure and counts, `capped` true when the run area held more than
+`FIRESIM_BUILDINGS_MAX_NEAR` and only the nearest were kept (structure spread still reads every
+footprint in its reachable box).
 
 Status values: `running`, `completed`, `failed`, `cancelled`
 
@@ -164,8 +244,9 @@ the spread has computed, 0-1. Clients that poll (no WebSocket) use them for the 
 | `head_ros_m_min` | the head fire's front speed: the fastest head cell reached since the previous frame |
 | `head` | that cell: `{lat, lng, ros, raz (deg, direction of spread), hfi, cfb, fuel, t, max_spot_distance_m}`; the spotting distance is Albini's maximum (surface-fire or torching-tree model) with the 10 m wind at that time; `null` when no head cell was reached |
 | `building_exposure`, `building_exposure_detail` | see `docs/building-exposure.md` |
-| `structure_spread` | only with the request flag `structure_spread`, else `null`: counts by this frame `{model: "hamada", label: "illustrative — not validated in Canada", computed: true, units_in_run, units_built, units_front_contact, units_structure_to_structure, units_involved, combustible_fraction, neighbour_cutoff_m, wildland_contact_m, front_contact_rule}`. `units_in_run`: buildings whose centroid is in the run area (fuel grid box); `units_built`: units built for the area the spread can reach (spec §2); `units_front_contact`: units reached by the wildland front (a burned cell within `wildland_contact_m` of a grid cell the footprint touches; `front_contact_rule: "building_cells"`); `units_structure_to_structure`: units reached from another unit (Hamada). With `structure_embers` the counts also carry `embers: true`, `design_fire_kw_m2`, `ember_generation_pcs_per_mw_s`, `embers_from_wildland`, `hamada: true`, `units_ember` (ignited by embers) and `units_ember_from_wildland` (of those, the main ember source was the wildland front), and `units_involved` = front + building to building + ember; without it these keys are absent. When the memory guard stops the build: `{model, label, computed: false, note: "not computed: too many buildings in run area", units_in_run, units_needed, max_units, ...}` with the three counts `null`. Any display must carry `label` (`docs/structure-spread-spec.md`) |
-| `structure_spread_detail` | final frame only, with `structure_spread` (else `null`; `[]` when not computed): one entry per **involved** unit, in involvement order, `{id, t_h, mechanism, source_id, polygon}`. `t_h`: hours from the start; `mechanism`: `"front"` (wildland front contact), `"b2b"` (building to building, Hamada) or `"ember"` (ember ignition, with `structure_embers`); `source_id`: the `id` of the unit that passed the fire on (`b2b`, or `ember` when the main ember source was a building; `null` for front contact and for embers from the wildland front); `polygon`: the footprint ring `[[[lng, lat], ...]]`, simplified (0.5 m) and rounded to 6 decimals, largest part of a multi-part footprint. No other attributes (no address, owner or parcel data). About 200-250 bytes per unit (20-160 kB on the 2026-10-09 sensitivity runs). **Map display only** (owner decision 2026-10-10): the app does not put it in any export, ICS 209 or report. Illustrative — not validated in Canada |
+| `structure_spread` | only with the request flag `structure_spread`, else `null`: counts by this frame `{model: "hamada", label: "illustrative — not validated in Canada", computed: true, units_in_run, units_built, units_front_contact, units_structure_to_structure, units_involved, units_burning, units_burnt_out, burnout, burnout_min, design_fire_kw_m2, combustible_fraction, neighbour_cutoff_m, wildland_contact_m, front_contact_rule}`. `units_burning` + `units_burnt_out` = `units_involved`: a unit is burnt out once its design fire has ended (`burnout_min` after involvement; `burnout: false` → `burnout_min: null` and `units_burnt_out: 0`). `units_in_run`: buildings whose centroid is in the run area (fuel grid box); `units_built`: units built for the area the spread can reach (spec §2); `units_front_contact`: units reached by the wildland front (a burned cell within `wildland_contact_m` of a grid cell the footprint touches; `front_contact_rule: "building_cells"`); `units_structure_to_structure`: units reached from another unit (Hamada). With `structure_embers` the counts also carry `embers: true`, `design_fire_kw_m2`, `ember_generation_pcs_per_mw_s`, `embers_from_wildland`, `hamada: true`, `units_ember` (ignited by embers) and `units_ember_from_wildland` (of those, the main ember source was the wildland front), and `units_involved` = front + building to building + ember; without it these keys are absent. `vegetation_attributes`: whether per-building vegetation attributes were available. With `structure_vegetation_bridge`: `vegetation_bridged_cutoff: true`, `bridge_base_cutoff_m` 20, `bridge_max_cutoff_m` 45, `bridge_min_gap_cover` 0.2, `bridge_canopy_data`, `links_tested` (20-45 m links whose gap cover was computed), `links_bridged` (of those, ≥ 20 %), and `neighbour_cutoff_m` 20. With a roof scenario: `roof_scenario: {combustible_roof_share, psi_factor: 0.375, seed, label: "scenario: X % combustible roofs (not observed roofs)", units_combustible_roof_built, units_involved_combustible_roof}`; any display must show its `label`. When the memory guard stops the build: `{model, label, computed: false, note: "not computed: too many buildings in run area", units_in_run, units_needed, max_units, ...}` with the counts `null`. Any display must carry `label` (`docs/structure-spread-spec.md`) |
+| `grid` | grid runs: the grid the frame is on, `{cell_m, wui_window, reason, note}` plus `window` `[lat_min, lat_max, lng_min, lng_max]` and `window_cells` when `wui_window` is true. `cell_m` 20 when the run was repeated on the fuel raster's native 20 m cells in a window around the fire near buildings (mechanics decision M5); otherwise 50 with `reason` `no_buildings`, `too_large` (over 600,000 crop cells or 60,000 burned 20 m cells), `edge` (the fire kept reaching the window edge) or `no_native_grid`. Server setting `FIRESIM_WUI_FINE_GRID=0` keeps 50 m. Same on every frame of a run |
+| `structure_spread_detail` | final frame only, with `structure_spread` (else `null`; `[]` when not computed): one entry per **involved** unit, in involvement order, `{id, t_h, t_out_h, mechanism, source_id, polygon}`. `t_h`: hours from the start; `t_out_h`: burn-out, hours from the start (`t_h` + `burnout_min`/60; may be after the run's end; `null` when `structure_burnout` is false); `mechanism`: `"front"` (wildland front contact), `"b2b"` (building to building, Hamada) or `"ember"` (ember ignition, with `structure_embers`); `source_id`: the `id` of the unit that passed the fire on (`b2b`, or `ember` when the main ember source was a building; `null` for front contact and for embers from the wildland front); `polygon`: the footprint ring `[[[lng, lat], ...]]`, simplified (0.5 m) and rounded to 6 decimals, largest part of a multi-part footprint. Optional (structure step 3): `veg` `{cc_0_5, cc_5_10, cc_10_30, cc_0_10, overhang_frac, dist_stand_1ha_m}` (open-data canopy cover 0-1 in rings around the footprint, share of the roof under canopy, distance to a ≥ 1 ha stand in m; context only) and `combustible_roof_scenario: true` on units the roof scenario assigned a combustible roof (not observed). No other attributes (no address, owner or parcel data). About 200-250 bytes per unit (20-160 kB on the 2026-10-09 sensitivity runs). **Map display only** (owner decision 2026-10-10): the app does not put it in any export, ICS 209 or report. Illustrative — not validated in Canada |
 
 ### GET /api/v1/simulations/{id}/arrival
 
@@ -175,6 +256,9 @@ Arrival time at each fuel-grid cell, for a finished grid run (404 otherwise):
 {"rows": 400, "cols": 600, "lat_min": 53.4, "lat_max": 53.7, "lng_min": -113.7, "lng_max": -113.3,
  "encoding": "int16-le-base64", "minutes": "..."}
 ```
+
+When the run used the 20 m WUI window (frame `grid.wui_window`) the raster is the 20 m crop
+(its own bounds), not the whole fuel grid.
 
 `minutes` decodes to `rows x cols` little-endian int16, row-major from the north-west corner:
 whole minutes after ignition, `-1` where the cell did not burn. Used for isochrones in any
@@ -189,9 +273,12 @@ Stream simulation frames in real-time.
 ```json
 {"type": "simulation.status", "simulation_id": "abc123", "phase": "spread", "progress": 0.42}
 {"type": "simulation.frame", "frame": { ... }}
-{"type": "simulation.completed"}
+{"type": "simulation.completed", "fuel_source": { ... }, "buildings_source": { ... }}
 {"type": "simulation.error", "error": "message"}
 ```
+
+`simulation.completed` carries the run's `fuel_source` and `buildings_source` (as in GET, added
+2026-10-11).
 
 `simulation.status` (added 2026-10-10; single runs and perimeter restarts) reports the run's
 phase while it computes: `loading`, `buildings`, `spread` (with `progress` 0-1, rounded to 3
@@ -234,6 +321,7 @@ and the percentiles, burn probability and area range are over the `members_ok` m
 finished. Members that burned nothing (their ignition cell cannot carry fire under their
 perturbed weather) are finished members with `area_ha` 0 and count in every statistic. The
 ensemble is `"status": "failed"` (with `error`) only when fewer than half the members finish.
+`"status": "cancelled"` when the client stopped it (`DELETE` below); there is no partial result.
 
 Default perturbations (`EnsembleParams`; calibrated on observed Alberta fires, see
 `docs/validation.md` "Ensemble calibration" for sources and held-out scores): `wind_dir_sd_deg`
@@ -247,14 +335,29 @@ footprint held at least 90 % of the observed growth on only 29 % of fire-days. G
 near 58.8 % curing are very sensitive to the curing perturbation (the FBP curing factor
 changes slope there); the curing and foliar-moisture sizes are not validated.
 
+### DELETE /api/v1/simulations/{id}/ensemble
+
+Stop a run's ensemble: it stops before its next member (the member in progress finishes), or
+never starts if the deterministic run is still computing. The app calls this when a new run
+starts or the results are cleared while the previous run's ensemble is pending or running, so
+an abandoned ensemble (minutes of CPU on the 1-vCPU server) does not slow the new run. A
+completed or failed ensemble is left as it is. Response:
+`{"simulation_id": "...", "status": "running" | "cancelled" | "completed" | "failed" | "pending", "cancel_requested": true}`
+(`status` is the state at the time of the request; poll GET for `"cancelled"`). 404 when the
+run is unknown or has no ensemble.
+
 ### POST /api/v1/simulations/multiday
 
 Multi-day scenario: `days` is a list of 1-7 daily noon weather records
 (`wind_speed`, `wind_direction`, `temperature`, `relative_humidity`, `precipitation_24h`); the FWI
 codes are advanced day to day from `fwi_overrides` (Van Wagner & Pickett 1985; `month` sets
 the day-length factors) and each day's
-grid run continues from the previous day's burned area. Frames carry `day`. Cells are always
-cumulative. Optional `start_time` (each day runs 24 h from its clock time) and
+grid run continues from the previous day's burned area. Frames carry `day`. `cells_mode`
+(grid runs): `"cumulative"` (default) or `"incremental"` as for single runs, except that a
+frame whose cells do not extend the previous frame's (the first frame of each day after the
+first) is sent whole with `cells_offset` 0; a 3-day Edmonton grid run streams about 1.7 MB
+instead of 21 MB (the app asks for incremental). No ensemble, structure spread or 20 m WUI
+window for multi-day runs. Optional `start_time` (each day runs 24 h from its clock time) and
 `burning_period` (as above, applied every day; needs `start_time`). No FFMC spin-up: multi-day
 runs have daily weather only.
 
@@ -288,11 +391,16 @@ Monte Carlo burn probability (synchronous). Varies the ignition point (`jitter_m
 (`wind_speed_pct`) and RH (`rh_abs`, applied as an FFMC change) over `n_iterations` grid runs
 of `duration_hours`; returns `burn_probability[rows][cols]` (fraction of iterations that
 burned each cell) with the grid bounds. Not a Burn-P3-style analysis over historical weather.
+The fuel follows the `fuel_grid_path` / `provincial_fuel` rule above (422 when no grid covers the
+ignition). From 2026-10-05 to 2026-10-11 the route was attached to the wrong function and the
+endpoint returned a response-validation error; fixed 2026-10-11.
 
 ### GET /api/v1/simulations/fuel-grid-image?fuel_grid_path=...
 
 The fuel grid as a base64 PNG for the map overlay, its WGS84 `bounds`, and a `legend` of the
-FBP fuel types drawn with their colours.
+FBP fuel types drawn with their colours. Large rasters are read decimated (at most about
+2,048 px on the long side; added 2026-10-11 so a request for the provincial grid cannot read
+all 118 M cells).
 
 ### POST /api/v1/fwi/calculate, POST /api/v1/fwi/multi-day
 
@@ -303,8 +411,68 @@ fire danger rating.
 
 ### GET /api/v1/weather/current?lat=&lng=
 
+Current fire weather and starting FWI codes for a point, for use as `fwi_overrides`. Tiers, in
+order (`source_tier`):
+
+1. **`pyra`** (Alberta, from 2026-10-10): the codes Pyra's station page shows today for the
+   nearest station in Pyra's Alberta list ([Pyra](https://tphambolio.github.io/FWI/), the team's
+   fire-weather app). See "Pyra tier" below.
+2. **`cwfis`** / **`cwfis_archive`**: the nearest CWFIS station's published codes (below).
+3. **`gem_estimate`**: a one-day cold-start estimate (below).
+
+User-entered codes in the app always win over any tier.
+
+#### Pyra tier
+
+FireSim reproduces Pyra's Alberta station page (`initFWI`, Pyra commit in `pyra.pyra_commit`)
+with its own FWI calculator (same equations, FFMC coefficient 147.2):
+
+- **Station:** nearest in Pyra's `ALBERTA_STATIONS` (198 stations, exported to
+  `services/pyra_stations.py`; first of equally near ones). Only points in Pyra's Alberta box
+  (48.8-60.5° N, 120.5-109.5° W) use this tier.
+- **Carry-over:** CWFIS `firewx_stns_current` within ±2° of the Pyra station, nearest station
+  with FFMC/DC unless a weather-only station is > 200 km nearer (Pyra's holding cache), and the
+  station's entry in Pyra's published `data/cwfis_prev.json` (by name, else nearest within
+  10 km); the newer one, CWFIS first on a tie; at most 2 days old. Spring (March-June) DC ≤ 60 is
+  raised to Pyra's regional floor.
+- **Before noon LST (MST, 19 UTC):** the carry-over is stepped one day with the GEM noon-LST
+  forecast for today (Open-Meteo `models=gem_seamless`, the URL Pyra requests: noon temperature,
+  RH, 10 m wind, 24 h rain to noon). `codes_status` = `forecast`.
+- **After noon LST:** a CWFIS station with codes → its codes as published (`today`, or
+  `yesterday` until CWFIS publishes today's, as Pyra shows them); CWFIS with weather-only
+  stations → carry-over stepped with that station's observation; CWFIS empty → carry-over
+  stepped with GEM's noon-LST value (Pyra tries MSC SWOB first; FireSim does not). `codes_status`
+  = `stepped` when stepped.
+- ISI/BUI/FWI are the daily values (noon wind), as in Pyra's components strip. Pyra's
+  "peak burn" ISI/FWI (same codes, 16:00 MDT wind) are in `pyra.peak_*`.
+- `source` reads "Pyra · <station> · as of noon LST [forecast] <date> (chain <CWFIS station>
+  <date>)"; `station_name` / `distance_km` are the Pyra station and its distance from the point.
+- The carry-over file is cached for 15 min; on a failed refresh the last copy is used while it
+  is ≤ 48 h old (Pyra's limit); the GitHub Pages copy is tried when raw.githubusercontent.com
+  fails.
+- If the tier has no value (outside Alberta, no carry-over ≤ 2 days, GEM unavailable) the next
+  tier answers and its `message` ends with "Pyra chain not used: <reason>".
+- `FIRESIM_PYRA_SOURCE=0` turns the tier off.
+
+`pyra` object (only when `source_tier` is `pyra`):
+
+| Field | Meaning |
+|---|---|
+| `station_name`, `station_lat`, `station_lng`, `station_distance_km` | Pyra station and its distance from the point |
+| `page_url` | Pyra's station page for it (shows the same numbers) |
+| `chain_source` | `cwfis_live` (CWFIS current layer) or `pyra_cwfis_prev` (Pyra's `cwfis_prev.json`) |
+| `chain_station_name`, `chain_station_id`, `chain_distance_km`, `chain_date` | Station whose codes were carried, CWFIS feature id (live only), distance from the Pyra station, noon-LST date of the carried codes |
+| `step` | `none` (codes used as published), `gem_noon_forecast`, `gem_noon` or `cwfis_obs` |
+| `rain_24h` | 24 h rain to noon LST used for the step (mm) |
+| `peak_wind_speed`, `peak_isi`, `peak_fwi` | Pyra's peak-burn values (16:00 MDT wind); `null` when the weather has no 16:00 hour |
+| `carry_over_generated`, `carry_over_url` | `generated` time and URL of the carry-over file read |
+| `pyra_commit` | Pyra commit the port was checked against |
+| `notes` | Known differences for this answer (e.g. SWOB not queried; 2-day-old carry-over stepped once, as Pyra does) |
+
+#### CWFIS tiers
+
 Current fire weather and FWI codes from the nearest CWFIS station **that reports FFMC, DMC and
-DC** (GeoServer WFS `public:firewx_stns_current`, within 2°), for use as `fwi_overrides`.
+DC** (GeoServer WFS `public:firewx_stns_current`, within 2°).
 Stations without codes are skipped (the message says how many nearer ones were); `distance_km`
 is the distance of the station actually used.
 
@@ -321,9 +489,11 @@ Fields added 2026-10-10 (all optional, `null` when not applicable):
 | Field | Meaning |
 |---|---|
 | `codes_date` | Date (YYYY-MM-DD) whose noon-LST codes are returned (CWFIS `rep_date`, or the estimate's noon) |
-| `codes_status` | `today`, `yesterday`, `older` (station codes) or `estimate` (cold-start estimate) |
+| `codes_status` | `today`, `yesterday`, `older` (station codes), `estimate` (cold-start estimate); Pyra tier also `forecast` (before noon LST, stepped with the noon forecast) and `stepped` (after noon LST, carried and stepped) |
 | `codes_label` | The same in words, e.g. "Yesterday's codes (as of noon LST 2026-10-09; today's are computed after noon LST)"; also appended to `message` |
 | `weather_model` | Open-Meteo model used for any value (`gem_seamless`), `null` for station data only |
+| `source_tier` | `pyra`, `cwfis`, `cwfis_archive` or `gem_estimate` (`null` when unavailable); added with the Pyra tier |
+| `pyra` | Pyra tier details (above) |
 
 Noon LST uses the province's standard-time offset (AB UTC-7, BC UTC-8, …), else the zone's
 standard offset, else longitude / 15.

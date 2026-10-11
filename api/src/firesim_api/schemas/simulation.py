@@ -10,6 +10,17 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+PROVINCIAL_FUEL_DOC = (
+    "When fuel_grid_path is the bundled City of Edmonton grid (or use_ca_mode loads it) and the "
+    "server has the Alberta Wildfire FBP grid (FIRESIM_AB_FUEL_GRID_PATH): City grid where it "
+    "has data, Alberta Wildfire FBP 2025 (100 m) elsewhere; ignitions outside the City grid get "
+    "a 40 km window centred on them; outside Alberta a national grid if configured, else the "
+    "uniform fuel_type. D-1/D-2 and M-1/M-2 cells are leaf-on between day of year 150 and 257. "
+    "false = City grid only (the behaviour before 2026-10-11). Any other fuel_grid_path is used "
+    "as given. See docs/fuel-grid-alberta.md."
+)
+
+
 class WeatherParams(BaseModel):
     """Weather input for simulation."""
 
@@ -247,7 +258,7 @@ class SimulationCreate(BaseModel):
         description=(
             "Grid runs: 'cumulative' sends every burned cell so far in each frame; 'incremental' "
             "sends only the cells burned since the previous frame (frame.cells_offset says how "
-            "many earlier cells were left out). Multi-day runs are always cumulative."
+            "many earlier cells were left out). Multi-day runs have their own cells_mode."
         ),
     )
     fuel_type: str = Field(default="C2", description="Default fuel type code")
@@ -255,6 +266,7 @@ class SimulationCreate(BaseModel):
         default=None,
         description="Path to FBP fuel type GeoTIFF raster (overrides uniform fuel_type)",
     )
+    provincial_fuel: bool = Field(default=True, description=PROVINCIAL_FUEL_DOC)
     water_path: str | None = Field(
         default=None,
         description="Path to water body GeoJSON for non-fuel masking",
@@ -334,9 +346,44 @@ class SimulationCreate(BaseModel):
     structure_design_fire_kw_m2: Literal[150, 400] = Field(
         default=150,
         description=(
-            "Building design fire for the ember stage, peak heat release per footprint area "
-            "(kW/m²): 150 (default; 5/1/60 min, Purnomo et al. 2024) or 400 (scenario; "
-            "300/3600/300 s, Qin et al. 2026)."
+            "Building design fire, peak heat release per footprint area (kW/m²): 150 "
+            "(default; 5/1/60 min, Purnomo et al. 2024) or 400 (scenario; 300/3600/300 s, "
+            "Qin et al. 2026). Sets the ember stage's heat release curve and the burn-out "
+            "time (66 / 70 min after involvement)."
+        ),
+    )
+    structure_burnout: bool = Field(
+        default=True,
+        description=(
+            "With `structure_spread` (default on): a building stops passing fire to its "
+            "neighbours (building to building and embers) when its design fire ends, 66 min "
+            "(150 kW/m²) or 70 min (400) after involvement (docs/structure-spread-spec.md "
+            "§4.3). Counts gain `units_burning` / `units_burnt_out`, detail `t_out_h`. "
+            "false = the published Hamada model, which has no burnout."
+        ),
+    )
+
+    structure_vegetation_bridge: bool = Field(
+        default=False,
+        description=(
+            "Opt-in, illustrative — not validated in Canada; needs `structure_spread`. "
+            "Vegetation-bridged cutoff (FireSim heuristic, docs/structure-spread-spec.md §4.6): "
+            "buildings ≤ 20 m apart link as usual; 20-45 m apart only when the gap between "
+            "them carries ≥ 20 % woody cover (FPInnovations WF TR 2025 n.04 p.24 threshold), "
+            "from the open Meta 1 m canopy height map. Replaces the 30 m cutoff. Where no "
+            "canopy data covers the run area no link is bridged (plain 20 m cutoff). Counts "
+            "gain `vegetation_bridged_cutoff`, `links_tested`, `links_bridged`."
+        ),
+    )
+    structure_combustible_roof_share: float = Field(
+        default=0.0,
+        description=(
+            "Roof scenario (opt-in; needs `structure_embers`): share of buildings assigned a "
+            "combustible roof at random with the run seed, one of 0 (default, no roof term), "
+            "0.05, 0.15, 0.30. They ignite from embers at 0.375 × the ember threshold ψ* "
+            "(DeBeer 2023, firebrand piles on cedar vs pine treated wood; "
+            "docs/structure-spread-spec.md §6.2). **A scenario, not observed roofs**: counts "
+            "gain `roof_scenario` with its label; detail flags `combustible_roof_scenario`."
         ),
     )
 
@@ -344,6 +391,14 @@ class SimulationCreate(BaseModel):
     def _embers_need_structure_spread(self):
         if self.structure_embers and not self.structure_spread:
             raise ValueError("structure_embers needs structure_spread: true")
+        if self.structure_vegetation_bridge and not self.structure_spread:
+            raise ValueError("structure_vegetation_bridge needs structure_spread: true")
+        if not any(abs(self.structure_combustible_roof_share - v) < 1e-9
+                   for v in (0.0, 0.05, 0.15, 0.30)):
+            raise ValueError("structure_combustible_roof_share must be one of 0, 0.05, 0.15, 0.30")
+        if self.structure_combustible_roof_share > 0 and not self.structure_embers:
+            raise ValueError("structure_combustible_roof_share needs structure_embers: true "
+                             "(the roof scenario acts on ember ignition)")
         return self
 
     @field_validator("start_time")
@@ -433,6 +488,42 @@ class SimulationFrame(BaseModel):
     # Final frame only: involved units for the map (id, t_h, mechanism, source_id, polygon);
     # illustrative, display only, never exported (docs/api-reference.md)
     structure_spread_detail: list[dict] | None = None
+    # Grid model: the grid the frame is on: {cell_m, wui_window, reason, note[, window,
+    # window_cells]}. cell_m 20 when the 20 m WUI window was used (mechanics decision M5)
+    grid: dict | None = None
+
+
+class FuelSourceInfo(BaseModel):
+    """Which fuel data a run used (set once the grids are loaded)."""
+
+    kind: str = Field(description=(
+        "city (City grid lattice, Alberta grid where it has no data), provincial (window: City "
+        "grid where mapped, Alberta Wildfire grid elsewhere), national, user_grid, synthetic or "
+        "uniform"))
+    label: str = Field(description="Human-readable source, e.g. 'Alberta Wildfire FBP fuel "
+                                   "types 2025, 100 m'")
+    attribution: str | None = Field(default=None, description="Licence attribution to show")
+    season: str | None = Field(default=None, description=(
+        "leaf-on / leaf-off used for the D-1/D-2 and M-1/M-2 cells of provincial or national "
+        "grids (None for other sources)"))
+    share: dict[str, float] | None = Field(default=None, description=(
+        "Share of the run grid's cells each source supplied (window runs)"))
+
+
+class BuildingsSourceInfo(BaseModel):
+    """Which buildings a run used (set once they are selected; docs/buildings-alberta.md)."""
+
+    kind: str = Field(description=(
+        "edmonton_neighbourhoods (the 4 City neighbourhoods nearest the ignition, as before) "
+        "or near_ignition (buildings in the run area, nearest the ignition first)"))
+    label: str = Field(description="Data source, e.g. 'Microsoft Canadian Building Footprints, "
+                                   "Alberta (2019)'")
+    attribution: str | None = Field(default=None, description="Licence attribution to show")
+    selection: str = Field(description="Which buildings were selected, in words")
+    buildings: int = Field(description="Buildings selected (mask, exposure, counts)")
+    capped: bool = Field(default=False, description=(
+        "True when the run area held more than FIRESIM_BUILDINGS_MAX_NEAR buildings and only "
+        "the nearest were kept"))
 
 
 class SimulationResponse(BaseModel):
@@ -448,6 +539,10 @@ class SimulationResponse(BaseModel):
     phase: str | None = None
     #: Fraction of the spread computed, 0-1 (None until the spread starts)
     progress: float | None = None
+    #: Fuel data the run used (None until the grids are loaded)
+    fuel_source: FuelSourceInfo | None = None
+    #: Buildings the run used (None until selected, or when the run has none)
+    buildings_source: BuildingsSourceInfo | None = None
 
 
 class DayWeatherParams(BaseModel):
@@ -481,6 +576,7 @@ class MultiDaySimulationCreate(BaseModel):
     snapshot_interval_minutes: float = Field(default=30.0, gt=0, le=120)
     fuel_type: str = Field(default="C2", description="Fuel type code")
     fuel_grid_path: str | None = Field(default=None, description="Path to fuel type GeoTIFF")
+    provincial_fuel: bool = Field(default=True, description=PROVINCIAL_FUEL_DOC)
     water_path: str | None = Field(default=None, description="Path to water bodies GeoJSON")
     buildings_path: str | None = Field(default=None, description="Path to buildings GeoJSON")
     dem_path: str | None = Field(default=None, description="Path to DEM GeoTIFF for slope-adjusted spread")
@@ -495,6 +591,14 @@ class MultiDaySimulationCreate(BaseModel):
         default=None,
         description=BURNING_PERIOD_DOC + " Applied every day. (No FFMC spin-up for multi-day "
         "runs: they have daily weather only.)",
+    )
+    cells_mode: Literal["cumulative", "incremental"] = Field(
+        default="cumulative",
+        description=(
+            "Grid runs: 'incremental' sends only the cells burned since the previous frame "
+            "(frame.cells_offset), as for single runs. A frame whose cells do not extend the "
+            "previous frame's (e.g. at a day boundary) is sent whole (cells_offset 0)."
+        ),
     )
 
     @field_validator("start_time")
@@ -623,6 +727,7 @@ class BurnProbabilityRequest(BaseModel):
     rh_abs: float = Field(default=5.0, ge=0, le=30, description="Relative humidity variation (±absolute %)")
     base_seed: int = Field(default=42, description="Base random seed for reproducibility")
     fuel_grid_path: str | None = Field(default=None, description="Path to GeoTIFF fuel raster")
+    provincial_fuel: bool = Field(default=True, description=PROVINCIAL_FUEL_DOC)
     water_path: str | None = Field(default=None, description="Path to water bodies GeoJSON")
     buildings_path: str | None = Field(default=None, description="Path to buildings GeoJSON")
     dem_path: str | None = Field(
