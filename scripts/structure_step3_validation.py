@@ -269,10 +269,27 @@ def canopy_for(units_lnglat, chm_path: Path, pad_m: float = 150.0) -> V.CanopyWi
         c1, r1 = inv * (b[2] + pad_m, b[1] - pad_m)
         c0, r0 = max(int(c0), 0), max(int(r0), 0)
         c1, r1 = min(int(math.ceil(c1)), s.width), min(int(math.ceil(r1)), s.height)
-        win = Window(c0, r0, c1 - c0, r1 - r0)
-        chm = s.read(1, window=win)
-        tr = s.window_transform(win)
-    return V.canopy_window_from_chm(chm, tr, g3857, block=1)
+        # Strip by strip into a compact uint8 array (percent; 255 = building): the whole window
+        # in float would need ~4 bytes per pixel (Camp: ~0.9 billion pixels; OOM 2026-10-10)
+        from rasterio.features import rasterize
+
+        tree = shapely.STRtree(g3857)
+        out = np.empty((r1 - r0, c1 - c0), dtype=np.uint8)
+        step = 2048
+        for rs in range(r0, r1, step):
+            h = min(step, r1 - rs)
+            win = Window(c0, rs, c1 - c0, h)
+            chm = s.read(1, window=win)
+            wtr = s.window_transform(win)
+            x0, y1 = wtr * (0, 0)
+            x1, y0 = wtr * (chm.shape[1], chm.shape[0])
+            idx = tree.query(shapely.box(x0, y0, x1, y1))
+            bm = (rasterize(((g, 1) for g in g3857[idx]), out_shape=chm.shape, transform=wtr,
+                            fill=0, dtype="uint8").astype(bool) if len(idx)
+                  else np.zeros(chm.shape, dtype=bool))
+            out[rs - r0:rs - r0 + h] = np.where(bm, V.NODATA, np.where(chm >= 2, 100, 0))
+        tr = s.transform * rasterio.Affine.translation(c0, r0)
+    return V.CanopyWindow(out, float(tr.c), float(tr.f), float(tr.a), float(-tr.e))
 
 
 def baseline_preds(n: int, dist, veg_scores: dict, seed, mask) -> dict:

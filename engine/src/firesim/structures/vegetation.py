@@ -124,7 +124,7 @@ def veg_dict(row: np.ndarray) -> dict | None:
 class CanopyWindow:
     """Canopy share of open ground (0-1, nan = none) on an EPSG:3857 grid (north-up)."""
 
-    share: np.ndarray  # (rows, cols) float32
+    share: np.ndarray  # (rows, cols) float32 0-1 (nan = none), or uint8 percent (255 = none)
     x0: float  # west edge, EPSG:3857 m
     y0: float  # north edge
     dx: float  # cell width (EPSG:3857 m)
@@ -136,11 +136,16 @@ class CanopyWindow:
         r = np.floor((self.y0 - y) / self.dy).astype(np.int64)
         ok = (r >= 0) & (r < self.share.shape[0]) & (c >= 0) & (c < self.share.shape[1])
         out = np.full(np.shape(x), np.nan, dtype=np.float32)
-        out[ok] = self.share[r[ok], c[ok]]
+        v = self.share[r[ok], c[ok]]
+        if self.share.dtype == np.uint8:  # compact form: percent, NODATA = none
+            v = np.where(v == NODATA, np.nan, v.astype(np.float32) / 100.0)
+        out[ok] = v
         return out
 
     @property
     def has_data(self) -> bool:
+        if self.share.dtype == np.uint8:
+            return bool((self.share != NODATA).any())
         return bool(np.isfinite(self.share).any())
 
 

@@ -441,3 +441,15 @@ def test_shipped_edmonton_canopy_raster_reads_a_run_window():
     assert 0.0 <= ok.min() and ok.max() <= 1.0 and 0.02 < ok.mean() < 0.6
     far = cc.window(10.0, 10.01, 10.0, 10.01)
     assert not far.has_data
+
+
+def test_compact_uint8_canopy_window_matches_float():
+    """The uint8 percent form (255 = none) samples like the float form (validation scripts)."""
+    f = _canopy(lambda x, y: np.where(x < 0, np.nan, (y > 0).astype(float)), cell=1.0)
+    u8 = np.where(np.isnan(f.share), V.NODATA, np.rint(f.share * 100)).astype(np.uint8)
+    c = V.CanopyWindow(u8, f.x0, f.y0, f.dx, f.dy)
+    u = _pair(30.0)
+    np.testing.assert_allclose(V.gap_cover(u, 0, [1], c), V.gap_cover(u, 0, [1], f))
+    assert c.has_data
+    empty = V.CanopyWindow(np.full((3, 3), V.NODATA, np.uint8), f.x0, f.y0, 1.0, 1.0)
+    assert not empty.has_data
