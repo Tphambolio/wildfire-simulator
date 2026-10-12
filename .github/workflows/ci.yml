@@ -128,7 +128,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # A deploy restarts the API and loses runs in progress, so skip it when the
+      # push only touches docs, the frontend (Vercel) or other non-API files.
+      - name: Check for API changes
+        id: changes
+        run: |
+          # If the diff can't be computed (e.g. a force push), deploy anyway.
+          files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }}) || files="api/"
+          if echo "$files" | grep -qE '^(api/|engine/|data/|scripts/fetch_|fly\.toml$)'; then
+            echo "api=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "api=false" >> "$GITHUB_OUTPUT"
+            echo "No API, engine or data changes; skipping the Fly deploy."
+          fi
       - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: steps.changes.outputs.api == 'true'
       - run: flyctl deploy --remote-only --build-arg GIT_SHA=${{ github.sha }}
+        if: steps.changes.outputs.api == 'true'
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
