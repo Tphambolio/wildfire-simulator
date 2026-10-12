@@ -39,6 +39,12 @@ _LIVE = (SimulationStatus.PENDING, SimulationStatus.RUNNING, SimulationStatus.PA
 #: Provincial fuel windows kept in memory (2 GB API machine: keep this small)
 _WINDOW_CACHE_SIZE = 2
 
+#: Ensembles allowed to compute at once (``FIRESIM_MAX_CONCURRENT_ENSEMBLES``, default 1). The
+#: API runs on one shared CPU: two ensembles at once stalled every other run, so later ones
+#: wait their turn with status "pending" (cancellable while waiting).
+_ENSEMBLE_SLOTS = threading.BoundedSemaphore(
+    max(1, int(os.environ.get("FIRESIM_MAX_CONCURRENT_ENSEMBLES", "1") or 1)))
+
 
 class RunCancelled(Exception):
     """Raised from the progress callback to stop a cancelled run mid-computation."""
@@ -1001,6 +1007,19 @@ class SimulationRunner:
     @staticmethod
     def _run_ensemble(run, config, fuel_grid, terrain_grid, spread_modifier_grid, ens) -> None:
         """Run the ensemble for a completed grid run; results on ``run.ensemble``."""
+        # wait for a free ensemble slot (status stays "pending"); give up if cancelled
+        while not _ENSEMBLE_SLOTS.acquire(timeout=0.5):
+            if run._ensemble_cancel.is_set():
+                run.ensemble_status = "cancelled"
+                return
+        try:
+            SimulationRunner._run_ensemble_slot(run, config, fuel_grid, terrain_grid,
+                                                spread_modifier_grid, ens)
+        finally:
+            _ENSEMBLE_SLOTS.release()
+
+    @staticmethod
+    def _run_ensemble_slot(run, config, fuel_grid, terrain_grid, spread_modifier_grid, ens) -> None:
         from firesim.spread.ensemble import EnsembleCancelledError, EnsembleConfig, run_ensemble
 
         if run._ensemble_cancel.is_set():
