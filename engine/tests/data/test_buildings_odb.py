@@ -39,6 +39,8 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 def _load_build():
+    # The build script writes with GDAL; CI has no GDAL, so those tests skip there.
+    pytest.importorskip("osgeo")
     spec = importlib.util.spec_from_file_location(
         "build_ab_buildings_odb", REPO / "scripts" / "build_ab_buildings_odb.py")
     mod = importlib.util.module_from_spec(spec)
