@@ -86,7 +86,9 @@ Edmonton keeps its 407 neighbourhoods. Elsewhere the Neighbourhoods card uses St
 own), `frontend/public/alberta/census_subdivisions.geojson` (1.3 MB, simplified ~30 m; built by
 `scripts/build_ab_communities.py`; Statistics Canada Open Licence). Every unit carries a `source`
 and the card tags census subdivisions "CSD". Dissemination areas (~5,800 in Alberta) were not
-used: they are unnamed codes, not places an EOC can act on.
+used: they are unnamed codes, not places an EOC can act on. Since 2026-10-12 the hamlets and
+localities inside the census subdivisions are units too (`frontend/public/alberta/places.geojson`,
+"Calahoo (hamlet, Sturgeon County)"; `docs/data-sources.md`, [R36]).
 
 ## 4. Vegetation around buildings outside Edmonton (on demand)
 
