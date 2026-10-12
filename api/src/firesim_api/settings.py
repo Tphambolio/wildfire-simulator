@@ -153,6 +153,39 @@ class Settings:
         return float(os.environ.get("FIRESIM_CITY_MARGIN_KM", "5"))
 
     @property
+    def ab_terrain_path(self) -> str | None:
+        """Alberta elevation file (NRCan MRDEM-30 averaged to ~100 m, uint16 decimetres, a
+        cloud-optimised GeoTIFF; ``scripts/build_ab_terrain.py``). When set and the file
+        exists, provincial / national fuel windows get slope and aspect from a window of it
+        instead of the Edmonton DEM (flat outside Edmonton), if the request names the bundled
+        DEM (docs/terrain-alberta.md). Unset or missing: the Edmonton DEM only."""
+        return os.environ.get("FIRESIM_AB_TERRAIN_PATH") or None
+
+    @property
+    def city_dem_path(self) -> str:
+        """The bundled Edmonton DEM that ``ab_terrain_path`` stands in for outside Edmonton."""
+        return os.environ.get("FIRESIM_CITY_DEM_PATH", "/app/data/edmonton_dem.tif")
+
+    @property
+    def ab_assets_path(self) -> str | None:
+        """Alberta critical assets (FlatGeobuf; ``scripts/build_ab_assets.py``), served by
+        area by ``GET /api/v1/layers/assets``. Unset or missing: the endpoint reports the layer
+        unavailable and the app keeps the bundled Edmonton layer only."""
+        return os.environ.get("FIRESIM_AB_ASSETS_PATH") or None
+
+    @property
+    def ab_roads_path(self) -> str | None:
+        """Alberta major roads (FlatGeobuf; ``scripts/build_ab_roads.py``), served by area by
+        ``GET /api/v1/layers/roads``."""
+        return os.environ.get("FIRESIM_AB_ROADS_PATH") or None
+
+    @property
+    def layers_max_box_deg(self) -> float:
+        """Largest box side (degrees of latitude; longitude allowed twice this) the layers
+        endpoints serve (default 1.0, about 110 km)."""
+        return float(os.environ.get("FIRESIM_LAYERS_MAX_BOX_DEG", "1.0"))
+
+    @property
     def pyra_source(self) -> bool:
         """Use Pyra's chain for the starting FWI codes (``/api/v1/weather/current`` "pyra" tier).
 

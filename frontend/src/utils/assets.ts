@@ -26,6 +26,7 @@ export type AssetCategory =
   | "hospital"
   | "fire_station"
   | "police"
+  | "ems"
   | "reception"
   | "seniors"
   | "school"
@@ -50,6 +51,7 @@ export const ASSET_CATEGORIES: Record<AssetCategory, CategoryStyle> = {
   hospital: { label: "Hospitals and care facilities", letter: "H", shape: "square" },
   fire_station: { label: "Fire stations", letter: "F", shape: "diamond" },
   police: { label: "Police stations", letter: "P", shape: "diamond" },
+  ems: { label: "EMS stations", letter: "A", shape: "diamond" },
   reception: { label: "Recreation centres (candidate reception centres)", letter: "R", shape: "circle" },
   seniors: { label: "Seniors centres", letter: "Sr", shape: "circle" },
   school: { label: "Schools", letter: "S", shape: "circle" },
@@ -71,6 +73,60 @@ export const EDMONTON_MAP_ATTRIBUTION = "City of Edmonton Open Data · Governmen
 /** Sources and licences of the bundled Edmonton layers, for the card footer. */
 export const EDMONTON_ATTRIBUTION =
   "City of Edmonton Open Data (Open Government Licence – City of Edmonton) · Government of Alberta continuing care list (Open Government Licence – Alberta) · Statistics Canada ODHF (Open Government Licence – Canada) · © OpenStreetMap contributors (ODbL)";
+
+// ── Alberta layers (served by area outside Edmonton) ────────────────────────
+
+/**
+ * WGS84 box of the bundled Edmonton layers (scripts/build_edmonton_assets.py BOUNDS). Inside
+ * it the bundled layers are used; Alberta features there are dropped so nothing is counted
+ * twice.
+ */
+export const EDMONTON_LAYER_BOX = { west: -113.71564, south: 53.33576, east: -113.27046, north: 53.71772 };
+
+/** Half-size of the box of Alberta layers fetched around an ignition (about 28 km each way). */
+export const AREA_HALF_KM = 28;
+
+/** Short attribution of the Alberta layers for the map and the card's sources line. */
+export const ALBERTA_MAP_ATTRIBUTION = "Statistics Canada ODHF · © OpenStreetMap contributors";
+export const ALBERTA_ATTRIBUTION =
+  "Outside Edmonton: Statistics Canada ODHF (Open Government Licence – Canada) · © OpenStreetMap contributors (ODbL); coverage depends on OpenStreetMap mapping";
+
+export function inEdmontonBox(lng: number, lat: number): boolean {
+  const b = EDMONTON_LAYER_BOX;
+  return lng >= b.west && lng <= b.east && lat >= b.south && lat <= b.north;
+}
+
+/**
+ * The box to fetch Alberta layers for around an ignition, snapped to 0.05 degrees so nearby
+ * ignitions share a request; null when the box lies inside the Edmonton layers' box (the
+ * bundled layers cover it).
+ */
+export function areaBox(lat: number, lng: number, halfKm: number = AREA_HALF_KM): { south: number; west: number; north: number; east: number } | null {
+  const snap = (v: number) => Math.round(v / 0.05) * 0.05;
+  const c = [snap(lat), snap(lng)];
+  const dLat = halfKm / 111.32;
+  const dLng = halfKm / (111.32 * Math.cos((c[0] * Math.PI) / 180));
+  const box = { south: c[0] - dLat, north: c[0] + dLat, west: c[1] - dLng, east: c[1] + dLng };
+  if (inEdmontonBox(box.west, box.south) && inEdmontonBox(box.east, box.north)) return null;
+  return box;
+}
+
+/** Alberta asset features outside the Edmonton layers' box (by anchor). */
+export function outsideEdmonton(fc: GeoJSON.FeatureCollection | null): GeoJSON.FeatureCollection | null {
+  if (!fc) return null;
+  const features = fc.features.filter((f) => {
+    const p = (f.properties ?? {}) as Record<string, unknown>;
+    let xy: number[] | null = null;
+    if (Array.isArray(p.anchor)) xy = p.anchor as number[];
+    else if (f.geometry?.type === "Point") xy = f.geometry.coordinates;
+    else if (f.geometry?.type === "LineString") {
+      // Road pieces: dropped only when wholly inside (the bundled roads cover them)
+      return !f.geometry.coordinates.every(([x, y]) => inEdmontonBox(x, y));
+    }
+    return !xy || !inEdmontonBox(xy[0], xy[1]);
+  });
+  return { ...fc, features };
+}
 
 // ── Assets ──────────────────────────────────────────────────────────────────
 

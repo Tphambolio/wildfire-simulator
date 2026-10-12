@@ -307,6 +307,15 @@ export interface SimulationResponse {
   fuel_source?: FuelSourceInfo | null;
   /** Buildings the run used (absent from older API versions; docs/api-reference.md) */
   buildings_source?: BuildingsSourceInfo | null;
+  /** Terrain the run used (absent from older API versions; docs/terrain-alberta.md) */
+  terrain_source?: TerrainSourceInfo | null;
+}
+
+/** Which terrain (slope, aspect) a run used (API `terrain_source`) */
+export interface TerrainSourceInfo {
+  kind: "city_dem" | "provincial" | "user_dem" | string;
+  label: string;
+  attribution?: string | null;
 }
 
 /** Which buildings a run used (API `buildings_source`) */

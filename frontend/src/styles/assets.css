@@ -143,6 +143,11 @@
   font-weight: 600;
 }
 
+.asset-row-src {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
 .asset-row-inside {
   color: var(--text);
   font-weight: 600;

@@ -529,6 +529,16 @@ class BuildingsSourceInfo(BaseModel):
         "the nearest were kept"))
 
 
+class TerrainSourceInfo(BaseModel):
+    """Which terrain (slope, aspect) a run used (docs/terrain-alberta.md)."""
+
+    kind: str = Field(description=(
+        "city_dem (the Edmonton 30 m DEM), provincial (window of the Alberta MRDEM-30 elevation "
+        "file, ~100 m) or user_dem (the request's own DEM)"))
+    label: str = Field(description="Data source in words")
+    attribution: str | None = Field(default=None, description="Licence attribution to show")
+
+
 class SimulationResponse(BaseModel):
     """Response from simulation creation or status query."""
 
@@ -546,6 +556,8 @@ class SimulationResponse(BaseModel):
     fuel_source: FuelSourceInfo | None = None
     #: Buildings the run used (None until selected, or when the run has none)
     buildings_source: BuildingsSourceInfo | None = None
+    #: Terrain the run used (None without terrain: flat)
+    terrain_source: TerrainSourceInfo | None = None
 
 
 class DayWeatherParams(BaseModel):
