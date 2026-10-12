@@ -114,7 +114,7 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | GET | `/api/v1/health` | Status + uptime |
 | GET | `/api/v1/version` | Version + deployed git SHA (stamp outputs with it) |
 | POST | `/api/v1/simulations` | Start simulation → `SimulationResponse` |
-| GET | `/api/v1/simulations/{id}` | Fetch stored results |
+| GET | `/api/v1/simulations/{id}` | Fetch results (memory, else the run archive: `archived: true`) |
 | WS | `/api/v1/simulations/ws/{id}` | Stream frames real-time (JSON) |
 | GET | `/api/v1/simulations/{id}/arrival` | Arrival-minute raster of a finished grid run |
 | GET / DELETE | `/api/v1/simulations/{id}/ensemble` | Ensemble progress and P10/P50/P90 rasters / stop it (the app does when a new run starts) |
@@ -152,9 +152,14 @@ FIRESIM_CITY_FUEL_GRID_PATH  City grid path that triggers it (default /app/data/
 FIRESIM_NATIONAL_FUEL_GRID_PATH / _SCHEME, FIRESIM_PROVINCIAL_WINDOW_KM (40), FIRESIM_CITY_MARGIN_KM (5)
 FIRESIM_AB_BUILDINGS_PATH Alberta buildings FlatGeobuf (set by api/Dockerfile); stands in for FIRESIM_CITY_BUILDINGS_PATH
 FIRESIM_CITY_BUILDINGS_PATH  default /app/data/edmonton_buildings.geojson.gz; FIRESIM_BUILDINGS_MAX_NEAR (30000, outside Edmonton)
+FIRESIM_MAX_STORED_RUNS   runs kept in memory (40)
+FIRESIM_ARCHIVE(_DIR/_DB/_BACKEND/_S3_*/_MAX_AGE_DAYS/_MAX_BYTES/_RETENTION_HOURS)  run archive (docs/run-archive.md)
 FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)
 FIRESIM_AB_ASSETS_PATH / FIRESIM_AB_ROADS_PATH  Alberta assets / roads FlatGeobuf (set by api/Dockerfile); FIRESIM_LAYERS_MAX_BOX_DEG (1.0)
 ```
+Run archive (`services/archive.py`): finished runs go to a SQLite index + object store (local or
+S3/R2) in the background; GET `/simulations/{id}`, `/arrival`, `/ensemble` fall back to it
+(`archived: true`). Litestream backs up the index when R2 secrets are set (`api/deploy/`).
 
 ---
 

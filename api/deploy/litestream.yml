@@ -1,0 +1,14 @@
+# Litestream: continuous backup of the run-archive index (SQLite, WAL) to an S3-compatible
+# bucket (Cloudflare R2). Used by api/deploy/entrypoint.sh only when FIRESIM_ARCHIVE_DB and the
+# FIRESIM_ARCHIVE_S3_* settings are present; otherwise the API starts without it.
+# Values come from the environment (Fly secrets); none are stored here.
+dbs:
+  - path: ${FIRESIM_ARCHIVE_DB}
+    replica:
+      type: s3
+      bucket: ${FIRESIM_ARCHIVE_S3_BUCKET}
+      path: litestream/archive.db
+      endpoint: ${FIRESIM_ARCHIVE_S3_ENDPOINT}
+      region: auto
+      access-key-id: ${FIRESIM_ARCHIVE_S3_ACCESS_KEY_ID}
+      secret-access-key: ${FIRESIM_ARCHIVE_S3_SECRET_ACCESS_KEY}

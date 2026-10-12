@@ -863,7 +863,7 @@ export default function MapView({
     m.on("mouseleave", "assets-symbol", () => { m.getCanvas().style.cursor = ""; });
 
     // ── Neighbourhood layers: modelled arrival (ink) and evacuation status set by Planning (blue) ──
-    for (const id of ["nbhd-arrival-line", "nbhd-arrival-casing",
+    for (const id of ["nbhd-arrival-point", "nbhd-arrival-line", "nbhd-arrival-casing",
       ...EVAC_TIERS.map((t) => `evac-${t.toLowerCase()}-line`), "evac-tier-casing"]) {
       if (m.getLayer(id)) m.removeLayer(id);
     }
@@ -880,6 +880,14 @@ export default function MapView({
       type: "line",
       source: "nbhd-arrival",
       paint: { "line-color": "#1f2937", "line-width": 1.5 },
+    });
+    // Census subdivisions: a dot where the fire first comes within 500 m (no county outline)
+    m.addLayer({
+      id: "nbhd-arrival-point",
+      type: "circle",
+      source: "nbhd-arrival",
+      filter: ["==", ["geometry-type"], "Point"],
+      paint: { "circle-radius": 5, "circle-color": "#1f2937", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 },
     });
     // Evacuation status (Planning): blue outlines, Order solid / Alert dashed / Watch dotted,
     // on a white casing, never a fill (spec §3.6, §6.2). Text labels are DOM markers (below).
@@ -1922,7 +1930,7 @@ export default function MapView({
       for (const id of ids) if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", v ? "visible" : "none");
     };
     setVis(["evac-tier-casing", ...EVAC_TIERS.map((t) => `evac-${t.toLowerCase()}-line`)], evacZonesVisible);
-    setVis(["nbhd-arrival-casing", "nbhd-arrival-line"], arrivalOutlinesVisible);
+    setVis(["nbhd-arrival-casing", "nbhd-arrival-line", "nbhd-arrival-point"], arrivalOutlinesVisible);
   }, [evacZonesVisible, arrivalOutlinesVisible, mapReady, fireLayersVersion]);
 
   // On-map text labels for neighbourhoods (DOM markers, so they need no map glyphs and stay
@@ -1947,7 +1955,10 @@ export default function MapView({
       }
     }
     for (const [name, e] of entries) {
-      const at = labelPoint(e.feature);
+      // Census subdivisions arrive as the point where the fire first came within 500 m
+      const at: [number, number] | null = e.feature.geometry?.type === "Point"
+        ? (e.feature.geometry.coordinates as [number, number])
+        : labelPoint(e.feature);
       if (!at) continue;
       const el = document.createElement("div");
       el.className = `map-nbhd-label${e.tier ? ` map-nbhd-label-${TIER_STYLE[e.tier].css}` : ""}`;

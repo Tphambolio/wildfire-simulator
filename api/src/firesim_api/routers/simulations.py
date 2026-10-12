@@ -7,6 +7,7 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 
 from firesim_api.schemas.simulation import (
     BurnProbabilityRequest,
@@ -18,7 +19,8 @@ from firesim_api.schemas.simulation import (
     SimulationResponse,
     SimulationStatus,
 )
-from firesim_api.services.runner import SimulationRunner
+from firesim_api.services import archive as run_archive
+from firesim_api.services.runner import SimulationRun, SimulationRunner
 from firesim_api.ws.manager import ConnectionManager
 from firesim.types import SimulationFrame
 
@@ -256,16 +258,8 @@ async def fuel_grid_image(fuel_grid_path: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Failed to render fuel grid: {exc}") from exc
 
 
-@router.get("/{sim_id}", response_model=SimulationResponse)
-async def get_simulation(sim_id: str) -> SimulationResponse:
-    """Get simulation status and results."""
-    if runner is None:
-        raise HTTPException(status_code=500, detail="Runner not initialized")
-
-    run = runner.get(sim_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Simulation not found")
-
+def _response_for(run: SimulationRun) -> SimulationResponse:
+    """The GET body of an in-memory run (also what the run archive stores)."""
     # Read the status before the frames: the run thread adds its last frames and then sets
     # the terminal status, so a "completed" read first guarantees every frame is in the list.
     # (Read after, a run finishing while the frames are serialised was reported "completed"
@@ -297,29 +291,43 @@ async def get_simulation(sim_id: str) -> SimulationResponse:
     )
 
 
-@router.get("/{sim_id}/arrival")
-async def get_arrival(sim_id: str) -> dict:
-    """Arrival time of the fire at each fuel-grid cell (grid runs, once complete).
+def _archived(load: str, sim_id: str):
+    """Read one payload from the run archive (None when absent, disabled or unreadable)."""
+    try:
+        return getattr(run_archive.get_archive(), load)(sim_id)
+    except Exception:  # noqa: BLE001 - an archive outage reads as "not found"
+        logger.warning("Run archive: could not read %s for %s", load, sim_id, exc_info=True)
+        return None
 
-    ``minutes`` is base64 of little-endian int16, row-major from the north-west corner,
-    whole minutes after ignition, -1 where the cell did not burn.
-    """
+
+@router.get("/{sim_id}", response_model=SimulationResponse)
+async def get_simulation(sim_id: str) -> SimulationResponse:
+    """Get simulation status and results: from memory, else from the run archive
+    (``archived: true``; the body is the one the live GET gave when the run finished)."""
+    if runner is None:
+        raise HTTPException(status_code=500, detail="Runner not initialized")
+
+    run = runner.get(sim_id)
+    if run is not None:
+        return _response_for(run)
+    stored = await run_in_threadpool(_archived, "load_response", sim_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    resp = SimulationResponse.model_validate(stored)
+    resp.archived = True
+    return resp
+
+
+def _arrival_for(run: SimulationRun) -> dict | None:
+    """``/arrival`` body of an in-memory run, or None when it has no arrival grid."""
     import base64
 
     import numpy as np
 
-    if runner is None:
-        raise HTTPException(status_code=500, detail="Runner not initialized")
-    run = runner.get(sim_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Simulation not found")
     frames = run.get_frames()
     raster = next((f.arrival_raster for f in reversed(frames) if f.arrival_raster), None)
     if raster is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No arrival grid: the run is not finished or did not use a fuel grid",
-        )
+        return None
     minutes = np.asarray(raster["minutes"], dtype="<i2")
     return {
         "rows": raster["rows"], "cols": raster["cols"],
@@ -330,33 +338,44 @@ async def get_arrival(sim_id: str) -> dict:
     }
 
 
-@router.get("/{sim_id}/ensemble")
-async def get_ensemble(sim_id: str) -> dict:
-    """Ensemble status and, once complete, arrival percentiles and burn probability.
+@router.get("/{sim_id}/arrival")
+async def get_arrival(sim_id: str) -> dict:
+    """Arrival time of the fire at each fuel-grid cell (grid runs, once complete).
 
-    ``arrival`` holds P10/P50/P90 rasters: base64 little-endian int16, row-major from the
-    north-west corner, whole minutes after ignition, -1 where fewer than that share of
-    members reached the cell. P10 is the early end of the modelled range (reached by 1 in 10
-    members), not a worst case (docs/validation.md "Ensemble calibration").
-    ``burn_probability`` is base64 uint8 percent (0-100).
-    Statistics are over the members that finished (``members_ok``); members that raised are
-    left out and listed in ``failed`` (count ``members_failed``). Members that burned nothing
-    are finished members with 0 ha and count in every statistic. The ensemble fails when
-    fewer than half the members finish.
+    ``minutes`` is base64 of little-endian int16, row-major from the north-west corner,
+    whole minutes after ignition, -1 where the cell did not burn. Runs no longer in memory
+    are read from the run archive.
     """
-    import base64
-
-    import numpy as np
-
     if runner is None:
         raise HTTPException(status_code=500, detail="Runner not initialized")
     run = runner.get(sim_id)
     if run is None:
-        raise HTTPException(status_code=404, detail="Simulation not found")
+        out = await run_in_threadpool(_archived, "load_arrival", sim_id)
+        if out is None:
+            if await run_in_threadpool(_archived, "has", sim_id):
+                raise HTTPException(status_code=404, detail=(
+                    "No arrival grid: the run is not finished or did not use a fuel grid"))
+            raise HTTPException(status_code=404, detail="Simulation not found")
+        return out
+    out = _arrival_for(run)
+    if out is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No arrival grid: the run is not finished or did not use a fuel grid",
+        )
+    return out
+
+
+def _ensemble_for(run: SimulationRun) -> dict | None:
+    """``/ensemble`` body of an in-memory run; None when it requested no ensemble."""
+    import base64
+
+    import numpy as np
+
     if run.ensemble_status is None:
         cfg = run.config if isinstance(run.config, SimulationCreate) else None
         if cfg is None or cfg.ensemble is None:
-            raise HTTPException(status_code=404, detail="No ensemble requested for this run")
+            return None
         return {"status": "pending", "done": 0, "total": cfg.ensemble.n_members}
     done, total = run.ensemble_progress
     out: dict = {"status": run.ensemble_status, "done": done, "total": total,
@@ -384,6 +403,37 @@ async def get_ensemble(sim_id: str) -> dict:
             "failed": res.failed,
             "note": "Perturbation sizes are defaults until calibrated on observed fires.",
         })
+    return out
+
+
+@router.get("/{sim_id}/ensemble")
+async def get_ensemble(sim_id: str) -> dict:
+    """Ensemble status and, once complete, arrival percentiles and burn probability.
+
+    ``arrival`` holds P10/P50/P90 rasters: base64 little-endian int16, row-major from the
+    north-west corner, whole minutes after ignition, -1 where fewer than that share of
+    members reached the cell. P10 is the early end of the modelled range (reached by 1 in 10
+    members), not a worst case (docs/validation.md "Ensemble calibration").
+    ``burn_probability`` is base64 uint8 percent (0-100).
+    Statistics are over the members that finished (``members_ok``); members that raised are
+    left out and listed in ``failed`` (count ``members_failed``). Members that burned nothing
+    are finished members with 0 ha and count in every statistic. The ensemble fails when
+    fewer than half the members finish.
+    Runs no longer in memory are read from the run archive.
+    """
+    if runner is None:
+        raise HTTPException(status_code=500, detail="Runner not initialized")
+    run = runner.get(sim_id)
+    if run is None:
+        out = await run_in_threadpool(_archived, "load_ensemble", sim_id)
+        if out is None:
+            if await run_in_threadpool(_archived, "has", sim_id):
+                raise HTTPException(status_code=404, detail="No ensemble requested for this run")
+            raise HTTPException(status_code=404, detail="Simulation not found")
+        return out
+    out = _ensemble_for(run)
+    if out is None:
+        raise HTTPException(status_code=404, detail="No ensemble requested for this run")
     return out
 
 
@@ -791,3 +841,61 @@ _FUEL_COLOURS: dict[str, tuple[int, int, int]] = {
     "S2":  (96,   96, 110),   # Grey
     "S3":  (70,   70,  80),   # Dark grey
 }
+
+
+# ---------------------------------------------------------------------------
+# Run archive (services/archive.py): finished runs survive deploys and restarts
+# ---------------------------------------------------------------------------
+
+
+def _archive_meta(run: SimulationRun, resp: SimulationResponse) -> dict:
+    """Index row fields for a finished run (request, sources, summary; no personal data)."""
+    import os
+
+    cfg = run.config
+    request = cfg.model_dump(mode="json") if cfg is not None else None
+    if run.override_request is not None:
+        request = {"source_config": request, "perimeter_override": run.override_request}
+    frames = resp.frames
+    last = frames[-1] if frames else None
+    days = sorted({f.day for f in frames if f.day is not None})
+    fuel = run.fuel_source or {}
+    bld = getattr(run, "buildings_source", None) or {}
+    return {
+        "kind": run.kind,
+        "status": resp.status.value if hasattr(resp.status, "value") else str(resp.status),
+        "created_at": run.created_at,
+        "finished_at": run.finished_at,
+        "request_json": json.dumps(request, separators=(",", ":")) if request is not None else None,
+        "git_sha": os.environ.get("FIRESIM_GIT_SHA") or "unknown",
+        "fuel_source_kind": fuel.get("kind"),
+        "fuel_source_label": fuel.get("label"),
+        "buildings_source_kind": bld.get("kind"),
+        "buildings_source_label": bld.get("label"),
+        "area_ha": last.area_ha if last is not None else None,
+        "duration_hours": last.time_hours if last is not None else None,
+        "frame_count": len(frames),
+        "days": len(days) or None,
+        "ensemble_status": run.ensemble_status,
+    }
+
+
+def _archive_payload(run: SimulationRun) -> dict:
+    """Everything the archive stores for a run: built on the archive's worker thread."""
+    resp = _response_for(run)
+    return {
+        "meta": _archive_meta(run, resp),
+        "response": resp.model_dump(mode="json"),
+        "arrival": _arrival_for(run),
+        "ensemble": _ensemble_for(run),
+    }
+
+
+def archive_finished_run(run: SimulationRun) -> None:
+    """``SimulationRunner.on_finished``: queue a finished run for the archive (returns at once;
+    an archive failure is logged and never reaches the run)."""
+    status = run.status.value if hasattr(run.status, "value") else str(run.status)
+    if not run_archive.is_terminal(status):
+        logger.warning("Run archive: %s ended with status %s; not archived", run.id, status)
+        return
+    run_archive.get_archive().submit(run.id, lambda: _archive_payload(run))
