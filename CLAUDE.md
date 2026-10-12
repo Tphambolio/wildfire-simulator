@@ -162,7 +162,9 @@ FIRESIM_CITY_BUILDINGS_PATH  default /app/data/edmonton_buildings.geojson.gz; FI
 Top bar (incident, status, limits badge, America/Edmonton clock) · Setup column (sections with
 summaries, sticky Run bar) · map (`MapView.tsx`) · Situation panel (`FireMetrics.tsx`, exposure,
 Neighbourhoods card `EvacStatusPanel.tsx`, `EOCSummary.tsx`) · clock-time timeline
-(`TimeSlider.tsx`). Neighbourhoods: modelled fire arrival within 500 m and evacuation status set by
+(`TimeSlider.tsx`). Setup and Situation collapse to rails, "Focus map" / `F` collapses both, map
+legends sit in one minimisable dock (`hooks/useLayout.ts`, `SideRail.tsx`, `LegendDock.tsx`;
+frontend/README "Layout"). Neighbourhoods: modelled fire arrival within 500 m and evacuation status set by
 Planning (`utils/evacZones.ts`; Edmonton neighbourhoods + StatCan census subdivisions elsewhere, `mergeCommunities`, tagged "CSD"); FireSim never suggests Order/Alert/Watch. Critical assets card
 `CriticalAssetsPanel.tsx` (`utils/assets.ts`): arrival within 500 m / inside for each asset and
 first reach per major road, from the bundled `public/edmonton/assets.geojson`
