@@ -46,9 +46,18 @@ from firesim.structures import long_range as LR  # noqa: E402
 CALFIRE_DIR = L1.CALFIRE_DIR
 V4_DIR = CALFIRE_DIR / "derived" / "v4"
 TRAINING = ("eaton", "palisades", "camp", "tubbs", "woolsey")
-FIXED = {"link_scale_m": 160.0, "ember_factor": 100.0}  # v3 fit (Brier flat beyond, [R37])
-GRID = {"survival": [0.15, 0.3, 0.45, 0.6], "frp_gamma": [0.0, 1.0], "b_canopy": [0.0, -3.0],
-        "b_code": [0.0, 1.0]}
+# ember factor 100 (v3 fit, [R37]; independently ~ Lee & Davidson 2010 pp.681-682: mean per-brand
+# ignition 1.75e-3 per brand on a footprint ~ k of the footprint area in m2)
+FIXED = {"ember_factor": 100.0}
+# Grid revised 2026-10-12 BEFORE PREREG_LR4 after the literature review (Hakes et al. 2017 Part II):
+# - b_code in {0, 1.9}: post-2001-code homes 2-3 % vs 13-17 % burned (p.495) ~ +1.9 logit (1.6-2.3)
+# - canopy ring 0-30 m (closest available to the 0-9.1 m ring, 67 % vs 32 % destroyed, p.496,
+#   ~ -1.46 logit), b_canopy in {0, -3, -6} per unit cover fraction (centred at 0.3)
+# - link scale in {10, 160} m: separation evidence is 2-15 m (pp.486, 498, 500) vs v3's fitted 160 m
+GRID = {"survival": [0.15, 0.3, 0.45], "frp_gamma": [0.0, 1.0], "b_canopy": [0.0, -3.0, -6.0],
+        "b_code": [0.0, 1.9], "link_scale_m": [10.0, 160.0]}
+CODE_YEAR = 2001  # Hakes et al. 2017 p.495 (post-2001 code)
+CANOPY_RING = "canopy_0_30"  # Hakes et al. 2017 p.496 supports the near ring over 30-100 m
 N_FIT, N_SCORE, N_SENS = 6, 50, 20
 VIIRS_RADIUS_M = 750.0
 
@@ -73,6 +82,50 @@ def _num(v):
         return np.nan
 
 
+_v3_load = V3.load_case_units
+
+
+def load_case_units_v4(fire: str, cfg: dict, dry_run: bool):
+    """Held-out hybrid rule: footprints + unmatched DINS points (169 m2 squares); the status
+    file covers both (unmatched ids are 10,000,000 + OBJECTID); unsurveyed / inaccessible are not
+    scored. Training fires as v3."""
+    hyb = CALFIRE_DIR / "derived" / f"{fire}_units_unmatched_dins.gpkg"
+    if not hyb.exists():
+        return _v3_load(fire, cfg, dry_run)
+    import geopandas as gpd
+
+    fp = gpd.read_file(CALFIRE_DIR / "derived" / f"{fire}_units.gpkg")
+    fp = fp[fp.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
+    pts = gpd.read_file(hyb)
+    sq = S3._squares(pts.geometry.x.to_numpy(), pts.geometry.y.to_numpy(), cfg["square_m2"])
+    ids = np.concatenate([fp.unit_id.to_numpy(np.int64), pts.unit_id.to_numpy(np.int64)])
+    geoms = np.concatenate([np.asarray(fp.geometry.values, dtype=object), np.asarray(sq, dtype=object)])
+    if dry_run:
+        rng = np.random.default_rng(1)
+        st = rng.choice(["Destroyed (>50%)", "No Damage", "UNSURVEYED"], size=len(ids), p=[0.4, 0.5, 0.1])
+    else:
+        sd = {int(float(r["unit_id"])): r["DAMAGE"] for r in _read_csv(CALFIRE_DIR / "derived" / f"{fire}_units_status.csv")}
+        st = np.array([sd.get(int(i), "UNSURVEYED") for i in ids])
+    return ids, geoms, st == "Destroyed (>50%)", ~np.isin(st, ["UNSURVEYED", "Inaccessible"])
+
+
+V3.load_case_units = load_case_units_v4
+
+
+def stop_minute_v4(fire: str, cfg: dict) -> float:
+    """v4 run end: as v3, but only after a wind event (>= 20 km/h for >= 2 h) has occurred in
+    the window, so non-wind-driven fires are not stopped at 3 h [H]."""
+    src = cfg.get("stop_source") or V3.STOP_SOURCES.get(fire)
+    if not src:
+        return math.inf
+    t, v = V3.station_wind(fire, src)
+    thr = LR.V3_STOP_WIND_KMH
+    windy = t[(v >= thr) & (t >= 0)]
+    if len(windy) < 3:  # fewer than ~2 h of event-strength wind: no wind event, no stop
+        return math.inf
+    return LR.wind_event_end(t, v, thr, min_after=max(180.0, float(windy.min()) + 120.0))
+
+
 class Case4(V3.Case):
     """v3 ``Case`` with VIIRS / NIST burn times, FRP emission scaling and unit covariates."""
 
@@ -80,7 +133,9 @@ class Case4(V3.Case):
         self.gammas = tuple(gammas)
         self._fire = fire
         self.viirs = self._load_viirs(fire)
-        super().__init__(fire, cfg, dry_run=dry_run, n_members=n_members)
+        super().__init__(fire, cfg, dry_run=dry_run, n_members=n_members,
+                         stop_src=cfg.get("stop_source"))
+        self.stop = stop_minute_v4(fire, cfg)
         self.covariates = self._load_covariates(fire)
 
     # -- inputs
@@ -112,6 +167,30 @@ class Case4(V3.Case):
             w = 1.0 / np.maximum(d, 1.0) ** 2
             t = np.sum(w * tt[i], axis=1) / np.sum(w, axis=1)
             self.burn_time_source = "NIST TN 2135 fronts (IDW)"
+        tp = cfg.get("timed_perimeters")
+        if tp:  # hourly GOES perimeters (GOFER): first perimeter containing the cell [V data]
+            import shapely
+            from datetime import datetime, timezone
+
+            t0u = datetime.strptime(cfg["t0_utc"], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            feats = json.load(open(CALFIRE_DIR / tp))["features"]
+            tt = np.full(len(self.sx), np.inf)
+            for f in sorted(feats, key=lambda f: f["properties"]["tUTC"]):
+                tu = datetime.strptime(f["properties"]["tUTC"][:16], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                m = (tu - t0u).total_seconds() / 60.0
+                if m > cfg["window"]:
+                    break
+                g = shapely.geometry.shape(f["geometry"])
+                g = shapely.transform(g, lambda c: np.column_stack(self.frame.to_local(c[:, 1], c[:, 0])))
+                todo = ~np.isfinite(tt)
+                if not todo.any():
+                    break
+                inside = shapely.contains_xy(g, self.sx[todo], self.sy[todo])
+                idx = np.nonzero(todo)[0][inside]
+                tt[idx] = m
+            hit = np.isfinite(tt)
+            t = np.where(hit, tt, t)
+            self.burn_time_source = f"timed perimeters ({int(hit.sum())} cells) + rule"
         v = self.viirs
         if v is not None and len(v["t"]):
             tw = v["t"] + float(cfg.get("t0", 0.0))  # minutes from ignition -> window minutes
@@ -147,7 +226,7 @@ class Case4(V3.Case):
                 for r in _read_csv(pc):
                     k = pos.get(int(float(r["unit_id"])) + off)
                     if k is not None:
-                        can[k] = _num(r.get("canopy_30_100"))
+                        can[k] = _num(r.get(CANOPY_RING))
             py = V4_DIR / f"{stem}_unit_yearbuilt.csv"
             if py.exists():
                 for r in _read_csv(py):
@@ -156,16 +235,16 @@ class Case4(V3.Case):
                         yb[k] = _num(r.get("year_built"))
         if np.nanmax(np.r_[can, [-1]]) > 1.5:  # percent → fraction
             can = can / 100.0
-        return {"canopy_30_100": can, "year_built": yb,
+        return {"canopy_ring": can, "year_built": yb,
                 "coverage": {"canopy": float(np.mean(np.isfinite(can[self.dom]))),
                              "year_built": float(np.mean(np.isfinite(yb[self.dom])))}}
 
     def run4(self, theta: dict, n_members: int, stop: bool = True):
         th = dict(FIXED)
         th.update({k: v for k, v in theta.items() if k in ("link_scale_m", "ember_factor")})
-        s_unit = LR.survival_v4(theta["survival"], self.covariates["canopy_30_100"],
+        s_unit = LR.survival_v4(theta["survival"], self.covariates["canopy_ring"],
                                 self.covariates["year_built"], theta.get("b_canopy", 0.0),
-                                theta.get("b_code", 0.0))
+                                theta.get("b_code", 0.0), code_year=CODE_YEAR)
         th["survival"] = float(theta["survival"])
         th["frp_gamma"] = float(theta.get("frp_gamma", 0.0))
         th["survival_unit"] = s_unit
@@ -237,8 +316,63 @@ def fit(args):
 
 # ------------------------------------------------------------------------------- scoring
 
-FIRES4: dict = {}  # held-out set-ups, filled from refs/<fire>/prereg_inputs.json before PREREG_LR4
-PREREG_LR4: dict = {}
+_UNITS_HYBRID = ("footprints (Eaton rule) + DINS points that matched no footprint as 169 m2 "
+                 "squares (unit_id 10,000,000 + OBJECTID); unsurveyed footprints excluded from scoring")
+FIRES4 = {
+    "glass": {
+        "perimeter": "raw/frap_perimeter_glass.geojson", "footprints": None, "ring": True,
+        "ring_footprints": "derived/ms_usv2_glass.geojsonl", "worldcover": None, "chm": None,
+        "square_m2": 169.0, "h": 20.0, "units_rule": _UNITS_HYBRID,
+        # 03:48 PDT 27 Sep 2020 ignition (CAL FIRE incident page, NWS Storm Data) to 08:00 PDT 28 Sep
+        # (end of the NWS North Bay wind episode 07:40)
+        "window": 1692.0, "t0": 0.0, "t0_utc": "2020-09-27 10:48", "origin": (38.563, -122.497),
+        "axis_deg": 225.0,
+        "anchors_axis": [((38.550, -122.505), 383.0), ((38.470, -122.580), 1073.0),
+                         ((38.458, -122.636), 1102.0), ((38.450, -122.620), 1572.0)],
+        "timed_perimeters": "derived/v4/glass_gofer.geojson",
+        "wind_speed": (5.0, 12.0), "wind_from": (20.0, 60.0),  # Knoxville Creek median 18 mph, Hawkeye 11; NE
+        "proxy": "C4", "proxy_alt": "C7", "lat": 38.52, "elev": 300.0, "doy": 271,
+        "ffmc": None, "dmc": 100.0, "dc": 800.0,
+        "ffmc_raws": ("ATLAS PEAK", "2020-09-27T10:00", "2020-09-28T15:00"), "raws_dir": "glass",
+        "raws_glob": "raws_FEMS_*.csv", "step3_seeds": None,
+        "stop_source": {"summary": "refs/glass/glass_wind_hourly_summary_PDT.csv",
+                        "column": "HADS KNXC1 KnoxvilleCreek", "t0": "2020-09-27 03:48", "fmt": "%Y-%m-%d %H:%M:%S"},
+    },
+    "czu": {
+        "perimeter": "raw/frap_perimeter_czu.geojson", "footprints": None, "ring": True,
+        "ring_footprints": "derived/ms_usv2_czu.geojsonl", "worldcover": None, "chm": None,
+        "square_m2": 169.0, "h": 20.0, "units_rule": _UNITS_HYBRID,
+        # the main run: 15:00 PDT 18 Aug 2020 (incident commander: wind shift NW->NE) to 12:00 PDT 19 Aug
+        "window": 1260.0, "t0": 0.0, "t0_utc": "2020-08-18 22:00", "origin": (37.237, -122.278),
+        "axis_deg": 150.0, "anchors_axis": [((37.172, -122.222), 519.0)],  # Hwy 236 / Big Basin HQ 23:39
+        "timed_perimeters": "derived/v4/czu_gofer.geojson",
+        "wind_speed": (2.0, 8.0), "wind_from": (-45.0, 45.0),  # Ben Lomond median 4 mph; NNW vs NE disputed
+        "proxy": "C7", "proxy_alt": "C4", "lat": 37.15, "elev": 300.0, "doy": 231,
+        "ffmc": None, "dmc": 100.0, "dc": 800.0,
+        "ffmc_raws": ("BEN LOMOND", "2020-08-18T23:00", "2020-08-19T20:00"), "raws_dir": "czu",
+        "raws_glob": "raws_FEMS_*.csv", "step3_seeds": None,
+        "stop_source": {"summary": "refs/czu/czu_wind_hourly_summary_PDT.csv", "column": "HADS BNDC1 BenLomond",
+                        "t0": "2020-08-18 15:00", "fmt": "%Y-%m-%d %H:%M:%S"},
+    },
+    "northcomplex": {
+        "perimeter": "raw/frap_perimeter_northcomplex.geojson", "footprints": None, "ring": True,
+        "ring_footprints": "derived/ms_usv2_northcomplex.geojsonl", "worldcover": None, "chm": None,
+        "square_m2": 169.0, "h": 40.0, "units_rule": _UNITS_HYBRID,
+        # 22:00 PDT 7 Sep to 13:00 PDT 9 Sep 2020 (the wind-driven run to Berry Creek / Feather Falls)
+        "window": 2340.0, "t0": 0.0, "t0_utc": "2020-09-08 05:00", "origin": (39.73, -121.21),
+        "axis_deg": 225.0,
+        "anchors_axis": [((39.59, -121.27), 1340.0), ((39.645, -121.40), 1380.0)],
+        "timed_perimeters": "derived/v4/northcomplex_gofer.geojson",
+        "wind_speed": (9.0, 18.0), "wind_from": (25.0, 65.0),  # Jarbo Gap median 27 mph, max 45; NE
+        "proxy": "C7", "proxy_alt": "C4", "lat": 39.65, "elev": 700.0, "doy": 252,
+        "ffmc": None, "dmc": 100.0, "dc": 800.0,
+        "ffmc_raws": ("JARBO GAP", "2020-09-08T05:00", "2020-09-09T20:00"), "raws_dir": "northcomplex",
+        "raws_glob": "raws_FEMS_*.csv", "step3_seeds": None,
+        "stop_source": {"summary": "refs/northcomplex/northcomplex_wind_hourly_summary_PDT.csv",
+                        "column": "HADS JBGC1 JarboGap", "t0": "2020-09-07 22:00", "fmt": "%Y-%m-%d %H:%M:%S"},
+    },
+}
+PREREG_LR4: dict = {}  # filled after the training fit, committed and pushed before scoring
 
 
 def score(args):
