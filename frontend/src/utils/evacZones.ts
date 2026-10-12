@@ -118,6 +118,8 @@ export interface NeighbourhoodArrival {
   /** Hours after the scenario start the modelled fire is first within the buffer (or inside) */
   arrivalHours: number;
   feature: GeoJSON.Feature;
+  /** [lng, lat] of the fire point that first came within the buffer (where it happened) */
+  at?: [number, number];
 }
 
 // ── Community units: Edmonton neighbourhoods + StatCan census subdivisions ──
@@ -413,9 +415,10 @@ function arrivalsFromPoints(
     const bx0 = minLng - dLng, bx1 = maxLng + dLng, by0 = minLat - dLat, by1 = maxLat + dLat;
     if (fMaxLng < bx0 || fMinLng > bx1 || fMaxLat < by0 || fMinLat > by1) continue;
     let arrival = Infinity;
+    let at: [number, number] | undefined;
     for (const q of pts) {
       if (q.lng < bx0 || q.lng > bx1 || q.lat < by0 || q.lat > by1) continue;
-      if (distanceM(p, q.lat, q.lng) <= bufferM) { arrival = q.h; break; }
+      if (distanceM(p, q.lat, q.lng) <= bufferM) { arrival = q.h; at = [q.lng, q.lat]; break; }
     }
     if (perimeterFrames) {
       const frames = perimeterFrames;
@@ -423,13 +426,17 @@ function arrivalsFromPoints(
       const ring = (polygonsOf(feat.geometry)[0]?.[0]) ?? [];
       for (const f of frames) {
         if (f.time_hours >= arrival) break;
-        if (f.perimeter.length >= 3 && ring.some(([lng, lat]) => perimeterContains(f.perimeter, lat, lng))) {
+        const v = f.perimeter.length >= 3
+          ? ring.find(([lng, lat]) => perimeterContains(f.perimeter, lat, lng))
+          : undefined;
+        if (v) {
           arrival = f.time_hours;
+          at = [v[0], v[1]];
           break;
         }
       }
     }
-    if (Number.isFinite(arrival)) out.push({ name: p.name, arrivalHours: arrival, feature: feat });
+    if (Number.isFinite(arrival)) out.push({ name: p.name, arrivalHours: arrival, feature: feat, at });
   }
   return out.sort((a, b) => a.arrivalHours - b.arrivalHours || a.name.localeCompare(b.name));
 }
@@ -457,7 +464,12 @@ export function arrivalsToGeoJSON(
     type: "FeatureCollection",
     features: arrivals.map((a) => ({
       type: "Feature",
-      geometry: a.feature.geometry,
+      // A census subdivision (a whole county or town) is marked where the fire first comes
+      // within the buffer, not outlined: its outline would wrap every town the county
+      // surrounds and say the same name at every crossing (owner feedback 2026-10-12)
+      geometry: communitySourceTag(a.feature) === "CSD" && a.at
+        ? { type: "Point", coordinates: a.at }
+        : a.feature.geometry,
       properties: {
         neighbourhood: a.name,
         arrival_hours: +a.arrivalHours.toFixed(3),

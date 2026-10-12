@@ -8,6 +8,7 @@ import {
   featureName,
   mergeCommunities,
   neighbourhoodArrivals,
+  arrivalsToGeoJSON,
 } from "./evacZones";
 import { frame, square } from "../test/frames";
 
@@ -48,5 +49,23 @@ describe("community units: Edmonton neighbourhoods + census subdivisions", () =>
   it("works with either layer missing", () => {
     expect(mergeCommunities(null, null)).toBeNull();
     expect(mergeCommunities(edmonton, null)!.features.length).toBe(edmonton.features.length);
+  });
+
+  it("a St. Albert fire reaching Sturgeon County marks the crossing point, not the whole county", () => {
+    // Fire growing from north St. Albert towards its boundary with Sturgeon County
+    const fires = [frame(1, square(0.004, 53.6716, -113.6)), frame(2, square(0.02, 53.6716, -113.6))];
+    const res = neighbourhoodArrivals(fires, merged);
+    const sturgeon = res.find((a) => a.name === "Sturgeon County");
+    expect(sturgeon?.at).toBeDefined();
+    const fc = arrivalsToGeoJSON(res, null);
+    const f = fc.features.find((x) => x.properties?.neighbourhood === "Sturgeon County")!;
+    expect(f.geometry.type).toBe("Point");
+    const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
+    // the dot sits on the fire, near St. Albert, not at the county's centroid ~40 km north
+    expect(Math.abs(lat - 53.6716)).toBeLessThan(0.03);
+    expect(Math.abs(lng + 113.6)).toBeLessThan(0.05);
+    // Edmonton neighbourhoods keep their outlines
+    const edm = arrivalsToGeoJSON(neighbourhoodArrivals([frame(1, square(0.004, 53.5175, -113.4755))], merged), null);
+    expect(edm.features.every((x) => x.geometry.type !== "Point")).toBe(true);
   });
 });
