@@ -3718,3 +3718,11 @@ label.field.evac-pick-tier {
 .ts-frame-count {
   flex: none;
 }
+
+.stale-build-notice {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}

@@ -1,6 +1,7 @@
 /** FireSim V3 — Canadian FBP Wildfire Spread Simulator */
 
-import { lazy, Suspense, useCallback, useState, useMemo, useRef, useEffect } from "react";
+import { Suspense, useCallback, useState, useMemo, useRef, useEffect } from "react";
+import { lazyChunk } from "./utils/lazyChunk";
 import MapView from "./components/MapView";
 import WeatherPanel from "./components/WeatherPanel";
 import type { RunParams, SkillOptionsState } from "./components/WeatherPanel";
@@ -35,9 +36,9 @@ import {
   type EvacTierRecord,
 } from "./utils/evacZones";
 // The EOC console (and its ICS forms) loads only when its tab is opened
-const EOCConsole = lazy(() => import("./components/EOCConsole"));
+const EOCConsole = lazyChunk(() => import("./components/EOCConsole"));
 // The About & sources tab is static text, loaded when opened
-const AboutPanel = lazy(() => import("./components/AboutPanel"));
+const AboutPanel = lazyChunk(() => import("./components/AboutPanel"));
 import type { AboutSectionId } from "./components/AboutPanel";
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IncidentPanel from "./components/IncidentPanel";
