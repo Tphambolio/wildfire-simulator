@@ -653,6 +653,27 @@ guard includes the urban kernel reach. Units outside the box receive no urban em
 scoring): Palisades 2025 primary (independent, data prepared blind to outcomes), Eaton and Camp
 disclosed non-independent checks; results PROJECT_RECORD §4.4 and [R33]. **Result: not worth showing** on Palisades (κ beat windward seeding and a distance band; Brier vs Chen & McAneney +0.061, 95 % −0.011 to +0.131, not significant; AUC 0.50, over-confident). Stays opt-in, illustrative.
 
+### 6.5 Long-range embers v3: probabilistic links, survival, run end, calibration (opt-in, 2026-10-12) — illustrative
+
+`LongRangeOptions(model="v3")`, API `structure_long_range_model: "v3"` (not with
+`structure_embers`). Why: v2's ember chain was bounded by measurements, but once seeded the 30 m
+Hamada stage percolated through dense suburbs and nothing stopped a town fire [R33]. v3 keeps the
+v2 embers and changes the town-fire stage; its three free values are **fitted** (calibration on
+training fires is allowed from v3 on; report [R37]).
+
+| Piece | v3 | Source / tag |
+|---|---|---|
+| Building-to-building links | graph to 50 m [H]; a link passes fire with p = exp(−separation / λ), one draw per link per member; Hamada crossing time kept for timing | form: Knapp et al. 2021 (Camp: survival 0.058 < 18 m vs 0.354 ≥ 18 m from the nearest destroyed structure, preprint p.10 Fig. 5a); Zamanialaei et al. 2025 (spacing critical); Syphard et al. 2012 |
+| Survival | each building never becomes fully involved with probability s (defence, hardening, luck), one draw per member | form [H]; value fitted |
+| Ember factor | q × k (v2's per-ember probability) | fitted |
+| Run end | no building becomes involved after the wind event ends: the most exposed station's 10 m wind (RAWS × 1.15) < 20 km/h for 2 h, ≥ 3 h after ignition [H]; in the API, from the run's wind schedule | — |
+| Fitting | grid λ 5-160 m, s 0-0.6, k 0.1-100, 8 members; leave-one-fire-out on Eaton, Palisades, Camp; final values = minimum mean Brier over the three (λ 160 m, s 0.3, k 100: the optimum lies at the grid edge) | [R37] |
+
+Implementation: `IncrementalHamada(link_filter=…, blocked=…)`, `link_filter_v3`,
+`wind_event_end`, `run_member_v3`, `run_ensemble_v3`; tests `test_long_range_v3.py`.
+Pre-registered held-out test `PREREG_LR3` (`adcee43`): Tubbs 2017 and Woolsey 2018, results in
+PROJECT_RECORD §4.4 and [R37].
+
 ## 7. Conflicting published values and the choices made
 
 | # | Conflict | Values and sources | FireSim choice | Reason |

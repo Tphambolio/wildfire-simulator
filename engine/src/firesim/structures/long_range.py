@@ -170,11 +170,11 @@ P_B_RANGE = (0.1, 1.0)  # bed fire → building fire; no published value; lab co
 P_B_FIXED = 0.5
 # v3 (spec §6.5). Forms from the literature; values fitted by leave-one-fire-out CV on the
 # training fires (Eaton 2025, Palisades 2025, Camp 2018) — see PROJECT_RECORD [R37].
-V3_LINK_SCALE_M = 10.0  # p_link(d) = exp(-d / scale); Knapp et al. 2021 (Camp): survival 0.058 < 18 m
+V3_LINK_SCALE_M = 160.0  # fitted [R37]; p_link(d) = exp(-d / scale); Knapp et al. 2021 (Camp): survival 0.058 < 18 m
 #                         vs 0.354 >= 18 m from the nearest destroyed structure (decision tree, Fig. 5a)
 V3_LINK_CUTOFF_M = 50.0  # graph radius for building-to-building links [H]
 V3_SURVIVAL = 0.3  # P(exposed building never becomes fully involved): defence, hardening [fitted]
-V3_EMBER_FACTOR = 1.0  # multiplier on q [fitted]
+V3_EMBER_FACTOR = 100.0  # multiplier on q [fitted, R37; grid edge]
 V3_STOP_WIND_KMH = 20.0  # wind-event end: 10 m wind < 20 km/h for 2 h, >= 3 h after ignition [H]
 URBAN_SIZE_CLASSES = 4  # building-size classes for the urban kernels (quartiles) [H]
 URBAN_RASTER_M = 10.0  # urban landing raster (Himoto medians are ~4-12 m) [H]

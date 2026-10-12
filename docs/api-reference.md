@@ -183,6 +183,12 @@ Start a new fire spread simulation.
   echo `long_range_model`, and for v2 `long_range_urban_source`, `long_range_parameter_draws`,
   `long_range_receptive`, `long_range_step_min`. Pre-registered Palisades 2025 test (v2):
   PROJECT_RECORD §4.4; illustrative, not validated.
+  **`v3`** (spec §6.5, 2026-10-12): v2 plus probabilistic building-to-building links
+  (exp(−separation / 160 m) to 50 m), building survival 0.3, ember factor 100 (fitted on three
+  Californian fires) and a wind-event end (run's 10 m wind < 20 km/h for 2 h); 422 with
+  `structure_embers`. Params add `long_range_link_scale_m`, `long_range_survival`,
+  `long_range_ember_factor`, `long_range_stop_wind_kmh`, `long_range_stop_min`. Failed its
+  pre-registered held-out test (PROJECT_RECORD [R37]).
 - Per-building vegetation attributes (spec §2.1; no request flag): when the server has
   `FIRESIM_BUILDING_VEGETATION_PATH` (default `edmonton_building_vegetation.csv.gz` next to the
   buildings file) and the footprints carry an `id`, involved units in the detail gain `veg`.
