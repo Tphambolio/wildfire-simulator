@@ -183,12 +183,16 @@ CFS_NATIONAL_2014_CODES: dict[int, FuelType | None] = {
 # - 13 "D-1/D-2" and 610-690 "M-1/M-2 (xx PC)" map to the leafless label (D-1, M-1); the run
 #   swaps in D-2 / M-2 between green-up and leaf-off (firesim.fbp.season). The 6xx codes carry
 #   percent conifer (650 = 50 %), read per cell by ``percent_conifer_for_code``.
-# - 31 "O-1" (grass, matted or standing not stated) maps to O-1b standing grass, the faster of
-#   the two (owner decision pending; docs/fuel-grid-alberta.md section 3).
+# - 31 "O-1" (grass, matted or standing not stated) maps to O-1b standing grass all year
+#   (decision 2026-10-12, [R35]): O-1b is the faster type from ISI 8 up (up to ~1.3x), the grid
+#   and the CWFIS curing grids do not record grass state, and ST-X-3 (p.16) gives matted grass
+#   as "common" after snowmelt, not as a date rule. No date swap: City-grid O-1a / O-1b cells
+#   share these labels (docs/fuel-grid-alberta.md section 3).
 # - 105 "Vegetated Non-Fuel", 104 "Unclassified", 101 "Non-Fuel" and 102 "Water" are non-fuel.
-#   105 covers vegetation with no FBP type (e.g. some wetland and shrub land); treating it as
-#   non-fuel is the convention of FBP grids (CIFFC 105) but it can stop modelled fire where real
-#   fire burns (limitation).
+#   105 is mostly cropland (ABMI 2010: 46 % agriculture) and recently burned land (63 % of
+#   2024 and ~70 % of 2025 burns are coded 105); it stays non-fuel as in Alberta's and
+#   Prometheus' lookup tables (decision 2026-10-12, [R35]). Limitation: cured stubble and
+#   regrowth in recent burns can carry fire in spring and fall.
 # - 0 is outside the service extent and 32767 no data inside it. -1 (29,544 cells, not in the
 #   attribute table) occurs only west of 120 W near 59 N, in British Columbia: outside extent.
 AB_WILDFIRE_CODES: dict[int, FuelType | None] = {

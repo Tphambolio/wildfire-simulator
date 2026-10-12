@@ -17,7 +17,7 @@ confounded by post-fire re-typing and says nothing about map accuracy.
 | Product | Alberta Wildfire – Fire Behavior Prediction (FBP) Fuel Type – Raster (`WildfireRasters.GDB.WF_FBP_FUEL_TYPE`) |
 | Publisher | Government of Alberta, Alberta Wildfire (Wildfire Geospatial Intelligence Unit). © Government of Alberta |
 | Grid | 100 m cells, EPSG:3400 (NAD83 / Alberta 10-TM Forest), int16, 7,856 × 15,002 cells, whole province including the White Area |
-| Date | Dataset date 2025-07-16 (keyword "2025") |
+| Date | Dataset date 2025-07-16 (keyword "2025"); the image-service item was created 2026-03-20 and its cells already re-type the 2025 burns (~70 % of the area inside 2025 perimeters is code 105, [R35]) |
 | Service | `https://geospatial.alberta.ca/umbriel/rest/services/wildfire/alberta_wildfire_fbp_fuel_type_raster/ImageServer` (public group "Wildfire geospatial data (public)") |
 | Licence | **Open Government Licence – Alberta** (<https://open.alberta.ca/licence>), as stated on the FBP Fuel Type map-service item (`4fa5b04edebb4f6e883025e0add3b57e`). The image-service item (`689aac9591cb4f31a9178be663f22ee2`) carries only the Government of Alberta disclaimer: the information is provided "as is", without warranties, and the Crown is not liable for loss from its use. Both are recorded; written confirmation that OGL-Alberta covers the image service is an open item (§8) |
 | Attribution (shown in the app) | "Contains information licensed under the Open Government Licence – Alberta." |
@@ -34,12 +34,12 @@ All 33 rows of the service's raster attribute table are mapped (`AB_WILDFIRE_COD
 | 1-7 | C-1 … C-7 | C1 … C7 | |
 | 13 | D-1/D-2 (Aspen) | D1, or D2 when leaves are on (§3) | |
 | 21, 22, 23 | S-1, S-2, S-3 | S1, S2, S3 | |
-| 31 | O-1 (Grass) | **O1b** (standing grass) | matted / standing not stated; §3 |
+| 31 | O-1 (Grass) | **O1b** (standing grass), all year | matted / standing not stated; decided 2026-10-12, §3, §9 |
 | 610-690 (step 5) | M-1/M-2 (10-90 % conifer) | M1, or M2 when leaves are on; **percent conifer = code − 600, per cell** | e.g. 650 = 50 % |
 | 101 | Non-Fuel | non-fuel | |
 | 102 | Water | non-fuel | |
 | 104 | Unclassified (91 cells) | non-fuel | |
-| 105 | Vegetated Non-Fuel | **non-fuel** | limitation, §3 |
+| 105 | Vegetated Non-Fuel | **non-fuel** | mostly cropland and recent burns; decided 2026-10-12, §3, §9 |
 | 0 | — | outside the service extent | no data (filled from another grid if any) |
 | 32767 | — | no data inside the province (1.46 M cells) | non-fuel; still counts as "in Alberta" |
 | −1 | not in the table | 29,544 cells, all west of 120 W near 59 N (British Columbia) | treated as outside the extent |
@@ -66,21 +66,48 @@ the City grid's D-2 / M-2 cells (leaf-on all year, an open item since 2026-10-07
 is filled for CIFFC `cfs_national` grids (4xx/5xx/6xx). Percent dead fir (M-3/M-4) stays the
 request value. The ember-spotting model still uses the request value.
 
-**O-1 → O-1b (owner decision pending, [H]).** The provincial grid has one grass code. O-1a
-(matted) and O-1b (standing) differ in rate of spread; the FBP fuel-type descriptions associate
-matted grass with spring, after snow has pressed the cured grass flat, and standing grass with
-later in the season (ST-X-3; not re-read for this change). FireSim uses **O-1b all
-year**: it is the faster of the two, so the default does not under-predict grass fire when the
-grass state is unknown (in southern Alberta grass often stands through winter). The alternative
-— O-1a in the pre-green-up window (day 60-149), O-1b otherwise — is a one-line change in
-`AB_WILDFIRE_CODES`/`season.py` if the owner prefers it. The City grid's own O-1a / O-1b cells are
-kept as mapped. Grass curing is the request's (required outside the spring window).
+**O-1 → O-1b all year (decided 2026-10-12, [R35]).** The provincial grid has one grass code.
+ST-X-3 describes two subtypes, "one for the matted grass condition common after snowmelt or in
+the spring (O-1a), and the other for standing dead grass common in late summer to early fall
+(O-1b)" (Forestry Canada Fire Danger Group 1992, p.16; Table 3, p.13; the O-1a curve was fitted
+to cut grass taken to represent "early spring grass fuel matted down by snow loads", p.28).
+FireSim keeps **O-1b in every season**, for these reasons:
+(1) the subtype describes an observed fuel state, which neither this grid nor the CWFIS curing
+grids record ("Standing and matted cured grass are not differentiated", CWFIS percent-curing
+metadata); (2) the two curves cross at **ISI 8**: below it O-1a is up to ~10 % faster in
+absolute terms of about 1 m/min (ISI 5 at 95 % cured: 11.3 vs 10.0 m/min), above it O-1b is
+faster by 5 % at ISI 10, 21 % at ISI 20, 31 % at ISI 40 and 33 % at ISI 60; the ratio does not
+depend on curing (same curing factor, Wotton et al. 2009 eq 35), so O-1b avoids the larger,
+high-ISI under-prediction that matters for planning; (3) grass does not reliably mat in
+Alberta: in the snow-free Chinook belt, O-1b at 100 % curing reproduced the 27 November 2011
+Lethbridge grass/cropland fire run (predicted 145 m/min, observed 138 m/min; Alexander,
+Heathcott & Schwanke 2013, p.26); (4) a correct date rule would need to know which cells came
+from the Alberta grid, because the City grid's own O-1a / O-1b cells share the labels — not a
+small change. "O-1b is the faster type" in earlier text was true only from ISI 8 up and is
+corrected here. Grass curing is unchanged (95 % default in the pre-green-up window, required
+outside it; `fbp/curing.py`). Untested on observed fires: the CFSDS fire-days have little
+grass (`validation-data/curing`). Reopen if Alberta grass fire-days with observed spread show
+O-1b over-predicting in spring, or if a "matted grass" scenario switch is wanted.
 
-**105 "Vegetated Non-Fuel" → non-fuel (limitation).** It is vegetation the provincial key gives
-no FBP type (inferred: e.g. some wetland, shrub and sparse cover; the key is not published). FBP has no spread model for it and the
-CIFFC grids also make 105 non-fuel, so FireSim does too. In drought, fens and shrubland do burn:
-modelled fire can stop at 105 cells where real fire continues. 105 is 9.4 M cells, 12 % of the
-province's mapped cells.
+**105 "Vegetated Non-Fuel" → non-fuel (decided 2026-10-12, [R35]).** Alberta does not publish
+the class definition (the metadata and attribute table give only the label). Measured on a
+systematic 200 m sample of the 100 m grid (`scripts/validation/ab_fuel_105_extent.py`,
+`ab_fuel_105_landcover.py`), 105 is two things: **cropland** (ABMI Wall-to-Wall 2010 land cover:
+46 % agriculture overall, 57 % where no fire is mapped since 1984, 64 % in the WUI proxy) and
+**recently burned land** (63 % of 2024 burns and 30 % of 2019-2023 burns are 105, against 12 % of
+unburned land and 3-7 % of burns older than 2014; ~70 % of the area inside 2025 fires ≥ 1,000
+ha). About 22 % of all 105 lies in 2019-2024 burns and roughly 6 % more in 2025 burns. It is
+12.6 % of the province's mapped cells and 24 % of a community WUI proxy (cells within 2.4 km
+of a 2021 population centre; 5,790 km²). It stays **non-fuel**: it is Alberta Wildfire's own
+coding for these lands, the Prometheus/CFS lookup table maps 105 to non-fuel, recent burns
+have little surface fuel for a few years, and FBP has no crop fuel type; mapping it to O-1b
+would turn every recent burn into grass and mapping cropland to a fuel needs a crop-type
+layer. A switch was not added: it would need the per-cell source code after stacking (not a
+small change). **Limitation:** cured stubble and burn regrowth can carry fire in spring and
+fall (the 2011 Lethbridge fire ran through cropland at 138 m/min), so modelled fire can stop at
+farmland and young burns where real fire continues — notably around Edmonton. The
+pre-registered 2025 burn test (`PREREG_105`) was **void** because the grid already re-types
+2025 burns (§9); the barrier behaviour of 105 is untested.
 
 ## 4. Which grid a run uses
 
@@ -167,8 +194,9 @@ up on three, down on three and stayed level on one.
 2025 map: inside every validation fire's burned area it shows the post-fire state, not the fuel
 that burned — 2024 scars 84-96 % non-fuel, 2021-2023 scars mostly D-1/D-2 (aspen
 regeneration), 2014-2016 scars largely O-1 (e.g. 96 % O-1 in the growth of 2014_799, which the
-2014 grid typed 86 % C-2). A fair test needs fires that burn after the map date (2025 and later
-CFSDS releases) or the pre-registered northern test. Operationally the post-fire re-typing is a
+2014 grid typed 86 % C-2). A fair test needs fires that burn after the map's content date — **2026 and later**, because
+the published grid already re-types the 2025 burns ([R35]: 25 of 29 fires of 2025 ≥ 1,000 ha
+failed the pre-registered map-timing gate) — or the pre-registered northern test. Operationally the post-fire re-typing is a
 strength: recent burns do not carry fire as if they were mature spruce.
 
 ## 8. Limitations and open items
@@ -180,13 +208,27 @@ strength: recent burns do not carry fire as if they were mature spruce.
 - **Partly AVI-derived**, with AVI photo years back to the 1990s in places; conifer-deciduous
   agreement with pure AVI stands is mixed (reference-layers report §2: pure deciduous stands are
   rarely mapped D in two of three northern test areas).
-- **Build rules, per-pixel source and year are not published.** They can be requested from the
-  Wildfire Geospatial Intelligence Unit (`WF.AWHQ-GIS@gov.ab.ca`), together with written
-  confirmation that OGL-Alberta covers the image service; whether to ask is the owner's choice.
-- 105 vegetated non-fuel → non-fuel; O-1 → O-1b [H]; fixed green-up / leaf-off dates (§3).
+- **Build rules, per-pixel source and year are not published.** Recommended 2026-10-12 ([R35],
+  §9): ask the Wildfire Geospatial Intelligence Unit (`WF.AWHQ-GIS@gov.ab.ca`, the contact in
+  the image service's metadata) for them and for written confirmation that OGL-Alberta covers
+  the image service; the draft request is in [R35]. Sending it is the owner's step.
+- 105 → non-fuel and O-1 → O-1b all year are decisions (§3, §9), with the limitations stated
+  there; fixed green-up / leaf-off dates (§3).
 - 100 m cells: fine fuel breaks (roads, narrow wetlands) below 100 m are not represented.
 - No national grid on the live API. (Terrain outside Edmonton: added 2026-10-11, `docs/terrain-alberta.md`.)
 - No field accuracy assessment; see the stratified sampling plan in the reference-layers report.
+
+## 9. Decisions 2026-10-12 ([R35])
+
+| Question | Decision | Key evidence |
+|---|---|---|
+| O-1 grass: O-1b all year or O-1a by date | **O-1b all year** (no code change) | ST-X-3 p.16 gives matted grass as "common" after snowmelt, a fuel state, not a date rule; grid and CWFIS curing do not record state; O-1b ≥ O-1a from ISI 8 (×1.21 at ISI 20, ×1.33 at ISI 60), O-1a ≤ ~1 m/min faster below it; O-1b reproduced a snow-free Alberta grass/cropland run (Alexander et al. 2013, p.26); a date swap needs per-source labels |
+| 105 "Vegetated Non-Fuel" | **Keep non-fuel** (no code change; not configurable for now) | 105 is cropland (ABMI 2010: 46 % agriculture; 64 % in the WUI proxy) and recent burns (63 % of 2024 burns, ~70 % of 2025 burns); Alberta's and Prometheus' tables make it non-fuel; FBP has no crop type. Pre-registered 2025 burn test (`PREREG_105`, commit `a61ac7e`) void: the grid already re-types 2025 burns |
+| Ask Alberta Wildfire GIS for licence confirmation and build rules | **Yes, recommended** (owner sends; no message sent by FireSim work) | The full grid is redistributed in a public GitHub release; the item it came from (image service `689aac95…`) carries only the GoA disclaimer, the OGL-Alberta statement is on the viewing map-service item (`4fa5b04e…`); the 105 definition, re-typing rules and update cadence are unpublished and matter for the decisions above |
+
+Scripts: `scripts/validation/ab_fuel_105_extent.py`, `ab_fuel_105_landcover.py`,
+`ab_fuel_105_burn_test.py` (PREREG_105), `grass_o1a_o1b.py`; tests
+`engine/tests/data/test_ab_wildfire_fuel.py::TestGrassAndVegetatedNonFuelDecisions`.
 
 ## References
 
@@ -194,7 +236,20 @@ strength: recent burns do not carry fire as if they were mature spruce.
   dataset date 2025-07-16; item `689aac9591cb4f31a9178be663f22ee2`; viewing service item
   `4fa5b04edebb4f6e883025e0add3b57e` (OGL-Alberta). Retrieved 2026-10-10.
 - Forestry Canada Fire Danger Group (1992). *Development and structure of the Canadian Forest Fire
-  Behavior Prediction System.* ST-X-3.
+  Behavior Prediction System.* ST-X-3. (O-1a / O-1b: p.13 Table 3, p.16, p.28.)
+- Alexander, M.E., Heathcott, M.J., Schwanke, R.L. (2013). *Fire behaviour case study of two
+  early winter grass fires in southern Alberta, 27 November 2011.* Partners in Protection
+  Association, Edmonton. <https://www.frames.gov/documents/catalog/alexander_heathcott_schwanke_2013.pdf>
+- Wotton, B.M., Alexander, M.E., Taylor, S.W. (2009). *Updates and revisions to the 2009 Canadian
+  Forest Fire Behavior Prediction System.* Information Report GLC-X-10.
+- Natural Resources Canada, CWFIS. *Percent grass curing across Canada - daily grids*, metadata.
+  <https://cwfis.cfs.nrcan.gc.ca/downloads/pcuring/Percent_curing_metadata_NAP_ISO_19115_2003.pdf>
+- ABMI (2013). *Wall-to-Wall Land Cover Map 2010, v1.0.* Alberta Biodiversity Monitoring Institute.
+- Hermosilla, T., Wulder, M.A., White, J.C., Coops, N.C. (2022). Land cover classification in an
+  era of big and open data. *Remote Sensing of Environment* 268, 112780 (NTEMS VLCE2).
+- Johnston, L.M., Flannigan, M.D. (2018). Mapping Canadian wildland fire interface areas.
+  *International Journal of Wildland Fire* 27(1), 1-14. doi:10.1071/WF16221.
+- Government of Alberta. *Open Government Licence – Alberta*, version 2.1. <https://open.alberta.ca/licence>
 - Pickell, P.D., Coops, N.C., Ferster, C.J., et al. (2017). An early warning system to forecast
   the close of the spring burning window from satellite-observed greenness. *Scientific Reports*
   7, 14190.

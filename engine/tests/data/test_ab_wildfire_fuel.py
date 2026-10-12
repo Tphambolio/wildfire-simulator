@@ -404,3 +404,39 @@ class TestEngineSanity:
         a_on, g_on = _area(tmp_path, 650, 200)
         assert g_off.fuel_types[0][0] is FuelType.M1 and g_on.fuel_types[0][0] is FuelType.M2
         assert a_off > a_on
+
+
+class TestGrassAndVegetatedNonFuelDecisions:
+    """The 2026-10-12 decisions ([R35], docs/fuel-grid-alberta.md section 3): Alberta code 31
+    stays O-1b (standing) all year and 105 stays non-fuel, and the FBP facts the O-1 decision
+    rests on: both grass types share the curing factor, O-1a is faster below ISI 8 and O-1b
+    faster from ISI 8 up (by about 20 % at ISI 20 and 33 % at ISI 60)."""
+
+    def test_codes_and_no_season_swap_for_grass(self):
+        from firesim.fbp.season import seasonal_fuel
+
+        assert AB_WILDFIRE_CODES[31] is FuelType.O1b
+        assert AB_WILDFIRE_CODES[105] is None
+        for doy in (None, 75, 120, 200, 300):  # spring window, summer, fall, undated
+            assert seasonal_fuel(FuelType.O1b, doy) is FuelType.O1b
+            assert seasonal_fuel(FuelType.O1a, doy) is FuelType.O1a
+
+    @staticmethod
+    def _rsi(ft, isi, cure=95.0):
+        from firesim.fbp.calculator import calculate_rsi
+        from firesim.fbp.constants import FUEL_TYPES
+
+        return calculate_rsi(FUEL_TYPES[ft], isi, grass_cure=cure)
+
+    def test_matted_vs_standing_crossover(self):
+        assert self._rsi(FuelType.O1a, 5) > self._rsi(FuelType.O1b, 5)
+        assert self._rsi(FuelType.O1a, 7.5) > self._rsi(FuelType.O1b, 7.5)
+        for isi in (8, 10, 20, 40, 60):
+            assert self._rsi(FuelType.O1b, isi) >= self._rsi(FuelType.O1a, isi)
+        assert self._rsi(FuelType.O1b, 20) / self._rsi(FuelType.O1a, 20) == pytest.approx(1.21, abs=0.01)
+        assert self._rsi(FuelType.O1b, 60) / self._rsi(FuelType.O1a, 60) == pytest.approx(1.34, abs=0.01)
+
+    def test_ratio_independent_of_curing(self):
+        for cure in (60.0, 80.0, 95.0, 100.0):
+            r = self._rsi(FuelType.O1b, 30, cure) / self._rsi(FuelType.O1a, 30, cure)
+            assert r == pytest.approx(self._rsi(FuelType.O1b, 30, 100.0) / self._rsi(FuelType.O1a, 30, 100.0))
