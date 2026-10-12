@@ -73,6 +73,16 @@ async def _wait_done(client, sim_id: str, tries: int = 480) -> dict:
     return data
 
 
+def _wait_finished(sim_id: str, tries: int = 400) -> None:
+    """Wait until the run's thread has ended. Status turns "completed" before the thread's
+    ``on_finished`` hook queues the archive job, so ``wait_idle`` alone can return first."""
+    for _ in range(tries):
+        run = sims.runner.get(sim_id)
+        if run is None or run.finished_at is not None:
+            return
+        time.sleep(0.05)
+
+
 def _forget(sim_id: str) -> None:
     """As after a deploy or restart: the run is no longer in the API's memory."""
     sims.runner._runs.pop(sim_id, None)
@@ -285,6 +295,7 @@ async def test_restart_get_serves_the_archived_run_shape_identical(client, archi
     live = await _wait_done(client, sim_id)
     assert live["status"] == "completed" and live["archived"] is False
     live_arrival = await client.get(f"/api/v1/simulations/{sim_id}/arrival")
+    _wait_finished(sim_id)
     assert archive.wait_idle()
 
     row = archive.index.get(sim_id)
@@ -320,6 +331,7 @@ async def test_multiday_run_restored_with_day_and_day_fwi(client, archive, tmp_p
     sim_id = (await client.post("/api/v1/simulations/multiday", json=MULTIDAY)).json()["simulation_id"]
     live = await _wait_done(client, sim_id)
     assert live["status"] == "completed", live.get("error")
+    _wait_finished(sim_id)
     assert archive.wait_idle()
     row = archive.index.get(sim_id)
     assert row["kind"] == "multiday" and row["days"] == 2 and row["duration_hours"] == 48
@@ -363,6 +375,7 @@ async def test_a_failing_archive_never_breaks_a_run(client, tmp_path, caplog):
         with caplog.at_level("ERROR"):
             sim_id = (await client.post("/api/v1/simulations", json=SINGLE)).json()["simulation_id"]
             live = await _wait_done(client, sim_id)
+            _wait_finished(sim_id)
             assert a.wait_idle()
         assert live["status"] == "completed" and live["frames"]
         assert a.failures == 1 and "could not archive" in caplog.text
