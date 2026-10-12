@@ -369,7 +369,8 @@ def run_cellular_simulation(
         frames[-1].arrival = np.where(arrival <= duration, arrival, np.inf)
         frames[-1].spots_off_grid = spots_off_grid
     if compute_perimeter and frames:
-        frames[-1].emitters = flame_emitters(arrival, cross_ros, params, duration, dx, dy)
+        frames[-1].emitters = flame_emitters(arrival, cross_ros, params, duration, dx, dy,
+                                              fuel_grid=fuel_grid)
         frames[-1].emitters.lat0, frames[-1].emitters.lng0 = lat_max, lng_min
         frames[-1].emitters.m_per_deg_lat = dy / cell_lat
         frames[-1].emitters.m_per_deg_lng = dx / cell_lng
@@ -420,7 +421,7 @@ def fire_part(nx, ny, hx, hy):
 
 
 def flame_emitters(arrival, cross_ros, p, duration, dx, dy,
-                   residence_s: float = DEFAULT_RESIDENCE_S) -> Emitters:
+                   residence_s: float = DEFAULT_RESIDENCE_S, fuel_grid=None) -> Emitters:
     """Burned cells as vertical flame panels for the radiant exposure model.
 
     Each panel faces the local spread direction (the arrival-time gradient, from earlier-burned
@@ -446,8 +447,15 @@ def flame_emitters(arrival, cross_ros, p, duration, dx, dy,
     return Emitters(
         x=(c + 0.5) * dx, y=-(r + 0.5) * dy, start_min=t[r, c], end_min=end,
         flame_m=flame_length_m(intensity, cfb >= 0.1), normal_x=nx, normal_y=ny, cell_size=size,
-        intensity_kw_m=intensity,
+        intensity_kw_m=intensity, cfb=cfb, sfc=p.sfc[r, c] * p.imult[r, c],
+        cfc=p.cfl[r, c] * cfb * p.imult[r, c],
+        fuel=(np.array([_fuel_code(fuel_grid.fuel_types[i][j]) for i, j in zip(r, c)], dtype=object)
+              if fuel_grid is not None else None),
     )
+
+
+def _fuel_code(ft) -> str:
+    return getattr(ft, "value", str(ft)) if ft is not None else "C2"
 
 
 def _window(burned: np.ndarray, margin: int) -> tuple[slice, slice]:

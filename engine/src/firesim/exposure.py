@@ -116,6 +116,12 @@ class Emitters:
     # Head fire intensity of each cell (kW/m), for ember generation from the wildland front
     # (structure spread embers, docs/structure-spread-spec.md §6); None when not supplied
     intensity_kw_m: np.ndarray | None = None
+    # Crown fraction burned, surface and crown fuel consumed (kg/m²) and FBP fuel code per
+    # cell, for long-range ember generation (spec §6.3); None when not supplied
+    cfb: np.ndarray | None = None
+    sfc: np.ndarray | None = None
+    cfc: np.ndarray | None = None
+    fuel: np.ndarray | None = None
 
     def to_local(self, lat, lng):
         return (np.asarray(lng) - self.lng0) * self.m_per_deg_lng, (np.asarray(lat) - self.lat0) * self.m_per_deg_lat

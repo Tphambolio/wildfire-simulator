@@ -371,3 +371,46 @@ async def test_vegetation_attributes_in_detail(client, files, tmp_path, monkeypa
     assert last["structure_spread"]["vegetation_attributes"] is True
     detail = last["structure_spread_detail"]
     assert detail and all(u["veg"]["cc_10_30"] == 0.3 for u in detail)
+
+
+async def test_long_range_needs_structure_spread(client, files):
+    resp = await client.post("/api/v1/simulations", json=_payload(
+        files, structure_long_range_embers=True))
+    assert resp.status_code == 422
+    resp = await client.post("/api/v1/simulations", json=_payload(
+        files, structure_spread=True, structure_long_range_embers=True,
+        structure_long_range_members=51))
+    assert resp.status_code == 422
+
+
+async def test_roof_scenario_allowed_with_long_range(client, files):
+    data = await _finish(client, _payload(files, structure_spread=True,
+                                          structure_long_range_embers=True,
+                                          structure_long_range_members=3,
+                                          structure_combustible_roof_share=0.15, seed=5))
+    assert data["status"] == "completed", data
+    s = data["frames"][-1]["structure_spread"]
+    assert s["long_range_embers"] is True
+    # the C2 fixture crowns (CFB ~1), so the ensemble ran
+    assert s.get("long_range"), s
+    assert s["long_range"]["members"] == 3
+    assert s["long_range"]["label"].startswith("ignition probability")
+    for u in data["frames"][-1]["structure_spread_detail"]:
+        assert 0 < u["p_involved"] <= 1
+
+
+async def test_long_range_model_option(client, files):
+    resp = await client.post("/api/v1/simulations", json=_payload(
+        files, structure_spread=True, structure_long_range_embers=True,
+        structure_long_range_model="v3"))
+    assert resp.status_code == 422
+    for model in ("v1", "v2"):
+        data = await _finish(client, _payload(files, structure_spread=True,
+                                              structure_long_range_embers=True,
+                                              structure_long_range_members=2,
+                                              structure_long_range_model=model, seed=5))
+        assert data["status"] == "completed", data
+        s = data["frames"][-1]["structure_spread"]
+        assert s["long_range_model"] == model
+        if model == "v2":
+            assert s["long_range_urban_source"] is True and s["long_range_receptive"] == "bed"

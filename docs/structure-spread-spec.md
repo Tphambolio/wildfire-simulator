@@ -570,6 +570,89 @@ recommends a pre-specified scenario, approved by the owner:
   emits ~0.46 million embers, ψ* needs ~1.4 million on a median footprint, k·ψ* ~0.5 million of
   which about a third can land). The scenario matters mainly with wildland embers or 400 kW/m².
 
+### 6.3 Long-range embers (opt-in, 2026-10-11) — ignition probability, illustrative
+
+`engine/src/firesim/structures/long_range.py`; API `structure_long_range_embers` (+
+`structure_long_range_members`, 1-50, default 20). Source: literature review [R31]
+(*Long-range ember ignition literature 2026-10-11*, §5). Why: the pile criterion of §6 cannot
+ignite anything beyond a few hundred metres — at 500 m from a 20 MW/m crown fire the expected
+landing density is ~13 embers/m² against ψ* ≈ 3,000-8,900 /m² ([R31] §0 [D]) — so long-range
+ignition must be per ember. Labels: [V] read in the paper, [D] derived, [H] FireSim hypothesis.
+
+| Stage | As built | Source |
+|---|---|---|
+| Sources | grid cells with CFB ≥ 0.1 (torching or crowning; M4). Surface-only cells emit nothing (f_s = 0 [H]; sensitivity f_s = 1) | NOR-X-433 p.34 (qualitative) |
+| Generation | `n_kg · (f_s·SFC + CFC) · A_cell` embers per cell, spread evenly over the cell's burning time; **n_kg = 500 /kg** | Qin25 eq 3.7 (yield 0.10, 0.2 g), pp.59-61 [V]; eq 3.2 [V]. Sensitivity 640 /kg (Thompson et al. 2022 p.1630 [V]), 250 /kg (Qin25 p.59 5 % yield [V]) |
+| Downwind | Sardoy lognormal (§6, C18: 6.1 m wind = U10/1.15, I_B in MW/m), **not truncated at the 99th percentile** (C25) | Qin25 eqs 4.2-4.6 [V] |
+| Cap | embers beyond the maximum spotting distance are dropped [H]. Crowning cells (CFB ≥ 0.9): Albini, Alexander & Cruz 2012 Table 1 (1.0 mm final firebrand, the table's assumption), interpolated in canopy-top height H_c (the fuel type's stand height, `albini.STAND_DEFAULTS`), H_f/H_c and U_c = U10/1.5; H_f from the paper's eq 18 (A · I = 0.34 U_c H_c (1+a) ln(1+a), a = 2.94 H_f/H_c, A = 2.65 m³/MJ); outside the table held at its edges [H] (C26). Torching cells: Albini 1979 torching trees (`albini.max_spot_distance`) | Albini et al. 2012 pp.E, L [V]; Albini 1979 |
+| Crosswind | normal, σ_Y = 0.92 × source cell size (sensitivity ×2 [H]) | HT08 eq 39 (as §6) |
+| Field | expected landed embers per m² on a raster (source cell size), per time bin (30 min [H], split at weather periods): emission grid per source class (crown/torch × fuel × quarter-decade of intensity, kernel at the emission-weighted geometric-mean intensity) convolved with the class kernel (FFT) | [R31] §5.1 T, §5.3 |
+| Receptive area | A_r = footprint grown by a 1.5 m ring [H] (FireSmart 0-1.5 m) | — |
+| Ignition | hazard per bin h = λ(centroid) · A_r · p_e · k_g · p_b; P(by t) = 1 − exp(−Σh). **p_e** = Beverly & Wotton grass-summer logistic, logit = −23.3755 + 0.2895 DFFMC (DFFMC = the run's FFMC); **k_g = 0.5** glowing-brand factor [H] (Ganteaume et al. 2009 [A]: flaming ≥ 2× glowing); **p_b = 0.1** near-home ignition → building fire [H], no published value | Beverly & Wotton 2007 AMS preprint eq 2.02, p.5 [V preprint; journal coefficients unconfirmed, ILL] |
+| Roofs | combustible-roof scenario units (§6.2): p_b × 1/0.375 [H] (the same DeBeer ratio), per-ember probability capped at 1. Allowed with long-range embers alone | §6.2 |
+| Delays | +42 s + 300 s (C4); flight time neglected [H] | FSJ104686 p.4 [V] |
+| Ensemble | M members (API default 20, maximum 50; offline 50: Purnomo et al. 2024 p.3 found 50 ≈ 100 [V]). Each member draws every unit's first ignition from the inhomogeneous Poisson process (seed = run seed, member), adds the delays and runs the structure stage (front contact, Hamada, burn-out, optional bridge and short-range embers). Not deterministic by design; seeded, so repeatable | [R31] §5.1 E |
+| Reachable box | the units are built over the box grown to the landing field's raster (all landing points), then as §2 | §2 |
+
+**Outputs.** Counts on every frame are **member means** (`units_involved_expected`, integers
+rounded) with `long_range_embers: true` and `long_range` {`label` = "ignition probability —
+illustrative, not validated in Canada", `members`, `units_p_ge_0_5`}. The detail lists every
+unit involved in any member, with `p_involved` (share of members, by the run end), `p_ember`
+(1 − exp(−Σh)), `t_h` = median involvement time over the members that involved it, and the most
+frequent mechanism; `source_id` is null (parents differ between members). Map display only: the
+map fades each building by its probability ("Ignition probability: faint low, solid high");
+never exported, never in ICS forms.
+
+**Compute.** One field per run (one FFT per time bin × class), then M structure runs. The
+Eaton validation (13.5k units, 4,400 ha of crowning wildland, 851 × 1,124 cells at 20 m) is
+reported in [R32].
+
+**Not built.** Spot fires in wildland/yard grid cells from long-range embers (the existing
+`spread/spotting.py` stays the wildland spotting model); column-collapse pulses; turbulent-plume
+tails other than the pre-registered ×2 sensitivity; terrain.
+
+**Validation.** Pre-registered Eaton (primary) / Camp (secondary) test, `PREREG_LR` in
+`scripts/long_range_ember_validation.py`; results in PROJECT_RECORD §4.4 and [R32]. **Not
+worth showing** (κ below windward seeding and a distance band; over-confident). Kept as
+`structure_long_range_model: "v1"`.
+
+### 6.4 Long-range embers v2: urban ember source (opt-in, 2026-10-11) — illustrative
+
+Same module, `LongRangeOptions(model="v2")`, the API default for `structure_long_range_embers`
+(`structure_long_range_model` "v2" | "v1"). Why: the v1 test [R32] found (a) embers only from
+the wildland edge, while the Eaton loss rate *rose* with distance into town (32 % → 66 % to
+1 km), and (b) saturation: inside the Albini cap every building received thousands of embers
+and the per-ember probabilities (~0.025 on ~250 m²) made P ≈ 1, so the [H] factors did nothing
+and the model was over-confident. v2 changes the structure, not fitted values; report [R33].
+
+| Stage | v2 (changes from §6.3 in bold) | Source |
+|---|---|---|
+| Wildland source, transport, cap | as §6.3 (time bins = the 10 min coupling step) | §6.3 |
+| **Urban source** | every involved unit (front, Hamada or embers) emits `GR' · ∫HRR dt` embers over its design fire (150 kW/m², until burn-out): GR' = 10 per MJ [T] | Qin25 eq 3.1, Table 6.1 p.153; PROCI24 p.3 |
+| **Urban transport** | Himoto lognormal (HT08 eqs 38-40, 10 m wind as C17) measured from the downwind edge (D/2 from the centroid, C16), crosswind σ_Y = 0.92 D; **not truncated** at Qin's 99th percentile (kernel to the 99.9th [H]); kernels per building-size class (quartiles of D, class median) at the emission-weighted HRR ∫q²/∫q [D] (101.5 kW/m² for the 150 curve); 10 m raster [H]; evaluated only at building cells (sparse source → target matrix); nothing lands on the emitter | HT08; Qin25 §6.3.1 p.170 |
+| **Coupling** | 10 min steps [H]: wildland + urban embers landed in the step → ignitions → the Hamada stage (`IncrementalHamada`, identical to `hamada_spread` without new seeds) advanced to the step end so that ember- and Hamada-involved units emit in later steps (wildland → town → town). A seed earlier than events already processed is propagated from its own time but does not re-time units already involved (resolution = the step) | — |
+| **Receptive area** | one receptive near-home fuel bed of the tested size per building, **A_bed = 1.44 m²** [V size, H as receptor]; embers on it = landing density at the building × A_bed | Suzuki, Manzello et al. 2015 Fire Technol. (DOI 10.1007/s10694-014-0425-2), Fig. 5 |
+| **Per-ember ignition** | q = m_f · p_bed · p_b. **p_bed** = 1 / brands to first sustained flaming of a bed under a firebrand shower: dry mulch 7.36 m⁻²s⁻¹ × 1.44 m² × 172 s ≈ 1,823 brands → 5.5 × 10⁻⁴ [D]; range 2 × 10⁻⁴-7 × 10⁻³ (mulch 980-3,800, pine bark 1,508-2,624, decking 140-5,700 brands; firebrand-structures review 2026-10-11) [D], drawn **per building**, log-uniform [H]. **m_f = 4**: the model ember is 0.2 g (Qin), the tested brands 0.05 ± 0.02 g (Suzuki 2015), and the tests show accumulated mass/area governs ignition (Suzuki 2015 §3) [D]. **p_b** = bed fire → building fire, no published value; lab corner tests range from no ignition (≥ 200 mm non-combustible gap) to 6/6 (bare OSB) (Fire Technol. 53:535) → U(0.1, 1) **per member** [H] | Suzuki 2015 Table 1, §3 (times to sustained FI) [V] |
+| Ignition draw | each unit draws E ~ Exp(1); ignited when q · Σ (embers on its bed) crosses E (time interpolated in the step); involved 42 s + 300 s later (C4) | FSJ104686 p.4 |
+| **Parameter uncertainty** | per member: wind (as before), p_b, n_kg ~ U(250, 640) /kg (C27 values); per building: p_bed | [H] |
+| Alternatives (sensitivities) | HT08 per-ember α on the footprint: α_B·β_B ∈ {0, 1, 2} × 10⁻⁶ /kJ (HT08 Table 3, an uncalibrated sensitivity set) ÷ β_B = GR' = 0.01 /kJ → α ~ U(0, 2 × 10⁻⁴) (`receptive="footprint"`); v1's ring + α (`"ring"`) | HT08 |
+| Roofs | scenario units: q × 1/0.375 [H] (as §6.3) | §6.2 |
+
+**Sanity bound (not fitted).** Itoigawa 2016: ~10 spot ignitions per 147 burned buildings at
+9 m/s (~0.07 per burned building; review 2026-10-11). With the primary values, dry runs gave
+~0.1-0.15 urban-ember ignitions per involved building (Eaton/Palisades set-ups): at the top of
+that band. HT08's α on the footprint gives ~2-4 per burned house [D] — far above it, which is
+why HT08 is a sensitivity, not the primary.
+
+**Outputs.** As §6.3; `p_ember` = share of members in which the unit was ember-ignited (by
+wildland or urban embers); params gain `long_range_model`, `long_range_urban_source`,
+`long_range_parameter_draws`, `long_range_receptive`, `long_range_step_min`. The reachable-box
+guard includes the urban kernel reach. Units outside the box receive no urban embers.
+
+**Validation.** `PREREG_LR2` in `scripts/long_range_v2_validation.py` (pushed `c6399f7` before
+scoring): Palisades 2025 primary (independent, data prepared blind to outcomes), Eaton and Camp
+disclosed non-independent checks; results PROJECT_RECORD §4.4 and [R33]. **Result: not worth showing** on Palisades (κ beat windward seeding and a distance band; Brier vs Chen & McAneney +0.061, 95 % −0.011 to +0.131, not significant; AUC 0.50, over-confident). Stays opt-in, illustrative.
+
 ## 7. Conflicting published values and the choices made
 
 | # | Conflict | Values and sources | FireSim choice | Reason |
@@ -599,6 +682,13 @@ recommends a pre-specified scenario, approved by the owner:
 | C22 | Woody-cover metric for the bridged cutoff | FPI p.9, p.24: woody cover by point intercept (7.5 m grid on Google Earth) in the 10 m zone around buildings, at block level; the step-3 data (§2.1): CHM ≥ 2 m share of 1 m pixels in rings | **CHM ≥ 2 m share of the gap corridor** (§4.6) with FPI's 20 % threshold [H] | The corridor is where spread between the two buildings passes; FPI's threshold is the only published value. The CHM misses shrubs < 2 m (FPI's woody class includes shrubs), so the corridor cover reads low against FPI's; the Meta CHM imagery is 2011 at Jasper and 2015-2020 in Edmonton |
 | C23 | Ember threshold for combustible roofs | No published ψ* for wood shake (spec §6: FSJ104686 eq 1 is PTW only); DeBeer 2023 Tables 10-1, 10-4: WRC vs PTW ignition probability at two pile loadings; roof report §6: k = 0.5 placeholder [H] | **k = 0.375** (DeBeer bound at 1.4 m/s), k = 0.5 and 1 as sensitivity | The only measured comparison of a shake wood with the eq 1 receptor; the roof report's 0.5 has no source |
 | C24 | Roof class per building | FPI p.8: Jasper's municipal pre-fire roof assessment (not public); CAL FIRE DINS `ROOFCONSTRUCTION` (California); no open roof data for Alberta | **Random scenario** with the run seed (§6.2), never observed roofs | No open source for Alberta; DINS and FPI roofs are outcomes of the validation fires and may not set anything |
+| C25 | Long-range tail of the Sardoy PDF | Qin25 eqs 4.8-4.9 and FSJ104686 p.3 truncate at the 99th percentile; RandomFront at the 67th; Albini et al. 2012 p.621: Sardoy 2008 simulated 9.5-10 km at 30 MW/m | **Untruncated, capped at the Albini maximum spotting distance** (long-range stage, §6.3); 99 % truncation and a ×2 tail are pre-registered sensitivities | The truncations remove exactly the 250 m-3 km band that matters ([R31] §2) |
+| C26 | Crown-fire flame height for the Albini 2012 cap | The paper's own flame-structure model (eq 18) vs the Butler et al. 2004 flame height its Fig. 7 used: at 25 km/h, 21,800 kW/m, 14 m stand the paper reports 1.4 km; eq 18 + Table 1 give 0.85 km [D] | **Eq 18** (the paper's model; no flame-height model for crowns in FireSim), Table 1 held at its edges | Traceable to one paper; the lower cap is stated |
+| C27 | Ember yield per kg consumed | 500 /kg (Qin25 eq 3.7, 10 % yield chosen "conservative", p.59); 640 /kg measured in an Alberta crown fire (Thompson et al. 2022 p.1630); Thompson's camera counts suggest up to 5-7× more impacts near the front ([R31] §0 [D]) | **500 /kg** primary; 640 and 250 pre-registered sensitivities | The value with a published derivation |
+| C28 | Per-ember building ignition probability (v2) | HT08 Table 3: α_B·β_B ∈ {0, 1, 2} × 10⁻⁶ /kJ, a sensitivity set ("not calibrated"), → α ≈ 10⁻⁴ per brand landing on a building with Qin's β; firebrand-shower bed tests (Suzuki/Manzello 2015; decking, bark): 1/N ≈ 2 × 10⁻⁴-7 × 10⁻³ per 0.05 g brand on a ~1.4 m² bed; v1: match-flame p_e × k_g × p_b ≈ 0.025 per ember on footprint + ring | **Receptive bed** (1.44 m², p_bed range per building, m_f = 4, p_b U(0.1, 1)); HT08 α as sensitivity | Measured ignition under realistic showers; HT08's footprint α gives ~2-4 urban ignitions per burned house, 30-50× the Itoigawa field rate; the bed form gives ~0.1 |
+| C29 | Ember mass for count thresholds | Qin's generation and ψ assume 0.2 g; IBHS structural brands median ~0.05 g, σ_ln ~1.6; Suzuki 2012/2014: 56-85 % < 0.1 g | **0.2 g model embers, mass factor 4 on the tested 0.05 g brands** [D]; m_f = 1 sensitivity | Mass-equivalent: the bed tests show accumulated mass governs |
+| C30 | Bed → building transition p_b | No published probability; corner tests: none (≥ 200 mm non-combustible gap, shredded hardwood) to 6/6 (bare OSB) (Fire Technol. 53:535 Tables 1-2) | **U(0.1, 1) per member** [H]; 0.1 and 1 sensitivities | The test range, not a value |
+| C31 | Urban ember tail | Qin25 truncates the Himoto PDF at the 99th percentile; field maxima 1.2-2 km (Beppu 2010, Shurijo 2019 [S]) far beyond Himoto | **Himoto to the 99.9th percentile** (≈ 100-330 m); q99 a sensitivity; no km tail | No validated km kernel for buildings |
 | C20 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500

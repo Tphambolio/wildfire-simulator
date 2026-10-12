@@ -123,10 +123,17 @@ export const TIPS = {
     "Buildings up to 20 m apart pass fire as usual; 20–45 m apart only where trees cover at least " +
     "20 % of the gap (open 1 m canopy map). FireSim rule from the FPInnovations Jasper threshold; " +
     "not validated.",
+  structureLongRange:
+    "Embers carried hundreds of metres to a few km from torching and crowning cells: 500 embers " +
+    "per kg of fuel burned, landing by a published model up to the Albini maximum spotting " +
+    "distance; each building ignites with a probability from the embers landing on it. The " +
+    "per-ember chance that a building catches is a FireSim assumption. Runs an ensemble; " +
+    "buildings show ignition probability. Illustrative, not validated (Eaton 2025 test in " +
+    "PROJECT_RECORD).",
   structureRoofs:
     "A scenario, not observed roofs: no open data says which roofs are wood shake. This share of " +
     "buildings, picked at random with the run seed, ignite from embers at 0.375 of the threshold " +
-    "(lab firebrand tests, cedar vs treated pine). Needs ember ignition.",
+    "(lab firebrand tests, cedar vs treated pine). Needs ember ignition or long-range embers.",
   wui:
     "425 park-buffer zones with spread ×0.7, intensity ×1.2 and embers ×3.0. These values have no " +
     "documented source; leave off unless testing.",

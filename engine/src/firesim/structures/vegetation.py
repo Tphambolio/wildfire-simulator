@@ -144,9 +144,18 @@ class CanopyWindow:
 
     @property
     def has_data(self) -> bool:
+        """Any canopy value in the window (computed once: ``BridgedLinks.cover`` asks for
+        every new link, and a full scan of a city-size 1 m window per call is slow)."""
+        key = (id(self.share), self.share.shape)
+        cached = self.__dict__.get("_has_data")
+        if cached is not None and cached[0] == key:
+            return cached[1]
         if self.share.dtype == np.uint8:
-            return bool((self.share != NODATA).any())
-        return bool(np.isfinite(self.share).any())
+            v = bool((self.share != NODATA).any())
+        else:
+            v = bool(np.isfinite(self.share).any())
+        self.__dict__["_has_data"] = (key, v)
+        return v
 
 
 class CanopyCover:

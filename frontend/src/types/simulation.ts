@@ -93,6 +93,16 @@ export interface SimulationCreate {
    * (0, 0.05, 0.15, 0.30; spec §6.2). A scenario, not observed roofs. API default: 0
    */
   structure_combustible_roof_share?: number;
+  /**
+   * With structure_spread: long-range ember ignition from torching/crowning cells (spec §6.3),
+   * an ensemble giving each involved building an ignition probability. Illustrative. API
+   * default: off
+   */
+  structure_long_range_embers?: boolean;
+  /** Ensemble members for structure_long_range_embers (1-50, API default 20) */
+  structure_long_range_members?: number;
+  /** Long-range ember model: "v2" (API default; urban ember source, spec §6.4) or "v1" (§6.3) */
+  structure_long_range_model?: "v1" | "v2";
 }
 
 /**
@@ -202,6 +212,12 @@ export interface StructureSpreadSummary {
   links_bridged?: number; // of which gap cover >= 20 %
   /** Roof scenario (request structure_combustible_roof_share > 0); absent when off */
   roof_scenario?: RoofScenario;
+  /** Long-range embers (request structure_long_range_embers): counts are member means */
+  long_range_embers?: boolean;
+  /** Long-range ember model used ("v1" | "v2") */
+  long_range_model?: "v1" | "v2";
+  units_involved_expected?: number;
+  long_range?: { label: string; members: number; units_p_ge_0_5: number };
 }
 
 /** Combustible-roof scenario (spec §6.2). Any display must show `label`. */
@@ -235,6 +251,10 @@ export interface StructureUnitDetail {
   mechanism: "front" | "b2b" | "ember"; // wildland front contact / building to building / embers
   source_id: number | null; // b2b or ember: id of the unit that passed the fire on (null: wildland embers)
   polygon: number[][][]; // footprint ring(s), [lng, lat]
+  /** Long-range embers: share of ensemble members involving the unit (illustrative) */
+  p_involved?: number;
+  /** Long-range embers: probability of long-range ember ignition */
+  p_ember?: number | null;
   veg?: BuildingVegetation; // open-data vegetation attributes, when available
   combustible_roof_scenario?: boolean; // roof scenario assigned a combustible roof (not observed)
 }

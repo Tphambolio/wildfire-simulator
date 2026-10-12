@@ -378,12 +378,44 @@ class SimulationCreate(BaseModel):
     structure_combustible_roof_share: float = Field(
         default=0.0,
         description=(
-            "Roof scenario (opt-in; needs `structure_embers`): share of buildings assigned a "
+            "Roof scenario (opt-in; needs `structure_embers` or `structure_long_range_embers`): share of buildings assigned a "
             "combustible roof at random with the run seed, one of 0 (default, no roof term), "
             "0.05, 0.15, 0.30. They ignite from embers at 0.375 × the ember threshold ψ* "
             "(DeBeer 2023, firebrand piles on cedar vs pine treated wood; "
             "docs/structure-spread-spec.md §6.2). **A scenario, not observed roofs**: counts "
             "gain `roof_scenario` with its label; detail flags `combustible_roof_scenario`."
+        ),
+    )
+
+    structure_long_range_embers: bool = Field(
+        default=False,
+        description=(
+            "Opt-in, illustrative — not validated in Canada; needs `structure_spread`. "
+            "Long-range ember ignition from the torching/crowning grid cells "
+            "(docs/structure-spread-spec.md §6.3): 500 embers per kg of fuel consumed (Qin "
+            "2025), Sardoy transport capped at the Albini maximum spotting distance, per-building "
+            "ignition probability 1 − exp(−N p_e p_b) (Beverly & Wotton 2007 p_e; p_e glowing "
+            "factor and p_b are FireSim hypotheses), then the structure stage, over an ensemble "
+            "of `structure_long_range_members` runs. Counts become expected counts (member "
+            "means) with `long_range`; detail entries gain `p_involved` and `p_ember`. Map "
+            "display only; never exported."
+        ),
+    )
+    structure_long_range_members: int = Field(
+        default=20, ge=1, le=50,
+        description="Ensemble members for `structure_long_range_embers` (1-50, default 20).",
+    )
+    structure_long_range_model: Literal["v1", "v2"] = Field(
+        default="v2",
+        description=(
+            "Long-range ember model (illustrative — not validated). `v2` (default, "
+            "docs/structure-spread-spec.md §6.4): burning buildings are ember sources too "
+            "(Qin 2025 generation, Himoto & Tanaka 2008 transport), iterated every 10 min so "
+            "ember-ignited buildings become sources; embers landing on one 1.44 m² receptive "
+            "bed per building ignite it with the per-brand probability measured under "
+            "firebrand showers (Suzuki & Manzello) × a bed-to-building probability p_b (FireSim "
+            "hypothesis); p_b, the bed probability and the 250-640 embers/kg yield are drawn "
+            "per member. `v1`: the §6.3 chain (wildland source only, receptive ring, p_e · p_b)."
         ),
     )
 
@@ -396,9 +428,13 @@ class SimulationCreate(BaseModel):
         if not any(abs(self.structure_combustible_roof_share - v) < 1e-9
                    for v in (0.0, 0.05, 0.15, 0.30)):
             raise ValueError("structure_combustible_roof_share must be one of 0, 0.05, 0.15, 0.30")
-        if self.structure_combustible_roof_share > 0 and not self.structure_embers:
+        if self.structure_long_range_embers and not self.structure_spread:
+            raise ValueError("structure_long_range_embers needs structure_spread: true")
+        if (self.structure_combustible_roof_share > 0 and not self.structure_embers
+                and not self.structure_long_range_embers):
             raise ValueError("structure_combustible_roof_share needs structure_embers: true "
-                             "(the roof scenario acts on ember ignition)")
+                             "or structure_long_range_embers: true (the roof scenario acts on "
+                             "ember ignition)")
         return self
 
     @field_validator("start_time")
