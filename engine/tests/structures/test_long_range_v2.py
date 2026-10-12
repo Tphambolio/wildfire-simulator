@@ -49,7 +49,7 @@ def test_published_values():
     assert LR.MASS_FACTOR == pytest.approx(0.2 / 0.05)
     assert LR.LongRangeOptions(model="v1").field_bin_min == 30.0
     with pytest.raises(ValueError):
-        LR.LongRangeOptions(model="v3")
+        LR.LongRangeOptions(model="v4")
 
 
 def test_member_draws_cover_the_published_ranges():

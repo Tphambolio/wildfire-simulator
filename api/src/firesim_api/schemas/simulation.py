@@ -405,7 +405,7 @@ class SimulationCreate(BaseModel):
         default=20, ge=1, le=50,
         description="Ensemble members for `structure_long_range_embers` (1-50, default 20).",
     )
-    structure_long_range_model: Literal["v1", "v2"] = Field(
+    structure_long_range_model: Literal["v1", "v2", "v3"] = Field(
         default="v2",
         description=(
             "Long-range ember model (illustrative — not validated). `v2` (default, "
@@ -415,7 +415,10 @@ class SimulationCreate(BaseModel):
             "bed per building ignite it with the per-brand probability measured under "
             "firebrand showers (Suzuki & Manzello) × a bed-to-building probability p_b (FireSim "
             "hypothesis); p_b, the bed probability and the 250-640 embers/kg yield are drawn "
-            "per member. `v1`: the §6.3 chain (wildland source only, receptive ring, p_e · p_b)."
+            "per member. `v1`: the §6.3 chain (wildland source only, receptive ring, p_e · p_b). "
+            "`v3` (§6.5): v2 plus probabilistic building-to-building links (exp(−separation / "
+            "scale) to 50 m), building survival, an ember factor (values fitted on Eaton, "
+            "Palisades and Camp) and a wind-event end of the run; not with `structure_embers`."
         ),
     )
 
@@ -430,6 +433,9 @@ class SimulationCreate(BaseModel):
             raise ValueError("structure_combustible_roof_share must be one of 0, 0.05, 0.15, 0.30")
         if self.structure_long_range_embers and not self.structure_spread:
             raise ValueError("structure_long_range_embers needs structure_spread: true")
+        if (self.structure_long_range_embers and self.structure_long_range_model == "v3"
+                and self.structure_embers):
+            raise ValueError("structure_long_range_model v3 replaces structure_embers; use one")
         if (self.structure_combustible_roof_share > 0 and not self.structure_embers
                 and not self.structure_long_range_embers):
             raise ValueError("structure_combustible_roof_share needs structure_embers: true "

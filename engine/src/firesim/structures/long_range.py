@@ -168,6 +168,14 @@ MASS_FACTOR = 4.0  # model ember 0.2 g (Qin) / tested brand 0.05 g (Suzuki 2015 
 P_B_RANGE = (0.1, 1.0)  # bed fire → building fire; no published value; lab corner tests (Fire
 #   Technol. 53:535) span no ignition to 6/6 [H]; drawn per member, uniform
 P_B_FIXED = 0.5
+# v3 (spec §6.5). Forms from the literature; values fitted by leave-one-fire-out CV on the
+# training fires (Eaton 2025, Palisades 2025, Camp 2018) — see PROJECT_RECORD [R37].
+V3_LINK_SCALE_M = 10.0  # p_link(d) = exp(-d / scale); Knapp et al. 2021 (Camp): survival 0.058 < 18 m
+#                         vs 0.354 >= 18 m from the nearest destroyed structure (decision tree, Fig. 5a)
+V3_LINK_CUTOFF_M = 50.0  # graph radius for building-to-building links [H]
+V3_SURVIVAL = 0.3  # P(exposed building never becomes fully involved): defence, hardening [fitted]
+V3_EMBER_FACTOR = 1.0  # multiplier on q [fitted]
+V3_STOP_WIND_KMH = 20.0  # wind-event end: 10 m wind < 20 km/h for 2 h, >= 3 h after ignition [H]
 URBAN_SIZE_CLASSES = 4  # building-size classes for the urban kernels (quartiles) [H]
 URBAN_RASTER_M = 10.0  # urban landing raster (Himoto medians are ~4-12 m) [H]
 
@@ -216,14 +224,24 @@ class LongRangeOptions:
     gr_structure: float = GR_STRUCTURE
     structure_tail_q: float = HIMOTO_TAIL_Q
     design_fire_kw_m2: int = 150
+    # v3 (spec §6.5): probabilistic building-to-building links, survival, ember factor, run end
+    link_scale_m: float = V3_LINK_SCALE_M  # p_link = exp(-separation / scale)
+    link_cutoff_m: float = V3_LINK_CUTOFF_M
+    survival: float = V3_SURVIVAL  # P(an exposed building never becomes fully involved)
+    ember_factor: float = V3_EMBER_FACTOR  # multiplier on the per-ember probability q
+    stop_wind_kmh: float | None = V3_STOP_WIND_KMH  # wind-event end rule (None: run to the end)
 
     def __post_init__(self):
         if self.tail not in ("cap", "q99", "x2"):
             raise ValueError("tail must be 'cap', 'q99' or 'x2'")
         if not 1 <= int(self.members) <= MAX_MEMBERS:
             raise ValueError(f"members must be 1-{MAX_MEMBERS}")
-        if self.model not in ("v1", "v2"):
-            raise ValueError("model must be 'v1' or 'v2'")
+        if self.model not in ("v1", "v2", "v3"):
+            raise ValueError("model must be 'v1', 'v2' or 'v3'")
+        if not 0.0 <= self.survival < 1.0:
+            raise ValueError("survival must be in [0, 1)")
+        if not self.link_scale_m > 0:
+            raise ValueError("link_scale_m must be > 0")
         if self.receptive not in ("bed", "footprint", "ring"):
             raise ValueError("receptive must be 'bed', 'footprint' or 'ring'")
         if not self.step_min > 0:
@@ -232,13 +250,19 @@ class LongRangeOptions:
     @property
     def field_bin_min(self) -> float:
         """Landing-field bin: the coupling step in v2, ``bin_min`` in v1."""
-        return float(self.step_min if self.model == "v2" else self.bin_min)
+        return float(self.bin_min if self.model == "v1" else self.step_min)
 
     def params(self) -> dict:
         out = {"long_range_embers": True, "long_range_members": int(self.members),
                "long_range_model": self.model,
                "long_range_embers_per_kg": float(self.n_per_kg),
                "long_range_tail": self.tail}
+        if self.model == "v3":
+            out.update({"long_range_link_scale_m": float(self.link_scale_m),
+                        "long_range_link_cutoff_m": float(self.link_cutoff_m),
+                        "long_range_survival": float(self.survival),
+                        "long_range_ember_factor": float(self.ember_factor),
+                        "long_range_stop_wind_kmh": self.stop_wind_kmh})
         if self.model == "v1":
             out.update({"long_range_p_building": float(self.p_building),
                         "long_range_glowing_factor": float(self.k_glowing)})
@@ -702,11 +726,13 @@ class IncrementalHamada:
     """
 
     def __init__(self, units, wind, *, duration_min: float, fb: float, burnout_min=None,
-                 link_filter=None):
+                 link_filter=None, blocked=None):
         from firesim.structures.spread import WindPeriod  # noqa: F401  (type of ``wind``)
 
         self.units, self.fb, self.burnout_min = units, fb, burnout_min
         self.link_filter, self.duration_min = link_filter, float(duration_min)
+        # v3 survival: units that never become involved (defended / not transitioning)
+        self.blocked = None if blocked is None else np.asarray(blocked, bool)
         self.starts = np.array([w.start_min for w in wind], dtype=float)
         self.speed = np.array([w.wind_speed_kmh / 3.6 for w in wind])
         to = np.radians(np.array([w.wind_direction_deg for w in wind]) + 180.0)
@@ -718,6 +744,8 @@ class IncrementalHamada:
         n = len(self.units)
         t = np.asarray(t_front_min, dtype=float).copy()
         t[t > self.duration_min] = np.inf
+        if self.blocked is not None:
+            t[self.blocked] = np.inf
         self.t = t
         self.source = np.where(np.isfinite(t), SOURCE_FRONT, SOURCE_NONE).astype(np.int8)
         self.done = np.zeros(n, dtype=bool)
@@ -733,6 +761,8 @@ class IncrementalHamada:
 
         for i, ti in zip(np.asarray(idx, int), np.asarray(times, float)):
             if self.done[i] or not ti < self.t[i] or ti > self.duration_min:
+                continue
+            if self.blocked is not None and self.blocked[i]:
                 continue
             self.t[i] = ti
             self.source[i] = SOURCE_FRONT
@@ -753,6 +783,8 @@ class IncrementalHamada:
             if len(nb) == 0:
                 continue
             keep = ~done[nb]
+            if self.blocked is not None:
+                keep &= ~self.blocked[nb]
             nb, sep = nb[keep], sep[keep]
             if len(nb) and self.link_filter is not None:
                 keep = self.link_filter(i, nb, sep)
@@ -826,7 +858,7 @@ def member_draw(opts: LongRangeOptions, rng, n: int) -> MemberDraw:
     per member (no published value). ``"footprint"``/``"ring"``: q = α = α_B·β_B / β_B with
     α_B·β_B ~ U(HT08 range) per member. n_kg ~ U(250, 640) per member. Fixed values when
     ``param_draws`` is False. The draw order is fixed (n_kg, p_b or α, then p_bed)."""
-    draws = opts.model == "v2" and opts.param_draws
+    draws = opts.model in ("v2", "v3") and opts.param_draws
     nk = float(rng.uniform(*opts.n_per_kg_range)) if draws else float(opts.n_per_kg)
     if opts.receptive == "bed":
         p_b = float(rng.uniform(*opts.p_b_range)) if draws else float(opts.p_b)
@@ -835,7 +867,8 @@ def member_draw(opts: LongRangeOptions, rng, n: int) -> MemberDraw:
             p_bed = np.exp(rng.uniform(lo, hi, size=n))
         else:
             p_bed = np.full(n, float(opts.p_bed))
-        q = np.minimum(opts.mass_factor * p_bed * p_b, 1.0)
+        k = float(opts.ember_factor) if opts.model == "v3" else 1.0
+        q = np.minimum(k * opts.mass_factor * p_bed * p_b, 1.0)
         return MemberDraw(q, nk / opts.n_per_kg, p_b=p_b)
     a = float(rng.uniform(*opts.alpha_beta_range)) / BETA_B_PER_KJ if draws else float(opts.alpha)
     return MemberDraw(np.full(n, a), nk / opts.n_per_kg, alpha=a)
@@ -924,5 +957,89 @@ def run_ensemble_v2(units, t_front_min, wild_landed, edges, opts: LongRangeOptio
         rng = np.random.default_rng([int(opts.seed), m])
         t, s, lr, _, _ = run_member_v2(units, t_front_min, wild_landed, edges, opts, stage,
                                        duration_min, rng, urban, wind_periods, alpha_factor)
+        t_all[m], s_all[m], lr_all[m] = t, s, lr
+    return t_all, s_all, lr_all, (lr_all.mean(axis=0) if m_count else np.zeros(n))
+
+
+# ----------------------------------------------------------------------------- v3 (spec §6.5)
+
+
+def wind_event_end(times_min, speeds_kmh, stop_kmh: float | None = V3_STOP_WIND_KMH,
+                   hold_min: float = 120.0, min_after: float = 180.0) -> float:
+    """End of the wind-driven run (minutes): the first time >= ``min_after`` from which the
+    10 m wind stays below ``stop_kmh`` for ``hold_min`` [H]. ``inf`` if never (or no rule)."""
+    if stop_kmh is None:
+        return math.inf
+    t = np.asarray(times_min, float)
+    v = np.asarray(speeds_kmh, float)
+    order = np.argsort(t)
+    t, v = t[order], v[order]
+    for k in range(len(t)):
+        if t[k] < min_after or v[k] >= stop_kmh:
+            continue
+        j = k
+        while j + 1 < len(t) and v[j + 1] < stop_kmh:
+            j += 1
+        if t[j] - t[k] >= hold_min:
+            return float(t[k])
+    return math.inf
+
+
+def link_filter_v3(rng, scale_m: float, cutoff_m: float):
+    """Probabilistic building-to-building transmission (v3): a link of separation ``sep``
+    passes fire with probability exp(-sep / scale_m) (0 beyond ``cutoff_m``), one draw per link
+    per member. Form after Knapp et al. 2021 (Camp: survival rises sharply beyond ~18 m from the
+    nearest destroyed structure), Zamanialaei et al. 2025 (spacing is a critical factor) and
+    Syphard et al. 2012 (housing arrangement); the scale is fitted [R37]."""
+    def f(i, nb, sep):
+        sep = np.asarray(sep, float)
+        p = np.where(sep <= cutoff_m, np.exp(-np.maximum(sep, 0.0) / scale_m), 0.0)
+        return rng.random(len(sep)) < p
+    return f
+
+
+def run_member_v3(units, t_front_min, wild_landed, edges, opts: LongRangeOptions, wind,
+                  duration_min: float, rng, urban: UrbanSource | None, wind_periods,
+                  burnout_min=None, fb: float = 1.0, alpha_factor=None, stop_min: float = math.inf,
+                  extra_filter=None):
+    """One v3 member: v2 embers (q × ember_factor) + probabilistic links + survival + run end.
+
+    ``wind``: ``WindPeriod`` list for the Hamada timing. ``stop_min``: no building becomes
+    involved after it (wind-event end or a documented end of the run). ``units`` should carry a
+    neighbour graph to ``opts.link_cutoff_m``. ``extra_filter``: optional link filter combined
+    with the probabilistic one (e.g. the vegetation bridge). Returns as ``run_member_v2``.
+    """
+    n = len(units)
+    draw = member_draw(opts, rng, n)
+    sub = np.random.default_rng(rng.integers(0, 2**63 - 1))
+    blocked = sub.random(n) < float(opts.survival)
+    pf = link_filter_v3(sub, opts.link_scale_m, opts.link_cutoff_m)
+    if extra_filter is not None:
+        lf = lambda i, nb, sep: pf(i, nb, sep) & extra_filter(i, nb, sep)  # noqa: E731
+    else:
+        lf = pf
+    end = min(float(duration_min), float(stop_min))
+    stage = IncrementalHamada(units, wind, duration_min=end, fb=fb, burnout_min=burnout_min,
+                              link_filter=lf, blocked=blocked)
+    t, s, lr, landed, draw = run_member_v2(units, t_front_min, wild_landed, edges, opts, stage, end,
+                                           rng, urban, wind_periods, alpha_factor, draw=draw)
+    draw.info["survivors_drawn"] = int(blocked.sum())
+    return t, s, lr, landed, draw
+
+
+def run_ensemble_v3(units, t_front_min, wild_landed, edges, opts: LongRangeOptions, wind,
+                    duration_min: float, urban, wind_periods, burnout_min=None, fb: float = 1.0,
+                    alpha_factor=None, stop_min: float = math.inf, extra_filter=None):
+    """M v3 members (seeded ``default_rng([seed, m])``); returns as ``run_ensemble_v2``."""
+    n = len(units)
+    m_count = int(opts.members)
+    t_all = np.full((m_count, n), np.inf, dtype=np.float32)
+    s_all = np.zeros((m_count, n), dtype=np.int8)
+    lr_all = np.zeros((m_count, n), dtype=bool)
+    for m in range(m_count):
+        rng = np.random.default_rng([int(opts.seed), m])
+        t, s, lr, _, _ = run_member_v3(units, t_front_min, wild_landed, edges, opts, wind,
+                                       duration_min, rng, urban, wind_periods, burnout_min, fb,
+                                       alpha_factor, stop_min, extra_filter)
         t_all[m], s_all[m], lr_all[m] = t, s, lr
     return t_all, s_all, lr_all, (lr_all.mean(axis=0) if m_count else np.zeros(n))

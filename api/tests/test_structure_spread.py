@@ -402,9 +402,13 @@ async def test_roof_scenario_allowed_with_long_range(client, files):
 async def test_long_range_model_option(client, files):
     resp = await client.post("/api/v1/simulations", json=_payload(
         files, structure_spread=True, structure_long_range_embers=True,
+        structure_long_range_model="v4"))
+    assert resp.status_code == 422
+    resp = await client.post("/api/v1/simulations", json=_payload(
+        files, structure_spread=True, structure_long_range_embers=True, structure_embers=True,
         structure_long_range_model="v3"))
     assert resp.status_code == 422
-    for model in ("v1", "v2"):
+    for model in ("v1", "v2", "v3"):
         data = await _finish(client, _payload(files, structure_spread=True,
                                               structure_long_range_embers=True,
                                               structure_long_range_members=2,

@@ -785,6 +785,11 @@ def structure_spread_for_grid_run(
         from firesim.structures.vegetation import BRIDGE_BASE_CUTOFF_M, BRIDGE_MAX_CUTOFF_M
 
         cutoff = BRIDGE_MAX_CUTOFF_M  # graph to 45 m; links filtered by BridgedLinks
+    if long_range is not None and long_range.model == "v3":
+        if embers is not None:
+            raise ValueError("long-range model v3 replaces the short-range ember stage; "
+                             "use it without embers")
+        cutoff = max(cutoff, float(long_range.link_cutoff_m))  # probabilistic links (spec §6.5)
     frame = LocalFrame((lat_min + lat_max) / 2.0, (lng_min + lng_max) / 2.0)
     params = {"combustible_fraction": fb,
               "neighbour_cutoff_m": BRIDGE_BASE_CUTOFF_M if vegetation_bridge else cutoff,
@@ -915,7 +920,7 @@ def _long_range_run(units, t_front, wind, duration_min, fb, embers, wildland, bu
     from firesim.structures import long_range as lr_mod
 
     opts = replace(opts, seed=int(opts.seed) or int(seed))
-    if opts.model == "v2":
+    if opts.model in ("v2", "v3"):
         return _long_range_run_v2(units, t_front, wind, duration_min, fb, embers, wildland,
                                   burnout_min, links, psi, fld, opts, roof)
     hazard = lr_mod.building_hazard(units, fld, opts, 90.0 if ffmc is None else float(ffmc),
@@ -949,6 +954,24 @@ def _long_range_run_v2(units, t_front, wind, duration_min, fb, embers, wildland,
     if roof is not None:
         alpha_factor = np.where(np.asarray(roof, bool), opts.roof_factor, 1.0)
 
+    if opts.model == "v3":
+        speeds = [w.wind_speed_kmh for w in wind]
+        starts = [w.start_min for w in wind]
+        # piecewise-constant schedule sampled hourly for the wind-event end rule
+        tt = np.arange(0.0, duration_min + 60.0, 60.0)
+        vv = [speeds[max(int(np.searchsorted(starts, t, side="right")) - 1, 0)] for t in tt]
+        stop = lr_mod.wind_event_end(tt, vv, opts.stop_wind_kmh)
+        t_all, s_all, _, p_ember = lr_mod.run_ensemble_v3(
+            units, t_front, landed, fld.edges, opts, wind, duration_min, urban, lr_wind,
+            burnout_min=burnout_min, fb=fb, alpha_factor=alpha_factor, stop_min=stop,
+            extra_filter=links)
+        t_any = np.min(t_all, axis=0).astype(float) if len(t_all) else np.full(len(units), np.inf)
+        res = LongRangeResult(t_min=t_any, source=np.zeros(len(units), dtype=np.int8),
+                              parent=np.full(len(units), -1, dtype=np.int64),
+                              t_front_min=np.asarray(t_front, float), params={"long_range_stop_min": stop},
+                              burnout_min=burnout_min, t_members=t_all, source_members=s_all,
+                              p_direct=p_ember, urban_reach_m=urban.reach_m if urban is not None else 0.0)
+        return res
     if embers is None:
         stage = lr_mod.IncrementalHamada(units, wind, duration_min=duration_min, fb=fb,
                                          burnout_min=burnout_min, link_filter=links)
