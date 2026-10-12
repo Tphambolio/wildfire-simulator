@@ -157,9 +157,12 @@ FIRESIM_ARCHIVE(_DIR/_DB/_BACKEND/_S3_*/_MAX_AGE_DAYS/_MAX_BYTES/_RETENTION_HOUR
 FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)
 FIRESIM_AB_ASSETS_PATH / FIRESIM_AB_ROADS_PATH  Alberta assets / roads FlatGeobuf (set by api/Dockerfile); FIRESIM_LAYERS_MAX_BOX_DEG (1.0)
 ```
-Run archive (`services/archive.py`): finished runs go to a SQLite index + object store (local or
-S3/R2) in the background; GET `/simulations/{id}`, `/arrival`, `/ensemble` fall back to it
-(`archived: true`). Litestream backs up the index when R2 secrets are set (`api/deploy/`).
+Run archive (`services/archive.py`): finished runs go to a SQLite index + object store in the
+background; GET `/simulations/{id}`, `/arrival`, `/ensemble` fall back to it (`archived: true`).
+Deployed (2026-10-12): local backend on a 1 GB Fly volume at `/data` (`/data/firesim-archive`),
+capped at 800 MB (`FIRESIM_ARCHIVE_MAX_BYTES`); one ensemble at a time on the live API
+(`FIRESIM_MAX_CONCURRENT_ENSEMBLES` 1). The S3-compatible offsite copy and Litestream index
+backup are in the code but not deployed (`docs/run-archive.md`).
 
 ---
 
