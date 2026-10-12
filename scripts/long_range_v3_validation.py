@@ -63,10 +63,96 @@ SENSITIVITY = {"NO_SURVIVAL": {"survival": 0.0}, "NO_STOP": {"stop": False},
                "LINKS_CERTAIN": {"link_scale_m": 1e9}, "NO_URBAN": {"urban_source": False},
                "NO_EMBERS": {"ember_factor": 0.0}}
 
-# Held-out fires: filled from refs/<fire>/prereg_inputs.json (published documents and weather
-# only, outcomes sealed) before PREREG_LR3 is committed.
-FIRES3: dict = {}
-PREREG_LR3: dict = {}
+# --------------------------------------------------------------------------------------------
+# Held-out fires and pre-registration (fixed 2026-10-12 before any Tubbs/Woolsey outcome was
+# read; set-ups from refs/<fire>/prereg_inputs.json written by the blind data step: published
+# documents and weather only, outcomes sealed).
+# --------------------------------------------------------------------------------------------
+FIRES3 = {
+    "tubbs": {
+        "perimeter": "raw/frap_perimeter_tubbs.geojson", "footprints": None,
+        "ring_footprints": "derived/ms_usv2_tubbs.geojsonl", "ring": True, "worldcover": None,
+        "chm": None, "square_m2": 169.0, "h": 20.0, "window": 495.0, "origin": (38.609, -122.629),
+        "t0": 0.0, "axis_deg": 225.0,
+        "anchors_axis": [((38.566, -122.683), 100.0), ((38.510, -122.750), 255.0), ((38.500, -122.770), 315.0)],
+        "wind_speed": (8.0, 15.0), "wind_from": (25.0, 65.0), "proxy": "C7", "proxy_alt": "C4",
+        "lat": 38.55, "elev": 250.0, "doy": 281, "ffmc": None, "dmc": 100.0, "dc": 800.0,
+        "ffmc_raws": ("SANTA ROSA", "2017-10-09T05:00", "2017-10-09T13:00"), "raws_dir": "tubbs",
+        "raws_glob": "raws_FEMS_*.csv", "step3_seeds": None,
+        "units_rule": "camp (DINS points as 169 m2 squares; domain footprints are post-fire)",
+    },
+    "woolsey": {
+        "perimeter": "raw/frap_perimeter_woolsey.geojson", "footprints": None,
+        "ring_footprints": "derived/ms_usv2_woolsey.geojsonl", "ring": True, "worldcover": None,
+        "chm": None, "square_m2": 169.0, "h": 40.0, "window": 1416.0, "origin": (34.235, -118.701),
+        "t0": 0.0, "axis_deg": 210.0,
+        "anchors_axis": [((34.18, -118.765), 396.0), ((34.143, -118.749), 889.0),
+                         ((34.087, -118.785), 1041.0), ((34.035, -118.855), 1411.0)],
+        "wind_speed": (10.0, 16.0), "wind_from": (25.0, 60.0), "proxy": "C4", "proxy_alt": "C2",
+        "lat": 34.13, "elev": 350.0, "doy": 312, "ffmc": None, "dmc": 100.0, "dc": 800.0,
+        "ffmc_raws": ("CHEESEBORO", "2018-11-09T00:00", "2018-11-10T00:00"), "raws_dir": "woolsey",
+        "raws_glob": "raws_FEMS_*.csv", "step3_seeds": None,
+        # Woolsey DINS has no 'No Damage' class (damaged structures only) and ~87 % of domain
+        # footprints are pre-fire (2018-04..06): units = domain footprints (Eaton rule) plus the
+        # DINS points no footprint matched (169 m2 squares); a footprint with no DINS point is
+        # taken as undamaged [H] (DINS inspected damaged structures only), so it is scored 0.
+        "units_rule": "woolsey_fp + unmatched DINS points; unsurveyed footprints = undamaged [H]",
+    },
+}
+_HELDOUT_STOP = ({
+    "tubbs": {"summary": "refs/tubbs/tubbs_wind_hourly_summary_PDT.csv", "column": "HADS HWKC1 Hawkeye",
+              "t0": "2017-10-08 21:45", "fmt": "%Y-%m-%d %H:%M:%S"},
+    "woolsey": {"summary": "refs/woolsey/woolsey_wind_hourly_summary_PST.csv", "column": "HADS CEEC1 Cheeseboro",
+                "t0": "2018-11-08 14:24", "fmt": "%Y-%m-%d %H:%M:%S"},
+})
+PREREG_LR3 = {
+    "date_fixed": "2026-10-12",
+    "question": "Does v3 (v2 embers + probabilistic building-to-building links + survival + ember "
+                "factor + wind-event end), with its free values fitted on the training fires, give "
+                "skilful, calibrated per-building destruction probabilities on held-out fires?",
+    "model": "LongRangeOptions(model='v3') with theta_final; 50 members; wind draws "
+             "default_rng([20261011, 1000 + m]); member draws and thresholds default_rng([20261012, m])",
+    "theta_final": {"link_scale_m": 160.0, "survival": 0.3, "ember_factor": 100.0},
+    "theta_how": "grid over link_scale 5-160 m, survival 0-0.6, ember_factor 0.1-100 (stage 1 100 "
+                 "sets + stage 2 27 sets, 8 members), minimum mean Brier over Eaton, Palisades and "
+                 "Camp; this optimum lies at the grid edge for link_scale and ember_factor",
+    "training_cv_disclosed": "leave-one-fire-out Brier skill vs each fold's base rate was negative "
+                             "on every fold (stage 2: Eaton -0.30, Palisades -0.31, Camp -2.58). In-sample at "
+                             "theta_final (20 members): Eaton Brier 0.257 vs climatology 0.248, "
+                             "Palisades 0.262 vs 0.243, Camp 0.439 vs 0.155; AUC 0.57 / 0.52 / 0.41. "
+                             "A logistic recalibration (Platt) and an exposure-weighted layer "
+                             "(housing density within 100 m, edge distance) were tried by "
+                             "leave-one-fire-out CV and also gave negative skill on every fold; the "
+                             "pooled Platt slope on logit P was negative (Camp's inverted ranking). "
+                             "They are not used. Expectation: the calibration condition will fail.",
+    "fires": {"tubbs": "held out (DINS, Camp unit rule; partly not blind: an earlier session's "
+                       "fetch script printed Tubbs damage counts on 2026-10-10 and aggregate loss "
+                       "totals were glimpsed in reports; no building-level or spatial outcome seen)",
+              "woolsey": "held out (units rule in FIRES3; aggregate loss totals glimpsed in the "
+                         "CPUC report summary; nothing spatial)",
+              "jasper": "not run (no digitised 2024 fire positions; disclosed)"},
+    "metrics": "as PREREG_LR2 (Brier, BSS, log score, AUC, reliability, kappa at 0.5 and count-"
+               "matched with seeded ties, distance bands, false alarms in the 1 km outside ring)",
+    "baselines": {"a": "Hamada H30 from the imposed front contact at the wind midpoint",
+                  "b": "upwind 5 % of domain units seeded + Hamada H30",
+                  "c": "Chen & McAneney max(0, 0.6 (1 - d/700 m))",
+                  "d": "count-matched distance band (seeded ties)",
+                  "e": "climatology = the held-out fire's observed destroyed rate",
+                  "e2": "training climatology 0.6855 (not deciding)"},
+    "decision_rule": "PASS only if, pooled over Tubbs and Woolsey (250 m blocks within fires, "
+                     "2,000 resamples), all four 95 % intervals exclude zero in v3's favour: "
+                     "Brier(c) - Brier(v3) > 0; kappa(v3) - kappa(b) > 0; kappa(v3) - kappa(d) > 0; "
+                     "Brier(e) - Brier(v3) > 0 (Brier skill vs base rate above 0). Per-fire results "
+                     "are reported, never decide. No configuration may be promoted after scoring.",
+    "sensitivity_20_members": "NO_SURVIVAL, NO_STOP, LINKS_CERTAIN, NO_URBAN, NO_EMBERS",
+    "dry_run_2026_10_12": "random outcomes, 3 members (timing only): Tubbs 15,649 units (6,013 "
+                          "domain + 9,636 ring), 12,666 ha source, 2,378 front-contact, wind-event "
+                          "end 435 min (04:00 PDT); Woolsey 46,401 units (14,539 + 31,862), 33,479 ha, "
+                          "4,741 front-contact, no wind-event end in the window; peak RSS 1.4 GB",
+    "wind_event_end": "most exposed station's 10 m sustained wind (RAWS 20 ft x 1.15) < 20 km/h "
+                      "for 2 h, >= 3 h after ignition: Tubbs Hawkeye (HADS HWKC1), Woolsey "
+                      "Cheeseboro (HADS CEEC1)",
+}
 RAW_TO_10M = 1.15  # RAWS 20 ft (6.1 m) wind × 1.15 = 10 m wind (Andrews 2009 p.58) [H]
 
 # Wind-event end: the most exposed station's sustained wind (10 m) below 20 km/h for 2 h,
@@ -80,6 +166,9 @@ STOP_SOURCES = {
     "camp": {"mesowest": "refs/camp/mesowest_JBGC1_hourly_2018-11-07_to_11-09_PST.csv",
              "t0": "2018-11-08 07:30"},
 }
+
+
+STOP_SOURCES.update(_HELDOUT_STOP)
 
 
 def _mph(cell: str):
@@ -121,6 +210,34 @@ def stop_minute(fire: str, src=None) -> float:
     return LR.wind_event_end(t, v, LR.V3_STOP_WIND_KMH)
 
 
+def load_case_units(fire: str, cfg: dict, dry_run: bool):
+    """(ids, geoms lng/lat, destroyed, scored) per the fire's unit rule."""
+    if fire != "woolsey":
+        ids, geoms = L1.load_units(fire, cfg)
+        obs, scored = L1.outcomes(fire, ids, dry_run)
+        return ids, geoms, obs, scored
+    import geopandas as gpd
+
+    fp = gpd.read_file(CALFIRE_DIR / "derived" / "woolsey_fp_units.gpkg")
+    fp = fp[fp.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
+    pts = gpd.read_file(CALFIRE_DIR / "derived" / "woolsey_units.gpkg")
+    matched = set(int(x) for x in fp["OBJECTID"].dropna()) if "OBJECTID" in fp else set()
+    extra = pts[~pts.unit_id.astype(int).isin(matched)]
+    sq = S3._squares(extra.geometry.x.to_numpy(), extra.geometry.y.to_numpy(), cfg["square_m2"])
+    ids = np.concatenate([fp.unit_id.to_numpy(np.int64), 10_000_000 + extra.unit_id.to_numpy(np.int64)])
+    geoms = np.concatenate([np.asarray(fp.geometry.values, dtype=object), np.asarray(sq, dtype=object)])
+    if dry_run:
+        rng = np.random.default_rng(1)
+        st = rng.choice(["Destroyed (>50%)", "Minor (10-25%)", "UNSURVEYED"], size=len(ids), p=[0.3, 0.3, 0.4])
+    else:
+        s1 = {int(r["unit_id"]): r["DAMAGE"] for r in csv.DictReader(open(CALFIRE_DIR / "derived" / "woolsey_fp_units_status.csv"))}
+        s2 = {10_000_000 + int(r["unit_id"]): r["DAMAGE"] for r in csv.DictReader(open(CALFIRE_DIR / "derived" / "woolsey_units_status.csv"))}
+        st = np.array([s1.get(int(i), s2.get(int(i), "UNSURVEYED")) for i in ids])
+    obs = st == "Destroyed (>50%)"
+    scored = st != "Inaccessible"  # unsurveyed footprints scored as undamaged [H]
+    return ids, geoms, obs, scored
+
+
 class Case:
     """Everything about one fire that does not depend on the v3 parameters."""
 
@@ -129,8 +246,7 @@ class Case:
         t0 = time.time()
         self.fire, self.cfg = fire, dict(cfg)
         cfg = self.cfg
-        ids, geoms = L1.load_units(fire, cfg)
-        obs_d, scored_d = L1.outcomes(fire, ids, dry_run)
+        ids, geoms, obs_d, scored_d = load_case_units(fire, cfg, dry_run)
         if cfg.get("ring_footprints"):  # post-fire footprints: used outside the domain only
             ring = V2.ring_geoms(fire, dict(cfg, footprints=cfg["ring_footprints"]))
         else:
@@ -295,6 +411,14 @@ def fit(args) -> None:
 # ------------------------------------------------------------------------------- scoring
 
 
+def density100(units) -> np.ndarray:
+    """Buildings within 100 m of each unit (Knapp et al. 2021's strongest pre-fire predictor)."""
+    from scipy.spatial import cKDTree
+
+    tree = cKDTree(np.column_stack([units.x, units.y]))
+    return np.array([len(v) - 1 for v in tree.query_ball_point(np.column_stack([units.x, units.y]), 100.0)])
+
+
 def baselines(case: Case, n_model_pred: int):
     """(a) Hamada H30 from front contact, (b) windward 5 % + Hamada H30, (c) Chen & McAneney,
     (d) count-matched distance band (seeded ties), (e) climatology (observed rate)."""
@@ -322,19 +446,20 @@ def baselines(case: Case, n_model_pred: int):
 def score(args) -> None:
     S3._guard_out(args.out)
     fit_res = json.loads((args.fit_dir / "fit_grid.json").read_text())
-    theta = PREREG_LR3["theta_final"] if PREREG_LR3.get("theta_final") else fit_res["final"]["theta"]
+    theta = (json.loads(args.theta) if args.theta else PREREG_LR3["theta_final"]
+             if PREREG_LR3.get("theta_final") else fit_res["final"]["theta"])
     pooled = {"p": [], "o": [], "blk": [], "base": {}}
     per_fire = {}
     eps = 1.0 / (2 * N_SCORE)
     for fi, fire in enumerate(args.fires):
-        cfg = FIRES3[fire]
-        n = N_SCORE if not args.quick else 3
+        cfg = FIRES3.get(fire) or V2.FIRES2[fire]
+        n = (args.members or N_SCORE) if not args.quick else 3
         t0 = time.time()
         case = Case(fire, cfg, dry_run=args.dry_run, n_members=n)
         p, pe, info = case.run(theta, n)
         sens = {}
         ns = N_SENS if not args.quick else 2
-        for name, over in SENSITIVITY.items():
+        for name, over in (SENSITIVITY.items() if not args.no_sens else []):
             th2 = dict(theta)
             stop = True
             for k, v in over.items():
@@ -378,7 +503,7 @@ def score(args) -> None:
         tag = "_DRYRUN" if args.dry_run else ""
         (args.out / f"results_lr3_{fire}{tag}.json").write_text(json.dumps(res, indent=1, default=float))
         np.savez_compressed(args.out / f"units_lr3_{fire}{tag}.npz", x=case.u.x, y=case.u.y, dom=case.dom,
-                            scored=sm, obs=o, d_edge=case.d_edge, P_V3=p,
+                            scored=sm, obs=o, d_edge=case.d_edge, P_V3=p, density100=density100(case.u),
                             **{f"S_{k}": v for k, v in sens.items()}, **{f"B_{k}": v for k, v in base.items()})
         per_fire[fire] = res
         pooled["p"].append(p[sm])
@@ -438,6 +563,9 @@ if __name__ == "__main__":
     b.add_argument("--dry-run", action="store_true", help="random outcomes; status files never read")
     b.add_argument("--quick", action="store_true")
     b.add_argument("--pool", action="store_true")
+    b.add_argument("--no-sens", action="store_true")
+    b.add_argument("--members", type=int, default=None)
+    b.add_argument("--theta", default=None, help="JSON parameter dict")
     sub.add_parser("prereg")
     args = ap.parse_args()
     if args.cmd == "fit":
