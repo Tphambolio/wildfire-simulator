@@ -556,6 +556,9 @@ class SimulationResponse(BaseModel):
     fuel_source: FuelSourceInfo | None = None
     #: Buildings the run used (None until selected, or when the run has none)
     buildings_source: BuildingsSourceInfo | None = None
+    #: True when the run was read from the run archive (it finished before the API last
+    #: restarted, or was dropped from memory); the body is otherwise the live GET's
+    archived: bool = False
     #: Terrain the run used (None without terrain: flat)
     terrain_source: TerrainSourceInfo | None = None
 

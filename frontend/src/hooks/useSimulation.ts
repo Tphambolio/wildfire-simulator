@@ -40,6 +40,8 @@ interface SimulationState {
   progress: number | null;
   startedAt: number | null;
   durationHours: number | null;
+  /** The run was read from the server's run archive (it finished before the API restarted) */
+  archived: boolean;
 }
 
 const IDLE: SimulationState = {
@@ -54,6 +56,7 @@ const IDLE: SimulationState = {
   progress: null,
   startedAt: null,
   durationHours: null,
+  archived: false,
 };
 
 /** Progress from a frame's time (Huygens runs stream frames as they compute). */
@@ -260,6 +263,7 @@ export function useSimulation() {
           currentFrameIndex: framesWithT0.length - 1,
           isRunning: resp.status === "running",
           error: resp.error,
+          archived: resp.archived === true,
           phase: resp.phase ?? prev.phase,
           progress: typeof resp.progress === "number" ? Math.max(prev.progress ?? 0, resp.progress) : prev.progress,
         }));
@@ -286,8 +290,9 @@ export function useSimulation() {
 
   /**
    * Load a finished run from the server by ID (e.g. an operational period's run after a
-   * reload). The server keeps runs in memory only, so it may be gone (restart, deploy, or
-   * dropped after newer runs): the run then ends "failed" with a message saying so.
+   * reload). The server answers from memory or, after a restart or deploy, from its run archive
+   * (`archived: true`). A run in neither (removed by the archive's retention, or finished before
+   * the archive existed) ends "failed" with a message saying so.
    */
   const restoreRun = useCallback((simId: string) => {
     const token = beginRun(null);
@@ -295,8 +300,9 @@ export function useSimulation() {
     pollForResults(
       simId,
       token,
-      "This run is no longer on the server (restarted, redeployed or replaced by newer runs). " +
-        "The period keeps its summary and final perimeter; run it again to see the full run.",
+      "This run is no longer on the server or in its run archive (removed after the retention " +
+        "period, or run before the archive existed). The period keeps its summary and final " +
+        "perimeter; run it again to see the full run.",
     );
   }, [beginRun, pollForResults]);
 

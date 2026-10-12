@@ -15,6 +15,8 @@ export interface PeriodRunInfo {
   onAttach: () => void;
   /** This period has a saved run that is not loaded: load it from the server */
   onLoad?: () => void;
+  /** The run shown was loaded from the server's run archive (not its memory) */
+  fromArchive?: boolean;
 }
 
 interface OperationalPeriodPanelProps {
@@ -125,7 +127,7 @@ export default function OperationalPeriodPanel({
           {run && (
             <span className="op-period-run" data-testid="period-run">
               {activePeriod.simulationId
-                ? <>Run {activePeriod.simulationId}{run.liveRunShown ? "" : " · not loaded"}</>
+                ? <>Run {activePeriod.simulationId}{run.liveRunShown ? (run.fromArchive ? " · Loaded from archive" : "") : " · not loaded"}</>
                 : run.liveRunShown
                   ? "Current run · not yet filed under this period"
                   : run.liveRunDay != null

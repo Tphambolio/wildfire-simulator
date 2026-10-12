@@ -13,10 +13,10 @@ COPY engine/pyproject.toml engine/pyproject.toml
 COPY engine/src engine/src
 RUN pip install --no-cache-dir engine/
 
-# Install API
+# Install API (with boto3 for the run archive's S3/R2 backend; docs/run-archive.md)
 COPY api/pyproject.toml api/pyproject.toml
 COPY api/src api/src
-RUN pip install --no-cache-dir api/
+RUN pip install --no-cache-dir "api/[archive-s3]"
 
 # Bundle Edmonton spatial data so the server-side paths /app/data/* work out of the box
 COPY data/ /app/data/
@@ -42,6 +42,19 @@ ARG AB_BUILDINGS_SHA256=14f0d6760665d332d74917798071bef893dd372b2b6b9f217a82c907
 RUN python /tmp/fetch_ab_fuel_grid.py "$AB_BUILDINGS_URL" "$AB_BUILDINGS_SHA256" \
         /app/data/ab_buildings_ms2019.fgb "Alberta buildings"
 ENV FIRESIM_AB_BUILDINGS_PATH=/app/data/ab_buildings_ms2019.fgb
+
+# Litestream (Apache-2.0): backs up the run-archive index (SQLite) to R2 when FIRESIM_ARCHIVE_DB
+# and the FIRESIM_ARCHIVE_S3_* secrets are set (api/deploy/entrypoint.sh). Checked against its
+# SHA-256; if the download fails the image still builds and the index stays on local disk.
+ARG LITESTREAM_URL=https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-0.5.17-linux-x86_64.tar.gz
+ARG LITESTREAM_SHA256=cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d
+RUN python /tmp/fetch_ab_fuel_grid.py "$LITESTREAM_URL" "$LITESTREAM_SHA256" /tmp/litestream.tgz \
+        "Litestream" "the run-archive index is not backed up" \
+    && if [ -f /tmp/litestream.tgz ]; then \
+        tar -xzf /tmp/litestream.tgz -C /usr/local/bin litestream && rm /tmp/litestream.tgz; fi
+COPY api/deploy/litestream.yml /etc/litestream.yml
+COPY api/deploy/entrypoint.sh /usr/local/bin/firesim-entrypoint
+RUN chmod +x /usr/local/bin/firesim-entrypoint
 
 # Alberta terrain (NRCan MRDEM-30 elevation averaged to ~100 m, uint16 decimetres, COG, 91.7 MB;
 # Open Government Licence - Canada): slope and aspect for runs outside Edmonton, read by window
@@ -71,4 +84,5 @@ ENV FIRESIM_GIT_SHA=$GIT_SHA
 
 EXPOSE 8000
 
-CMD ["uvicorn", "firesim_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Starts uvicorn (under Litestream when the run-archive index has R2 credentials)
+CMD ["/usr/local/bin/firesim-entrypoint"]

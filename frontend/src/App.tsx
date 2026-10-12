@@ -456,6 +456,7 @@ export default function App() {
     cancelSimulation,
     clearResults,
     error,
+    archived: runFromArchive,
     phase: runPhase,
     progress: runFraction,
     startedAt: runStartedAt,
@@ -1150,6 +1151,7 @@ export default function App() {
               canAttach: canAttachLiveRun,
               onAttach: handleAttachLiveRun,
               onLoad: activePeriod?.simulationId && !liveRunIsThisPeriods && !isRunning ? handleLoadPeriodRun : undefined,
+              fromArchive: runFromArchive,
             }}
           />
           <Suspense fallback={<div className="hint eoc-loading">Loading EOC console…</div>}>

@@ -160,6 +160,11 @@ export interface MockState {
   ensembleCancels: string[];
   /** Simulation IDs the "server" no longer has (GET answers 404, as after a restart or deploy) */
   gone: Set<string>;
+  /**
+   * Simulation IDs the "server" serves from its run archive (after a restart or deploy):
+   * GET answers the run's body with `archived: true`, as the API does (docs/run-archive.md)
+   */
+  archived: Set<string>;
   /** Simulation ID of every GET /simulations/{id} */
   getIds: string[];
 }
@@ -173,7 +178,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
   const frameDelayMs = opts.frameDelayMs ?? 40;
   const state: MockState = {
     posts: [], overridePosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0, multidayPosts: [], ensemblePollIds: [],
-    ensembleCancels: [], gone: new Set(), getIds: [],
+    ensembleCancels: [], gone: new Set(), archived: new Set(), getIds: [],
   };
   const shift = (frames: Fixture["frames"]) => (opts.translate ? translateFrames(frames, opts.translate) : frames);
   const mdFrames = (n: number) => shift(opts.multidayRecorded ? recordedMultiDayFrames(n) : multiDayFrames(n));
@@ -227,6 +232,12 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (one && req.method() === "GET") {
       state.getIds.push(one[1]);
       if (state.gone.has(one[1])) return json(route, { detail: "Simulation not found" }, 404);
+      if (state.archived.has(one[1])) {
+        const body = one[1] === MULTIDAY_ID
+          ? { simulation_id: MULTIDAY_ID, status: "completed", config: null, frames: mdFrames(multiDays), error: null }
+          : { ...fx, simulation_id: one[1], frames: fxFrames };
+        return json(route, { ...body, archived: true });
+      }
       if (one[1] === MULTIDAY_ID) {
         return json(route, { simulation_id: MULTIDAY_ID, status: "completed", config: null, frames: mdFrames(multiDays), error: null });
       }

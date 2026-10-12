@@ -30,3 +30,10 @@ primary_region = "yyz"
   # FIRESIM_CORS_ORIGINS = "https://wildfire-simulator.vercel.app"
   FIRESIM_CORS_ORIGINS = "https://wildfire-simulator.vercel.app"
   FIRESIM_NEIGHBOURHOODS_PATH = "/app/data/edmonton_neighbourhoods.geojson"
+
+# Run archive (docs/run-archive.md): uncomment after the owner creates the volume
+# (fly volumes create firesim_archive --app firesim-api --region yyz --size 1). Without it the
+# archive uses a temporary directory and is lost on deploy (warning at startup).
+# [mounts]
+#   source = "firesim_archive"
+#   destination = "/data"
