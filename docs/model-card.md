@@ -64,7 +64,7 @@ Inputs: ignition point or observed perimeter (optionally with its active edges: 
 along the perimeter or whole sides, from an RPAS thermal flight; the rest is treated as burned
 out), start time, weather (constant or hourly, optionally from 17:00 the evening before for
 the FFMC spin-up), FWI codes, burning period (local hours), FBP
-fuel grid (Edmonton: City canopy-LiDAR product; from 2026-10-11 the Alberta Wildfire FBP fuel
+fuel grid (Edmonton: City canopy-LiDAR product, built from City open data — 2025 LiDAR `sz3i-y5ze`, uPLVI 2025, Naturalized Areas, Trees inventory — under the Open Government Licence – Edmonton, [R38]; from 2026-10-11 the Alberta Wildfire FBP fuel
 types 2025, 100 m, wherever the City grid has no data and for ignitions outside it, with D-1/D-2
 and M-1/M-2 leaf-on from day of year 150 to 257, per-cell percent conifer from the map and O-1 as
 O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optional DEM

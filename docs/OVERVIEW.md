@@ -36,7 +36,7 @@ and buildings.
   Defaults include a burning period, FFMC spin-up and RPAS active edges. Multi-day runs carry
   the FWI codes over from day to day.
 - **Fuel.**
-  - In Edmonton: the City canopy-LiDAR fuel grid.
+  - In Edmonton: the City canopy-LiDAR fuel grid (2025 City LiDAR, open data, OGL – Edmonton) [R38].
   - Elsewhere in Alberta: the Alberta Wildfire FBP fuel grid (2025, 100 m) [R24], [R35].
   - Terrain outside Edmonton: NRCan MRDEM-30 [R29].
 - **Ensemble.** P10/P50/P90 arrival times and burn probability, calibrated on Alberta fires.
@@ -68,7 +68,7 @@ All intervals are 95 % CIs.
 | FBP engine (equations) | **Validated** (verification) | Matches CFS `cffdrs` to float precision. FBP: 12,960 cases, relative difference ≤ 3e-10. Daily FWI: FFMC/ISI/DC ≤ 1e-13. Spread area is 0.91-1.07 × the FBP ellipse for any wind angle. WISE comparison: area ratio 0.955-1.09. This shows the equations are right, not that predictions match real fires. | `verification.md` §1-3; [R5] |
 | Fire growth on observed fires (single run) | **Partly validated** | 143 fire-days on 32 Alberta fires. Held-out one-day F1 rose 0.118 → 0.208 (+0.091, CI +0.056 to +0.125) with active edges, spin-up and a 10-20 h burning period; 0.212 after the diagonal fix. That is level with WISE defaults (0.26 nationally) and short of tuned WISE (0.54). Area is still over-predicted (+0.27), and the largest wind-driven runs are under-predicted. | `validation.md`; [R5] |
 | Ensemble P10/P50/P90 | **Partly validated** (over-confident) | 65 held-out fire-days. The observed area falls inside P10-P90 on 49 % of days (ideal about 80 %). CRPS skill vs the single run is +0.24. Spread/skill is 1.6, so the range is too narrow. Cells at about 95 % burn probability burned 33 % of the time. **P10 is not a worst case:** it held at least 90 % of the observed growth on only 29 % of days. No CIs were computed for these scores. | `validation.md` "Ensemble calibration" |
-| Edmonton fuel grid (City LiDAR) | **Not validated** | It has never had an accuracy assessment, and no field check exists. The open-data grid agrees with it at κ 0.56 (six classes), which measures agreement, not accuracy. About 3,173 ha south of 41 Ave SW is mapped non-fuel over cropland. | [R2], [R17] |
+| Edmonton fuel grid (City LiDAR; open data, OGL – Edmonton) | **Not validated** | It has never had an accuracy assessment, and no field check exists. The open-data grid agrees with it at κ 0.56 (six classes; v2.1: 74 % of mapped cells, [R38]), which measures agreement, not accuracy. About 3,173 ha south of 41 Ave SW is mapped non-fuel over cropland. | [R2], [R17], [R38] |
 | Open-data fuel grid (v1, v2.1; not used by the app) | **Partly validated** (no better than the national grid) | Pre-registered northern Alberta fire test: held-out F1 0.192 vs 0.212 for the national 2014b grid (ΔF1 −0.020, CI −0.066 to +0.023, no detectable difference). It beat CFS 2026 (+0.021, CI +0.002 to +0.044). It maps 64 % of the fire areas as O-1b. v2.1 against pure stands: balanced accuracy 0.70 in Edmonton, but the north goal was not met. | [R17], [R26], [R27] |
 | Alberta Wildfire fuel grid (default outside Edmonton) | **Not validated** (one test void) | Its own metadata gives accuracy as "unknown". An indicative check gave F1 0.287 → 0.295 on 7 fire-days, confounded and not a skill estimate. Masked on the northern test, it scored 0.160 (−0.052, CI −0.104 to −0.006); that was not pre-registered and is a lower bound, because recent burns are re-typed. The pre-registered 2025 burn test of code 105 was **void**: 25 of 29 fires failed the map-timing gate. | [R24], [R27], [R35] |
 | Grass curing default (95 % from day 60 to 149) | **Partly validated** (neutral; grass barely tested) | Held-out F1 0.2126 → 0.2120 (ΔF1 −0.0007, CI −0.0017 to −0.0000). Grass is only 3.4 % of the observed growth, so the 95 % value cannot really be tested. The O-1b-all-year rule is decided but untested on Alberta grass fire-days. | [R14], [R35] |
@@ -109,7 +109,7 @@ All intervals are 95 % CIs.
 
 | Data | Licence |
 |---|---|
-| City of Edmonton canopy-LiDAR FBP fuel grid; neighbourhoods; uPLVI | Fuel grid: City internal product from City-owned LiDAR, no open licence ([R21]; publication in this repo to be confirmed by the owner, record §6); neighbourhoods, uPLVI: OGL – Edmonton |
+| City of Edmonton canopy-LiDAR FBP fuel grid; neighbourhoods; uPLVI | All OGL – Edmonton. The fuel grid is built from City open data: 2025 LiDAR (data.edmonton.ca `sz3i-y5ze`), uPLVI 2025, Naturalized Areas and the Trees inventory (licence check 2026-10-12, [R38]); attribution "Contains information licensed under the Open Government Licence – Edmonton" |
 | Alberta Wildfire FBP fuel types 2025 (100 m) | OGL – Alberta (written confirmation recommended, [R35]) |
 | NRCan MRDEM-30 terrain; CGNDB place names | OGL – Canada |
 | Microsoft Canadian Building Footprints (Alberta 2019) | ODbL |
