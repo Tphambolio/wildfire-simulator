@@ -70,9 +70,10 @@ Start a new fire spread simulation.
   inside-perimeter counts and structure spread. The app sends
   `/app/data/edmonton_buildings.geojson.gz`; when the server has the Alberta buildings file
   (`FIRESIM_AB_BUILDINGS_PATH`, added 2026-10-11) that path reads it instead, by window:
-  ignitions in the Edmonton area (53.39-53.71 N, 113.75-113.25 W) get the same buildings as
-  before (the 4 City neighbourhoods nearest the ignition; structure spread over the same
-  footprints), ignitions elsewhere in Alberta the buildings in the run area, the
+  ignitions in the Edmonton area (53.39-53.71 N, 113.75-113.25 W) get the 4 City
+  neighbourhoods nearest the ignition (since 2026-10-12 including their buildings south of
+  53.39 N, and structure spread over every footprint the fire can reach, no longer only
+  those in the box; `FIRESIM_EDMONTON_BOX_LEGACY=1` restores the former behaviour), ignitions elsewhere in Alberta the buildings in the run area, the
   `FIRESIM_BUILDINGS_MAX_NEAR` (30,000) nearest the ignition when there are more. `null` = no
   buildings; any other path is used as given (`.fgb` read by window, GeoJSON whole). The
   response says what was used (`buildings_source`, below; `docs/buildings-alberta.md`).
@@ -246,7 +247,12 @@ run area); `label` the data source, `attribution` the licence line to show (Micr
 footprints: ODbL), `selection` which buildings in words, `buildings` how many were used for the
 mask, exposure and counts, `capped` true when the run area held more than
 `FIRESIM_BUILDINGS_MAX_NEAR` and only the nearest were kept (structure spread still reads every
-footprint in its reachable box).
+footprint in its reachable box). `sources` (added 2026-10-12, `near_ignition` runs on the 2026-10
+Alberta file): selected buildings per source code, `ms2019` (Microsoft 2019) or
+`odb:<provider>` (municipal footprints via Statistics Canada's ODB v3, e.g. `odb:lethbridge`);
+the municipal providers then appear in `label` and their licence lines in `attribution`.
+Municipal layers include sheds and garages, so counts are not comparable between towns of
+different sources (`docs/buildings-alberta.md` §5).
 
 `terrain_source` (added 2026-10-11; `null` when the run has no terrain, i.e. flat): `kind` is
 `city_dem` (the Edmonton 30 m DEM; label "Edmonton 30 m DEM (flat outside Edmonton)" when a

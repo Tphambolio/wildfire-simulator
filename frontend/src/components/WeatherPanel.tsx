@@ -1350,7 +1350,7 @@ function WeatherPanel({
                   checked={includeBuildings}
                   onChange={(e) => setIncludeBuildings(e.target.checked)}
                 />
-                Buildings (Microsoft footprints, Alberta)
+                Buildings (Alberta footprints)
               </label>
               <InfoTip label="About the building footprints" text={TIPS.buildings} />
             </div>

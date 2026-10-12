@@ -32,16 +32,27 @@ RUN python /tmp/fetch_ab_fuel_grid.py "$AB_FUEL_URL" "$AB_FUEL_SHA256" \
         /app/data/ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif
 ENV FIRESIM_AB_FUEL_GRID_PATH=/app/data/ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif
 
-# Alberta building footprints (Microsoft Canadian Building Footprints 2019, ODbL; FlatGeobuf
-# with a packed R-tree, 372 MB, 1,777,439 footprints): read by window only, never loaded whole.
-# Not in git: fetched from the repository's data release and checked against its SHA-256. If
-# the download fails the build continues and the API uses the Edmonton buildings file only
-# (docs/buildings-alberta.md).
-ARG AB_BUILDINGS_URL=https://github.com/Tphambolio/wildfire-simulator/releases/download/data-ab-buildings-ms2019/ab_buildings_ms2019.fgb
-ARG AB_BUILDINGS_SHA256=14f0d6760665d332d74917798071bef893dd372b2b6b9f217a82c907da4405f8
+# Alberta building footprints, read by window only, never loaded whole (FlatGeobuf with a
+# packed R-tree; docs/buildings-alberta.md). Not in git: fetched from the repository's data
+# releases and checked against their SHA-256.
+#   1. release data-ab-buildings-2026-10 (preferred): Microsoft Canadian Building Footprints 2019
+#      (ODbL) with municipal footprints from Statistics Canada's ODB v3 in 9 municipalities
+#      (OGL-type licences, docs/data-sources.md); built by scripts/build_ab_buildings_odb.py.
+#   2. if that asset is missing (not uploaded yet) or fails its checksum: a warning, then the
+#      Microsoft-only file of release data-ab-buildings-ms2019 (the previous file).
+#   3. if both fail the build continues and the API uses the Edmonton buildings file only.
+ARG AB_BUILDINGS_URL=https://github.com/Tphambolio/wildfire-simulator/releases/download/data-ab-buildings-2026-10/ab_buildings_2026_10.fgb
+ARG AB_BUILDINGS_SHA256=f0a305562863839f7aa6bb0fe2db360c6bfa59b8bb6ebe1bfb652718e2214256
+ARG AB_BUILDINGS_FALLBACK_URL=https://github.com/Tphambolio/wildfire-simulator/releases/download/data-ab-buildings-ms2019/ab_buildings_ms2019.fgb
+ARG AB_BUILDINGS_FALLBACK_SHA256=14f0d6760665d332d74917798071bef893dd372b2b6b9f217a82c907da4405f8
 RUN python /tmp/fetch_ab_fuel_grid.py "$AB_BUILDINGS_URL" "$AB_BUILDINGS_SHA256" \
-        /app/data/ab_buildings_ms2019.fgb "Alberta buildings"
-ENV FIRESIM_AB_BUILDINGS_PATH=/app/data/ab_buildings_ms2019.fgb
+        /app/data/ab_buildings.fgb "Alberta buildings (2026-10, municipal + Microsoft)" \
+        "falling back to the Microsoft-only file (data-ab-buildings-ms2019)" \
+    && if [ ! -f /app/data/ab_buildings.fgb ]; then \
+        python /tmp/fetch_ab_fuel_grid.py "$AB_BUILDINGS_FALLBACK_URL" \
+            "$AB_BUILDINGS_FALLBACK_SHA256" /app/data/ab_buildings.fgb \
+            "Alberta buildings (Microsoft 2019, fallback)"; fi
+ENV FIRESIM_AB_BUILDINGS_PATH=/app/data/ab_buildings.fgb
 
 # Litestream (Apache-2.0): backs up the run-archive index (SQLite) to R2 when FIRESIM_ARCHIVE_DB
 # and the FIRESIM_ARCHIVE_S3_* secrets are set (api/deploy/entrypoint.sh). Checked against its

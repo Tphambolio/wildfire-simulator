@@ -39,7 +39,8 @@ class Settings:
     @property
     def ab_buildings_path(self) -> str | None:
         """Alberta building footprints (FlatGeobuf with a spatial index; Microsoft Canadian
-        Building Footprints, ODbL), read by window only. When set and the file exists, a
+        Building Footprints, ODbL, with municipal footprints from the ODB where licensed in
+        the 2026-10 file), read by window only. When set and the file exists, a
         request naming the Edmonton buildings file reads this file instead: Edmonton runs get the same buildings as before and
         runs elsewhere in Alberta get buildings too (docs/buildings-alberta.md). Unset or
         missing: the Edmonton file only."""
@@ -50,6 +51,15 @@ class Settings:
         """The bundled Edmonton buildings file that ``ab_buildings_path`` stands in for."""
         return os.environ.get("FIRESIM_CITY_BUILDINGS_PATH",
                               "/app/data/edmonton_buildings.geojson.gz")
+
+    @property
+    def edmonton_box_legacy(self) -> bool:
+        """``FIRESIM_EDMONTON_BOX_LEGACY=1`` restores the behaviour before 2026-10-12 for
+        Edmonton runs (structure spread limited to buildings in the former extract's box;
+        neighbourhoods get no buildings south of 53.39 N). Default off: the box is dropped
+        for structure spread and the City's own neighbourhoods keep all their buildings
+        (docs/buildings-alberta.md §6). Kept for equivalence checks."""
+        return os.environ.get("FIRESIM_EDMONTON_BOX_LEGACY", "").lower() in ("1", "true", "yes")
 
     @property
     def buildings_max_near(self) -> int:

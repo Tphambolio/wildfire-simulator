@@ -527,6 +527,10 @@ class BuildingsSourceInfo(BaseModel):
     capped: bool = Field(default=False, description=(
         "True when the run area held more than FIRESIM_BUILDINGS_MAX_NEAR buildings and only "
         "the nearest were kept"))
+    sources: dict[str, int] | None = Field(default=None, description=(
+        "Selected buildings per source code in the 2026-10 Alberta file: 'ms2019' (Microsoft "
+        "2019) or 'odb:<provider>' (municipal footprints via Statistics Canada's ODB v3); "
+        "absent for the Edmonton neighbourhood selection and older files"))
 
 
 class TerrainSourceInfo(BaseModel):

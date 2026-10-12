@@ -187,6 +187,8 @@ class _FlatGeobufStore:
         self._n = int(info.get("features") or 0)
         fields = list(info.get("fields", []))
         self._id_col = "id" if "id" in fields else None
+        #: ``source`` code per footprint (``ms2019`` / ``odb:<provider>``) in the 2026-10 file
+        self.has_source = "source" in fields
 
     def __len__(self) -> int:
         return self._n
@@ -204,6 +206,20 @@ class _FlatGeobufStore:
         b = np.asarray(b, dtype=float).T.reshape(-1, 4)
         sel = _hit(b, bbox)
         return np.asarray(fids)[sel], b[sel], np.asarray(fids)[sel]
+
+    def sources(self, fids) -> np.ndarray:
+        """``source`` code of the features ``fids`` (object array; empty strings without the
+        field)."""
+        import pyogrio
+
+        fids = np.asarray(fids)
+        if not self.has_source or len(fids) == 0:
+            return np.full(len(fids), "", dtype=object)
+        order = np.argsort(fids)
+        _, got, _, fields = pyogrio.raw.read(self.path, fids=fids[order], columns=["source"],
+                                             read_geometry=False, return_fids=True)
+        by_fid = dict(zip(np.asarray(got).tolist(), fields[0]))
+        return np.asarray([by_fid.get(int(f), "") or "" for f in fids], dtype=object)
 
     def read(self, bbox, rows=None) -> _Batch:
         """Footprints whose bounds intersect ``bbox`` (with ``rows``: those fids among them),
@@ -246,6 +262,13 @@ class NearBuildings:
     ids: np.ndarray
     in_box: int      # buildings with ring centroid in the box (before the cap)
     capped: bool
+    #: selected buildings per ``source`` code (``ms2019``, ``odb:<provider>``); empty when the
+    #: file has no ``source`` field
+    sources: dict = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.sources is None:
+            self.sources = {}
 
 
 class BuildingIndex:
@@ -256,13 +279,20 @@ class BuildingIndex:
         neighbourhoods_path: neighbourhood polygons GeoJSON (Edmonton), or None.
         partition_box: buildings considered for neighbourhood assignment (centroid inside);
             None = every building in the file (the former behaviour for a GeoJSON extract).
+        within_outside_box: also assign buildings whose centroid is outside ``partition_box``
+            but within a neighbourhood polygon (by the polygon only, never by the
+            nearest-centroid fallback): the City's own neighbourhoods south of 53.39 N
+            (decision of 2026-10-12, docs/buildings-alberta.md §6). Default False (the former
+            behaviour).
     """
 
     def __init__(self, buildings_path: str, neighbourhoods_path: str | None = None,
-                 partition_box: tuple[float, float, float, float] | None = None) -> None:
+                 partition_box: tuple[float, float, float, float] | None = None,
+                 within_outside_box: bool = False) -> None:
         self.buildings_path = str(buildings_path)
         self._store = open_store(buildings_path)
         self.partition_box = tuple(partition_box) if partition_box else None
+        self.within_outside_box = bool(within_outside_box)
         self._nbhd_keys: list[str] = []
         self._nbhd_geoms: list = []
         self._nbhd_centroids: list[tuple[float, float]] = []
@@ -372,6 +402,14 @@ class BuildingIndex:
                 if c is None:
                     continue
                 if self.partition_box is not None and not _in_box(c[0], c[1], self.partition_box):
+                    if not self.within_outside_box:
+                        continue
+                    hits = self._nbhd_tree.query(Point(c[1], c[0]), predicate="within")
+                    if len(hits) == 0:
+                        continue
+                    a = int(hits[0])
+                    if a in want:
+                        want[a].append((g, c, int(batch.ids[j])))
                     continue
                 a = self._assign(*c)
                 if a in want:
@@ -438,7 +476,12 @@ class BuildingIndex:
             geoms.append(g)
             cents.append(c)
             ids.append(int(batch.ids[j]))
-        return NearBuildings(geoms, cents, np.asarray(ids, dtype=np.int64), n_in, capped)
+        sources: dict = {}
+        if getattr(self._store, "has_source", False):
+            for code in self._store.sources(rows):
+                sources[code] = sources.get(code, 0) + 1
+        return NearBuildings(geoms, cents, np.asarray(ids, dtype=np.int64), n_in, capped,
+                             sources)
 
     # ── Footprint source for structure spread (firesim.structures.spread) ────────────────
 

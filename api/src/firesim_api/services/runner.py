@@ -174,20 +174,50 @@ MS_BUILDINGS_ATTRIBUTION = ("Building footprints: Microsoft Canadian Building Fo
                             "(2019), Open Data Commons ODbL")
 
 
-def _buildings_info(kind: str, path: str, n: int, capped: bool, selection: str) -> dict:
-    """BuildingsSourceInfo fields for a run."""
+#: Municipal footprints in the 2026-10 Alberta file (``source`` = ``odb:<code>``): provider
+#: and licence attribution (scripts/build_ab_buildings_odb.py, docs/data-sources.md).
+ODB_PROVIDERS = {
+    "calgary": ("City of Calgary", "Open Government Licence – City of Calgary"),
+    "lethbridge": ("City of Lethbridge", "City of Lethbridge – Open Data License"),
+    "parkland-county": ("Parkland County", "Open Government License – Parkland County"),
+    "grande-prairie": ("City of Grande Prairie", "Open Data License – City of Grande Prairie"),
+    "airdrie": ("City of Airdrie", "Open Data Licence – City of Airdrie"),
+    "okotoks": ("Town of Okotoks", "Open Government Licence – Town of Okotoks"),
+    "cochrane": ("Town of Cochrane", "Open Data Licence – Town of Cochrane"),
+    "canmore": ("Town of Canmore", "Town of Canmore Open Data Licence"),
+    "banff": ("Town of Banff", "Open Government Licence – Banff"),
+}
+
+
+def _buildings_info(kind: str, path: str, n: int, capped: bool, selection: str,
+                    sources: dict | None = None) -> dict:
+    """BuildingsSourceInfo fields for a run. ``sources``: selected buildings per ``source``
+    code (2026-10 file); municipal sources add their provider to the label and their licence
+    attribution."""
     from firesim_api.settings import settings
 
     name = os.path.basename(path)
     attribution = MS_BUILDINGS_ATTRIBUTION
     if path.lower().endswith(".fgb"):
         label = "Microsoft Canadian Building Footprints, Alberta (2019)"
+        odb = sorted(c.split(":", 1)[1] for c in (sources or {}) if c.startswith("odb:"))
+        known = [ODB_PROVIDERS[c] for c in odb if c in ODB_PROVIDERS]
+        if known:
+            names = ", ".join(p for p, _ in known)
+            label = (f"{names} building footprints (Statistics Canada ODB v3)"
+                     + (" and Microsoft (2019)" if (sources or {}).get("ms2019") else ""))
+            attribution = "; ".join(
+                ([MS_BUILDINGS_ATTRIBUTION] if (sources or {}).get("ms2019") else [])
+                + [f"Contains information licensed under the {lic}" for _, lic in known])
     elif settings.city_buildings_path and name == os.path.basename(settings.city_buildings_path):
         label = "Microsoft Canadian Building Footprints, Edmonton extract (2019)"
     else:
         label, attribution = f"Building footprints {name}", None
-    return {"kind": kind, "label": label, "attribution": attribution,
-            "selection": selection, "buildings": int(n), "capped": bool(capped)}
+    out = {"kind": kind, "label": label, "attribution": attribution,
+           "selection": selection, "buildings": int(n), "capped": bool(capped)}
+    if sources:
+        out["sources"] = {str(k): int(v) for k, v in sorted(sources.items())}
+    return out
 
 
 def run_day_of_year(params) -> int | None:
@@ -337,10 +367,14 @@ class SimulationRunner:
         A FlatGeobuf (the Alberta file) is read by window; nothing per building is held. The
         Edmonton neighbourhood selection then applies to the former Edmonton extract's box
         only (``EDMONTON_EXTRACT_BOX``); a GeoJSON file keeps the former whole-file
-        behaviour (docs/buildings-alberta.md)."""
+        behaviour (docs/buildings-alberta.md). Buildings outside the box but within a City
+        neighbourhood polygon are assigned to it too (decision 2026-10-12) unless
+        ``FIRESIM_EDMONTON_BOX_LEGACY`` is set."""
         from firesim.data.building_index import EDMONTON_EXTRACT_BOX, BuildingIndex
 
-        key = (buildings_path, neighbourhoods_path)
+        from firesim_api.settings import settings
+
+        key = (buildings_path, neighbourhoods_path, settings.edmonton_box_legacy)
         with self._building_index_lock:
             if key in self._building_index_cache:
                 return self._building_index_cache[key]
@@ -351,7 +385,8 @@ class SimulationRunner:
         )
         fgb = buildings_path.lower().endswith(".fgb")
         bidx = BuildingIndex(buildings_path, neighbourhoods_path,
-                             partition_box=EDMONTON_EXTRACT_BOX if fgb else None)
+                             partition_box=EDMONTON_EXTRACT_BOX if fgb else None,
+                             within_outside_box=fgb and not settings.edmonton_box_legacy)
 
         with self._building_index_lock:
             self._building_index_cache[key] = bidx
@@ -903,8 +938,11 @@ class SimulationRunner:
                                 lat0, lng0, nearest)
                     building_geoms = bidx.building_geoms_for(nearest)
                     building_centroids = bidx.building_centroids_for(nearest)
-                    # Edmonton runs keep the former extract's buildings (same results)
-                    source = bidx.clipped(EDMONTON_EXTRACT_BOX) if is_fgb else bidx
+                    # Structure spread reaches every building in the run area (the former
+                    # extract box is no longer a limit, decision 2026-10-12); the legacy
+                    # setting restores the clip for equivalence checks.
+                    source = (bidx.clipped(EDMONTON_EXTRACT_BOX)
+                              if is_fgb and settings.edmonton_box_legacy else bidx)
                     run.buildings_source = _buildings_info(
                         "edmonton_neighbourhoods", buildings_path, len(building_geoms), False,
                         f"{len(nearest)} City of Edmonton neighbourhoods nearest the ignition")
@@ -918,7 +956,7 @@ class SimulationRunner:
                         "near_ignition", buildings_path, len(building_geoms), near.capped,
                         ("run area" if not near.capped else
                          f"the {len(building_geoms):,} buildings nearest the ignition "
-                         "in the run area"))
+                         "in the run area"), near.sources)
                 logger.info("Building mask: %d geometries (%s)", len(building_geoms),
                             run.buildings_source["kind"])
                 if getattr(params, "structure_spread", False):

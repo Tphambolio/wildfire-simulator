@@ -4,8 +4,9 @@ Every dataset the frontend ships in `frontend/public/edmonton/`, with its source
 and how to refresh it. Engine data (fuel grid, DEM, water, buildings) is listed in
 `CLAUDE.md` (Data Files) and `docs/deployment.md`; the provincial fuel grid (Alberta Wildfire
 FBP fuel types 2025, Open Government Licence – Alberta) in `docs/fuel-grid-alberta.md`; the
-Alberta building footprints (Microsoft Canadian Building Footprints 2019, ODbL; Statistics
-Canada's Open Database of Buildings evaluated, not used) in `docs/buildings-alberta.md`.
+Alberta building footprints (Microsoft Canadian Building Footprints 2019, ODbL; municipal
+footprints from Statistics Canada's Open Database of Buildings in nine municipalities, open
+municipal licences, see "Buildings" below) in `docs/buildings-alberta.md`.
 
 Attribution shown in the app (Critical assets card footer and map attribution):
 "City of Edmonton Open Data (Open Government Licence – City of Edmonton) · Government of
@@ -291,11 +292,40 @@ Government Licence – Canada): `docs/terrain-alberta.md`.
 
 ## Buildings (engine data)
 
-Microsoft Canadian Building Footprints (2019), Alberta, © Microsoft, Open Data Commons Open
-Database License (ODbL) 1.0. The derived file `ab_buildings_ms2019.fgb` (geometry, `id`,
-`area_m2`; no addresses) is a database under ODbL and is distributed under ODbL with this
-attribution: "Building footprints: Microsoft Canadian Building Footprints (2019), Open Data
-Commons ODbL". The API returns the same line in `buildings_source.attribution`.
+**Microsoft Canadian Building Footprints (2019), Alberta**, © Microsoft, Open Data Commons
+Open Database License (ODbL) 1.0. The derived files `ab_buildings_ms2019.fgb` and
+`ab_buildings_2026_10.fgb` (geometry, `id`, `area_m2`, and in the latter `source`; no
+addresses) are databases under ODbL and are distributed under ODbL with this attribution:
+"Building footprints: Microsoft Canadian Building Footprints (2019), Open Data Commons ODbL".
+The API returns the same line in `buildings_source.attribution`.
+
+**Municipal footprints (2026-10 file, `docs/buildings-alberta.md` §5)**, compiled by
+Statistics Canada in the **Open Database of Buildings v3** (2025-04-15; the compilation is
+released under the Open Government Licence – Canada and each record keeps its provider's
+licence, `ODB_v3_data_providers.csv`). Only footprint geometry is used, inside each provider's
+2021 census subdivision (minus the Edmonton extract box). Licences read on 2026-10-12; all
+permit copying, adapting and redistribution for any lawful purpose with attribution, none is
+share-alike:
+
+| `source` | Provider, dataset (ODB download date) | Licence | Attribution |
+|---|---|---|---|
+| `odb:calgary` | City of Calgary, Buildings (2024-11-20) | [Open Government Licence – City of Calgary 2.1](https://data.calgary.ca/stories/s/Open-Calgary-Terms-of-Use/u45n-7awa) | Contains information licensed under the Open Government Licence – City of Calgary. |
+| `odb:lethbridge` | City of Lethbridge, Building Footprints (2024-12-03) | [City of Lethbridge – Open Data License](https://opendata.lethbridge.ca/pages/open-data-license) (v1 in ODB; v2.0 on the portal: no attribution clause, adds an indemnity) | Contains information licensed under the City of Lethbridge – Open Data License. |
+| `odb:parkland-county` | Parkland County, Building Footprints (2025-01-14) | [Open Government License – Parkland County](https://www.parklandcounty.com/en/home-property-and-utilities/open-data-licence.aspx) | Contains information licensed under the Open Government License – Parkland County. |
+| `odb:grande-prairie` | City of Grande Prairie, Building Footprint (2025-01-09) | Open Data License – City of Grande Prairie (text on the City's ArcGIS items, e.g. its parcel data; the portal's licence page no longer exists) | Contains information licensed under the Open Data License – City of Grande Prairie. |
+| `odb:airdrie` | City of Airdrie, Airdrie 2018 Building Footprints (2024-11-20) | [Open Data Licence – City of Airdrie](https://data-airdrie.opendata.arcgis.com/pages/our-open-licence) | Contains information licensed under the Open Data Licence – City of Airdrie. |
+| `odb:okotoks` | Town of Okotoks, Building Footprints (2024-12-16) | [Open Government Licence – Town of Okotoks](https://okotoksmaps-okotoks.hub.arcgis.com/pages/open-data-licence) | Contains information licensed under the Open Government Licence – Town of Okotoks. |
+| `odb:cochrane` | Town of Cochrane, Buildings (2024-12-09) | [Open Data Licence – Town of Cochrane](https://geohub.cochrane.ca/pages/open-data-license-agreement) | Contains information licensed under the Open Data Licence – Town of Cochrane. |
+| `odb:canmore` | Town of Canmore, Canmore Building Footprints (2024-12-03) | [Town of Canmore Open Data Licence](https://sttocgispublic.blob.core.windows.net/gis/Town%20of%20Canmore%20Open%20Data%20Licence.pdf) | Contains information licensed under the Town of Canmore Open Data Licence. |
+| `odb:banff` | Town of Banff, Banff Open Data – Building Footprints (2024-11-20) | [Open Government Licence – Banff](https://maps.banff.ca/opendata/) | Contains information licensed under the Open Government Licence – Banff. |
+
+Runs whose selection includes municipal footprints list those providers in
+`buildings_source.label` and their lines in `buildings_source.attribution`; the About &
+sources tab lists all nine. **Not used:** City of Edmonton (Edmonton stays on Microsoft
+footprints), Strathcona County (Sherwood Park lies in the Edmonton box) and the Government of
+Canada (NRCan) footprints (not municipal, partial coverage); their licences would have allowed
+it. Statistics Canada 2021 census subdivisions (Statistics Canada Open Licence) define the
+zones.
 
 ## How the app uses them
 

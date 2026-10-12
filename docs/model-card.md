@@ -71,7 +71,9 @@ O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optio
 (Edmonton 30 m DEM on the City grid; from 2026-10-11 NRCan MRDEM-30 at ~100 m, read by window,
 for runs outside it; `docs/terrain-alberta.md`), water
 and building masks (from 2026-10-11 Microsoft building footprints for all of Alberta, read by
-window; Edmonton runs unchanged; `docs/buildings-alberta.md`),
+window; from 2026-10-12 municipal footprints in nine municipalities, which include sheds and
+garages, so building counts differ in unit by town; Edmonton keeps Microsoft footprints and its
+structure spread is no longer limited to the former extract box; `docs/buildings-alberta.md`),
 grass curing, percent conifer / dead fir, foliar moisture or date. Grass curing (decision M1,
 2026-10-10): 95 % by default from 1 March to 29 May (day of year 60-149, between snow-melt and
 green-up), a required entry outside that window whenever O-1 grass can burn (API 422; the UI
