@@ -238,8 +238,12 @@ def brier_on(case: Case, p):
 
 
 def fit(args) -> None:
+    """Grid evaluation on the training fires, then leave-one-fire-out selection. ``--grid``
+    (JSON dict of lists) replaces GRID; ``--merge`` adds the runs of an earlier fit_grid.json
+    so that selection is over the union of the evaluated parameter sets."""
     S3._guard_out(args.out)
-    grid = [dict(zip(GRID, v)) for v in itertools.product(*GRID.values())]
+    grid_def = json.loads(args.grid) if args.grid else GRID
+    grid = [dict(zip(grid_def, v)) for v in itertools.product(*grid_def.values())]
     table = {}
     for fire in TRAINING:
         cfg = V2.FIRES2[fire]
@@ -261,8 +265,16 @@ def fit(args) -> None:
                   f"rss {L1.rss_gb():.2f} GB", flush=True)
         (args.out / "fit_grid.json").write_text(json.dumps(table, indent=1, default=float))
         del case
-    # leave-one-fire-out
+    # leave-one-fire-out over the union with an earlier grid
+    if args.merge:
+        old = json.loads(Path(args.merge).read_text())["table"]
+        for f in TRAINING:
+            seen = {tuple(r[k] for k in GRID) for r in table[f]["runs"]}
+            table[f]["runs"] = [r for r in old[f]["runs"] if tuple(r[k] for k in GRID) not in seen] + table[f]["runs"]
+    for f in TRAINING:
+        table[f]["runs"].sort(key=lambda r: tuple(r[k] for k in GRID))
     keys = [tuple(r[k] for k in GRID) for r in table[TRAINING[0]]["runs"]]
+    assert all([tuple(r[k] for k in GRID) for r in table[f]["runs"]] == keys for f in TRAINING)
     br = {f: np.array([r["brier"] for r in table[f]["runs"]]) for f in TRAINING}
     cv = {}
     for f in TRAINING:
@@ -274,7 +286,8 @@ def fit(args) -> None:
     j = int(np.argmin(np.mean([br[g] for g in TRAINING], axis=0)))
     final = {"theta": dict(zip(GRID, keys[j])),
              "mean_brier": float(np.mean([br[g][j] for g in TRAINING]))}
-    out = {"grid": GRID, "members": N_FIT, "table": table, "lofo_cv": cv, "final": final}
+    union = {k: sorted({r[k] for r in table[TRAINING[0]]["runs"]}) for k in GRID}
+    out = {"grid": union, "members": N_FIT, "table": table, "lofo_cv": cv, "final": final}
     (args.out / "fit_grid.json").write_text(json.dumps(out, indent=1, default=float))
     print(json.dumps({"lofo_cv": cv, "final": final}, indent=1, default=float))
 
@@ -416,6 +429,8 @@ if __name__ == "__main__":
     a = sub.add_parser("fit")
     a.add_argument("--out", type=Path, required=True)
     a.add_argument("--quick", action="store_true")
+    a.add_argument("--grid", default=None, help="JSON dict of parameter lists (replaces GRID)")
+    a.add_argument("--merge", default=None, help="earlier fit_grid.json to merge")
     b = sub.add_parser("score")
     b.add_argument("--fires", nargs="+", required=True)
     b.add_argument("--out", type=Path, required=True)
