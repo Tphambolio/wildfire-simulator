@@ -30,10 +30,14 @@ primary_region = "yyz"
   # FIRESIM_CORS_ORIGINS = "https://wildfire-simulator.vercel.app"
   FIRESIM_CORS_ORIGINS = "https://wildfire-simulator.vercel.app"
   FIRESIM_NEIGHBOURHOODS_PATH = "/app/data/edmonton_neighbourhoods.geojson"
+  # Run archive size cap on the 1 GB volume (oldest runs dropped first)
+  FIRESIM_ARCHIVE_MAX_BYTES = "800000000"
+  # One ensemble computes at a time on the single shared CPU; others wait as "pending"
+  FIRESIM_MAX_CONCURRENT_ENSEMBLES = "1"
 
-# Run archive (docs/run-archive.md): uncomment after the owner creates the volume
-# (fly volumes create firesim_archive --app firesim-api --region yyz --size 1). Without it the
-# archive uses a temporary directory and is lost on deploy (warning at startup).
-# [mounts]
-#   source = "firesim_archive"
-#   destination = "/data"
+# Run archive (docs/run-archive.md): a 1 GB volume (about $0.15/month), created 2026-10-12 with
+# fly volumes create firesim_archive --app firesim-api --region yyz --size 1. The archive finds
+# /data and keeps the index and payloads in /data/firesim-archive; capped at 800 MB (FIRESIM_ARCHIVE_MAX_BYTES above).
+[mounts]
+  source = "firesim_archive"
+  destination = "/data"
