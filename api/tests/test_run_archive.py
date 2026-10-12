@@ -74,13 +74,11 @@ async def _wait_done(client, sim_id: str, tries: int = 480) -> dict:
 
 
 def _wait_finished(sim_id: str, tries: int = 400) -> None:
-    """Wait until the run's thread has ended. Status turns "completed" before the thread's
-    ``on_finished`` hook queues the archive job, so ``wait_idle`` alone can return first."""
-    for _ in range(tries):
-        run = sims.runner.get(sim_id)
-        if run is None or run.finished_at is not None:
-            return
-        time.sleep(0.05)
+    """Wait until the run's thread has ended and its ``on_finished`` hook has queued the
+    archive job. Status turns "completed" first, so ``wait_idle`` alone can return early."""
+    run = sims.runner.get(sim_id)
+    if run is not None:
+        run.done.wait(tries * 0.05)
 
 
 def _forget(sim_id: str) -> None:

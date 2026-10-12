@@ -186,6 +186,56 @@ neighbourhoods), simplified to ~30 m (topology preserved), 5-decimal coordinates
 frontend/public/alberta/census_subdivisions.geojson`. The app merges them with the Edmonton
 neighbourhoods (`mergeCommunities`) and tags them "CSD" in the Neighbourhoods card.
 
+## `../alberta/places.geojson`: hamlets and localities inside the census subdivisions
+
+Added 2026-10-12 (owner-approved task; report [R36] in `PROJECT_RECORD.md`), so arrival
+outputs outside Edmonton say "Calahoo (hamlet, Sturgeon County)" rather than "Sturgeon County".
+Built by `python scripts/build_ab_places.py --out frontend/public/alberta/places.geojson`
+(downloads cached in `--src-dir`; fetched 2026-10-12). 1,388 units, **711,149 bytes
+(113 KB gzipped)**, bundled with the frontend like the CSD file (the province's places are small
+enough that serving them by area through `/api/v1/layers/*` was not needed).
+
+| Level | Units | Source | Licence | Geometry |
+|---|---|---|---|---|
+| `hamlet` | 434 | Government of Alberta, **Hamlet Boundaries** (owner Municipal Affairs, custodian Provincial Geospatial Centre), `geospatial.alberta.ca/titan/rest/services/boundaries/municipal_communities_public` layer 7; created 2024-07-12, revised 2025-02-04 (2 features), published 2025-04-03 | Open Government Licence – Alberta | polygons, simplified ~10 m |
+| `hamlet` | 4 | same service, layer 4, **Urban Service Areas**: Sherwood Park, Bremner (the "Sherwood Park (Bremner)" area), Fort McMurray, Lac La Biche ("Lac La Biche (Plamondon)" is left out: Plamondon is a hamlet polygon) | Open Government Licence – Alberta | polygons |
+| `hamlet` | 41 | **CGNDB** (NRCan), Alberta CSV `cgn_ab_csv_eng`, generic term "Hamlet", names with no provincial polygon (e.g. Lake Louise, Kananaskis, Brocket, Stand Off) | Open Government Licence – Canada | points (radius rule) |
+| `locality` | 87 | Statistics Canada 2021 Census **designated places** (`ldpl000b21a`, StatCan geography REST layer 8) that the provincial polygons do not cover (< 20 % overlap): country-residential subdivisions, park townsites, Crowsnest Pass communities, and 10 Métis settlement parts (kind "Métis settlement") | Statistics Canada Open Licence | polygons, simplified ~10 m |
+| `locality` | 822 | **CGNDB**, generic term "Locality" | Open Government Licence – Canada | points (radius rule) |
+
+Not used: Statistics Canada **population centres** (119 in Alberta) cross municipal lines and
+are named after the town or city they surround (the "Edmonton" centre includes Sherwood Park
+and St. Albert), so they add no finer name; the provincial "Hamlet, Locality, Townsite" point
+layer (layer 0) mostly repeats the CGNDB with fewer names (715 of its 833 localities share a
+CGNDB name) and no decision dates; CGNDB "Former Locality", "Former Post Office" and "Railway
+Point" are not current populated places.
+
+**Radius rule (points).** A CGNDB place is a disc of 250 m around its point (`radius_m`), about
+the lower quartile of the equivalent-circle radius of Alberta's hamlet polygons (10th / 25th /
+50th percentile 169 / 241 / 357 m). A locality is smaller than a designated hamlet (fewer than
+the five dwellings on small lots a hamlet needs), hence the lower quartile, not the median. With
+the 500 m arrival buffer, fire within 750 m of the point counts as "within 500 m" of it. The disc
+is an assumed footprint, not a boundary, so the map marks a reached locality with a dot where the
+fire crossed (as for counties) and never draws the disc.
+
+**Filters (CGNDB points).** Dropped: 368 inside a hamlet, urban service area or designated-place
+polygon; 57 within 1 km of a polygon of the same name (accents and case ignored: the same place
+twice); 29 inside a city, town, village or summer village (the municipality names them); 6 in
+Edmonton (its neighbourhoods name them).
+
+**Properties.** `name` = "Place (kind, Parent)" (unique; the evacuation status is keyed by it),
+`place`, `level` (`hamlet` | `locality`), `kind` (hamlet, urban service area, locality, Métis
+settlement), `parent` and `parent_csduid` (the census subdivision holding most of it, by its
+name in `census_subdivisions.geojson`), `source`, and on points `radius_m` and `cgndb_id`. Place
+names only: no addresses, parcels or personal data.
+
+**How the app uses it** (`utils/evacZones.ts`): `mergeCommunities(edmonton, csd, places)` adds
+the places (with `level`); `neighbourhoodArrivals` gives each its own "fire within 500 m" time.
+A census subdivision's arrival is dropped when a hamlet or locality of that CSD contains, or is
+within 500 m of, the point(s) where the fire first came within 500 m of the CSD; that place is
+the more specific name for the same contact. Otherwise the county dot (PR #67) stays as the
+fallback. Hamlet and designated-place polygons are outlined like Edmonton neighbourhoods.
+
 ## Alberta assets and roads (served by area, outside Edmonton)
 
 Added 2026-10-11 (owner-approved task; report [R29] in `PROJECT_RECORD.md`). The bundled

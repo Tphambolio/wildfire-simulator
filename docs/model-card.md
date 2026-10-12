@@ -177,7 +177,9 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   exposure and house-to-house counts outside the major cities can be low. Outside the Edmonton
   area the mask, exposure and inside-perimeter counts use at most 30,000 buildings nearest the
   ignition; community units there are Statistics Canada census subdivisions (municipalities and
-  counties), much coarser than Edmonton neighbourhoods. Edmonton results are unchanged.
+  counties), much coarser than Edmonton neighbourhoods, and the hamlets and localities inside
+  them (Alberta hamlet boundaries, StatCan designated places, CGNDB localities as 250 m discs
+  around a point, an assumed footprint, not a boundary). Edmonton results are unchanged.
 - Edmonton fuel grid: urban trees are non-fuel. Structure-to-structure spread is only an
   opt-in, illustrative Hamada layer (API `structure_spread`): Japanese empirical coefficients,
   California-only published tests (recall 78-97 %, precision 9-77 %), FireSim's own 10 m

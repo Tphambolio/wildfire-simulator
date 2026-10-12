@@ -398,15 +398,20 @@ export default function App() {
   }, []);
 
   // Pre-load community units on startup (arrival outlines and evacuation status): Edmonton
-  // neighbourhoods, and Statistics Canada census subdivisions elsewhere in Alberta.
+  // neighbourhoods, and Statistics Canada census subdivisions elsewhere in Alberta, with the
+  // hamlets and localities inside them (scripts/build_ab_places.py).
   useEffect(() => {
     const get = (url: string) =>
       fetch(url)
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null) as Promise<GeoJSON.FeatureCollection | null>;
-    Promise.all([get("./edmonton/neighbourhoods.geojson"), get("./alberta/census_subdivisions.geojson")])
-      .then(([edm, csd]) => {
-        const merged = mergeCommunities(edm, csd);
+    Promise.all([
+      get("./edmonton/neighbourhoods.geojson"),
+      get("./alberta/census_subdivisions.geojson"),
+      get("./alberta/places.geojson"),
+    ])
+      .then(([edm, csd, places]) => {
+        const merged = mergeCommunities(edm, csd, places);
         if (merged) setCommunities(merged);
       })
       .catch(() => {});
