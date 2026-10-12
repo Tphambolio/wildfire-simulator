@@ -202,6 +202,15 @@ export interface StructureSpreadSummary {
   links_bridged?: number; // of which gap cover >= 20 %
   /** Roof scenario (request structure_combustible_roof_share > 0); absent when off */
   roof_scenario?: RoofScenario;
+  /**
+   * Size rule (decision 2026-10-12, [R40]): footprints under `small_footprint_m2` (20 m²)
+   * are outbuildings. They carry fire but are not in the counts above; absent when the rule
+   * is off (FIRESIM_SMALL_FOOTPRINT_M2=0).
+   */
+  small_footprint_m2?: number;
+  small_footprints?: "count_separately" | "exclude";
+  units_small_involved?: number; // outbuildings involved by this frame
+  units_involved_all?: number; // units_involved + units_small_involved
 }
 
 /** Combustible-roof scenario (spec §6.2). Any display must show `label`. */
@@ -237,6 +246,7 @@ export interface StructureUnitDetail {
   polygon: number[][][]; // footprint ring(s), [lng, lat]
   veg?: BuildingVegetation; // open-data vegetation attributes, when available
   combustible_roof_scenario?: boolean; // roof scenario assigned a combustible roof (not observed)
+  small?: boolean; // outbuilding under the size rule (< 20 m²; not in the counts)
 }
 
 export interface BuildingExposureSummary {
@@ -248,6 +258,9 @@ export interface BuildingExposureSummary {
   flux_over_12_5: number; // peak radiant flux >= 12.5 kW/m2 (Cohen worst case)
   flux_over_25: number;
   ftp_reached: number; // Cohen (2004) flux-time criterion for piloted ignition of wood reached
+  /** Size rule ([R40]): outbuildings < small_footprint_m2 within 500 m, not in the counts above */
+  small_within_500m?: number;
+  small_footprint_m2?: number;
 }
 
 export interface BuildingExposureDetail {

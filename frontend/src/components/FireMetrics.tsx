@@ -8,6 +8,7 @@
 import type { SimulationFrame } from "../types/simulation";
 import { BADGES, TIPS } from "../content/explanations";
 import Badge from "./Badge";
+import InfoTip from "./InfoTip";
 import HfiClassChip from "./HfiClassChip";
 
 interface FireMetricsProps {
@@ -110,6 +111,15 @@ export default function FireMetrics({ frame }: FireMetricsProps) {
               <span className="metric-value">{n}</span>
             </div>
           ))}
+          {frame.building_exposure.small_within_500m != null && (
+            <div className="metric-row" data-testid="exposure-small">
+              <span className="metric-label">
+                Outbuildings &lt; {frame.building_exposure.small_footprint_m2 ?? 20} m² within 500 m
+                <InfoTip text={TIPS.outbuildings} label="About outbuildings" />
+              </span>
+              <span className="metric-value">{frame.building_exposure.small_within_500m}</span>
+            </div>
+          )}
         </div>
       )}
 

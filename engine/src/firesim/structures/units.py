@@ -27,6 +27,69 @@ import numpy as np
 M_PER_DEG_LAT = 111320.0
 DEFAULT_NEIGHBOUR_CUTOFF_M = 30.0  # spec §4.4: FireSim heuristic, confirmed 2026-10-09 (D2)
 
+#: Size rule for headline counts (decision 2026-10-12, [R40]; spec §2.2). Footprints under
+#: this area (m², local metres) are *small outbuildings* (sheds, small garages): they stay in
+#: the unit graph and carry fire like any unit, but are counted separately from the headline
+#: building counts (structure spread and exposure). 20 m² is where municipal (ODB) and
+#: Microsoft footprints part: below it the ODB towns map 16-30 % of their footprints, Microsoft
+#: 0.3-2.5 %; above it the per-town ODB / Microsoft ratios hardly change up to 60 m². DINS
+#: inspects structures from 120 ft² (11.15 m²) and reports "Other Minor Structure" separately.
+#: Read at call time (``small_footprint_m2=None``): a provider set with
+#: ``set_small_footprint_default`` (the API's ``FIRESIM_SMALL_FOOTPRINT_M2``, 0 = count every
+#: footprint, the behaviour before 2026-10-12), else this constant.
+SMALL_FOOTPRINT_M2 = 20.0
+SMALL_FOOTPRINT_MODES = ("count_separately", "exclude")
+_small_default_provider = None
+
+
+_small_mode_provider = None
+
+
+def set_small_footprint_default(provider, mode_provider=None) -> None:
+    """Callables returning the default threshold (m²) and mode at call time (``None`` from a
+    callable = the engine default: ``SMALL_FOOTPRINT_M2``, ``"count_separately"``). Lets a
+    host (the API) map environment settings without the engine reading the environment."""
+    global _small_default_provider, _small_mode_provider
+    _small_default_provider = provider
+    _small_mode_provider = mode_provider
+
+
+def resolve_small_footprints_mode(value: str | None = None) -> str:
+    """``value``, else the mode provider's value, else ``"count_separately"``."""
+    if value is None and _small_mode_provider is not None:
+        value = _small_mode_provider()
+    value = value or "count_separately"
+    if value not in SMALL_FOOTPRINT_MODES:
+        raise ValueError(f"small_footprints must be one of {SMALL_FOOTPRINT_MODES}")
+    return value
+
+
+def resolve_small_footprint_m2(value: float | None = None) -> float:
+    """``value``, else the default provider's value, else ``SMALL_FOOTPRINT_M2``."""
+    if value is None:
+        value = _small_default_provider() if _small_default_provider is not None else None
+    v = SMALL_FOOTPRINT_M2 if value is None else value
+    v = float(v or 0.0)
+    if v < 0 or not math.isfinite(v):
+        raise ValueError("small_footprint_m2 must be a finite number >= 0")
+    return v
+
+
+def footprint_areas_m2(footprints) -> np.ndarray:
+    """Areas (m²) of shapely footprints in (lng, lat): each in an equirectangular frame at its
+    own centroid latitude (the units' frame differs by < 1 % across a run window)."""
+    import shapely
+
+    geoms = np.asarray(list(footprints), dtype=object)
+    if len(geoms) == 0:
+        return np.zeros(0)
+    ok = ~(shapely.is_missing(geoms) | shapely.is_empty(geoms))
+    out = np.zeros(len(geoms))
+    if ok.any():
+        lat = shapely.get_y(shapely.centroid(geoms[ok]))
+        out[ok] = shapely.area(geoms[ok]) * M_PER_DEG_LAT ** 2 * np.cos(np.radians(lat))
+    return out
+
 
 @dataclass(frozen=True)
 class LocalFrame:
@@ -112,6 +175,7 @@ def build_units(
     bbox: tuple[float, float, float, float] | None = None,
     frame: LocalFrame | None = None,
     ids=None,
+    min_area_m2: float = 0.0,
 ) -> StructureUnits:
     """Building units from footprints, clipped to the run area.
 
@@ -124,6 +188,8 @@ def build_units(
         frame: local metric frame; default centred on the kept footprints.
         ids: optional building ids, one per footprint (e.g. the FireSim footprint ``id``);
             kept as ``building_id`` for the units (vegetation attributes, roof scenario).
+        min_area_m2: drop footprints smaller than this (m², local metres) before the graph is
+            built. 0 (default) keeps all; the size rule's "exclude" sensitivity mode only.
 
     Returns:
         ``StructureUnits``. Unit ids are positions in the kept list, in input order.
@@ -171,6 +237,12 @@ def build_units(
 
     local = shapely.transform(geoms, _to_local)
     area = shapely.area(local)
+    if min_area_m2 > 0:
+        keep = area >= min_area_m2
+        local, area = local[keep], area[keep]
+        bid = bid[keep] if bid is not None else None
+        if len(local) == 0:
+            return _empty(frame, neighbour_cutoff_m)
     lc = shapely.centroid(local)
     x, y = shapely.get_x(lc), shapely.get_y(lc)
     lat, lng = frame.to_latlng(x, y)
