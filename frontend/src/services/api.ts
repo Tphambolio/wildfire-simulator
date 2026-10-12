@@ -144,6 +144,28 @@ export async function createPerimeterOverride(
   return resp.json();
 }
 
+/** A province-wide layer served by area (GET /api/v1/layers/assets | roads; docs/api-reference.md) */
+export interface AreaLayer extends GeoJSON.FeatureCollection {
+  metadata?: { available: boolean; label: string; attribution: string; truncated: boolean; count?: number };
+}
+
+/** Alberta critical assets or major roads in a box (south, west, north, east in degrees). */
+export async function fetchAreaLayer(
+  kind: "assets" | "roads",
+  box: { south: number; west: number; north: number; east: number },
+  signal?: AbortSignal,
+): Promise<AreaLayer> {
+  const params = new URLSearchParams({
+    south: box.south.toFixed(4),
+    west: box.west.toFixed(4),
+    north: box.north.toFixed(4),
+    east: box.east.toFixed(4),
+  });
+  const res = await fetch(`${API_BASE}/api/v1/layers/${kind}?${params}`, { signal });
+  if (!res.ok) throw new Error(`Layer ${kind} failed: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchFuelGridImage(fuelGridPath: string): Promise<{ image: string; bounds: [number, number, number, number]; legend?: Array<{ fuel: string; color: string }> }> {
   const params = new URLSearchParams({ fuel_grid_path: fuelGridPath });
   const res = await fetch(`${API_BASE}/api/v1/simulations/fuel-grid-image?${params}`);

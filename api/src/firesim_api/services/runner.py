@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 import uuid
 from typing import Callable
 
@@ -27,6 +28,13 @@ from firesim_api.schemas.simulation import (
 
 logger = logging.getLogger(__name__)
 
+
+#: Runs kept in memory (frames, arrival grid, ensemble). Beyond this the oldest finished runs are
+#: dropped, so a long uptime cannot fill the 2 GB machine (QA 2026-10-11: the store had no
+#: bound). A dropped run answers 404, as after a restart; clients keep their own copy.
+MAX_STORED_RUNS = int(os.environ.get("FIRESIM_MAX_STORED_RUNS", "40"))
+
+_LIVE = (SimulationStatus.PENDING, SimulationStatus.RUNNING, SimulationStatus.PAUSED)
 
 #: Provincial fuel windows kept in memory (2 GB API machine: keep this small)
 _WINDOW_CACHE_SIZE = 2
@@ -48,6 +56,11 @@ class SimulationRun:
         self.config = config
         self.status: SimulationStatus = SimulationStatus.PENDING
         self.frames: list[SimulationFrame] = []
+        # Multi-day runs: the day (1-based) of each frame, parallel to ``frames``, and each
+        # day's FWI codes after the CFFDRS daily carry-over ({day: {ffmc, dmc, dc, isi, bui,
+        # fwi}}), so GET and a late WebSocket join report them as the live stream does
+        self.frame_days: list[int | None] = []
+        self.day_fwi: dict[int, dict[str, float]] = {}
         self.error: str | None = None
         # Ensemble (optional, runs after the deterministic frames)
         self.ensemble = None
@@ -70,6 +83,14 @@ class SimulationRun:
         self.fuel_source: dict | None = None
         # Buildings used (BuildingsSourceInfo fields), set when buildings are selected
         self.buildings_source: dict | None = None
+        # Run archive (services/archive.py): kind of run, the perimeter-override request,
+        # creation and end times (epoch seconds)
+        self.kind: str = "single" if not isinstance(config, MultiDaySimulationCreate) else "multiday"
+        self.override_request: dict | None = None
+        self.created_at: float = time.time()
+        self.finished_at: float | None = None
+        # Terrain used (TerrainSourceInfo fields), set when the grids are loaded
+        self.terrain_source: dict | None = None
 
     def set_phase(self, phase: str, progress: float | None = None) -> None:
         """Record the run's phase and progress; notify ``on_status`` when the phase changes
@@ -91,13 +112,21 @@ class SimulationRun:
             except Exception:  # display only: never fail a run over a status message
                 logger.debug("status callback failed for %s", self.id, exc_info=True)
 
-    def add_frame(self, frame: SimulationFrame) -> None:
+    def add_frame(self, frame: SimulationFrame, day: int | None = None) -> None:
         with self._lock:
             self.frames.append(frame)
+            self.frame_days.append(day)
 
     def get_frames(self) -> list[SimulationFrame]:
         with self._lock:
             return list(self.frames)
+
+    def frame_meta(self, n: int) -> list[tuple[int | None, dict[str, float] | None]]:
+        """(day, day's FWI codes) for the first ``n`` frames (None, None for single-day runs)."""
+        with self._lock:
+            days = self.frame_days[:n]
+        days += [None] * (n - len(days))
+        return [(d, self.day_fwi.get(d) if d is not None else None) for d in days]
 
     def pause(self) -> None:
         """Pause the simulation after the current frame."""
@@ -206,6 +235,9 @@ class SimulationRunner:
     def __init__(self) -> None:
         self._runs: dict[str, SimulationRun] = {}
         self._lock = threading.Lock()
+        # Called with the run once its thread ends (terminal status, ensemble done): the app
+        # archives it from here (services/archive.py). Errors are logged, never raised.
+        self.on_finished: Callable[[SimulationRun], None] | None = None
         # Cache loaded grids keyed by (fuel_path, water_path, wui_path, dem_path).
         # Buildings are intentionally excluded — they are applied per-simulation
         # using the neighbourhood-filtered BuildingIndex, not baked into the grid.
@@ -223,6 +255,9 @@ class SimulationRunner:
         # _WINDOW_CACHE_SIZE kept (each ~10-20 MB of Python lists for a 40 km window at 50 m)
         self._window_cache: dict[tuple, object] = {}
         self._window_lock = threading.Lock()
+        # Provincial terrain windows (slope/aspect on a fuel window's lattice), same LRU size;
+        # each ~10 MB (two 800 x 800 rows of doubles for a 40 km window at 50 m)
+        self._terrain_cache: dict[tuple, object] = {}
 
     def create(
         self,
@@ -244,22 +279,48 @@ class SimulationRunner:
         run = SimulationRun(sim_id, params)
         run.on_status = on_status
 
-        with self._lock:
-            self._runs[sim_id] = run
+        self._store(sim_id, run)
 
         # Start simulation in background thread
-        thread = threading.Thread(
-            target=self._execute,
-            args=(run, on_frame),
-            daemon=True,
-        )
-        thread.start()
+        self._start(self._execute, run, on_frame)
 
         return sim_id
+
+    def _store(self, sim_id: str, run: SimulationRun) -> None:
+        """Keep a new run; drop the oldest finished runs beyond ``MAX_STORED_RUNS`` (never a
+        run still computing, nor one whose ensemble is)."""
+        with self._lock:
+            self._runs[sim_id] = run
+            excess = len(self._runs) - MAX_STORED_RUNS
+            for old_id, old in list(self._runs.items()):  # insertion order: oldest first
+                if excess <= 0:
+                    break
+                if old_id == sim_id or old.status in _LIVE or old.ensemble_status == "running":
+                    continue
+                del self._runs[old_id]
+                excess -= 1
 
     def get(self, sim_id: str) -> SimulationRun | None:
         with self._lock:
             return self._runs.get(sim_id)
+
+    def _start(self, target: Callable[..., None], run: SimulationRun, *args) -> None:
+        """Run ``target(run, *args)`` on a daemon thread; when it ends, record the end time
+        and hand the run to ``on_finished`` (the run archive). The hook only queues work, and
+        an error in it is logged: it never changes the run's result."""
+        def body() -> None:
+            try:
+                target(run, *args)
+            finally:
+                run.finished_at = time.time()
+                hook = self.on_finished
+                if hook is not None:
+                    try:
+                        hook(run)
+                    except Exception:  # noqa: BLE001 - the archive must never break a run
+                        logger.exception("on_finished hook failed for %s", run.id)
+
+        threading.Thread(target=body, daemon=True).start()
 
     def _get_building_index(self, buildings_path: str, neighbourhoods_path: str | None):
         """Return a BuildingIndex, opening and caching on first call.
@@ -534,6 +595,79 @@ class SimulationRunner:
                 self._window_cache.pop(next(iter(self._window_cache)))
         return stacked
 
+    @staticmethod
+    def ab_terrain_path() -> str | None:
+        """The Alberta elevation file when installed, else None (Edmonton DEM only)."""
+        from firesim_api.settings import settings
+
+        p = settings.ab_terrain_path
+        return p if p and os.path.exists(p) else None
+
+    @staticmethod
+    def _is_city_dem(path: str | None) -> bool:
+        from firesim_api.settings import settings
+
+        city = settings.city_dem_path
+        if not path or not city:
+            return False
+        return os.path.realpath(path) == os.path.realpath(city)
+
+    def _terrain_window(self, fuel_grid):
+        """Slope/aspect from the Alberta elevation file on the fuel window's own lattice
+        (cached, LRU of _WINDOW_CACHE_SIZE); None where the file has no elevation."""
+        from firesim.data.provincial import Lattice
+        from firesim.data.terrain import terrain_on_lattice
+
+        path = self.ab_terrain_path()
+        lat = Lattice.of_grid(fuel_grid)
+        key = (path, round(lat.lat_max, 7), round(lat.lng_min, 7), round(lat.dlat, 9),
+               round(lat.dlng, 9), lat.rows, lat.cols)
+        with self._window_lock:
+            if key in self._terrain_cache:
+                hit = self._terrain_cache.pop(key)
+                self._terrain_cache[key] = hit
+                return hit
+        terrain = terrain_on_lattice(path, lat)
+        with self._window_lock:
+            self._terrain_cache[key] = terrain
+            while len(self._terrain_cache) > _WINDOW_CACHE_SIZE:
+                self._terrain_cache.pop(next(iter(self._terrain_cache)))
+        return terrain
+
+    def _window_terrain(self, fuel_grid, dem_path: str | None):
+        """(terrain grid, terrain_source dict) for a provincial / national window: the Alberta
+        elevation file when installed and the request names the bundled Edmonton DEM (the app
+        does when terrain is on); otherwise the request's DEM as before (the Edmonton DEM is
+        flat outside Edmonton)."""
+        from firesim.data.terrain import (AB_TERRAIN_ATTRIBUTION, AB_TERRAIN_LABEL,
+                                          CITY_DEM_LABEL)
+
+        if dem_path and self._is_city_dem(dem_path) and self.ab_terrain_path():
+            terrain = self._terrain_window(fuel_grid)
+            if terrain is not None:
+                return terrain, {"kind": "provincial", "label": AB_TERRAIN_LABEL,
+                                 "attribution": AB_TERRAIN_ATTRIBUTION}
+        if not dem_path:
+            return None, None
+        terrain = self._load_grids(None, None, None, dem_path)[2]
+        city = self._is_city_dem(dem_path)
+        label = (f"{CITY_DEM_LABEL} (flat outside Edmonton)" if city
+                 else f"DEM {os.path.basename(dem_path)}")
+        return terrain, {"kind": "city_dem" if city else "user_dem", "label": label,
+                         "attribution": None}
+
+    @classmethod
+    def _dem_terrain_info(cls, dem_path: str | None, terrain) -> dict | None:
+        """terrain_source fields for a run that used ``dem_path`` as given."""
+        from firesim.data.terrain import CITY_DEM_LABEL
+
+        if not dem_path or terrain is None:
+            return None
+        if cls._is_city_dem(dem_path):
+            return {"kind": "city_dem", "label": CITY_DEM_LABEL, "attribution": None}
+        return {"kind": "user_dem", "label": f"DEM {os.path.basename(dem_path)}",
+                "attribution": None}
+
     def resolve_provincial(self, params, day_of_year: int | None, dem_path: str | None,
                            wui_path: str | None = None, water_path: str | None = None):
         """(fuel_grid, spread_modifier_grid, terrain_grid, fine_source_or_None, fuel_source dict)
@@ -545,6 +679,9 @@ class SimulationRunner:
         on the ignition (City cells where mapped, Alberta elsewhere, national outside Alberta if
         configured); no 20 m window. Outside every grid: no grid (the uniform ``fuel_type``).
         The season (D-1/D-2, M-1/M-2) is applied per run on a copy; cached grids stay unseasoned.
+        Terrain: the Edmonton DEM on the City lattice; a window of the Alberta elevation file
+        for windows (``_window_terrain``). The returned dict carries the terrain_source fields
+        under "terrain" (callers pop it).
         """
         from firesim.data.provincial import choose_fuel
         from firesim.fbp.season import apply_season, season_label
@@ -560,6 +697,7 @@ class SimulationRunner:
                 sources.city_path, water_path, wui_path, dem_path, fill_path=sources.ab_path)
             fine = self._get_fine_source(sources.city_path, water_path, fuel_grid,
                                          fill_path=sources.ab_path)
+            info["terrain"] = self._dem_terrain_info(dem_path, terrain)
         elif choice.kind in ("provincial", "national"):
             stacked = self._provincial_window(sources, params.ignition_lat, params.ignition_lng,
                                               water_path)
@@ -579,10 +717,11 @@ class SimulationRunner:
                 wui_grid = load_wui_modifiers(
                     wui_path, bounds=(fuel_grid.lat_min, fuel_grid.lat_max, fuel_grid.lng_min,
                                       fuel_grid.lng_max), rows=fuel_grid.rows, cols=fuel_grid.cols)
-            terrain = self._load_grids(None, None, None, dem_path)[2] if dem_path else None
+            terrain, info["terrain"] = self._window_terrain(fuel_grid, dem_path)
         else:  # uniform: outside every grid
             fuel_grid, wui_grid = None, None
             terrain = self._load_grids(None, None, None, dem_path)[2] if dem_path else None
+            info["terrain"] = self._dem_terrain_info(dem_path, terrain)
         if fuel_grid is not None:
             fuel_grid = apply_season(fuel_grid, day_of_year)
             info["season"] = season_label(day_of_year)
@@ -590,6 +729,14 @@ class SimulationRunner:
                 fine = fine.with_season(day_of_year)
         logger.info("Fuel source: %s (%s)", choice.kind, choice.label)
         return fuel_grid, wui_grid, terrain, fine, info
+
+    def _set_terrain_source(self, run, dem_path: str | None, terrain_grid) -> None:
+        """run.terrain_source: from resolve_provincial's "terrain" entry, else the DEM used."""
+        info = run.fuel_source if isinstance(run.fuel_source, dict) else {}
+        if "terrain" in info:
+            run.terrain_source = info.pop("terrain")
+        else:
+            run.terrain_source = self._dem_terrain_info(dem_path, terrain_grid)
 
     def _legacy_fuel_source(self, params, fuel_grid, grid_path: str | None) -> dict:
         """FuelSourceInfo fields for a run that did not use the provincial default."""
@@ -717,6 +864,7 @@ class SimulationRunner:
 
             if run.fuel_source is None:
                 run.fuel_source = self._legacy_fuel_source(params, fuel_grid, fine_key[0])
+            self._set_terrain_source(run, dem_path, terrain_grid)
 
             # Buildings for the building mask, inside-perimeter counts and exposure
             # (docs/buildings-alberta.md). In Edmonton (ignition in the former extract's box):
@@ -903,15 +1051,9 @@ class SimulationRunner:
         sim_id = str(uuid.uuid4())[:8]
         run = SimulationRun(sim_id, params)
 
-        with self._lock:
-            self._runs[sim_id] = run
+        self._store(sim_id, run)
 
-        thread = threading.Thread(
-            target=self._execute_multiday,
-            args=(run, params, on_frame),
-            daemon=True,
-        )
-        thread.start()
+        self._start(self._execute_multiday, run, params, on_frame)
 
         return sim_id
 
@@ -951,6 +1093,7 @@ class SimulationRunner:
                     dem_path,
                 )
                 run.fuel_source = self._legacy_fuel_source(params, fuel_grid, params.fuel_grid_path)
+            self._set_terrain_source(run, dem_path, terrain_grid)
 
             # Initialise FWI carry-in state from user overrides or spring defaults
             fwi_ov = params.fwi_overrides
@@ -979,6 +1122,10 @@ class SimulationRunner:
                     rain=day_weather.precipitation_24h,
                     month=params.month,
                 )
+                run.day_fwi[day_num] = {
+                    k: round(float(getattr(day_fwi, k)), 1)
+                    for k in ("ffmc", "dmc", "dc", "isi", "bui", "fwi")
+                }
 
                 config = SimulationConfig(
                     ignition_lat=params.ignition_lat,
@@ -1023,7 +1170,7 @@ class SimulationRunner:
                         frame, time_hours=round(frame.time_hours + time_offset, 3)
                     )
 
-                    run.add_frame(adjusted)
+                    run.add_frame(adjusted, day=day_num)
                     if on_frame is not None:
                         on_frame(run.id, adjusted, day_num)
 
@@ -1128,16 +1275,13 @@ class SimulationRunner:
         sim_id = str(uuid.uuid4())[:8]
         run = SimulationRun(sim_id, original.config)
         run.on_status = on_status
+        run.kind = "perimeter_override"
+        run.override_request = req.model_dump(mode="json")
 
-        with self._lock:
-            self._runs[sim_id] = run
+        self._store(sim_id, run)
 
-        thread = threading.Thread(
-            target=self._execute_perimeter_override,
-            args=(run, original.config, initial_front, req, on_frame, clock),
-            daemon=True,
-        )
-        thread.start()
+        self._start(self._execute_perimeter_override, run, original.config, initial_front, req,
+                    on_frame, clock)
 
         return sim_id
 
@@ -1202,6 +1346,7 @@ class SimulationRunner:
                     dem_path,
                 )
                 run.fuel_source = self._legacy_fuel_source(params, fuel_grid, params.fuel_grid_path)
+            self._set_terrain_source(run, dem_path, terrain_grid)
 
             simulator = Simulator(
                 config,

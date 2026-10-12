@@ -74,7 +74,9 @@ docker compose up --build
 | `data/building_index.py` | Buildings read by window (FlatGeobuf R-tree via pyogrio; GeoJSON into compact arrays): Edmonton 4-nearest-neighbourhood selection unchanged (former extract's box), `near()` for runs elsewhere (≤ `FIRESIM_BUILDINGS_MAX_NEAR`), footprint source for structure spread (`clipped()` for Edmonton runs); `docs/buildings-alberta.md` |
 | `data/provincial.py` | Default fuel outside Edmonton: windowed reads of large rasters onto a lat/lng `Lattice`, source stacking (City where mapped → Alberta grid → national), `choose_fuel` (city / provincial / national / uniform); `docs/fuel-grid-alberta.md` |
 | `fbp/season.py` | Leaf-on / leaf-off swap of D-1, M-1, M-3 labels by day of year (150 / 258; the validation harness uses the same) |
-| `data/dem_loader.py` | DEM GeoTIFF → slope % + aspect ° → `TerrainGrid` |
+| `data/dem_loader.py` | DEM GeoTIFF → slope % + aspect ° → `TerrainGrid` (`slope_aspect` shared) |
+| `data/terrain.py` | Terrain outside Edmonton: windowed reads of the Alberta MRDEM-30 elevation COG (~100 m, uint16 dm) onto a run lattice → slope/aspect (`terrain_on_lattice`); `docs/terrain-alberta.md` |
+| `data/vector_layers.py` | Alberta critical assets / major roads read by box from FlatGeobuf (`read_assets`, `read_roads`), schema of the bundled Edmonton layers |
 | `data/wui_loader.py` | WUI GeoJSON → `SpreadModifierGrid` |
 | `data/synthetic_grid.py` | Demo landscape generator (no data files needed) |
 
@@ -112,7 +114,7 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | GET | `/api/v1/health` | Status + uptime |
 | GET | `/api/v1/version` | Version + deployed git SHA (stamp outputs with it) |
 | POST | `/api/v1/simulations` | Start simulation → `SimulationResponse` |
-| GET | `/api/v1/simulations/{id}` | Fetch stored results |
+| GET | `/api/v1/simulations/{id}` | Fetch results (memory, else the run archive: `archived: true`) |
 | WS | `/api/v1/simulations/ws/{id}` | Stream frames real-time (JSON) |
 | GET | `/api/v1/simulations/{id}/arrival` | Arrival-minute raster of a finished grid run |
 | GET / DELETE | `/api/v1/simulations/{id}/ensemble` | Ensemble progress and P10/P50/P90 rasters / stop it (the app does when a new run starts) |
@@ -123,6 +125,7 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | POST | `/api/v1/fwi/calculate` | Single observation → FWI codes + danger rating |
 | POST | `/api/v1/fwi/multi-day` | Chain FWI across daily observations |
 | GET | `/api/v1/weather/current?lat=&lng=` | Live CWFIS WFS → `CurrentWeather` |
+| GET | `/api/v1/layers/assets?south=&west=&north=&east=` / `/layers/roads?...` | Alberta critical assets / major roads in a box (≤ 1° × 2°), GeoJSON; `available: false` without the files |
 
 ### Frames
 WebSocket events are `{"type": "simulation.frame", "simulation_id": ..., "frame": {...}}`, then
@@ -149,7 +152,14 @@ FIRESIM_CITY_FUEL_GRID_PATH  City grid path that triggers it (default /app/data/
 FIRESIM_NATIONAL_FUEL_GRID_PATH / _SCHEME, FIRESIM_PROVINCIAL_WINDOW_KM (40), FIRESIM_CITY_MARGIN_KM (5)
 FIRESIM_AB_BUILDINGS_PATH Alberta buildings FlatGeobuf (set by api/Dockerfile); stands in for FIRESIM_CITY_BUILDINGS_PATH
 FIRESIM_CITY_BUILDINGS_PATH  default /app/data/edmonton_buildings.geojson.gz; FIRESIM_BUILDINGS_MAX_NEAR (30000, outside Edmonton)
+FIRESIM_MAX_STORED_RUNS   runs kept in memory (40)
+FIRESIM_ARCHIVE(_DIR/_DB/_BACKEND/_S3_*/_MAX_AGE_DAYS/_MAX_BYTES/_RETENTION_HOURS)  run archive (docs/run-archive.md)
+FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)
+FIRESIM_AB_ASSETS_PATH / FIRESIM_AB_ROADS_PATH  Alberta assets / roads FlatGeobuf (set by api/Dockerfile); FIRESIM_LAYERS_MAX_BOX_DEG (1.0)
 ```
+Run archive (`services/archive.py`): finished runs go to a SQLite index + object store (local or
+S3/R2) in the background; GET `/simulations/{id}`, `/arrival`, `/ensemble` fall back to it
+(`archived: true`). Litestream backs up the index when R2 secrets are set (`api/deploy/`).
 
 ---
 
@@ -162,11 +172,14 @@ FIRESIM_CITY_BUILDINGS_PATH  default /app/data/edmonton_buildings.geojson.gz; FI
 Top bar (incident, status, limits badge, America/Edmonton clock) · Setup column (sections with
 summaries, sticky Run bar) · map (`MapView.tsx`) · Situation panel (`FireMetrics.tsx`, exposure,
 Neighbourhoods card `EvacStatusPanel.tsx`, `EOCSummary.tsx`) · clock-time timeline
-(`TimeSlider.tsx`). Neighbourhoods: modelled fire arrival within 500 m and evacuation status set by
+(`TimeSlider.tsx`). Setup and Situation collapse to rails, "Focus map" / `F` collapses both, map
+legends sit in one minimisable dock (`hooks/useLayout.ts`, `SideRail.tsx`, `LegendDock.tsx`;
+frontend/README "Layout"). Neighbourhoods: modelled fire arrival within 500 m and evacuation status set by
 Planning (`utils/evacZones.ts`; Edmonton neighbourhoods + StatCan census subdivisions elsewhere, `mergeCommunities`, tagged "CSD"); FireSim never suggests Order/Alert/Watch. Critical assets card
 `CriticalAssetsPanel.tsx` (`utils/assets.ts`): arrival within 500 m / inside for each asset and
 first reach per major road, from the bundled `public/edmonton/assets.geojson`
-(`scripts/build_edmonton_assets.py`; roads `scripts/build_edmonton_roads.py`; sources in `docs/data-sources.md`) or a user layer. EOC console tab: `EOCConsole.tsx`
+(`scripts/build_edmonton_assets.py`; roads `scripts/build_edmonton_roads.py`; sources in `docs/data-sources.md`), outside Edmonton
+the Alberta layers fetched by area (~28 km around the ignition, `fetchAreaLayer`, `areaBox`; rows tagged by source; `scripts/build_ab_assets.py`, `build_ab_roads.py`), or a user layer. EOC console tab: `EOCConsole.tsx`
 (ICS forms `utils/icsForms.ts`, ICS Canada 209-WF `utils/ics209.ts`, `docs/ics-canada-209.md`). Shared tables: `utils/fireClasses.ts`
 (HFI classes, Cole & Alexander 1995), `utils/fwiClass.ts`, `utils/time.ts`,
 `utils/suppressionAdvisory.ts`. Design tokens: `src/styles/tokens.css` (dark default).
@@ -228,6 +241,7 @@ The engine works without real data using `synthetic_grid.py` (generates a mixed-
 | `edmonton_neighbourhoods.geojson` | City of Edmonton Open Data, Neighbourhoods `65fr-66s6` (OGL – City of Edmonton), 407 polygons | building index, neighbourhood card |
 | `wui_zones.geojson.gz` | Custom, **no documented source** — off by default; don't present results using it as measured | `wui_loader.py` |
 | `ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif` (**not committed**: GitHub release `data-ab-fbp-2025`, fetched by `api/Dockerfile`; built by `scripts/build_ab_fuel_cog.py`) | Alberta Wildfire FBP Fuel Type raster 2025, 100 m, EPSG:3400, © Government of Alberta, Open Government Licence – Alberta (image service: GoA disclaimer). Default fuel where the City grid has no data and outside it (`docs/fuel-grid-alberta.md`) | `data/provincial.py`, `fuel_loader.py` (`ab_wildfire`) |
+| `ab_terrain_mrdem30_100m.tif`, `ab_assets_2026.fgb`, `ab_major_roads_osm.fgb` (**not committed**: GitHub release `data-ab-infra-2026-10`, fetched by `api/Dockerfile`; `scripts/build_ab_terrain.py`, `build_ab_assets.py`, `build_ab_roads.py`) | NRCan MRDEM-30 elevation ~100 m, 91.7 MB (OGL – Canada); 3,901 critical assets from StatCan ODHF (OGL – Canada) + OSM (ODbL), 1.5 MB; 17,184 OSM major-road pieces (ODbL), 4.1 MB. No addresses | `data/terrain.py` (windows outside Edmonton), `data/vector_layers.py` (`/api/v1/layers/*`); `docs/terrain-alberta.md`, `docs/data-sources.md` |
 | `edmonton_building_vegetation.csv.gz` | Per-footprint canopy cover rings, roof overhang, distance to a 1 ha stand, keyed by footprint `id`; from the Meta/WRI 1 m canopy height map (CC BY 4.0) by `scripts/build_building_vegetation.py`. **Never City LiDAR** | `structures/vegetation.py` (attributes, context only) |
 | `edmonton_canopy_5m.tif` | Open-ground canopy share (%, ≈ 5 m cells, EPSG:3857) from the Meta 1 m CHM with footprints masked (`build_building_vegetation.py canopy-raster`) | vegetation-bridged cutoff (gap woody cover) |
 

@@ -40,6 +40,8 @@ interface SimulationState {
   progress: number | null;
   startedAt: number | null;
   durationHours: number | null;
+  /** The run was read from the server's run archive (it finished before the API restarted) */
+  archived: boolean;
 }
 
 const IDLE: SimulationState = {
@@ -54,6 +56,7 @@ const IDLE: SimulationState = {
   progress: null,
   startedAt: null,
   durationHours: null,
+  archived: false,
 };
 
 /** Progress from a frame's time (Huygens runs stream frames as they compute). */
@@ -244,7 +247,7 @@ export function useSimulation() {
     setState(IDLE);
   }, []);
 
-  const pollForResults = useCallback(async (simId: string, token: number) => {
+  const pollForResults = useCallback(async (simId: string, token: number, lostMessage?: string) => {
     const poll = async () => {
       if (token !== runTokenRef.current) return;
       try {
@@ -260,6 +263,7 @@ export function useSimulation() {
           currentFrameIndex: framesWithT0.length - 1,
           isRunning: resp.status === "running",
           error: resp.error,
+          archived: resp.archived === true,
           phase: resp.phase ?? prev.phase,
           progress: typeof resp.progress === "number" ? Math.max(prev.progress ?? 0, resp.progress) : prev.progress,
         }));
@@ -274,7 +278,7 @@ export function useSimulation() {
           setState((prev) => ({
             ...prev,
             status: "failed",
-            error: "Simulation lost — the server restarted. Please run the simulation again.",
+            error: lostMessage ?? "Simulation lost — the server restarted. Please run the simulation again.",
             isRunning: false,
           }));
         }
@@ -283,6 +287,24 @@ export function useSimulation() {
     };
     poll();
   }, []);
+
+  /**
+   * Load a finished run from the server by ID (e.g. an operational period's run after a
+   * reload). The server answers from memory or, after a restart or deploy, from its run archive
+   * (`archived: true`). A run in neither (removed by the archive's retention, or finished before
+   * the archive existed) ends "failed" with a message saying so.
+   */
+  const restoreRun = useCallback((simId: string) => {
+    const token = beginRun(null);
+    setState((prev) => ({ ...prev, simulationId: simId }));
+    pollForResults(
+      simId,
+      token,
+      "This run is no longer on the server or in its run archive (removed after the retention " +
+        "period, or run before the archive existed). The period keeps its summary and final " +
+        "perimeter; run it again to see the full run.",
+    );
+  }, [beginRun, pollForResults]);
 
   const setFrameIndex = useCallback((index: number) => {
     setState((prev) => ({
@@ -320,6 +342,7 @@ export function useSimulation() {
     startPerimeterOverride,
     prepareRun,
     clearResults,
+    restoreRun,
     setFrameIndex,
     pauseSimulation,
     resumeSimulation,

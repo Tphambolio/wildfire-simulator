@@ -9,6 +9,7 @@ import "./styles/assets.css";
 import "./styles/structures.css";
 import "./styles/infotip.css";
 import "./styles/about.css";
+import "./styles/layout.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

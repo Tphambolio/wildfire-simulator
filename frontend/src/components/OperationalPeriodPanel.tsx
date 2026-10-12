@@ -4,12 +4,30 @@ import { useState } from "react";
 import type { IncidentSession, OperationalPeriod } from "../types/incident";
 import { nextPeriodDate } from "../utils/time";
 
+/** How the current run relates to the active period (App decides; this panel shows it) */
+export interface PeriodRunInfo {
+  /** The EOC console shows the current run for this period */
+  liveRunShown: boolean;
+  /** Day of the period the current run is filed under, if another one */
+  liveRunDay: number | null;
+  /** A completed run not filed under any period can be attached to this one */
+  canAttach: boolean;
+  onAttach: () => void;
+  /** This period has a saved run that is not loaded: load it from the server */
+  onLoad?: () => void;
+  /** The run shown was loaded from the server's run archive (not its memory) */
+  fromArchive?: boolean;
+}
+
 interface OperationalPeriodPanelProps {
   incident: IncidentSession;
   activePeriod: OperationalPeriod | null;
   onPeriodSelect: (index: number) => void;
   onAdvancePeriod: (opts: { date: string; opPeriodStart: string; opPeriodEnd: string }) => void;
   onUpdateName: (name: string) => void;
+  /** The last save to browser storage failed (storage full): changes are not kept */
+  saveFailed?: boolean;
+  run?: PeriodRunInfo;
 }
 
 export default function OperationalPeriodPanel({
@@ -18,6 +36,8 @@ export default function OperationalPeriodPanel({
   onPeriodSelect,
   onAdvancePeriod,
   onUpdateName,
+  saveFailed = false,
+  run,
 }: OperationalPeriodPanelProps) {
   const [showAdvance, setShowAdvance] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -104,6 +124,35 @@ export default function OperationalPeriodPanel({
           {typeof lastArea === "number" && Number.isFinite(lastArea) && (
             <span className="op-period-stats">{lastArea.toFixed(1)} ha burned</span>
           )}
+          {run && (
+            <span className="op-period-run" data-testid="period-run">
+              {activePeriod.simulationId
+                ? <>Run {activePeriod.simulationId}{run.liveRunShown ? (run.fromArchive ? " · Loaded from archive" : "") : " · not loaded"}</>
+                : run.liveRunShown
+                  ? "Current run · not yet filed under this period"
+                  : run.liveRunDay != null
+                    ? `No run for this period (current run is Day ${run.liveRunDay}'s)`
+                    : "No run for this period"}
+              {run.onLoad && (
+                <button className="op-period-run-btn" onClick={run.onLoad}>Load Day {activePeriod.day} run</button>
+              )}
+              {run.canAttach && (
+                <button
+                  className="op-period-run-btn"
+                  onClick={run.onAttach}
+                  title={activePeriod.simulationId ? `Replaces run ${activePeriod.simulationId}` : undefined}
+                >
+                  Attach current run to Day {activePeriod.day}
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+      {saveFailed && (
+        <div className="notice notice-warning" role="alert">
+          Not saved: this browser's storage is full or blocked. Export the incident
+          (Setup → Incidents) to keep it.
         </div>
       )}
     </div>

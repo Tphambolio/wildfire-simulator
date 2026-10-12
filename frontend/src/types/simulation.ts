@@ -139,6 +139,8 @@ export interface SimulationFrame {
     fuel: string; t: number; max_spot_distance_m: number;
   } | null;
   day?: number | null; // Multi-day scenario: which day (1-based)
+  /** Multi-day scenario: the day's FWI codes after the CFFDRS daily carry-over */
+  day_fwi?: { ffmc: number; dmc: number; dc: number; isi: number; bui: number; fwi: number } | null;
   buildings_at_risk?: number; // building centroids inside the perimeter
   ignition_snapped_m?: number;
   // Exposure (not ignition probability), grid model with building footprints
@@ -325,6 +327,17 @@ export interface SimulationResponse {
   fuel_source?: FuelSourceInfo | null;
   /** Buildings the run used (absent from older API versions; docs/api-reference.md) */
   buildings_source?: BuildingsSourceInfo | null;
+  /** Read from the server's run archive (the run finished before the API restarted) */
+  archived?: boolean;
+  /** Terrain the run used (absent from older API versions; docs/terrain-alberta.md) */
+  terrain_source?: TerrainSourceInfo | null;
+}
+
+/** Which terrain (slope, aspect) a run used (API `terrain_source`) */
+export interface TerrainSourceInfo {
+  kind: "city_dem" | "provincial" | "user_dem" | string;
+  label: string;
+  attribution?: string | null;
 }
 
 /** Which buildings a run used (API `buildings_source`) */

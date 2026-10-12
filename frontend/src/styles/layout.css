@@ -1,0 +1,500 @@
+/*
+ * Map-focus layout (owner request 2026-10-11): collapsible Setup and Situation columns (slim
+ * rails), map focus mode, overlay drawers below 1280 px, and the map legend dock.
+ * Colours, type and spacing come from tokens.css.
+ */
+
+/* ── Grid: each side is its full width or a rail ─────────────────────────────── */
+.app {
+  --rail-width: 44px;
+  --setup-col: var(--setup-width);
+  --situation-col: var(--situation-width);
+  grid-template-columns: var(--setup-col) minmax(0, 1fr) var(--situation-col);
+  transition: grid-template-columns 180ms ease;
+}
+
+.app.setup-collapsed { --setup-col: var(--rail-width); }
+.app.situation-collapsed { --situation-col: var(--rail-width); }
+
+/* Narrow screens: both columns are rails; an open side is a drawer over the map */
+.app.layout-narrow {
+  --setup-col: var(--rail-width);
+  --situation-col: var(--rail-width);
+}
+
+.setup-panel {
+  position: relative;
+  z-index: 40; /* the one-time hint overhangs the map */
+  min-width: 0;
+}
+
+.setup-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.setup-content[hidden],
+.situation-content[hidden] {
+  display: none;
+}
+
+/* The Setup rail lets the one-time hint overhang the map */
+.situation-panel.collapsed {
+  overflow: hidden;
+}
+
+.setup-panel.is-drawer,
+.situation-panel.is-drawer {
+  position: fixed;
+  top: var(--topbar-height);
+  bottom: var(--bottombar-height);
+  z-index: 80;
+  box-shadow: var(--shadow-overlay);
+}
+
+.setup-panel.is-drawer {
+  left: 0;
+  width: min(var(--setup-width), calc(100vw - 2 * var(--rail-width)));
+  border-right: 1px solid var(--border-strong);
+}
+
+.situation-panel.is-drawer {
+  right: 0;
+  width: min(var(--situation-width), calc(100vw - 2 * var(--rail-width)));
+  border-left: 1px solid var(--border-strong);
+}
+
+/* ── Panel headers: title + collapse chevron ─────────────────────────────────── */
+.setup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 6px var(--sp-2) 6px var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.setup-heading {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  margin: 0;
+}
+
+.situation-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-right: calc(-1 * var(--sp-2));
+}
+
+.side-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
+  margin: 0;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.side-collapse-btn:hover {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: var(--border);
+}
+
+/* ── Rails ───────────────────────────────────────────────────────────────────── */
+.side-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  min-height: 0;
+  padding-bottom: var(--sp-2);
+}
+
+.side-rail-open {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-3) 0 var(--sp-4);
+  margin: 0;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.side-rail-open:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.side-rail-open:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.side-rail-label {
+  writing-mode: vertical-rl;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+/* Setup reads bottom-to-top along the left edge, Situation top-to-bottom along the right */
+.side-rail-setup .side-rail-label {
+  transform: rotate(180deg);
+}
+
+.side-rail-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+}
+
+.rail-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  margin: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.rail-run {
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.rail-run:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.rail-run:disabled {
+  color: var(--text-3);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  cursor: not-allowed;
+}
+
+.rail-new-ignition {
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+}
+
+.rail-new-ignition:hover {
+  background: var(--surface-3);
+}
+
+.rail-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.15;
+}
+
+.rail-stat small {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.rail-running {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warning-text);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rail-running { animation: rail-pulse 1.4s ease-in-out infinite; }
+}
+
+@keyframes rail-pulse {
+  50% { opacity: 0.35; }
+}
+
+/* One-time hint beside the Setup rail after the auto-collapse */
+.layout-hint {
+  position: absolute;
+  top: 150px; /* below the search box and weather chips */
+  left: calc(100% + 10px);
+  width: 270px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--accent-text);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+}
+
+.layout-hint::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface-2);
+  border-left: 1px solid var(--accent-text);
+  border-bottom: 1px solid var(--accent-text);
+  transform: rotate(45deg);
+}
+
+.layout-hint kbd,
+.legend-dock kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+/* ── Map focus button (under the zoom control) ───────────────────────────────── */
+.map-focus-btn {
+  position: absolute;
+  top: 108px;
+  right: 10px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-h);
+  padding: 0 var(--sp-3) 0 10px;
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--overlay);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  cursor: pointer;
+}
+
+.map-focus-btn:hover {
+  background: var(--surface-3);
+}
+
+.map-focus-btn.active {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Legend dock (bottom left of the map) ───────────────────────────────────── */
+.legend-dock {
+  position: absolute;
+  left: 10px;
+  bottom: 34px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max-content;
+  min-width: 170px;
+  max-width: min(320px, calc(100% - 220px));
+  max-height: calc(100% - 140px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 6px 6px;
+  background: var(--overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.legend-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 2px 2px 2px 4px;
+}
+
+.legend-dock-title {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.legend-dock-hide {
+  min-height: var(--target-min);
+  padding: 0 6px;
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--accent-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.legend-dock-hide:hover {
+  border-color: var(--border-strong);
+}
+
+.legend-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px;
+}
+
+.legend-chip,
+.legend-dock-show {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--target-min);
+  padding: 2px 10px 2px 8px;
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.legend-chip:hover,
+.legend-dock-show:hover {
+  background: var(--surface-3);
+}
+
+.legend-chip-swatches,
+.legend-dock-show-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.legend-chip-swatches span,
+.legend-dock-show-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.legend-count {
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  text-align: center;
+  color: var(--text-2);
+  background: var(--surface);
+}
+
+.legend-dock.legend-dock-hidden {
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.legend-dock-hidden .legend-dock-show {
+  box-shadow: var(--shadow-overlay);
+}
+
+.legend-cards {
+  display: flex;
+  flex-direction: column;
+}
+
+.legend-card {
+  padding: 4px 4px 6px;
+}
+
+.legend-card + .legend-card {
+  border-top: 1px solid var(--border);
+}
+
+.legend-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.legend-card-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--target-min);
+  padding: 0 4px 0 0;
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.legend-card-toggle:hover .legend-card-title {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.legend-chev {
+  color: var(--text-2);
+  flex: none;
+}
+
+.legend-card-body {
+  padding-left: 18px;
+}
+
+.legend-card .burn-prob-legend-scale.legend-two-col {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 4px var(--sp-3);
+}
+
+@media print {
+  .side-rail,
+  .map-focus-btn,
+  .layout-hint,
+  .legend-dock-head,
+  .legend-chips {
+    display: none !important;
+  }
+}

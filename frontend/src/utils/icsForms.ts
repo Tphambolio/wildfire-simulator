@@ -50,6 +50,10 @@ export interface ICSFormOptions {
   mapSnapshotDataUrl?: string;
   /** ICS map annotations from the incident store — used to populate form tables */
   annotations?: IncidentAnnotation[];
+  /** Operational period the forms are for, e.g. "Day 2 · 2026-10-11 08:00–20:00" */
+  operationalPeriod?: string;
+  /** FireSim run the model output comes from (null: no run for this period) */
+  runId?: string | null;
 }
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -276,6 +280,10 @@ function incidentInfoBlock(opts: ICSFormOptions, extra?: Array<[string, string]>
     rows.push(["Ignition Coordinates", `${opts.ignitionPoint.lat.toFixed(5)}°N, ${Math.abs(opts.ignitionPoint.lng).toFixed(5)}°W`]);
   }
   if (opts.fuelTypeLabel) rows.push(["Primary Fuel Type", opts.fuelTypeLabel]);
+  if (opts.operationalPeriod) rows.push(["Operational Period", opts.operationalPeriod]);
+  if (opts.runId !== undefined) {
+    rows.push(["FireSim Run (model output)", opts.runId ?? "No run for this operational period"]);
+  }
   if (extra) rows.push(...extra);
   return kvTable(rows);
 }
@@ -696,7 +704,7 @@ export function buildICS214HTML(opts: ICSFormOptions): string {
     icsBlock("2", "Assignment Information", kvTable([
       ["Unit / ICS Position", ""],
       ["Personnel on Duty", ""],
-      ["Operational Period", ""],
+      ["Operational Period", opts.operationalPeriod ?? ""],
     ])),
     icsBlock("3", "Activity Log", `<table class="kv"><tr><th style="width:20%">Time</th><th>Activity / Remarks</th></tr>${logRows}</table>`),
     icsBlock("4", "Notes", `<p class="muted">Record significant activities, resource changes, decisions, and contacts. Submit to Documentation Unit at end of shift.</p>`),

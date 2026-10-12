@@ -46,6 +46,7 @@ function structPaint(t: number): { fill: maplibregl.ExpressionSpecification; lin
 import { cellAreaWeight } from "../utils/gridCell";
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
+import LegendDock, { type LegendItem } from "./LegendDock";
 import { BADGES, TIPS } from "../content/explanations";
 
 /** Ensemble line colour: ink, one colour for every arrival line (design spec §3.3, §6.2) */
@@ -867,7 +868,7 @@ export default function MapView({
     m.on("mouseleave", "assets-symbol", () => { m.getCanvas().style.cursor = ""; });
 
     // ── Neighbourhood layers: modelled arrival (ink) and evacuation status set by Planning (blue) ──
-    for (const id of ["nbhd-arrival-line", "nbhd-arrival-casing",
+    for (const id of ["nbhd-arrival-point", "nbhd-arrival-line", "nbhd-arrival-casing",
       ...EVAC_TIERS.map((t) => `evac-${t.toLowerCase()}-line`), "evac-tier-casing"]) {
       if (m.getLayer(id)) m.removeLayer(id);
     }
@@ -884,6 +885,14 @@ export default function MapView({
       type: "line",
       source: "nbhd-arrival",
       paint: { "line-color": "#1f2937", "line-width": 1.5 },
+    });
+    // Census subdivisions: a dot where the fire first comes within 500 m (no county outline)
+    m.addLayer({
+      id: "nbhd-arrival-point",
+      type: "circle",
+      source: "nbhd-arrival",
+      filter: ["==", ["geometry-type"], "Point"],
+      paint: { "circle-radius": 5, "circle-color": "#1f2937", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 },
     });
     // Evacuation status (Planning): blue outlines, Order solid / Alert dashed / Watch dotted,
     // on a white casing, never a fill (spec §3.6, §6.2). Text labels are DOM markers (below).
@@ -1284,6 +1293,8 @@ export default function MapView({
           m.zoomOut();
           return;
         case "Escape":
+          // Hiding the crosshair consumes Esc (it does not also leave map focus mode)
+          if (kbCursorRef.current) e.preventDefault();
           setKb(null);
           return;
         case "Enter": {
@@ -1933,7 +1944,7 @@ export default function MapView({
       for (const id of ids) if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", v ? "visible" : "none");
     };
     setVis(["evac-tier-casing", ...EVAC_TIERS.map((t) => `evac-${t.toLowerCase()}-line`)], evacZonesVisible);
-    setVis(["nbhd-arrival-casing", "nbhd-arrival-line"], arrivalOutlinesVisible);
+    setVis(["nbhd-arrival-casing", "nbhd-arrival-line", "nbhd-arrival-point"], arrivalOutlinesVisible);
   }, [evacZonesVisible, arrivalOutlinesVisible, mapReady, fireLayersVersion]);
 
   // On-map text labels for neighbourhoods (DOM markers, so they need no map glyphs and stay
@@ -1958,7 +1969,10 @@ export default function MapView({
       }
     }
     for (const [name, e] of entries) {
-      const at = labelPoint(e.feature);
+      // Census subdivisions arrive as the point where the fire first came within 500 m
+      const at: [number, number] | null = e.feature.geometry?.type === "Point"
+        ? (e.feature.geometry.coordinates as [number, number])
+        : labelPoint(e.feature);
       if (!at) continue;
       const el = document.createElement("div");
       el.className = `map-nbhd-label${e.tier ? ` map-nbhd-label-${TIER_STYLE[e.tier].css}` : ""}`;
@@ -2182,40 +2196,84 @@ export default function MapView({
     map.current?.flyTo({ center: [lng, lat], zoom, duration: 1500 });
   }, []);
 
-  return (
-    <div className="map-view">
-      <div ref={mapContainer} className="map-view-canvas" />
-      <LocationSearch onSelect={(lat, lng) => flyTo(lat, lng)} />
-
-      {/* Burn Probability Legend */}
-      {burnProbabilityData && showBurnProbView && (
-        <div className="burn-prob-legend">
-          <div className="burn-prob-legend-title">Burn Probability</div>
+  // ── Legends: one item per layer that is drawn now (LegendDock) ──
+  const legendItems: LegendItem[] = [];
+  if (burnProbabilityData && showBurnProbView) {
+    const stops = [
+      { label: "≥90%", color: "#aa0000" },
+      { label: "60%", color: "#ff8800" },
+      { label: "30%", color: "#ffdd00" },
+      { label: "10%", color: "#ffffcc" },
+      { label: "0%", color: "rgba(255,255,255,0.15)" },
+    ];
+    legendItems.push({
+      id: "burnprob",
+      title: "Burn probability",
+      swatches: stops.slice(0, 4).map((x) => x.color),
+      body: (
+        <>
           <div className="burn-prob-legend-meta">
             {burnProbabilityData.iterations_completed} iterations · {burnProbabilityData.cell_size_m.toFixed(0)} m cells
           </div>
           <div className="burn-prob-legend-scale">
-            {[
-              { label: "≥90%", color: "#aa0000" },
-              { label: "60%",  color: "#ff8800" },
-              { label: "30%",  color: "#ffdd00" },
-              { label: "10%",  color: "#ffffcc" },
-              { label: "0%",   color: "rgba(255,255,255,0.15)" },
-            ].map(({ label, color }) => (
+            {stops.map(({ label, color }) => (
               <div key={label} className="burn-prob-legend-row">
                 <div className="burn-prob-legend-swatch" style={{ background: color }} />
                 <span>{label}</span>
               </div>
             ))}
           </div>
-        </div>
-      )}
-      {/* Ensemble legend: line styles, and the burn-probability ramp when shown */}
-      {ensemble && (ensemble.show.lines || ensemble.show.p90 || ensemble.show.prob) && (
-        <div className="burn-prob-legend ens-legend" data-testid="ensemble-legend">
-          <div className="burn-prob-legend-title">
-            Range of outcomes <InfoTip label="About the range of outcomes layers" text={`${TIPS.p10} ${TIPS.p90}`} />
+        </>
+      ),
+    });
+  }
+  const fireCells = !ensProbOn && frames.length > 0 && (frames[currentFrameIndex]?.burned_cells?.length ?? 0) > 0;
+  if (fireCells) {
+    const crown = mapZoom >= 14;
+    const rows = crown
+      ? [
+          { label: "Active crown", color: "#8B0000" },
+          { label: "Passive crown", color: "#CC2200" },
+          { label: "Torching", color: "#FF5500" },
+          { label: "Surface fire", color: "#FF9800" },
+        ]
+      : [
+          { label: "High", color: "rgb(180,30,10)" },
+          { label: "", color: "rgb(255,140,20)" },
+          { label: "Low", color: "rgb(255,255,180)" },
+        ];
+    legendItems.push({
+      id: "fire",
+      title: crown ? "Crown fire state" : "Fire intensity",
+      className: "fire-legend",
+      extra: crown ? undefined : <InfoTip label="About the fire intensity layer" text={TIPS.fireLegend} />,
+      swatches: rows.map((r) => r.color),
+      body: (
+        <div className="burn-prob-legend-scale">
+          {rows.map(({ label, color }, i) => (
+            <div key={label || i} className="burn-prob-legend-row">
+              <div className="burn-prob-legend-swatch" style={{ background: color }} />
+              <span>{label}</span>
+            </div>
+          ))}
+          <div className="burn-prob-legend-row">
+            <div className="burn-prob-legend-swatch perimeter-swatch" />
+            <span>Fire perimeter</span>
           </div>
+        </div>
+      ),
+    });
+  }
+  if (ensemble && (ensemble.show.lines || ensemble.show.p90 || ensemble.show.prob)) {
+    legendItems.push({
+      id: "ensemble",
+      title: "Range of outcomes",
+      testId: "ensemble-legend",
+      className: "ens-legend",
+      extra: <InfoTip label="About the range of outcomes layers" text={`${TIPS.p10} ${TIPS.p90}`} />,
+      swatches: ["var(--text)", "var(--text-3)"],
+      body: (
+        <>
           <div className="burn-prob-legend-scale">
             {ensemble.show.lines && (
               <>
@@ -2242,102 +2300,117 @@ export default function MapView({
               <div className="ens-ramp-labels"><span>1%</span><span>50%</span><span>100%</span></div>
             </>
           )}
-        </div>
-      )}
-      {/* House-to-house spread legend: badge + caveat tooltip (minimal text) */}
-      {structureVisible && structureUnits && (
-        <div
-          className={`burn-prob-legend struct-legend${ensemble && (ensemble.show.lines || ensemble.show.p90 || ensemble.show.prob) ? " with-ens" : ""}`}
-          data-testid="structure-legend"
-        >
-          <div className="burn-prob-legend-title">
-            House-to-house <Badge tone="warn" className="struct-badge">{BADGES.illustrative}</Badge>
-            <InfoTip text={structureCaveat} label="About the house-to-house layer" />
+        </>
+      ),
+    });
+  }
+  if (structureVisible && structureUnits) {
+    legendItems.push({
+      id: "structure",
+      title: "House-to-house",
+      testId: "structure-legend",
+      className: "struct-legend",
+      extra: (
+        <>
+          <Badge tone="warn" className="struct-badge">{BADGES.illustrative}</Badge>
+          <InfoTip text={structureCaveat} label="About the house-to-house layer" />
+        </>
+      ),
+      swatches: [STRUCT_FRONT, STRUCT_B2B, STRUCT_EMBER],
+      body: (
+        <div className="burn-prob-legend-scale">
+          <div className="burn-prob-legend-row">
+            <div className="burn-prob-legend-swatch" style={{ background: STRUCT_FRONT }} />
+            <span>Front contact</span>
           </div>
-          <div className="burn-prob-legend-scale">
+          <div className="burn-prob-legend-row">
+            <div className="burn-prob-legend-swatch" style={{ background: STRUCT_B2B }} />
+            <span>Building to building</span>
+          </div>
+          {structureUnits.features.some((f) => f.properties?.mechanism === "ember") && (
             <div className="burn-prob-legend-row">
-              <div className="burn-prob-legend-swatch" style={{ background: STRUCT_FRONT }} />
-              <span>Front contact</span>
+              <div className="burn-prob-legend-swatch" style={{ background: STRUCT_EMBER }} />
+              <span>Ember ignition</span>
             </div>
+          )}
+          {structureUnits.features.some((f) => Number(f.properties?.t_out_h) < 1e8) && (
             <div className="burn-prob-legend-row">
-              <div className="burn-prob-legend-swatch" style={{ background: STRUCT_B2B }} />
-              <span>Building to building</span>
+              <div className="burn-prob-legend-swatch struct-swatch-burnt" style={{ background: STRUCT_BURNT }} />
+              <span>Burnt out</span>
             </div>
-            {structureUnits.features.some((f) => f.properties?.mechanism === "ember") && (
-              <div className="burn-prob-legend-row">
-                <div className="burn-prob-legend-swatch" style={{ background: STRUCT_EMBER }} />
-                <span>Ember ignition</span>
-              </div>
-            )}
-            {structureUnits.features.some((f) => Number(f.properties?.t_out_h) < 1e8) && (
-              <div className="burn-prob-legend-row">
-                <div className="burn-prob-legend-swatch struct-swatch-burnt" style={{ background: STRUCT_BURNT }} />
-                <span>Burnt out</span>
-              </div>
-            )}
-            {structureUnits.features.some((f) => Number(f.properties?.p) >= 0) && (
-              <div className="burn-prob-legend-row" data-testid="structure-legend-probability">
-                <span>Ignition probability: faint low, solid high</span>
-                <InfoTip text={TIPS.structureLongRange} label="About ignition probability" />
-              </div>
-            )}
-            {structureRoofLabel && structureRoofOutline && (
-              <div className="burn-prob-legend-row" data-testid="structure-legend-roof">
-                <div className="burn-prob-legend-swatch struct-swatch-roof" style={{ borderColor: STRUCT_ROOF }} />
-                <span>{structureRoofLabel}</span>
-              </div>
-            )}
-          </div>
+          )}
+          {structureUnits.features.some((f) => Number(f.properties?.p) >= 0) && (
+            <div className="burn-prob-legend-row" data-testid="structure-legend-probability">
+              <span>Ignition probability: faint low, solid high</span>
+              <InfoTip text={TIPS.structureLongRange} label="About ignition probability" />
+            </div>
+          )}
+          {structureRoofLabel && structureRoofOutline && (
+            <div className="burn-prob-legend-row" data-testid="structure-legend-roof">
+              <div className="burn-prob-legend-swatch struct-swatch-roof" style={{ borderColor: STRUCT_ROOF }} />
+              <span>{structureRoofLabel}</span>
+            </div>
+          )}
         </div>
-      )}
-      {/* Grid-run legend: the per-cell crown-state circles are drawn only from zoom 14;
-          below that the heatmap shows intensity-weighted density */}
-      {!ensProbOn && frames.length > 0 && frames[currentFrameIndex]?.burned_cells && frames[currentFrameIndex].burned_cells!.length > 0 && (
-        <div className="burn-prob-legend fire-legend">
-          <div className="burn-prob-legend-title">
-            {mapZoom >= 14 ? "Crown Fire State" : "Fire Intensity"}
-            {mapZoom < 14 && <InfoTip label="About the fire intensity layer" text={TIPS.fireLegend} />}
-          </div>
-          <div className="burn-prob-legend-scale">
-            {(mapZoom >= 14
-              ? [
-                  { label: "Active crown",    color: "#8B0000" },
-                  { label: "Passive crown",   color: "#CC2200" },
-                  { label: "Torching",        color: "#FF5500" },
-                  { label: "Surface fire",    color: "#FF9800" },
-                ]
-              : [
-                  { label: "High",  color: "rgb(180,30,10)" },
-                  { label: "",      color: "rgb(255,140,20)" },
-                  { label: "Low",   color: "rgb(255,255,180)" },
-                ]
-            ).map(({ label, color }, i) => (
-              <div key={label || i} className="burn-prob-legend-row">
-                <div className="burn-prob-legend-swatch" style={{ background: color }} />
-                <span>{label}</span>
-              </div>
-            ))}
+      ),
+    });
+  }
+  // Evacuation status (set by Planning) and modelled-arrival outlines: the key moves with the
+  // map so it stays visible when the Situation panel is collapsed
+  const evacShown = evacZonesVisible && evacZones.length > 0;
+  const arrivalsShown = arrivalOutlinesVisible && (arrivalOutlines?.features.length ?? 0) > 0;
+  if (evacShown || arrivalsShown) {
+    legendItems.push({
+      id: "evac",
+      title: evacShown ? "Evacuation status" : "Modelled arrival",
+      testId: "evac-legend",
+      swatches: [EVAC_COLOR],
+      body: (
+        <div className="burn-prob-legend-scale">
+          {evacShown && EVAC_TIERS.map((t) => (
+            <div key={t} className="burn-prob-legend-row">
+              <span className={`evac-swatch evac-swatch-${TIER_STYLE[t].css}`} aria-hidden="true" />
+              <span>{t} (set by Planning)</span>
+            </div>
+          ))}
+          {arrivalsShown && (
             <div className="burn-prob-legend-row">
-              <div className="burn-prob-legend-swatch perimeter-swatch" />
-              <span>Fire perimeter</span>
+              <span className="evac-swatch evac-swatch-arrival" aria-hidden="true" />
+              <span>Modelled arrival within 500 m</span>
             </div>
-          </div>
+          )}
         </div>
-      )}
-      {/* Fuel legend — the fuel types drawn in the overlay */}
-      {fuelGridVisible && fuelGridImage?.legend && fuelGridImage.legend.length > 0 && (
-        <div className="burn-prob-legend fuel-legend">
-          <div className="burn-prob-legend-title">FBP Fuel Type</div>
-          <div className="burn-prob-legend-scale">
-            {fuelGridImage.legend.map(({ fuel, color }) => (
-              <div key={fuel} className="burn-prob-legend-row">
-                <div className="burn-prob-legend-swatch" style={{ background: color }} />
-                <span>{fuel} {FUEL_NAMES[fuel] ?? ""}</span>
-              </div>
-            ))}
-          </div>
+      ),
+    });
+  }
+  if (fuelGridVisible && fuelGridImage?.legend && fuelGridImage.legend.length > 0) {
+    const fuels = fuelGridImage.legend;
+    legendItems.push({
+      id: "fuel",
+      title: "FBP fuel type",
+      testId: "fuel-legend",
+      className: "fuel-legend",
+      swatches: fuels.map((f) => f.color),
+      body: (
+        <div className={`burn-prob-legend-scale${fuels.length > 6 ? " legend-two-col" : ""}`}>
+          {fuels.map(({ fuel, color }) => (
+            <div key={fuel} className="burn-prob-legend-row">
+              <div className="burn-prob-legend-swatch" style={{ background: color }} />
+              <span>{fuel} {FUEL_NAMES[fuel] ?? ""}</span>
+            </div>
+          ))}
         </div>
-      )}
+      ),
+    });
+  }
+
+  return (
+    <div className="map-view">
+      <div ref={mapContainer} className="map-view-canvas" />
+      <LocationSearch onSelect={(lat, lng) => flyTo(lat, lng)} />
+
+      {/* One legend dock (bottom left): a legend per visible layer, each minimisable */}
+      <LegendDock items={legendItems} />
       {/* ── Map controls panel — bottom-right glass panel (hidden in readOnly mode) ───── */}
       {!readOnly && <div className="map-controls-panel">
         {/* Basemap row */}

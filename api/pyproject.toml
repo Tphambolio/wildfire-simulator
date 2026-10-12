@@ -17,6 +17,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Run archive on an S3-compatible store (Cloudflare R2); the local backend needs nothing
+archive-s3 = ["boto3>=1.28"]
 dev = [
     "pytest>=7.4",
     "httpx>=0.25.0",
