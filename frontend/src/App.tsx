@@ -1,6 +1,7 @@
 /** FireSim V3 — Canadian FBP Wildfire Spread Simulator */
 
-import { lazy, Suspense, useCallback, useState, useMemo, useRef, useEffect } from "react";
+import { Suspense, useCallback, useState, useMemo, useRef, useEffect } from "react";
+import { lazyChunk } from "./utils/lazyChunk";
 import MapView from "./components/MapView";
 import WeatherPanel from "./components/WeatherPanel";
 import type { RunParams, SkillOptionsState } from "./components/WeatherPanel";
@@ -35,9 +36,9 @@ import {
   type EvacTierRecord,
 } from "./utils/evacZones";
 // The EOC console (and its ICS forms) loads only when its tab is opened
-const EOCConsole = lazy(() => import("./components/EOCConsole"));
+const EOCConsole = lazyChunk(() => import("./components/EOCConsole"));
 // The About & sources tab is static text, loaded when opened
-const AboutPanel = lazy(() => import("./components/AboutPanel"));
+const AboutPanel = lazyChunk(() => import("./components/AboutPanel"));
 import type { AboutSectionId } from "./components/AboutPanel";
 import OperationalPeriodPanel from "./components/OperationalPeriodPanel";
 import IncidentPanel from "./components/IncidentPanel";
@@ -280,7 +281,14 @@ export default function App() {
   const [albertaRoads, setAlbertaRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [albertaNote, setAlbertaNote] = useState<string | null>(null);
   const [userLayers, setUserLayers] = useState<UserLayer[]>([]);
-  const [assetsVisible, setAssetsVisible] = useState(true);
+  // Asset symbols stay off the map until a run has frames (no clutter while setting up); the
+  // card's checkbox can still show them before a run, and once chosen the choice is kept
+  const [assetsVisible, setAssetsVisible] = useState(false);
+  const assetsChosenRef = useRef(false);
+  const chooseAssetsVisible = useCallback((v: boolean) => {
+    assetsChosenRef.current = true;
+    setAssetsVisible(v);
+  }, []);
   const [roadsReachedVisible, setRoadsReachedVisible] = useState(true);
   const [shownCategories, setShownCategories] = useState<ReadonlySet<AssetCategory>>(() => new Set(CATEGORY_ORDER));
   const [focusRequest, setFocusRequest] = useState<{ lngLat: [number, number]; n: number } | null>(null);
@@ -824,6 +832,10 @@ export default function App() {
     () => (assets.length ? assetsToMapGeoJSON(assets, criticalReach.assets, shownCategories, scenarioStart, hasEnsemble) : null),
     [assets, criticalReach, shownCategories, scenarioStart, hasEnsemble],
   );
+  const hasFrames = frames.length > 0;
+  useEffect(() => {
+    if (hasFrames && !assetsChosenRef.current) setAssetsVisible(true);
+  }, [hasFrames]);
   const roadsReached = useMemo(
     () => roadPiecesToGeoJSON(singleRoadReach.pieces, worstRoadReach?.pieces ?? null),
     [singleRoadReach, worstRoadReach],
@@ -1405,7 +1417,7 @@ export default function App() {
             onShowAll={showAllCategories}
             onFocus={focusAsset}
             assetsVisible={assetsVisible}
-            onAssetsVisible={setAssetsVisible}
+            onAssetsVisible={chooseAssetsVisible}
             roadsVisible={roadsReachedVisible}
             onRoadsVisible={setRoadsReachedVisible}
             sources={assetSources}
