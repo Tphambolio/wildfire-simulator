@@ -44,6 +44,15 @@ interface CriticalAssetsPanelProps {
   sources: string[];
   /** Loading state of the bundled Edmonton layers */
   loadNote?: string | null;
+  /** Alberta layers (served by area outside Edmonton) are in use */
+  albertaArea?: boolean;
+}
+
+/** Short source tag for assets from the Alberta layers ("ODHF · OSM"); none for Edmonton's. */
+export function sourceTag(a: Asset): string | null {
+  if (!a.id.startsWith("ab:")) return null;
+  const short = (s: string) => (s.startsWith("Statistics Canada ODHF") ? "ODHF" : s === "OpenStreetMap" ? "OSM" : s);
+  return [...new Set(a.sources.map(short))].join(" · ");
 }
 
 function CriticalAssetsPanel({
@@ -63,6 +72,7 @@ function CriticalAssetsPanel({
   onRoadsVisible,
   sources,
   loadNote = null,
+  albertaArea = false,
 }: CriticalAssetsPanelProps) {
   const id = useId();
   const counts = new Map<AssetCategory, number>();
@@ -85,6 +95,7 @@ function CriticalAssetsPanel({
           tip={
             <>
               <span className="tip-p">{TIPS.criticalAssets(hasEnsemble)}</span>
+              {albertaArea && <span className="tip-p">{TIPS.albertaAssets}</span>}
               {dataNotes.map((t) => (
                 <span key={t} className="tip-p assets-data-note">{t}</span>
               ))}
@@ -150,6 +161,7 @@ function CriticalAssetsPanel({
                       >
                         <span className="asset-row-name">{r.asset.name}</span>
                         {r.asset.verify && <span className="asset-row-verify">{r.asset.verify}</span>}
+                        {sourceTag(r.asset) && <span className="asset-row-src">{sourceTag(r.asset)}</span>}
                         {assetReachPhrases(r, scenarioStart, hasEnsemble).map((t) => (
                           <span key={t} className={`asset-row-time${t.startsWith("Inside") ? " asset-row-inside" : ""}`}>
                             {t}

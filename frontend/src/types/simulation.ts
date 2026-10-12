@@ -309,6 +309,15 @@ export interface SimulationResponse {
   buildings_source?: BuildingsSourceInfo | null;
   /** Read from the server's run archive (the run finished before the API restarted) */
   archived?: boolean;
+  /** Terrain the run used (absent from older API versions; docs/terrain-alberta.md) */
+  terrain_source?: TerrainSourceInfo | null;
+}
+
+/** Which terrain (slope, aspect) a run used (API `terrain_source`) */
+export interface TerrainSourceInfo {
+  kind: "city_dem" | "provincial" | "user_dem" | string;
+  label: string;
+  attribution?: string | null;
 }
 
 /** Which buildings a run used (API `buildings_source`) */

@@ -15,7 +15,7 @@ import EvacStatusPanel from "./components/EvacStatusPanel";
 import { FUEL_TYPES } from "./types/simulation";
 import { useSimulation } from "./hooks/useSimulation";
 import { useScenarios } from "./hooks/useScenarios";
-import { cancelEnsemble, computeBurnProbability, fetchFuelGridImage } from "./services/api";
+import { cancelEnsemble, computeBurnProbability, fetchAreaLayer, fetchFuelGridImage } from "./services/api";
 import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { useRecon } from "./hooks/useRecon";
 import { clockAt, formatClock, zoneAbbrev } from "./utils/time";
@@ -57,6 +57,8 @@ import { TipButton } from "./components/InfoTip";
 import { fallbackScenarioConfig } from "./utils/scenarioDefaults";
 import SetupSection from "./components/SetupSection";
 import SituationPanel from "./components/SituationPanel";
+import { CollapseButton, SideRail } from "./components/SideRail";
+import { isTypingTarget, useLayout } from "./hooks/useLayout";
 import EnsemblePanel, { type EnsembleToggles } from "./components/EnsemblePanel";
 import { useEnsemble } from "./hooks/useEnsemble";
 import {
@@ -68,9 +70,13 @@ import {
   type EnsembleMapLayers,
 } from "./utils/ensemble";
 import {
+  ALBERTA_ATTRIBUTION,
+  ALBERTA_MAP_ATTRIBUTION,
   CATEGORY_ORDER,
   EDMONTON_ATTRIBUTION,
   EDMONTON_MAP_ATTRIBUTION,
+  areaBox,
+  outsideEdmonton,
   assetReach,
   assetRows,
   assetsFromGeoJSON,
@@ -269,6 +275,10 @@ export default function App() {
   const [edmontonAssets, setEdmontonAssets] = useState<GeoJSON.FeatureCollection | null>(null);
   const [edmontonRoads, setEdmontonRoads] = useState<GeoJSON.FeatureCollection | null>(null);
   const [edmontonNote, setEdmontonNote] = useState("Loading with the Edmonton fuel grid…");
+  // Alberta layers for the area around the ignition outside Edmonton (served by the API)
+  const [albertaAssets, setAlbertaAssets] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [albertaRoads, setAlbertaRoads] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [albertaNote, setAlbertaNote] = useState<string | null>(null);
   const [userLayers, setUserLayers] = useState<UserLayer[]>([]);
   const [assetsVisible, setAssetsVisible] = useState(true);
   const [roadsReachedVisible, setRoadsReachedVisible] = useState(true);
@@ -394,6 +404,39 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // Alberta assets and major roads around an ignition outside the Edmonton layers' box,
+  // fetched by area (snapped box, so nearby ignitions reuse the request)
+  const areaKey = useMemo(() => {
+    if (!ignitionPoint) return null;
+    const box = areaBox(ignitionPoint.lat, ignitionPoint.lng);
+    return box ? JSON.stringify(box) : null;
+  }, [ignitionPoint]);
+  useEffect(() => {
+    if (!areaKey) {
+      setAlbertaAssets(null);
+      setAlbertaRoads(null);
+      setAlbertaNote(null);
+      return;
+    }
+    const box = JSON.parse(areaKey) as { south: number; west: number; north: number; east: number };
+    const ctl = new AbortController();
+    setAlbertaNote("Loading Alberta assets for this area…");
+    Promise.all([fetchAreaLayer("assets", box, ctl.signal), fetchAreaLayer("roads", box, ctl.signal)])
+      .then(([a, r]) => {
+        const ok = a.metadata?.available !== false;
+        setAlbertaAssets(ok ? outsideEdmonton(a) : null);
+        setAlbertaRoads(r.metadata?.available !== false ? outsideEdmonton(r) : null);
+        setAlbertaNote(ok ? null : "Alberta asset layer not installed on this server: Edmonton only.");
+      })
+      .catch((e: unknown) => {
+        if ((e as { name?: string })?.name === "AbortError") return;
+        setAlbertaAssets(null);
+        setAlbertaRoads(null);
+        setAlbertaNote("Alberta asset layers could not be loaded for this area.");
+      });
+    return () => ctl.abort();
+  }, [areaKey]);
+
   const {
     status,
     frames,
@@ -498,6 +541,77 @@ export default function App() {
   const armNewIgnition = useCallback(() => setArmIgnition((n) => n + 1), []);
   const situationRef = useRef<HTMLElement | null>(null);
   const [runBarEl, setRunBarEl] = useState<HTMLDivElement | null>(null);
+
+  // ── Collapsible side columns, map focus mode, narrow-screen drawers (hooks/useLayout) ──
+  const layout = useLayout();
+  const { runCompleted: layoutRunCompleted, toggle: toggleSide, toggleFocus, escape: layoutEscape, dismissHint } = layout;
+  // The collapsed Setup rail runs through WeatherPanel (same checks as the Run bar)
+  const [runState, setRunState] = useState<{ canRun: boolean; reason: string | null; label: string }>({
+    canRun: false,
+    reason: null,
+    label: "Run Simulation",
+  });
+  const [runRequest, setRunRequest] = useState(0);
+  const setupPanelRef = useRef<HTMLElement | null>(null);
+  const setupCollapseRef = useRef<HTMLButtonElement | null>(null);
+  const setupRailRef = useRef<HTMLButtonElement | null>(null);
+  const situationCollapseRef = useRef<HTMLButtonElement | null>(null);
+  const situationRailRef = useRef<HTMLButtonElement | null>(null);
+
+  // Keyboard: F focus mode, [ / ] toggle Setup / Situation, Esc leaves focus mode (or closes
+  // the drawer on narrow screens). Not while typing, not with modifiers, Simulation tab only.
+  useEffect(() => {
+    if (activeTab !== "simulation") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (e.key === "Escape") {
+        if (!e.defaultPrevented && layoutEscape()) e.preventDefault();
+        return;
+      }
+      if (isTypingTarget(e.target)) return;
+      if (e.key === "f" || e.key === "F") toggleFocus();
+      else if (e.key === "[") toggleSide("setup");
+      else if (e.key === "]") toggleSide("situation");
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeTab, layoutEscape, toggleFocus, toggleSide]);
+
+  // Keep keyboard focus visible: when a panel collapses or opens under the focused control,
+  // move focus to that panel's other toggle (rail button <-> header chevron)
+  const expandFocusRef = useRef<"setup" | "situation" | null>(null);
+  const expandFromRail = useCallback(
+    (side: "setup" | "situation") => {
+      expandFocusRef.current = side; // the rail button unmounts: focus the header chevron
+      toggleSide(side);
+    },
+    [toggleSide],
+  );
+  useEffect(() => {
+    const pending = expandFocusRef.current;
+    expandFocusRef.current = null;
+    if (pending === "setup" && !layout.setupCollapsed) setupCollapseRef.current?.focus({ preventScroll: true });
+    if (pending === "situation" && !layout.situationCollapsed) situationCollapseRef.current?.focus({ preventScroll: true });
+    const el = document.activeElement as HTMLElement | null;
+    const pairs: Array<[HTMLElement | null, boolean, HTMLButtonElement | null, HTMLButtonElement | null]> = [
+      [setupPanelRef.current, layout.setupCollapsed, setupRailRef.current, setupCollapseRef.current],
+      [situationRef.current, layout.situationCollapsed, situationRailRef.current, situationCollapseRef.current],
+    ];
+    for (const [panel, collapsed, rail, chevron] of pairs) {
+      if (!panel || !el || !panel.contains(el) || el === panel) continue;
+      if (el.offsetParent === null) (collapsed ? rail : chevron)?.focus({ preventScroll: true });
+    }
+  }, [layout.setupCollapsed, layout.situationCollapsed]);
+
+  // Auto-hide the one-time "Setup minimized" hint
+  useEffect(() => {
+    if (!layout.hint) return;
+    const t = setTimeout(dismissHint, 15_000);
+    return () => clearTimeout(t);
+  }, [layout.hint, dismissHint]);
+
   const prevStatusRef = useRef<string | null>(null);
   useEffect(() => {
     const prev = prevStatusRef.current;
@@ -507,9 +621,13 @@ export default function App() {
         fittedOnceRef.current = true;
         setFitRequest((n) => n + 1);
       }
-      if (activeTab === "simulation") situationRef.current?.focus({ preventScroll: true });
+      if (activeTab === "simulation") {
+        // Give the map the room once the run is done (once, never over a saved preference)
+        layoutRunCompleted();
+        situationRef.current?.focus({ preventScroll: true });
+      }
     }
-  }, [status, frames.length, activeTab]);
+  }, [status, frames.length, activeTab, layoutRunCompleted]);
 
   // Auto-save a completed simulation into the operational period it was started for (else,
   // a run started before the incident was opened, the active period)
@@ -665,17 +783,21 @@ export default function App() {
   const assets = useMemo<Asset[]>(
     () => [
       ...assetsFromGeoJSON(edmontonAssets, { idPrefix: "edm:" }),
+      ...assetsFromGeoJSON(albertaAssets, { idPrefix: "ab:" }),
       ...userLayers.flatMap((l) => assetsFromGeoJSON(l.data, { idPrefix: `${l.id}:`, category: "custom", source: l.name })),
     ],
-    [edmontonAssets, userLayers],
+    [edmontonAssets, albertaAssets, userLayers],
   );
   const roads = useMemo<GeoJSON.FeatureCollection | null>(() => {
     const lines = userLayers.flatMap((l) =>
       l.data.features.filter((f) => f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString"),
     );
-    if (!edmontonRoads && lines.length === 0) return null;
-    return { type: "FeatureCollection", features: [...(edmontonRoads?.features ?? []), ...lines] };
-  }, [edmontonRoads, userLayers]);
+    if (!edmontonRoads && !albertaRoads && lines.length === 0) return null;
+    return {
+      type: "FeatureCollection",
+      features: [...(edmontonRoads?.features ?? []), ...(albertaRoads?.features ?? []), ...lines],
+    };
+  }, [edmontonRoads, albertaRoads, userLayers]);
   const singleFire = useMemo(() => fireFromFrames(frames), [frames]);
   const worstFire = useMemo(() => (ensGrids ? fireFromEnsemble(ensGrids, "p10") : null), [ensGrids]);
   const singleAssetReach = useMemo(() => assetReach(singleFire, assets), [singleFire, assets]);
@@ -709,10 +831,14 @@ export default function App() {
   const assetSources = useMemo(() => {
     const out: string[] = [];
     if (edmontonAssets) out.push(EDMONTON_ATTRIBUTION);
+    if (albertaAssets?.features.length || albertaRoads?.features.length) out.push(ALBERTA_ATTRIBUTION);
     for (const l of userLayers) out.push(`Your layer: ${l.name}`);
     return out;
-  }, [edmontonAssets, userLayers]);
-  const assetAttribution = edmontonAssets ? EDMONTON_MAP_ATTRIBUTION : null;
+  }, [edmontonAssets, albertaAssets, albertaRoads, userLayers]);
+  const assetAttribution =
+    [edmontonAssets ? EDMONTON_MAP_ATTRIBUTION : null, albertaAssets?.features.length ? ALBERTA_MAP_ATTRIBUTION : null]
+      .filter(Boolean)
+      .join(" · ") || null;
   const toggleCategory = useCallback((c: AssetCategory) => {
     setShownCategories((prev) => {
       const next = new Set(prev);
@@ -805,7 +931,9 @@ export default function App() {
   );
 
   return (
-    <div className={`app${activeTab === "eoc" ? " app-eoc" : activeTab === "about" ? " app-about" : ""}`}>
+    <div
+      className={`app${activeTab === "eoc" ? " app-eoc" : activeTab === "about" ? " app-about" : ""}${layout.setupCollapsed ? " setup-collapsed" : ""}${layout.situationCollapsed ? " situation-collapsed" : ""}${layout.narrow ? " layout-narrow" : ""}${layout.focusMode ? " focus-mode" : ""}`}
+    >
       {/* ── Top bar: incident, tabs, run status, limits badge, clock ── */}
       <TopBar
         incidentName={incident?.name ?? null}
@@ -862,7 +990,55 @@ export default function App() {
       />
 
       {/* ── Setup column: sections with summaries, More, sticky Run bar ── */}
-      <aside className="setup-panel" aria-label="Setup">
+      <aside
+        ref={setupPanelRef}
+        className={`setup-panel${layout.setupCollapsed ? " collapsed" : ""}${layout.narrow && !layout.setupCollapsed ? " is-drawer" : ""}`}
+        aria-label="Setup"
+      >
+        {layout.setupCollapsed && (
+          <SideRail ref={setupRailRef} side="setup" controls="setup-content" onExpand={() => expandFromRail("setup")}>
+            <button
+              type="button"
+              className="rail-action rail-run"
+              aria-label={runState.label}
+              aria-describedby={runState.reason ? "setup-rail-reason" : undefined}
+              aria-keyshortcuts="Control+Enter"
+              title={runState.reason ?? `${runState.label} (Ctrl+Enter)`}
+              disabled={!runState.canRun}
+              onClick={() => setRunRequest((n) => n + 1)}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor" /></svg>
+            </button>
+            {runState.reason && <span id="setup-rail-reason" className="visually-hidden">{runState.reason}</span>}
+            {!isRunning && frames.length > 0 && (
+              <button
+                type="button"
+                className="rail-action rail-new-ignition"
+                aria-label="New ignition"
+                title="New ignition: click the map to place it"
+                onClick={armNewIgnition}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                    <circle cx="8" cy="8" r="4.5" />
+                    <path d="M8 1v2.5M8 12.5V15M1 8h2.5M12.5 8H15" />
+                  </g>
+                </svg>
+              </button>
+            )}
+          </SideRail>
+        )}
+        {layout.hint && layout.setupCollapsed && (
+          <div className="layout-hint" role="status">
+            <span>Setup is minimized so the map has more room. Reopen it from this rail or press <kbd>[</kbd>. <kbd>F</kbd> toggles map focus.</span>
+            <button type="button" className="btn-secondary btn-inline" onClick={dismissHint}>Got it</button>
+          </div>
+        )}
+        <div id="setup-content" className="setup-content" hidden={layout.setupCollapsed}>
+        <div className="setup-header">
+          <h2 className="setup-heading">Setup</h2>
+          <CollapseButton ref={setupCollapseRef} side="setup" controls="setup-content" onCollapse={() => toggleSide("setup")} />
+        </div>
         <div className="setup-scroll">
           <WeatherPanel
             onStartSimulation={handleStartSimulation}
@@ -880,6 +1056,8 @@ export default function App() {
             onSkillOptions={setSkillOptions}
             onNewIgnition={!isRunning && frames.length > 0 ? armNewIgnition : undefined}
             onRunRequested={handleRunRequested}
+            runRequest={runRequest}
+            onRunState={setRunState}
           />
           <div className="setup-more-label">More</div>
           <SetupSection
@@ -948,6 +1126,7 @@ export default function App() {
           </SetupSection>
         </div>
         <div className="run-bar" ref={setRunBarEl} />
+        </div>
       </aside>
 
       {/* ── EOC Console tab (replaces map area + bottom bar) ─────── */}
@@ -1030,6 +1209,27 @@ export default function App() {
 
       {/* ── Map area — always mounted so MapLibre doesn't reinitialize on tab switch ─── */}
       <main className="map-area" style={activeTab !== "simulation" ? { display: "none" } : {}}>
+        {/* Map focus mode: both side columns collapse; F toggles, Esc leaves */}
+        {!layout.narrow && (
+          <button
+            type="button"
+            className={`map-focus-btn${layout.focusMode ? " active" : ""}`}
+            aria-pressed={layout.focusMode}
+            aria-keyshortcuts="F"
+            title={layout.focusMode ? "Leave focus mode (F or Esc)" : "Focus on the map: collapse both side panels (F)"}
+            onClick={toggleFocus}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d={layout.focusMode
+                  ? "M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4"
+                  : "M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"}
+                fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+              />
+            </svg>
+            <span>{layout.focusMode ? "Exit focus" : "Focus map"}</span>
+          </button>
+        )}
         {/* Telemetry strip — floating glass chips over the map */}
         {lastRunParams && (
           <div className="telemetry-strip">
@@ -1144,6 +1344,23 @@ export default function App() {
             ) : null
           }
           burningPeriod={runBurningPeriod}
+          collapsed={layout.situationCollapsed}
+          drawer={layout.narrow && !layout.situationCollapsed}
+          contentId="situation-content"
+          collapseButton={
+            <CollapseButton ref={situationCollapseRef} side="situation" controls="situation-content" onCollapse={() => toggleSide("situation")} />
+          }
+          rail={
+            <SideRail ref={situationRailRef} side="situation" controls="situation-content" onExpand={() => expandFromRail("situation")}>
+              {currentFrame && (
+                <span className="rail-stat" title={`Area at the selected time: ${currentFrame.area_ha.toFixed(1)} ha`}>
+                  {currentFrame.area_ha >= 1000 ? `${(currentFrame.area_ha / 1000).toFixed(1)}k` : Math.round(currentFrame.area_ha)}
+                  <small>ha</small>
+                </span>
+              )}
+              {isRunning && <span className="rail-running" title="Run in progress" />}
+            </SideRail>
+          }
         >
           <FireMetrics
             frame={currentFrame}
@@ -1192,7 +1409,8 @@ export default function App() {
             roadsVisible={roadsReachedVisible}
             onRoadsVisible={setRoadsReachedVisible}
             sources={assetSources}
-            loadNote={edmontonNote}
+            loadNote={albertaNote ?? edmontonNote}
+            albertaArea={!!albertaAssets}
           />
           <EOCSummary
             frames={frames}

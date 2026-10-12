@@ -45,6 +45,23 @@ def _float_rows(a: np.ndarray) -> list[array]:
     return out
 
 
+def slope_aspect(elevation: np.ndarray, cell_y_m: float, cell_x_m: float) -> tuple[np.ndarray, np.ndarray]:
+    """Percent slope and upslope aspect (degrees clockwise from north) of an elevation array on
+    a lat/lng grid (row 0 north), by central finite differences (``np.gradient``); flat cells
+    (slope < 0.1 %) get aspect 0. Shared by the Edmonton DEM and the provincial terrain
+    windows (``firesim.data.terrain``)."""
+    # np.gradient(f, dy, dx) -> [df/dy, df/dx]; rows increase southward, columns eastward
+    dz_south, dz_east = np.gradient(elevation, cell_y_m, cell_x_m)
+    dz_north = -dz_south  # going north = decreasing row
+    # Slope percentage: tan(slope_angle) x 100
+    slope_pct = np.sqrt(dz_north ** 2 + dz_east ** 2) * 100.0
+    # Aspect: bearing of steepest upslope direction, clockwise from north
+    aspect_deg = np.degrees(np.arctan2(dz_east, dz_north)) % 360.0
+    # Flat cells get aspect 0 (undefined, will have no slope effect anyway)
+    aspect_deg[slope_pct < 0.1] = 0.0
+    return slope_pct, aspect_deg
+
+
 def load_terrain_grid(
     path: str,
     target_resolution_m: float = 50.0,
@@ -112,25 +129,7 @@ def load_terrain_grid(
             f"Increase target_resolution_m (currently {target_resolution_m} m)."
         )
 
-    # --- Slope and aspect via finite differences ---
-    # np.gradient(f, dy, dx) → [∂f/∂y, ∂f/∂x]
-    # axis-0 spacing = cell_y_m (rows increase southward in standard rasters)
-    # axis-1 spacing = cell_x_m (cols increase eastward)
-    dz_south, dz_east = np.gradient(elevation, cell_y_m, cell_x_m)
-
-    # Convert to north/east components of steepest ascent
-    #   going north = decreasing row → dz_north = -dz_south
-    dz_north = -dz_south  # m/m (dimensionless)
-
-    # Slope percentage: tan(slope_angle) × 100
-    slope_pct = np.sqrt(dz_north ** 2 + dz_east ** 2) * 100.0
-
-    # Aspect: bearing of steepest upslope direction, clockwise from north
-    #   atan2(east_component, north_component) → angle from north, clockwise
-    aspect_deg = np.degrees(np.arctan2(dz_east, dz_north)) % 360.0
-
-    # Flat cells get aspect 0 (undefined, will have no slope effect anyway)
-    aspect_deg[slope_pct < 0.1] = 0.0
+    slope_pct, aspect_deg = slope_aspect(elevation, cell_y_m, cell_x_m)
 
     # Rows as array('d'): indexed like lists of floats (``slope[row][col]`` is a Python float
     # with the same value), at 8 bytes per cell instead of a Python float object each. The

@@ -4,8 +4,9 @@
     python fetch_ab_fuel_grid.py URL SHA256 DEST [LABEL [IF_MISSING]]
 
 Also fetches the Alberta buildings file (LABEL "Alberta buildings"; docs/buildings-alberta.md)
-and the Litestream release used to back up the run-archive index (docs/run-archive.md).
-IF_MISSING is the consequence printed when the download fails.
+and the Alberta terrain, critical assets and major roads (docs/terrain-alberta.md,
+docs/data-sources.md), and the Litestream release used to back up the run-archive index
+(docs/run-archive.md). IF_MISSING is the consequence printed when the download fails.
 
 Verifies the SHA-256. On any failure (no release asset yet, network, checksum) it prints a
 warning, leaves no file and exits 0, so the image still builds: without the file the API keeps

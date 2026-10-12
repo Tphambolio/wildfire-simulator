@@ -107,7 +107,7 @@ Every run reports what it used: `fuel_source` on `GET /simulations/{id}` and on 
 `simulation.completed` WebSocket event (`kind`, `label`, `attribution`, `season`, `share` of cells
 per source for windows). Perimeter override (same fuel as the source run), multi-day runs and
 burn probability use the same rule; burn probability returns 422 outside every grid. Slope: the
-bundled DEM covers Edmonton only, so windows elsewhere are flat (open item). Buildings, exposure
+bundled DEM covers Edmonton only; since 2026-10-11 windows elsewhere read the Alberta MRDEM-30 terrain (`docs/terrain-alberta.md`). Buildings, exposure
 and structure spread use the bundled Edmonton footprints, so they act only near Edmonton.
 
 **Changes inside Edmonton.** Every cell the City grid maps is unchanged (test
@@ -185,7 +185,7 @@ strength: recent burns do not carry fire as if they were mature spruce.
   confirmation that OGL-Alberta covers the image service; whether to ask is the owner's choice.
 - 105 vegetated non-fuel → non-fuel; O-1 → O-1b [H]; fixed green-up / leaf-off dates (§3).
 - 100 m cells: fine fuel breaks (roads, narrow wetlands) below 100 m are not represented.
-- No terrain outside the Edmonton DEM (flat), no national grid on the live API.
+- No national grid on the live API. (Terrain outside Edmonton: added 2026-10-11, `docs/terrain-alberta.md`.)
 - No field accuracy assessment; see the stratified sampling plan in the reference-layers report.
 
 ## References

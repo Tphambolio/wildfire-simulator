@@ -140,6 +140,8 @@ export function TipCore({ content, interactive = false, renderTrigger, className
     if (!open) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // Closing the tip consumes Esc (it does not also leave map focus mode)
+      e.preventDefault();
       const inside = wrapRef.current?.contains(document.activeElement);
       hide();
       if (inside && document.activeElement !== triggerRef.current) {

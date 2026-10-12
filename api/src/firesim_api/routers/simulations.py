@@ -287,6 +287,7 @@ def _response_for(run: SimulationRun) -> SimulationResponse:
         progress=progress,
         fuel_source=run.fuel_source,
         buildings_source=getattr(run, "buildings_source", None),
+        terrain_source=getattr(run, "terrain_source", None),
     )
 
 
@@ -498,6 +499,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                 "simulation_id": sim_id,
                 "fuel_source": run.fuel_source,
                 "buildings_source": getattr(run, "buildings_source", None),
+                "terrain_source": getattr(run, "terrain_source", None),
             })
         elif status0 == SimulationStatus.FAILED:
             await websocket.send_json({
@@ -534,6 +536,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                 "simulation_id": sim_id,
                 "fuel_source": run.fuel_source,
                 "buildings_source": getattr(run, "buildings_source", None),
+                "terrain_source": getattr(run, "terrain_source", None),
             })
         elif run.status == SimulationStatus.CANCELLED:
             # Status already sent on cancel action; send final frame if available
@@ -665,14 +668,22 @@ async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbab
 
     # Default fuel (City grid where mapped, Alberta Wildfire grid elsewhere; docs/fuel-grid-alberta.md)
     provincial_grid = None
+    provincial_terrain = None  # (terrain grid, terrain_source) for a provincial window
     if runner is not None and fuel_path and runner.provincial_applies(
             params.model_copy(update={"fuel_grid_path": fuel_path})):
         from firesim.data.environment import load_environment_mask
         from firesim_api.services.runner import run_day_of_year
 
         def _load_provincial():
-            grid = runner.resolve_provincial(params, run_day_of_year(params), None, None,
-                                             params.water_path or settings.water_path)[0]
+            nonlocal provincial_terrain
+            grid, _, _, _, info = runner.resolve_provincial(
+                params, run_day_of_year(params), None, None,
+                params.water_path or settings.water_path)
+            # Windows outside Edmonton: slope from the Alberta elevation file when the request
+            # names the bundled DEM (docs/terrain-alberta.md)
+            dem = params.dem_path or settings.dem_path
+            if grid is not None and info["kind"] in ("provincial", "national") and dem:
+                provincial_terrain = runner._window_terrain(grid, dem)
             bpath = runner.resolve_buildings_path(
                 params.buildings_path or settings.buildings_path)
             if grid is not None and bpath:
@@ -738,7 +749,9 @@ async def compute_burn_probability(params: BurnProbabilityRequest) -> BurnProbab
     # Load terrain grid for slope-adjusted spread (optional)
     terrain_grid = None
     dem_path = params.dem_path or settings.dem_path
-    if dem_path:
+    if provincial_terrain is not None:
+        terrain_grid = provincial_terrain[0]
+    elif dem_path:
         if not os.path.exists(dem_path):
             raise HTTPException(status_code=422, detail=f"DEM file not found: {dem_path!r}")
         try:

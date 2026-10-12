@@ -130,7 +130,7 @@ export const TIPS = {
   wui:
     "425 park-buffer zones with spread ×0.7, intensity ×1.2 and embers ×3.0. These values have no " +
     "documented source; leave off unless testing.",
-  dem: "30 m DEM slope, applied through the FBP net effective wind speed (ST-X-3).",
+  dem: "Slope from the Edmonton 30 m DEM, and outside Edmonton from NRCan MRDEM-30 (~100 m), applied through the FBP net effective wind speed (ST-X-3).",
 
   // ── Setup: 4 Run options ──
   ensemble: (n: number) =>
@@ -204,6 +204,10 @@ export const TIPS = {
     `When the modelled fire comes within ${ARRIVAL_BUFFER_M} m of each asset, and inside it, for this run` +
     (ensemble ? ": the ensemble's P10 (early end of the range, 1 in 10 members) first, the single run beside it" : "") +
     ". Model output, not an instruction.",
+  albertaAssets:
+    "Outside Edmonton the assets and major roads come from Statistics Canada's healthcare facilities " +
+    "(ODHF, 2020) and OpenStreetMap, for about 28 km around the ignition. Coverage depends on what " +
+    "is mapped there; each asset is tagged with its source.",
   assetsReachedEoc: (ensemble: boolean) =>
     `Model output for this run (${ensemble ? "ensemble P10 / single run" : "single run"}), not an instruction.`,
   burnProbEoc: (iterations: number | string, cellM: number) =>
