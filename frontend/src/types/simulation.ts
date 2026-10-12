@@ -328,6 +328,8 @@ export interface BuildingsSourceInfo {
   selection: string;
   buildings: number;
   capped: boolean;
+  /** Selected buildings per source code ("ms2019", "odb:<provider>"), 2026-10 Alberta file */
+  sources?: Record<string, number> | null;
 }
 
 /** Which fuel data a run used (API `fuel_source`) */

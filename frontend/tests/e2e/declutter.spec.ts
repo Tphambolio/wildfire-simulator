@@ -74,7 +74,7 @@ test("tooltips work from the keyboard (focus opens, Esc closes) and axe stays cl
   // Wording fixes and badges that stay visible
   await expect(page.getByLabel("Use Edmonton fuel grid")).toBeChecked();
   await expect(page.locator(".setup-panel")).not.toContainText("FBP 10");
-  await expect(page.getByLabel(/^Buildings \(Microsoft footprints, Alberta\)/)).toBeVisible();
+  await expect(page.getByLabel(/^Buildings \(Alberta footprints\)/)).toBeVisible();
   const wui = page.getByTestId("wui-unsourced");
   await expect(wui).toHaveText("Unsourced");
   // Tab from the WUI checkbox reaches the badge; focus opens its tooltip
