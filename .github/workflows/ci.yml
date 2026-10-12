@@ -26,6 +26,7 @@ jobs:
         run: |
           pip install engine/
           pip install "api/[dev]"
+          pip install pyproj  # build script tests (scripts/build_ab_buildings_odb.py)
 
       - name: Test engine
         run: PYTHONPATH=engine/src python -m pytest engine/tests/ -v --tb=short
