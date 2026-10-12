@@ -279,6 +279,8 @@ class Case:
         self.sx = raster.x0 + (cc + 0.5) * h
         self.sy = raster.y_top - (rr + 0.5) * h
         self.t_burn = V2.burn_times(cfg, frame, self.sx, self.sy)
+        self.frame = frame
+        self.t_burn = self.adjust_burn_times(self.t_burn)  # v4 hook (VIIRS / timed fronts)
         self.window = cfg["window"]
         self.stop = stop_minute(fire, stop_src) if (stop_src or fire in STOP_SOURCES) else math.inf
         from scipy import ndimage
@@ -307,6 +309,14 @@ class Case:
               f"{self.stop:.0f} min of {self.window:.0f} | {self.setup_s:.0f} s rss {L1.rss_gb():.2f} GB",
               flush=True)
 
+    gammas = (0.0,)  # v4: emission-scaling exponents to precompute
+
+    def adjust_burn_times(self, t_burn):
+        return t_burn
+
+    def emit_scale(self, gamma: float):
+        return None
+
     def sources(self, proxy, u_ms, dmc, dc):
         cfg, h = self.cfg, self.cfg["h"]
         f = calculate_fbp(proxy, u_ms * 3.6, cfg["ffmc"], dmc, dc, fmc=self.fmc)
@@ -321,25 +331,34 @@ class Case:
         for m in range(len(self.members), n_total):
             u_ms, wfrom = L1.member_wind(self.cfg, m)
             wind = [(0.0, u_ms * 3.6, wfrom)]
-            fld = LR.landing_field(self.sources(self.cfg["proxy"], u_ms, self.cfg["dmc"], self.cfg["dc"]),
-                                   wind, self.window, opts, raster=self.raster)
-            landed = LR.landed_on_buildings(self.u, fld, opts).astype(np.float32)
+            src = self.sources(self.cfg["proxy"], u_ms, self.cfg["dmc"], self.cfg["dc"])
+            landed_g = {}
+            for g in self.gammas:
+                src.emit_scale = self.emit_scale(g)
+                fld = LR.landing_field(src, wind, self.window, opts, raster=self.raster)
+                landed_g[g] = LR.landed_on_buildings(self.u, fld, opts).astype(np.float32)
+            landed = landed_g[self.gammas[0]]
             urban = LR.UrbanSource.build(self.u, wind, opts, LR.URBAN_RASTER_M)
             self.members.append({"m": m, "u_ms": u_ms, "wfrom": wfrom, "wind": wind, "edges": fld.edges,
-                                 "landed": landed, "urban": urban})
+                                 "landed": landed, "landed_g": landed_g, "urban": urban})
             del fld
 
     def run(self, theta: dict, n_members: int, stop: bool = True, **over):
         """P(involved) over ``n_members`` (and member-mean ember ignitions)."""
+        theta = dict(theta)
+        gamma = theta.pop("frp_gamma", None)
+        s_unit = theta.pop("survival_unit", None)
         opts = LR.LongRangeOptions(members=1, seed=SEED, raster_m=self.cfg["h"], model="v3", **theta, **over)
         inv, emb, info = [], [], []
         for mem in self.members[:n_members]:
             rng = np.random.default_rng([SEED, mem["m"]])
             w = [WindPeriod(0.0, mem["u_ms"] * 3.6, mem["wfrom"])]
-            t, s, lr, _, draw = LR.run_member_v3(self.u, self.t_front, mem["landed"], mem["edges"], opts, w,
+            landed = mem["landed"] if gamma is None else mem["landed_g"][gamma]
+            t, s, lr, _, draw = LR.run_member_v3(self.u, self.t_front, landed, mem["edges"], opts, w,
                                                  self.window, rng, mem["urban"], mem["wind"],
                                                  burnout_min=self.d66, fb=1.0,
-                                                 stop_min=self.stop if stop else math.inf)
+                                                 stop_min=self.stop if stop else math.inf,
+                                                 survival_unit=s_unit)
             inv.append(t <= self.window)
             emb.append(lr)
             info.append(draw.info)

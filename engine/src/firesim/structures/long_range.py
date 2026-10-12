@@ -290,6 +290,7 @@ class EmberSourceCells:
     cfb: np.ndarray
     fuel: np.ndarray  # FBP fuel code per cell (str)
     cell_size_m: float
+    emit_scale: np.ndarray | None = None  # v4: per-cell emission multiplier (e.g. VIIRS FRP)
 
     @classmethod
     def from_emitters(cls, emitters, frame) -> "EmberSourceCells | None":
@@ -322,7 +323,10 @@ class EmberSourceCells:
         torching/crowning cells emit unless f_s > 0 (then every burning cell)."""
         fuel_kg = opts.f_surface * self.sfc + self.cfc
         src = (self.cfb >= CFB_TORCHING) | (opts.f_surface > 0)
-        return np.where(src & (self.hfi_kw_m > 0), opts.n_per_kg * fuel_kg * self.cell_size_m ** 2, 0.0)
+        out = np.where(src & (self.hfi_kw_m > 0), opts.n_per_kg * fuel_kg * self.cell_size_m ** 2, 0.0)
+        if self.emit_scale is not None:
+            out = out * np.asarray(self.emit_scale, float)
+        return out
 
 
 # ----------------------------------------------------------------------------- the field
@@ -1001,7 +1005,7 @@ def link_filter_v3(rng, scale_m: float, cutoff_m: float):
 def run_member_v3(units, t_front_min, wild_landed, edges, opts: LongRangeOptions, wind,
                   duration_min: float, rng, urban: UrbanSource | None, wind_periods,
                   burnout_min=None, fb: float = 1.0, alpha_factor=None, stop_min: float = math.inf,
-                  extra_filter=None):
+                  extra_filter=None, survival_unit=None):
     """One v3 member: v2 embers (q × ember_factor) + probabilistic links + survival + run end.
 
     ``wind``: ``WindPeriod`` list for the Hamada timing. ``stop_min``: no building becomes
@@ -1012,7 +1016,8 @@ def run_member_v3(units, t_front_min, wild_landed, edges, opts: LongRangeOptions
     n = len(units)
     draw = member_draw(opts, rng, n)
     sub = np.random.default_rng(rng.integers(0, 2**63 - 1))
-    blocked = sub.random(n) < float(opts.survival)
+    s_unit = float(opts.survival) if survival_unit is None else np.asarray(survival_unit, float)
+    blocked = sub.random(n) < s_unit  # v4: per-building survival (pre-fire vulnerability)
     pf = link_filter_v3(sub, opts.link_scale_m, opts.link_cutoff_m)
     if extra_filter is not None:
         lf = lambda i, nb, sep: pf(i, nb, sep) & extra_filter(i, nb, sep)  # noqa: E731
@@ -1043,3 +1048,63 @@ def run_ensemble_v3(units, t_front_min, wild_landed, edges, opts: LongRangeOptio
                                        alpha_factor, stop_min, extra_filter)
         t_all[m], s_all[m], lr_all[m] = t, s, lr
     return t_all, s_all, lr_all, (lr_all.mean(axis=0) if m_count else np.zeros(n))
+
+
+# ----------------------------------------------------------------------------- v4 (spec §6.6)
+
+
+def survival_v4(s0: float, canopy_30_100=None, year_built=None, b_canopy: float = 0.0,
+                b_code: float = 0.0, code_year: int = 2008) -> np.ndarray | float:
+    """Per-building survival (v4): logit s = logit s0 + b_canopy (canopy_30_100 − 0.3) + b_code
+    [year built >= ``code_year``]. Forms: Knapp et al. 2021 (Camp: canopy cover 30-100 m and
+    construction year split survival); Syphard & Keeley 2019 (building-code era); California
+    Chapter 7A (2008) [H for the year]. Missing values contribute 0. Coefficients fitted [R39]."""
+    if canopy_30_100 is None and year_built is None:
+        return s0
+    n = len(canopy_30_100) if canopy_30_100 is not None else len(year_built)
+    z = np.full(n, math.log(s0 / (1 - s0)))
+    if canopy_30_100 is not None:
+        c = np.asarray(canopy_30_100, float)
+        z += np.where(np.isfinite(c), b_canopy * (c - 0.3), 0.0)
+    if year_built is not None:
+        y = np.asarray(year_built, float)
+        z += np.where(np.isfinite(y) & (y >= code_year), b_code, 0.0)
+    return 1.0 / (1.0 + np.exp(-z))
+
+
+def viirs_burn_times(xs, ys, det_x, det_y, det_t, radius_m: float = 750.0, k: int = 3):
+    """Burn minute of source cells from VIIRS detections (v4): the earliest detection time among
+    the ``k`` nearest detections within ``radius_m`` (375 m pixels; nan if none) [H]."""
+    from scipy.spatial import cKDTree
+
+    xs, ys = np.asarray(xs, float), np.asarray(ys, float)
+    out = np.full(len(xs), np.nan)
+    if len(det_x) == 0:
+        return out
+    tree = cKDTree(np.column_stack([det_x, det_y]))
+    d, i = tree.query(np.column_stack([xs, ys]), k=min(k, len(det_x)), distance_upper_bound=radius_m)
+    d = np.atleast_2d(d.T).T if d.ndim == 1 else d
+    i = np.atleast_2d(i.T).T if i.ndim == 1 else i
+    t = np.where(np.isfinite(d), np.asarray(det_t, float)[np.minimum(i, len(det_t) - 1)], np.inf)
+    m = t.min(axis=1)
+    out[np.isfinite(m)] = m[np.isfinite(m)]
+    return out
+
+
+def viirs_emit_scale(xs, ys, det_x, det_y, det_frp, gamma: float, frp_ref: float = 50.0,
+                     radius_m: float = 750.0) -> np.ndarray:
+    """Per-cell emission multiplier (v4) = (mean FRP of detections within ``radius_m`` /
+    ``frp_ref`` MW)^gamma; cells with no detection get the fire's median detection FRP [H]."""
+    from scipy.spatial import cKDTree
+
+    n = len(xs)
+    if gamma == 0 or len(det_x) == 0:
+        return np.ones(n)
+    tree = cKDTree(np.column_stack([det_x, det_y]))
+    frp = np.asarray(det_frp, float)
+    med = float(np.median(frp))
+    vals = np.full(n, med)
+    for j, nb in enumerate(tree.query_ball_point(np.column_stack([xs, ys]), radius_m)):
+        if nb:
+            vals[j] = float(np.mean(frp[nb]))
+    return np.maximum(vals / frp_ref, 1e-3) ** gamma
