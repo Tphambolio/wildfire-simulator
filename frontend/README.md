@@ -3,6 +3,39 @@
 React 19 + TypeScript + Vite 7 + MapLibre GL 5. Development: `npm run dev` (Vite on :3000,
 proxying `/api` to the FastAPI backend on :8000). Production bundle: `npm run build`.
 
+## Layout: collapsible columns, map focus, legend dock
+
+Since 2026-10-11 (owner request: "the actual viewable map is tiny"; `hooks/useLayout.ts`,
+`components/SideRail.tsx`, `components/LegendDock.tsx`, `styles/layout.css`):
+
+- **Collapsible Setup and Situation columns.** The chevron in each panel header collapses it to
+  a 44 px rail (icon, vertical label, reopen button). The Setup rail keeps a compact Run button
+  (same checks and disabled reason as the Run bar; Ctrl+Enter still runs) and, after a run,
+  "New ignition"; the Situation rail shows the area at the selected time. The panels stay
+  mounted while collapsed (inputs are kept), and the run status is still announced. The choice
+  is the user's preference, saved in localStorage (`firesim-v3-layout`).
+- **Map focus mode.** "Focus map" (under the zoom control) or `F` collapses both columns for
+  the moment (not saved); `F`, Esc or "Exit focus" restores them. `[` and `]` toggle Setup and
+  Situation. Shortcuts work on the Simulation tab and not while typing in a field; Esc that
+  closes a tooltip or the keyboard crosshair does not also leave focus mode.
+- **After a run.** Setup collapses once per page session after a completed run, only for a user
+  who has never set a Setup preference; the first time ever a hint beside the rail says how to
+  reopen it. Reopening Setup saves "open" and stops the auto-collapse for good.
+- **Map size.** The map canvas follows its grid cell (MapLibre's container ResizeObserver), so
+  every collapse or expand resizes it and keeps the centre and zoom; the timeline stays full
+  width. At 1440×900 after a run the canvas goes from 780×772 (both columns open) to 1056×772
+  (Setup auto-collapsed) and 1352×772 (focus mode).
+- **Narrow screens (< 1280 px).** Both sides are rails; one at a time opens as an overlay drawer
+  over the map (Esc closes it); saved preferences apply again when the window is wider.
+- **Legend dock** (bottom left). One dock lists the legend of each layer that is drawn: fire
+  intensity / crown fire state, FBP fuel type, range of outcomes, house-to-house, burn
+  probability, evacuation status (set by Planning) and modelled-arrival outlines. Each legend's
+  title minimises it to a chip (with a few of its colours); a chip expands it again; "Hide all"
+  leaves one "Legends (n)" button. Saved in localStorage (`firesim-v3-legends`).
+
+E2E specs other than `layout-focus.spec.ts` open the app with a saved "both open" preference
+(`openApp`'s `pinLayout`, default on), so the one-time auto-collapse does not move their Run bar.
+
 ## UI text: badges, tooltips, About & sources
 
 Since 2026-10-10 (owner request: a decluttered interface) the panels carry labels, values and

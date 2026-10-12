@@ -14,7 +14,21 @@ declare global {
  * fixture was recorded with) to stay independent of today's date; `curing: null` leaves the
  * field as the app opens it (tests/e2e/curing.spec.ts).
  */
-export async function openApp(page: Page, opts: { curing?: number | null } = {}): Promise<void> {
+export async function openApp(page: Page, opts: { curing?: number | null; pinLayout?: boolean } = {}): Promise<void> {
+  // Specs other than layout-focus.spec.ts test their own features with both side columns
+  // open: pin the layout preference (unless the test stored one) so the one-time Setup
+  // auto-collapse after a run does not move the Run bar. `pinLayout: false` = first-run user.
+  if (opts.pinLayout !== false) {
+    await page.addInitScript(() => {
+      try {
+        if (!localStorage.getItem("firesim-v3-layout")) {
+          localStorage.setItem("firesim-v3-layout", JSON.stringify({ setup: "open", situation: "open", hintSeen: true }));
+        }
+      } catch {
+        // storage blocked
+      }
+    });
+  }
   await page.goto("/");
   await expect(page.locator("canvas.maplibregl-canvas").first()).toBeVisible();
   await page.waitForLoadState("networkidle");
