@@ -95,6 +95,8 @@ class SimulationRun:
         self.override_request: dict | None = None
         self.created_at: float = time.time()
         self.finished_at: float | None = None
+        #: Set once the run's thread has ended and its on_finished hook (the archive) has run
+        self.done = threading.Event()
         # Terrain used (TerrainSourceInfo fields), set when the grids are loaded
         self.terrain_source: dict | None = None
 
@@ -325,6 +327,7 @@ class SimulationRunner:
                         hook(run)
                     except Exception:  # noqa: BLE001 - the archive must never break a run
                         logger.exception("on_finished hook failed for %s", run.id)
+                run.done.set()
 
         threading.Thread(target=body, daemon=True).start()
 
