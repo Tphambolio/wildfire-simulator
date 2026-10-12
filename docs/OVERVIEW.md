@@ -109,7 +109,7 @@ All intervals are 95 % CIs.
 
 | Data | Licence |
 |---|---|
-| City of Edmonton canopy-LiDAR FBP fuel grid; neighbourhoods; uPLVI | City of Edmonton (grid internal); OGL – Edmonton |
+| City of Edmonton canopy-LiDAR FBP fuel grid; neighbourhoods; uPLVI | Fuel grid: City internal product from City-owned LiDAR, no open licence ([R21]; publication in this repo to be confirmed by the owner, record §6); neighbourhoods, uPLVI: OGL – Edmonton |
 | Alberta Wildfire FBP fuel types 2025 (100 m) | OGL – Alberta (written confirmation recommended, [R35]) |
 | NRCan MRDEM-30 terrain; CGNDB place names | OGL – Canada |
 | Microsoft Canadian Building Footprints (Alberta 2019) | ODbL |
