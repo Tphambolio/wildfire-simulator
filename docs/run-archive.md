@@ -76,7 +76,7 @@ the app lifespan. Tests can also call it directly. It deletes:
 
 Fallbacks:
 
-- **No settings at all** (Fly as deployed today, without a volume): the archive uses a
+- **No settings and no volume:** the archive uses a
   temporary directory and logs a warning. It survives process restarts but not deploys.
   `/api/v1/health` reports `"durable": false`.
 - **`s3` without a bucket, credentials or `boto3`:** the archive falls back to `local` and
@@ -103,7 +103,16 @@ against an S3 stub (moto server):
 - a new container with an empty volume restored the index;
 - the run was served `archived: true`, identical to the live body except for that flag.
 
-## Deploy (needs the owner's approval; not done)
+## Deployed setup (2026-10-12)
+
+The owner chose a volume only, with no Cloudflare R2 and Fly spend under about $1/month: the
+1 GB volume `firesim_archive` (yyz, about $0.15/month; Fly keeps daily snapshots for 5 days) is
+mounted at `/data` in `fly.toml`, the archive uses `/data/firesim-archive` with the local
+backend, and `FIRESIM_ARCHIVE_MAX_BYTES` caps it at 800 MB. `/api/v1/health` reports
+`"durable": true, "backend": "local"`. Without R2 a lost volume loses the archive (the snapshots
+are the only backup).
+
+## Optional: R2 offsite copy (not deployed)
 
 ```bash
 # 1. R2 bucket (Cloudflare dashboard, or: wrangler r2 bucket create firesim-run-archive)
