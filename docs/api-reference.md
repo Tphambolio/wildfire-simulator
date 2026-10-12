@@ -162,7 +162,19 @@ Start a new fire spread simulation.
   without it, no `long_range`). Pre-registered Eaton 2025 test: PROJECT_RECORD §4.4.
 - `structure_long_range_members` (optional, default `20`, 1-50, else 422): ensemble members for
   `structure_long_range_embers` (each is one structure run; ~1-10 s each for a few thousand
-  buildings).
+  buildings; v2 adds one landing-density update per 10 min step).
+- `structure_long_range_model` (optional, `"v2"` default or `"v1"`, else 422; used only with
+  `structure_long_range_embers`). **`v2`** (spec §6.4, 2026-10-11): burning buildings are ember
+  sources too (Qin 2025 GR' = 10 embers per MJ, Himoto & Tanaka 2008 transport from the
+  downwind edge), iterated every 10 min so that ember- and Hamada-involved buildings emit
+  (wildland → town → town); each building ignites through one 1.44 m² receptive bed with
+  q = 4 · p_bed · p_b per ember landing on it (p_bed from firebrand-shower tests, drawn per
+  building; p_b, the building transition, a FireSim hypothesis drawn per member in 0.1-1; the
+  yield 250-640 embers/kg drawn per member). `p_ember` is then the share of members in which the
+  building was ember-ignited (wildland or urban embers). **`v1`**: the §6.3 chain above. Params
+  echo `long_range_model`, and for v2 `long_range_urban_source`, `long_range_parameter_draws`,
+  `long_range_receptive`, `long_range_step_min`. Pre-registered Palisades 2025 test (v2):
+  PROJECT_RECORD §4.4; illustrative, not validated.
 - Per-building vegetation attributes (spec §2.1; no request flag): when the server has
   `FIRESIM_BUILDING_VEGETATION_PATH` (default `edmonton_building_vegetation.csv.gz` next to the
   buildings file) and the footprints carry an `id`, involved units in the detail gain `veg`.

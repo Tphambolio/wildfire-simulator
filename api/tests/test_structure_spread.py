@@ -397,3 +397,20 @@ async def test_roof_scenario_allowed_with_long_range(client, files):
     assert s["long_range"]["label"].startswith("ignition probability")
     for u in data["frames"][-1]["structure_spread_detail"]:
         assert 0 < u["p_involved"] <= 1
+
+
+async def test_long_range_model_option(client, files):
+    resp = await client.post("/api/v1/simulations", json=_payload(
+        files, structure_spread=True, structure_long_range_embers=True,
+        structure_long_range_model="v3"))
+    assert resp.status_code == 422
+    for model in ("v1", "v2"):
+        data = await _finish(client, _payload(files, structure_spread=True,
+                                              structure_long_range_embers=True,
+                                              structure_long_range_members=2,
+                                              structure_long_range_model=model, seed=5))
+        assert data["status"] == "completed", data
+        s = data["frames"][-1]["structure_spread"]
+        assert s["long_range_model"] == model
+        if model == "v2":
+            assert s["long_range_urban_source"] is True and s["long_range_receptive"] == "bed"
