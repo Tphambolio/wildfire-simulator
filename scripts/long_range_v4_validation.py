@@ -54,7 +54,10 @@ VIIRS_RADIUS_M = 750.0
 
 
 def training_cfg(fire: str) -> dict:
-    return dict(V3.FIRES3.get(fire) or V2.FIRES2[fire])
+    cfg = dict(V3.FIRES3.get(fire) or V2.FIRES2[fire])
+    if fire == "camp":
+        cfg["nist_fronts"] = "derived/v4/camp_nist_fronts.geojson"  # replaces the imposed axis rule
+    return cfg
 
 
 def _read_csv(path: Path):
@@ -98,10 +101,12 @@ class Case4(V3.Case):
         if nist:  # Camp: NIST TN 2135 arrival points replace the rule (IDW of the 4 nearest) [H]
             from scipy.spatial import cKDTree
 
-            pts = json.load(open(CALFIRE_DIR / nist))
-            la = np.array([f["geometry"]["coordinates"][1] for f in pts["features"]])
-            ln = np.array([f["geometry"]["coordinates"][0] for f in pts["features"]])
-            tt = np.array([float(f["properties"]["minutes"]) for f in pts["features"]]) + cfg.get("nist_offset_min", 0.0)
+            feats = [f for f in json.load(open(CALFIRE_DIR / nist))["features"]
+                     if int(f["properties"].get("arrival_250m", 0)) == 1]  # first arrival per 250 m cell
+            la = np.array([f["geometry"]["coordinates"][1] for f in feats])
+            ln = np.array([f["geometry"]["coordinates"][0] for f in feats])
+            # NIST minutes are from 06:20 PST; the Camp window starts 70 min later (t0 = -70)
+            tt = np.array([float(f["properties"]["minutes_start"]) for f in feats]) + cfg.get("t0", 0.0)
             x, y = self.frame.to_local(la, ln)
             d, i = cKDTree(np.column_stack([x, y])).query(np.column_stack([self.sx, self.sy]), k=min(4, len(tt)))
             w = 1.0 / np.maximum(d, 1.0) ** 2
@@ -109,9 +114,10 @@ class Case4(V3.Case):
             self.burn_time_source = "NIST TN 2135 fronts (IDW)"
         v = self.viirs
         if v is not None and len(v["t"]):
-            ok = np.isfinite(v["t"]) & (v["t"] >= -60.0) & (v["t"] <= self.cfg["window"] + 1440.0)
+            tw = v["t"] + float(cfg.get("t0", 0.0))  # minutes from ignition -> window minutes
+            ok = np.isfinite(tw) & (tw >= -60.0) & (tw <= self.cfg["window"] + 1440.0)
             dx, dy = self.frame.to_local(v["lat"][ok], v["lon"][ok])
-            self._det = (np.asarray(dx, float), np.asarray(dy, float), v["frp"][ok], v["t"][ok])
+            self._det = (np.asarray(dx, float), np.asarray(dy, float), v["frp"][ok], tw[ok])
             tv = LR.viirs_burn_times(self.sx, self.sy, self._det[0], self._det[1], self._det[3], VIIRS_RADIUS_M)
             # a detection is at or after the burn (overpass sampling): it caps the rule's time [H]
             t = np.where(np.isfinite(tv), np.minimum(t, np.maximum(tv, 0.0)), t)
