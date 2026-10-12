@@ -651,7 +651,7 @@ guard includes the urban kernel reach. Units outside the box receive no urban em
 
 **Validation.** `PREREG_LR2` in `scripts/long_range_v2_validation.py` (pushed `c6399f7` before
 scoring): Palisades 2025 primary (independent, data prepared blind to outcomes), Eaton and Camp
-disclosed non-independent checks; results PROJECT_RECORD §4.4 and [R33].
+disclosed non-independent checks; results PROJECT_RECORD §4.4 and [R33]. **Result: not worth showing** on Palisades (κ beat windward seeding and a distance band; Brier vs Chen & McAneney +0.061, 95 % −0.011 to +0.131, not significant; AUC 0.50, over-confident). Stays opt-in, illustrative.
 
 ## 7. Conflicting published values and the choices made
 
