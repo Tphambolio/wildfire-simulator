@@ -122,7 +122,7 @@ export interface NeighbourhoodArrival {
   at?: [number, number];
 }
 
-// ── Community units: Edmonton neighbourhoods + StatCan census subdivisions ──
+// ── Community units: Edmonton neighbourhoods, census subdivisions, hamlets, localities ──
 
 /** Source label of the City's neighbourhood polygons. */
 export const EDMONTON_NEIGHBOURHOOD_SOURCE = "City of Edmonton neighbourhood";
@@ -130,38 +130,73 @@ export const EDMONTON_NEIGHBOURHOOD_SOURCE = "City of Edmonton neighbourhood";
 export const CSD_SOURCE = "Statistics Canada census subdivision (2021)";
 
 /**
+ * Level of a community unit: Edmonton neighbourhood, census subdivision (municipality,
+ * county, reserve), or a named place inside a CSD (`public/alberta/places.geojson`,
+ * `scripts/build_ab_places.py`): a hamlet (Alberta hamlet boundary or urban service area,
+ * or a CGNDB hamlet point) or a locality (StatCan designated place, CGNDB locality point).
+ */
+export type CommunityLevel = "neighbourhood" | "csd" | "hamlet" | "locality";
+
+/** The more specific levels, which a county-level arrival defers to (`arrivalsFromPoints`). */
+const PLACE_LEVELS: ReadonlySet<CommunityLevel> = new Set(["hamlet", "locality"]);
+
+function props(f: GeoJSON.Feature | undefined | null): Record<string, unknown> {
+  return ((f?.properties ?? {}) as Record<string, unknown>) ?? {};
+}
+
+export function communityLevel(f: GeoJSON.Feature | undefined | null): CommunityLevel {
+  const p = props(f);
+  if (p.level === "csd" || p.level === "hamlet" || p.level === "locality") return p.level;
+  if (p.source === CSD_SOURCE) return "csd";
+  return "neighbourhood";
+}
+
+/**
  * One communities layer: Edmonton keeps its neighbourhoods; elsewhere in Alberta the census
  * subdivisions (municipalities, counties, First Nations reserves; Edmonton's own CSD is not
- * in the file) are the community units. Every feature carries a `source` property.
+ * in the file) are the community units, and `places` (hamlets and localities, named
+ * "Calahoo (hamlet, Sturgeon County)") add the finer named places inside them. Every feature
+ * carries a `source` and a `level` property.
  */
 export function mergeCommunities(
   edmonton: GeoJSON.FeatureCollection | null,
   csd: GeoJSON.FeatureCollection | null,
+  places: GeoJSON.FeatureCollection | null = null,
 ): GeoJSON.FeatureCollection | null {
-  if (!edmonton && !csd) return null;
-  const tag = (f: GeoJSON.Feature, source: string): GeoJSON.Feature => ({
+  if (!edmonton && !csd && !places) return null;
+  const tag = (f: GeoJSON.Feature, source: string, level: CommunityLevel): GeoJSON.Feature => ({
     ...f,
-    properties: { ...(f.properties ?? {}), source: (f.properties as Record<string, unknown> | null)?.source ?? source },
+    properties: { ...props(f), source: props(f).source ?? source, level: props(f).level ?? level },
   });
   const names = new Set((edmonton?.features ?? []).map((f) => featureName(f)));
+  const csds = (csd?.features ?? []).map((f) => {
+    const t = tag(f, CSD_SOURCE, "csd");
+    const n = featureName(t);
+    // A CSD named like an Edmonton neighbourhood is suffixed so names stay unique
+    return names.has(n) ? { ...t, properties: { ...t.properties, name: `${n} (CSD)` } } : t;
+  });
+  for (const f of csds) names.add(featureName(f));
   return {
     type: "FeatureCollection",
     features: [
-      ...(edmonton?.features ?? []).map((f) => tag(f, EDMONTON_NEIGHBOURHOOD_SOURCE)),
-      // A CSD named like an Edmonton neighbourhood is suffixed so names stay unique
-      ...(csd?.features ?? []).map((f) => {
-        const t = tag(f, CSD_SOURCE);
-        const n = featureName(t);
-        return names.has(n) ? { ...t, properties: { ...t.properties, name: `${n} (CSD)` } } : t;
-      }),
+      ...(edmonton?.features ?? []).map((f) => tag(f, EDMONTON_NEIGHBOURHOOD_SOURCE, "neighbourhood")),
+      ...csds,
+      // Place names already carry kind and parent ("Calahoo (hamlet, Sturgeon County)"), so
+      // they cannot repeat a neighbourhood or CSD name; drop any that would
+      ...(places?.features ?? []).filter((f) => !names.has(featureName(f))).map((f) => tag(f, String(props(f).source ?? "place"), communityLevel(f) === "locality" ? "locality" : "hamlet")),
     ],
   };
 }
 
 /** Short tag for a community's source in the card ("CSD" for census subdivisions, else null). */
 export function communitySourceTag(f: GeoJSON.Feature | undefined): string | null {
-  const src = (f?.properties as Record<string, unknown> | null | undefined)?.source;
-  return src === CSD_SOURCE ? "CSD" : null;
+  return communityLevel(f) === "csd" ? "CSD" : null;
+}
+
+/** Census subdivision a hamlet or locality lies in (its `parent`), else null. */
+export function communityParent(f: GeoJSON.Feature | undefined | null): string | null {
+  const p = props(f).parent;
+  return typeof p === "string" && p ? p : null;
 }
 
 /** Feature name from common GeoJSON property conventions. */
@@ -199,6 +234,8 @@ function ringContains(ring: number[][], x: number, y: number): boolean {
  * widest inside span on the horizontal line through it.
  */
 export function labelPoint(f: GeoJSON.Feature): [number, number] | null {
+  // A place given as a point (CGNDB locality): the point itself
+  if (f.geometry?.type === "Point") return f.geometry.coordinates.slice(0, 2) as [number, number];
   const polys = polygonsOf(f.geometry);
   let best: number[][][] | null = null;
   let bestArea = 0;
@@ -249,9 +286,27 @@ interface Prepared {
   /** polygons as rings of [x, y] metres (relative to lng 0 / lat0) */
   polys: number[][][][];
   bbox: [number, number, number, number]; // [minLng, minLat, maxLng, maxLat] degrees
+  /** A place given as a point: [x, y] metres and its radius (`radius_m`, build_ab_places.py) */
+  disc?: { x: number; y: number; r: number };
 }
 
+/** Default radius of a place given as a point, when the feature has no `radius_m`. */
+export const PLACE_POINT_RADIUS_M = 250;
+
 function prepare(f: GeoJSON.Feature): Prepared | null {
+  if (f.geometry?.type === "Point") {
+    const [lng, lat] = f.geometry.coordinates;
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+    const rp = Number(props(f).radius_m);
+    const r = Number.isFinite(rp) && rp >= 0 ? rp : PLACE_POINT_RADIUS_M;
+    const kx = M_PER_DEG * Math.cos((lat * Math.PI) / 180);
+    const dLng = r / kx, dLat = r / M_PER_DEG;
+    return {
+      name: featureName(f), feature: f, lat0: lat, kx, polys: [],
+      bbox: [lng - dLng, lat - dLat, lng + dLng, lat + dLat],
+      disc: { x: lng * kx, y: 0, r },
+    };
+  }
   const polys = polygonsOf(f.geometry);
   if (polys.length === 0) return null;
   let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -279,6 +334,7 @@ function prepare(f: GeoJSON.Feature): Prepared | null {
 function distanceM(p: Prepared, lat: number, lng: number): number {
   const x = lng * p.kx;
   const y = (lat - p.lat0) * M_PER_DEG;
+  if (p.disc) return Math.max(0, Math.hypot(x - p.disc.x, y - p.disc.y) - p.disc.r);
   let best = Infinity;
   for (const poly of p.polys) {
     // Inside the outer ring and not in a hole
@@ -407,6 +463,7 @@ function arrivalsFromPoints(
   }
   const dLat = bufferM / M_PER_DEG;
   const out: NeighbourhoodArrival[] = [];
+  const prepared = new Map<string, Prepared>();
   for (const feat of communities.features) {
     const p = prepare(feat);
     if (!p) continue;
@@ -423,7 +480,9 @@ function arrivalsFromPoints(
     if (perimeterFrames) {
       const frames = perimeterFrames;
       // A neighbourhood the perimeter has swept over, with no vertex near it
-      const ring = (polygonsOf(feat.geometry)[0]?.[0]) ?? [];
+      const ring = feat.geometry?.type === "Point"
+        ? [feat.geometry.coordinates]
+        : (polygonsOf(feat.geometry)[0]?.[0]) ?? [];
       for (const f of frames) {
         if (f.time_hours >= arrival) break;
         const v = f.perimeter.length >= 3
@@ -436,9 +495,52 @@ function arrivalsFromPoints(
         }
       }
     }
-    if (Number.isFinite(arrival)) out.push({ name: p.name, arrivalHours: arrival, feature: feat, at });
+    if (Number.isFinite(arrival)) {
+      out.push({ name: p.name, arrivalHours: arrival, feature: feat, at });
+      prepared.set(p.name, p);
+    }
   }
-  return out.sort((a, b) => a.arrivalHours - b.arrivalHours || a.name.localeCompare(b.name));
+  return preferSpecific(out, prepared, pts, bufferM).sort((a, b) => a.arrivalHours - b.arrivalHours || a.name.localeCompare(b.name));
+}
+
+/**
+ * The most specific unit at a county-level crossing: a census subdivision's arrival (where
+ * the fire first came within the buffer, PR #67) is dropped when a hamlet or locality of that
+ * CSD contains, or lies within the buffer of, a crossing point: `at`, or any fire point of the
+ * same (first) time within the buffer of the CSD (a perimeter frame has many). That place has
+ * its own arrival at the same time or earlier, and its name carries the CSD: "Calahoo
+ * (hamlet, Sturgeon County)". With no such place the CSD's dot stays, as before.
+ * Cities, towns and Edmonton neighbourhoods are never dropped (no place has them as parent).
+ */
+function preferSpecific(
+  arrivals: NeighbourhoodArrival[],
+  prepared: Map<string, Prepared>,
+  pts: { lat: number; lng: number; h: number }[],
+  bufferM: number,
+): NeighbourhoodArrival[] {
+  const placesByParent = new Map<string, Prepared[]>();
+  for (const a of arrivals) {
+    if (!PLACE_LEVELS.has(communityLevel(a.feature))) continue;
+    const parent = communityParent(a.feature);
+    const p = prepared.get(a.name);
+    if (!parent || !p) continue;
+    placesByParent.set(parent, [...(placesByParent.get(parent) ?? []), p]);
+  }
+  if (placesByParent.size === 0) return arrivals;
+  return arrivals.filter((a) => {
+    if (communityLevel(a.feature) !== "csd" || !a.at) return true;
+    const places = placesByParent.get(a.name) ?? [];
+    if (places.length === 0) return true;
+    const near = (lat: number, lng: number) => places.some((p) => distanceM(p, lat, lng) <= bufferM + 1);
+    if (near(a.at[1], a.at[0])) return false;
+    const csd = prepared.get(a.name)!;
+    // Other crossing points of the same time (pts are sorted by time)
+    for (const q of pts) {
+      if (q.h > a.arrivalHours) break;
+      if (q.h === a.arrivalHours && distanceM(csd, q.lat, q.lng) <= bufferM && near(q.lat, q.lng)) return false;
+    }
+    return true;
+  });
 }
 
 /** "Fire within 500 m by 15:32" (or "by T+1:05" without a start time). */
@@ -467,7 +569,8 @@ export function arrivalsToGeoJSON(
       // A census subdivision (a whole county or town) is marked where the fire first comes
       // within the buffer, not outlined: its outline would wrap every town the county
       // surrounds and say the same name at every crossing (owner feedback 2026-10-12)
-      geometry: communitySourceTag(a.feature) === "CSD" && a.at
+      // A place given as a point (a CGNDB locality) is marked the same way: no outline exists
+      geometry: (communityLevel(a.feature) === "csd" || a.feature.geometry?.type === "Point") && a.at
         ? { type: "Point", coordinates: a.at }
         : a.feature.geometry,
       properties: {
