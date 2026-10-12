@@ -16,7 +16,9 @@ describe("lazyChunk: tabs after a redeploy", () => {
   });
 
   it("shows a reload notice instead of crashing when the chunk is gone", async () => {
-    const Missing = lazyChunk(() => Promise.reject(new TypeError("Failed to fetch dynamically imported module")));
+    const Missing = lazyChunk<Record<string, never>>(() =>
+      Promise.reject(new TypeError("Failed to fetch dynamically imported module")),
+    );
     render(
       <Suspense fallback={<p>loading</p>}>
         <Missing />
