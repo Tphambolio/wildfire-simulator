@@ -278,8 +278,15 @@ def _vintage_warning(run: SimulationRun) -> str | None:
 
     cfg = run.config
     start = getattr(cfg, "start_time", None)
-    year = run.fuel_source.get("vintage_year") if isinstance(run.fuel_source, dict) else None
-    return fuel_vintage_warning(year, start)
+    fs = run.fuel_source if isinstance(run.fuel_source, dict) else {}
+    warning = fuel_vintage_warning(fs.get("vintage_year"), start)
+    bc = fs.get("backcast") if isinstance(fs.get("backcast"), dict) else None
+    if bc and bc.get("applied"):
+        # Pre-fire back-cast applied (docs/fuel-grid-backcast.md): say so instead
+        return bc.get("note") or warning
+    if warning and bc and bc.get("note"):
+        return f"{warning} {bc['note']}"
+    return warning
 
 
 def _weather_used(run: SimulationRun) -> WeatherUsed | None:

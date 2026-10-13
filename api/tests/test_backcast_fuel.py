@@ -114,6 +114,10 @@ async def test_historical_run_is_backcast(client, grids):
     assert "back-cast to 2011-05-14" in fs["label"] and "SCANFI" in bc["note"]
     assert "Open Government Licence - Canada" in bc["attribution"] and bc["heuristic"]
     assert set(body["frames"][-1]["fuel_breakdown"]) == {"C2"}
+    # the fuel-vintage warning says the back-cast was applied instead of warning of burn scars
+    assert body["fuel_vintage_warning"] == bc["note"]
+    assert body["fuel_vintage_warning"].startswith("Pre-fire fuel applied: areas burned since "
+                                                   "2011-05-14")
 
 
 async def test_after_the_fire_and_present_day_are_unchanged(client, grids):
@@ -154,6 +158,8 @@ async def test_server_without_backcast_data(grids, monkeypatch):
         body = await _run(ac, _payload(lat, lng, grids["city"], "2011-05-14T17:50:00-06:00"))
     bc = body["fuel_source"]["backcast"]
     assert bc["applied"] is False and "not installed" in bc["reason"]
+    assert "Areas burned since 2011" in body["fuel_vintage_warning"]
+    assert body["fuel_vintage_warning"].endswith(bc["note"])
     assert set(body["frames"][-1]["fuel_breakdown"]) == {"O1b"}
 
 
