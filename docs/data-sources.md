@@ -310,14 +310,24 @@ share-alike:
 | `source` | Provider, dataset (ODB download date) | Licence | Attribution |
 |---|---|---|---|
 | `odb:calgary` | City of Calgary, Buildings (2024-11-20) | [Open Government Licence – City of Calgary 2.1](https://data.calgary.ca/stories/s/Open-Calgary-Terms-of-Use/u45n-7awa) | Contains information licensed under the Open Government Licence – City of Calgary. |
-| `odb:lethbridge` | City of Lethbridge, Building Footprints (2024-12-03) | [City of Lethbridge – Open Data License](https://opendata.lethbridge.ca/pages/open-data-license) (v1 in ODB; v2.0 on the portal: no attribution clause, adds an indemnity) | Contains information licensed under the City of Lethbridge – Open Data License. |
+| `odb:lethbridge` | City of Lethbridge, Building Footprints (2024-12-03) | [City of Lethbridge – Open Data License](https://opendata.lethbridge.ca/pages/open-data-license) v2.0 (page updated 2026-01-07; v1 in ODB): copy, modify, publish, distribute for any lawful purpose; no attribution clause; as is; **the user indemnifies the City** for claims arising from their use (notice below; [R40] §4.1) | Contains information licensed under the City of Lethbridge – Open Data License. |
 | `odb:parkland-county` | Parkland County, Building Footprints (2025-01-14) | [Open Government License – Parkland County](https://www.parklandcounty.com/en/home-property-and-utilities/open-data-licence.aspx) | Contains information licensed under the Open Government License – Parkland County. |
-| `odb:grande-prairie` | City of Grande Prairie, Building Footprint (2025-01-09) | Open Data License – City of Grande Prairie (text on the City's ArcGIS items, e.g. its parcel data; the portal's licence page no longer exists) | Contains information licensed under the Open Data License – City of Grande Prairie. |
+| `odb:grande-prairie` | City of Grande Prairie, Building Footprint (2025-01-09) | Open Data License – City of Grande Prairie v1.0 (2014; no stand-alone licence page; the current text is the `licenseInfo` of the City's own ArcGIS items, e.g. *City of Grande Prairie Parcel Data*, item `c3eeebc09fd74afc8a6555117aaadca1`, modified 2026-10-05, identical to the copy of 2026-10-12; Policy 702 on cityofgp.com says City datasets are "licensed by the Open Data Licence"; [R40] §4.2) | Contains information licensed under the Open Data License – City of Grande Prairie. |
 | `odb:airdrie` | City of Airdrie, Airdrie 2018 Building Footprints (2024-11-20) | [Open Data Licence – City of Airdrie](https://data-airdrie.opendata.arcgis.com/pages/our-open-licence) | Contains information licensed under the Open Data Licence – City of Airdrie. |
 | `odb:okotoks` | Town of Okotoks, Building Footprints (2024-12-16) | [Open Government Licence – Town of Okotoks](https://okotoksmaps-okotoks.hub.arcgis.com/pages/open-data-licence) | Contains information licensed under the Open Government Licence – Town of Okotoks. |
 | `odb:cochrane` | Town of Cochrane, Buildings (2024-12-09) | [Open Data Licence – Town of Cochrane](https://geohub.cochrane.ca/pages/open-data-license-agreement) | Contains information licensed under the Open Data Licence – Town of Cochrane. |
 | `odb:canmore` | Town of Canmore, Canmore Building Footprints (2024-12-03) | [Town of Canmore Open Data Licence](https://sttocgispublic.blob.core.windows.net/gis/Town%20of%20Canmore%20Open%20Data%20Licence.pdf) | Contains information licensed under the Town of Canmore Open Data Licence. |
 | `odb:banff` | Town of Banff, Banff Open Data – Building Footprints (2024-11-20) | [Open Government Licence – Banff](https://maps.banff.ca/opendata/) | Contains information licensed under the Open Government Licence – Banff. |
+
+**Licence notice for the municipal records** ([R40] §4, 2026-10-12). The file is distributed
+under ODbL for the Microsoft-derived database; each record with `source = odb:<provider>` also
+remains under its provider's licence, as it does in ODB, and anyone who uses those records
+accepts that licence. In particular the **City of Lethbridge – Open Data License v2.0** (the
+version in force when the data were accessed, 2026-10-12) supplies the information "as is" and
+requires the user to "indemnify and hold harmless the City … from any and all liabilities and
+costs … incurred in connection with any claim arising from your use of the Information". The
+same notice goes in the release notes of `data-ab-buildings-2026-10`
+(`docs/buildings-alberta.md` §5).
 
 Runs whose selection includes municipal footprints list those providers in
 `buildings_source.label` and their lines in `buildings_source.attribution`; the About &

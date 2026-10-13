@@ -204,5 +204,29 @@ class Settings:
         """
         return os.environ.get("FIRESIM_PYRA_SOURCE", "1").strip().lower() not in {"0", "false", "no", "off"}
 
+    @property
+    def small_footprint_m2(self) -> float | None:
+        """Size rule for headline building counts (decision 2026-10-12, [R40];
+        docs/structure-spread-spec.md §2.2): footprints under ``FIRESIM_SMALL_FOOTPRINT_M2``
+        m² (default 20) are outbuildings, counted separately from buildings at risk, the
+        exposure bands and structure-spread involvement; they still carry fire. ``0`` counts
+        every footprint (the behaviour before 2026-10-12, kept for equivalence checks).
+        ``None`` when unset (the engine default, 20 m²)."""
+        v = os.environ.get("FIRESIM_SMALL_FOOTPRINT_M2", "").strip()
+        return float(v) if v else None
+
+    @property
+    def small_footprints_mode(self) -> str | None:
+        """``FIRESIM_SMALL_FOOTPRINTS``: ``count_separately`` (default; outbuildings carry
+        fire, counted separately) or ``exclude`` (dropped from the structure-spread graph;
+        a sensitivity setting, not for the live API)."""
+        return os.environ.get("FIRESIM_SMALL_FOOTPRINTS", "").strip() or None
+
 
 settings = Settings()
+
+# The engine reads the size rule's default at call time through this provider.
+from firesim.structures.units import set_small_footprint_default  # noqa: E402
+
+set_small_footprint_default(lambda: settings.small_footprint_m2,
+                            lambda: settings.small_footprints_mode)

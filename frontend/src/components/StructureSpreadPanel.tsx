@@ -17,7 +17,7 @@ import {
 } from "../utils/structureSpread";
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
-import { BADGES } from "../content/explanations";
+import { BADGES, TIPS } from "../content/explanations";
 
 interface StructureSpreadPanelProps {
   frames: SimulationFrame[];
@@ -155,6 +155,15 @@ export default function StructureSpreadPanel({
                 <span className="metric-value">{n ?? "—"}</span>
               </div>
             ))}
+            {cur?.units_small_involved != null && (
+              <div className="metric-row" data-testid="structure-small">
+                <span className="metric-label">
+                  Outbuildings &lt; {cur.small_footprint_m2 ?? 20} m²
+                  <InfoTip text={TIPS.outbuildings} label="About outbuildings" />
+                </span>
+                <span className="metric-value">{cur.units_small_involved}</span>
+              </div>
+            )}
             <StructureChart frames={frames} frameIndex={frameIndex} />
             <label className="struct-toggle">
               <input
