@@ -354,7 +354,10 @@ def run_cellular_simulation(
                             spots_off_grid += 1
                             continue
                         if fuel[r, c] and arrival[r, c] == np.inf:
-                            phi[r, c] = -0.5 * h_min
+                            # 2026-10-13: seeded with _seed_spot; before, a spot outside the
+                            # computational window's box was reset as an entering cell and never
+                            # spread (PROJECT_RECORD bug entry 2026-10-13)
+                            _seed_spot(phi, in_band, r, c, dx, dy, h_min)
                             arrival[r, c] = t
                             cross_ros[r, c] = params.head[r, c]
                             spot_events.append((t, spot))
@@ -920,6 +923,19 @@ def _frames(arrival, cross_ros, p, fuel_grid, center, duration, snapshot_interva
         duration / 60.0, len(cells), len(cells) * cell_area_m2 / 10000.0, len(spot_events),
     )
     return frames
+
+
+def _seed_spot(phi, in_band, r, c, dx, dy, h_min):
+    """Start a spot fire in cell (r, c): phi becomes the signed distance to the spot cell in a
+    band around it (so the cell is not reset as an entering cell of the computational window,
+    which would extinguish a spot outside the burned area's box), and the band is marked."""
+    rows, cols = phi.shape
+    r0, r1 = max(0, r - BAND_CELLS), min(rows, r + BAND_CELLS + 1)
+    c0, c1 = max(0, c - BAND_CELLS), min(cols, c + BAND_CELLS + 1)
+    rr, cc = np.mgrid[r0:r1, c0:c1]
+    d = np.hypot((rr - r) * dy, (cc - c) * dx) - 0.5 * h_min
+    phi[r0:r1, c0:c1] = np.minimum(phi[r0:r1, c0:c1], d)
+    in_band[r0:r1, c0:c1] = True
 
 
 def _snap_ignition(
