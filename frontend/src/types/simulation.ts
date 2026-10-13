@@ -352,6 +352,28 @@ export interface FuelSourceInfo {
   attribution?: string | null;
   season?: string | null;
   share?: Record<string, number> | null;
+  /** Pre-fire fuel for a dated historical run (docs/fuel-grid-backcast.md); absent = not historical */
+  backcast?: BackcastInfo | null;
+}
+
+/** Whether a historical run's Alberta fuel was back-cast to its date (API `fuel_source.backcast`) */
+export interface BackcastInfo {
+  applied: boolean;
+  /** Scenario date the fuel represents (YYYY-MM-DD) */
+  as_of: string;
+  reason?: string | null;
+  /** One plain-language line for the fuel-vintage warning */
+  note?: string | null;
+  /** SCANFI v2 epoch the restored fuel was typed from */
+  epoch?: number | null;
+  restored_share?: number | null;
+  unrestored_share?: number | null;
+  restored_before?: Record<string, number> | null;
+  restored_after?: Record<string, number> | null;
+  label?: string | null;
+  source?: string | null;
+  attribution?: string | null;
+  heuristic?: string | null;
 }
 
 /** Server-side run phases (API `simulation.status`, docs/api-reference.md) */

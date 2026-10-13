@@ -174,6 +174,8 @@ class StackedGrid:
     share: dict[str, float] = field(default_factory=dict)
     #: share of cells no source covers (outside every grid; non-fuel)
     uncovered: float = 0.0
+    #: back-cast statistics when the Alberta cells were back-cast (``firesim.data.backcast``)
+    backcast: dict | None = None
 
 
 def stack_sources(sources: list[tuple], lattice: Lattice) -> StackedGrid:
@@ -283,6 +285,9 @@ class FuelSources:
     window_km: float = 40.0
     cell_m: float = 50.0
     city_margin_km: float = 5.0
+    #: pre-fire back-cast of the Alberta cells for a dated historical scenario
+    #: (``firesim.data.backcast.Backcast``; part of the window cache key)
+    backcast: object | None = None
 
 
 @dataclass(frozen=True)
@@ -361,7 +366,9 @@ def scheme_of(path: str, code_scheme: str = "auto") -> str | dict:
 def provincial_window(src: FuelSources, lat: float, lng: float,
                       water_path: str | None = None) -> StackedGrid:
     """The ``window_km`` window around the point: City grid where mapped, then the Alberta grid,
-    then the national grid (if configured). Season is not applied (``firesim.fbp.season``)."""
+    then the national grid (if configured). Season is not applied (``firesim.fbp.season``).
+    With ``src.backcast`` the Alberta cells burned since the scenario date are restored to
+    pre-fire fuel first (``firesim.data.backcast``); City and national cells are unchanged."""
     lattice = Lattice.around(lat, lng, src.window_km, src.cell_m)
     sources: list[tuple] = []
     if src.city_path:
@@ -370,12 +377,19 @@ def provincial_window(src: FuelSources, lat: float, lng: float,
         if lat_min < b[1] and lat_max > b[0] and lng_min < b[3] and lng_max > b[2]:
             sources.append(("city", read_codes_on_lattice(src.city_path, lattice),
                             scheme_of(src.city_path)))
+    bc_stats = None
     if src.ab_path:
-        sources.append(("ab_wildfire", read_codes_on_lattice(src.ab_path, lattice), "ab_wildfire"))
+        ab_codes = read_codes_on_lattice(src.ab_path, lattice)
+        if src.backcast is not None:
+            from firesim.data.backcast import apply_on_lattice
+
+            ab_codes, bc_stats = apply_on_lattice(src.backcast, lattice, ab_codes)
+        sources.append(("ab_wildfire", ab_codes, "ab_wildfire"))
     if src.national_path:
         sources.append(("national", read_codes_on_lattice(src.national_path, lattice),
                         src.national_scheme))
     stacked = stack_sources(sources, lattice)
+    stacked.backcast = bc_stats
     logger.info("Provincial fuel window %dx%d at %.0f m around (%.4f, %.4f): %s, uncovered %.3f",
                 lattice.rows, lattice.cols, lattice.cell_m, lat, lng,
                 {k: round(v, 3) for k, v in stacked.share.items()}, stacked.uncovered)

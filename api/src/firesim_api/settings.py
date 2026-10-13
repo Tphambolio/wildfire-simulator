@@ -134,6 +134,16 @@ class Settings:
         return os.environ.get("FIRESIM_AB_FUEL_GRID_PATH") or None
 
     @property
+    def ab_backcast_dir(self) -> str | None:
+        """Directory of the pre-fire (back-cast) fuel data: ``backcast.json``, the NBAC burn key
+        and the SCANFI epoch rasters on the Alberta grid's lattice
+        (``scripts/fuelgrid/backcast.py``). When set and complete, a run dated before the end
+        of the Alberta grid's vintage year (2025) gets its Alberta cells burned since that date
+        restored to pre-fire fuel (``firesim.data.backcast``; docs/fuel-grid-backcast.md).
+        Unset: no back-cast (the run reports why in ``fuel_source.backcast``)."""
+        return os.environ.get("FIRESIM_AB_BACKCAST_DIR") or None
+
+    @property
     def city_fuel_grid_path(self) -> str:
         """The City of Edmonton grid: a request naming this file gets the provincial default
         (City grid where mapped, Alberta grid elsewhere). Any other ``fuel_grid_path`` is used
