@@ -32,8 +32,9 @@ DEFAULT_NEIGHBOUR_CUTOFF_M = 30.0  # spec §4.4: FireSim heuristic, confirmed 20
 #: the unit graph and carry fire like any unit, but are counted separately from the headline
 #: building counts (structure spread and exposure). 20 m² is where municipal (ODB) and
 #: Microsoft footprints part: below it the ODB towns map 16-30 % of their footprints, Microsoft
-#: 0.3-2.5 %; above it the per-town ODB / Microsoft ratios hardly change up to 60 m². DINS
-#: inspects structures from 120 ft² (11.15 m²) and reports "Other Minor Structure" separately.
+#: 0.3-2.5 %; above it the per-town ODB / Microsoft ratios hardly change up to 60 m² (except
+#: rural Parkland County). DINS inspects structures from 120 ft² (11.15 m²) and reports "Other
+#: Minor Structure" separately.
 #: Read at call time (``small_footprint_m2=None``): a provider set with
 #: ``set_small_footprint_default`` (the API's ``FIRESIM_SMALL_FOOTPRINT_M2``, 0 = count every
 #: footprint, the behaviour before 2026-10-12), else this constant.

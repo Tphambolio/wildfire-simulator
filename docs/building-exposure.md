@@ -26,6 +26,12 @@ Per frame (`building_exposure`, counts reached by that time):
 | `within_10m` ... `within_500m` | buildings whose footprint has come within 10 / 30 / 100 / 500 m of a burned cell edge |
 | `flux_over_12_5`, `flux_over_25` | peak radiant flux at the wall >= 12.5 / 25 kW/m2 (NRC construction-class bands) |
 | `ftp_reached` | Cohen's flux-time criterion for piloted ignition of wood reached |
+| `small_within_500m`, `small_footprint_m2` | size rule (2026-10-12, [R40]): outbuildings (footprints under `small_footprint_m2`, default 20 m²) within 500 m; they are **not** in any count above, nor in `buildings_at_risk` or the detail. Absent with `FIRESIM_SMALL_FOOTPRINT_M2=0` (former counts) |
+
+Why the size rule: municipal footprint layers (StatCan ODB: Lethbridge, Grande Prairie, Parkland
+County, Canmore, Banff) map sheds as separate footprints and Microsoft's mostly does not, so a
+count of "buildings" would mean different things in different towns. Counting buildings of at
+least 20 m² gives one definition everywhere (`docs/structure-spread-spec.md` §2.2).
 
 Final frame (`building_exposure_detail`, buildings within 500 m): minimum distance, band, time
 the fire first came within 30 m and 100 m, peak flux, minutes over 12.5 kW/m2, and the
