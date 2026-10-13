@@ -199,6 +199,7 @@ export default function AboutPanel({ section = null }: { section?: AboutSectionI
             <li><strong>Your own asset layer.</strong> {TIPS.ownLayer}</li>
             <li><strong>Multi-day runs.</strong> {TIPS.multiDay}</li>
             <li><strong>RPAS perimeter restart.</strong> After a run, open Setup → Observed perimeter (RPAS): load an observed perimeter (or use the modelled one), mark the active edges on the map or by side, and restart at the timeline's selected time. {TIPS.bufferBlank}</li>
+            <li><strong>Saved runs.</strong> Finished runs are kept on the server for a year. Setup → Saved runs lists them behind a shared passphrase (asked once per browser tab, not stored after the tab closes): time, label, ignition point, kind, area, duration and fuel source; filter by the map view or dates; click a run to reload it with its timeline, perimeter, exposure and range of outcomes. Name a run before it starts with "Run label", or rename it later. Deleting a run removes it for everyone.</li>
           </ul>
           <Docs links={[["Frontend README", `${REPO_URL}/blob/master/frontend/README.md`]]} />
         </Section>

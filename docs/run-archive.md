@@ -1,4 +1,4 @@
-# Run archive (phase 1)
+# Run archive (phases 1 and 2)
 
 Finished runs survive API deploys and restarts. Before this, a run lived only in the API's
 memory: a deploy, a machine restart, or 40 newer runs (`FIRESIM_MAX_STORED_RUNS`) lost it,
@@ -51,6 +51,76 @@ into the app, where the existing export rules apply.
 In the app, "Load Day N run" shows "Run X · Loaded from archive". If a run is in neither memory
 nor the archive, the app says so: "no longer on the server or in its run archive".
 
+## Phase 2: saved-runs list (2026-10-12)
+
+Owner decision 2026-10-12 (Travis Kennedy, EOC Chief of Plans): the list of runs is **shared
+behind one passphrase**. Code: `api/src/firesim_api/routers/runs.py`; app: Setup → Saved runs
+(`SavedRunsPanel.tsx`, `hooks/useSavedRuns.ts`, `services/savedRuns.ts`).
+
+**Endpoints** (details in `docs/api-reference.md`):
+
+- `GET /api/v1/simulations`: archived runs plus runs still in memory and not archived yet
+  (`archived: false`), newest first; `limit` (≤ 200) / `offset`; filters `since` / `until`,
+  a box `south`/`west`/`north`/`east` around the ignition point, `kind`.
+- `PATCH /api/v1/simulations/{id}` `{"label": ...}`: set, rename or clear a label.
+- `DELETE /api/v1/simulations/{id}`: remove a finished run (index row, label, payloads) and
+  drop it from memory. Refused (409) while the run or its ensemble is still running.
+
+**Passphrase gate.** All three need the header `X-FireSim-Passphrase`. The server compares the
+SHA-256 of the header with the SHA-256 of `FIRESIM_RUNS_PASSPHRASE` (`hmac.compare_digest`) and
+never logs either.
+
+- **Variable unset:** the three endpoints answer 403 ("disabled on this server"), so nothing is
+  listed until the owner sets it.
+- **Wrong or missing passphrase:** 401.
+- **Backoff:** failures are counted per client IP in memory (Fly's `Fly-Client-IP`, else the
+  socket peer). After 5 failures each further one locks that IP out for 2, 4, 8 ... seconds
+  (at most 300 s); requests during the lock get 429 with `Retry-After`. A success clears the
+  count. The counts reset when the API restarts.
+- `GET /simulations/{id}`, `/arrival` and `/ensemble` stay open: the EOC console reloads its
+  periods' runs by ID.
+
+Setting it (owner only; the value is never committed or logged):
+
+```bash
+fly secrets set --app firesim-api FIRESIM_RUNS_PASSPHRASE='<choose-a-passphrase>'
+```
+
+Setting a secret restarts the API machine, and runs in progress are lost.
+
+**What the list shows.** For each run: id, label, kind, status, submitted and finished times,
+scenario start, ignition point rounded to 3 decimals (about 100 m), area, duration, frames,
+days, fuel and buildings source labels, and ensemble status and size. It shows no address, no
+request body and no per-building data.
+
+**Labels.** A label is optional plain text of at most 80 characters. Control and
+direction-override characters are removed and whitespace is collapsed.
+
+- **At run time:** request field `label` on `POST /simulations`, `/multiday` and
+  `/perimeter-override`; the app's "Run label (optional)" field in Setup. It is stored in the
+  request JSON.
+- **Later:** `PATCH`, stored in the index table `run_labels` (id, label, updated time). Adding
+  that table is the only schema migration: `CREATE TABLE IF NOT EXISTS`, run when the index
+  opens, with no change to the `runs` table. Because it is a separate table, re-archiving a
+  run (`INSERT OR REPLACE` into `runs`) never drops its label.
+- A rename to an empty label hides the run-time label as well.
+- Renamed labels live in the index only, not in `meta.json`: an index rebuilt from the store
+  would show the run-time labels.
+
+**The app.** Setup → Saved runs asks for the passphrase once and keeps it in `sessionStorage`
+only (this tab, wrapped in try/catch, so blocked storage keeps it in memory). It is cleared
+on any 401 or 403.
+
+- **The list:** 20 runs a page, with the submitted time (America/Edmonton), label, kind,
+  ignition point, area, duration or days, fuel source, and an "Ensemble" tag.
+- **Filters:** "Near current map view" sends the map's box. From / To are Edmonton local days,
+  inclusive.
+- **Opening a run:** clicking a run reloads it through `restoreRun` (memory first, then the
+  archive), so the timeline, perimeter, exposure and range of outcomes show. The row is tagged
+  "On map · Loaded from archive". The reloaded run is **not** filed under the open operational
+  period; "Attach" in the EOC console does that on purpose.
+- **Deleting:** asks for confirmation first and removes the run for everyone.
+
 ## Retention
 
 `run_retention()` runs at startup and then every `FIRESIM_ARCHIVE_RETENTION_HOURS` (24) in
@@ -73,6 +143,7 @@ the app lifespan. Tests can also call it directly. It deletes:
 | `FIRESIM_ARCHIVE_S3_ACCESS_KEY_ID`, `FIRESIM_ARCHIVE_S3_SECRET_ACCESS_KEY` | | Credentials (Fly secrets only, never in the repo) |
 | `FIRESIM_ARCHIVE_MAX_AGE_DAYS` / `_MAX_BYTES` / `_RETENTION_HOURS` | 365 / 0 / 24 | Retention |
 | `FIRESIM_LITESTREAM` | on | `0` skips Litestream even when credentials are set |
+| `FIRESIM_RUNS_PASSPHRASE` | unset (list disabled) | Shared passphrase for the saved-runs list, rename and delete (phase 2; Fly secret only) |
 
 Fallbacks:
 

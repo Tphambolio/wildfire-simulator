@@ -12,6 +12,9 @@ is archived in the background:
   the store). Backends: ``local`` (filesystem, the default; tests and development) and ``s3``
   (any S3-compatible store, e.g. Cloudflare R2; needs ``boto3``).
 
+Phase 2 (``routers/runs.py``): the saved-runs list reads the index (``list_rows``) behind a
+shared passphrase; labels set after a run started are in the ``run_labels`` table.
+
 Reads go memory first, then the archive (``routers/simulations.py``). Archiving never slows or
 breaks a run: it runs on its own worker thread after the run ended, and a failure only logs.
 
@@ -219,7 +222,21 @@ CREATE TABLE IF NOT EXISTS runs (
     bytes_total INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS runs_finished ON runs (finished_at);
+CREATE TABLE IF NOT EXISTS run_labels (
+    id TEXT PRIMARY KEY,
+    label TEXT,
+    updated_at REAL NOT NULL
+);
 """
+# Phase 2 (saved-runs list): ``run_labels`` holds the labels set or renamed after the run
+# started (PATCH); it is its own table, so the migration is a CREATE TABLE IF NOT EXISTS (an
+# existing index gains it on open, no column change) and re-archiving a run (INSERT OR REPLACE
+# into ``runs``) never drops a label. A label given at run time stays in ``request_json``.
+
+#: Index columns the saved-runs list reads (everything but the object bookkeeping)
+_LIST_COLUMNS = ("id", "kind", "status", "created_at", "finished_at", "request_json",
+                 "fuel_source_label", "buildings_source_label", "area_ha", "duration_hours",
+                 "frame_count", "days", "ensemble_status")
 
 _COLUMNS = ("id", "kind", "status", "created_at", "finished_at", "archived_at", "request_json",
             "git_sha", "fuel_source_kind", "fuel_source_label", "buildings_source_kind",
@@ -259,6 +276,34 @@ class RunIndex:
     def delete(self, sim_id: str) -> None:
         with self._lock, self._connect() as db:
             db.execute("DELETE FROM runs WHERE id = ?", (sim_id,))
+            db.execute("DELETE FROM run_labels WHERE id = ?", (sim_id,))
+
+    def list_rows(self) -> list[dict]:
+        """Summary rows of every archived run, newest first (``_LIST_COLUMNS`` plus ``label``,
+        the label set after the run started, or None)."""
+        cols = ", ".join(f"r.{c}" for c in _LIST_COLUMNS)
+        with self._connect() as db:
+            rows = db.execute(
+                f"SELECT {cols}, l.label AS label FROM runs r "
+                "LEFT JOIN run_labels l ON l.id = r.id "
+                "ORDER BY COALESCE(r.created_at, r.finished_at) DESC").fetchall()
+        return [dict(r) for r in rows]
+
+    def set_label(self, sim_id: str, label: str | None) -> None:
+        """Set a run's label; None or empty clears it (stored as "", which also hides the label
+        given at run time)."""
+        with self._lock, self._connect() as db:
+            db.execute("INSERT OR REPLACE INTO run_labels (id, label, updated_at) VALUES (?, ?, ?)",
+                       (sim_id, label or "", time.time()))
+
+    def labels(self) -> dict[str, str | None]:
+        """Labels set after the run started, by run id (in-memory runs as well as archived)."""
+        with self._connect() as db:
+            return {r[0]: r[1] for r in db.execute("SELECT id, label FROM run_labels")}
+
+    def delete_label(self, sim_id: str) -> None:
+        with self._lock, self._connect() as db:
+            db.execute("DELETE FROM run_labels WHERE id = ?", (sim_id,))
 
     def older_than(self, cutoff: float) -> list[dict]:
         with self._connect() as db:
@@ -515,6 +560,19 @@ class RunArchive:
         if n_age or n_bytes or n_orphans:
             logger.info("Run archive retention: %s", out)
         return out
+
+    def delete_run(self, sim_id: str) -> bool:
+        """Remove a run and its payloads (saved-runs list, passphrase-gated). True when the run
+        was in the index or the store."""
+        if not self.enabled or not valid_id(sim_id):
+            return False
+        self.wait_idle(10.0)  # a run archived a moment ago: let its job land first
+        row = self.index.get(sim_id)
+        found = row is not None or self.backend.get(f"{sim_id}/{META}") is not None
+        objects = json.loads(row["objects"] or "[]") if row else None
+        self._remove(sim_id, objects or None)
+        self.index.delete_label(sim_id)
+        return found
 
     def shutdown(self) -> None:
         self.wait_idle(10.0)
