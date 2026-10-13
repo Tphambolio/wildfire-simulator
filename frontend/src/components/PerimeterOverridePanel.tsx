@@ -8,8 +8,9 @@
  *      edges, drawn on the map (click along the perimeter, double-click to end) or picked as
  *      whole perimeter sides from a list (keyboard). Edges not marked active are treated as
  *      burned out (POST /simulations/perimeter-override `active_edges`; docs/validation.md).
- *   3. Restart: the request also carries the observation time and Setup's burning period and
- *      FFMC spin-up.
+ *   3. Restart: the request also carries the observation time, Setup's current weather, FWI
+ *      codes and weather changes (the step in force then, and the later ones), burning period
+ *      and FFMC spin-up. Predict N h runs N h.
  */
 
 import { memo, useCallback, useId, useRef, useState } from "react";
@@ -24,6 +25,8 @@ import {
 } from "../utils/activeEdges";
 import { formatClock, toEdmontonIso, zoneAbbrev } from "../utils/time";
 import { VALIDATION_DOC_URL, formatBurningPeriod } from "../utils/skillOptions";
+import { scheduleForRestart } from "../utils/weatherSchedule";
+import type { SetupWeather } from "./WeatherPanel";
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
 import { TIPS } from "../content/explanations";
@@ -45,6 +48,8 @@ interface PerimeterOverridePanelProps {
   burningPeriod?: BurningPeriod | null;
   /** Send the FFMC spin-up (Setup has it on and the source run used it) */
   spinUp?: boolean;
+  /** Setup's current weather, FWI codes and weather changes (the restart uses them) */
+  setupWeather?: SetupWeather | null;
 }
 
 function PerimeterOverridePanel({
@@ -56,6 +61,7 @@ function PerimeterOverridePanel({
   observedAtMs = null,
   burningPeriod = null,
   spinUp = false,
+  setupWeather = null,
 }: PerimeterOverridePanelProps) {
   const id = useId();
   const [parseError, setParseError] = useState<string | null>(null);
@@ -72,7 +78,7 @@ function PerimeterOverridePanel({
       reader.onload = () => {
         try {
           const gj = JSON.parse(reader.result as string) as Record<string, unknown>;
-          recon.setPerimeter(perimeterFromGeoJSON(gj), file.name);
+          recon.setPerimeter(perimeterFromGeoJSON(gj), `${file.name} (loaded on run ${simulationId})`);
         } catch (err) {
           setParseError(err instanceof SyntaxError
             ? "Failed to parse GeoJSON. Ensure the file is valid JSON."
@@ -83,13 +89,21 @@ function PerimeterOverridePanel({
       };
       reader.readAsText(file);
     },
-    [recon],
+    [recon, simulationId],
   );
 
   const disabled = !simulationId || isRunning;
   const at = observedAtMs !== null ? new Date(observedAtMs) : new Date();
   const atLabel = `${formatClock(at)} ${zoneAbbrev(at)}`;
   const marked = state.mode === "marked";
+
+  // Weather for a restart at the selected time: Setup's, with the weather change in force
+  // then (and the later ones) when Setup has a schedule
+  const restartWeather = setupWeather
+    ? scheduleForRestart(setupWeather.weather, setupWeather.forecastOn ? [] : setupWeather.steps,
+      at.getTime(), durationHours)
+    : null;
+  const nLater = restartWeather?.schedule?.length ?? 0;
 
   const restart = () => {
     if (!simulationId || !state.perimeter) return;
@@ -106,6 +120,9 @@ function PerimeterOverridePanel({
         startTime: toEdmontonIso(at.getTime()),
         burningPeriod,
         ffmcSpinUp: spinUp,
+        weather: restartWeather?.weather ?? null,
+        fwi: setupWeather?.fwi ?? null,
+        schedule: restartWeather?.schedule ?? null,
       }));
     } catch (err) {
       setParseError((err as Error).message);
@@ -165,7 +182,7 @@ function PerimeterOverridePanel({
               disabled={disabled || !modelledPerimeter || modelledPerimeter.length < 3}
               onClick={() => {
                 const poly = modelledPerimeter ? framePerimeterToPolygon(modelledPerimeter) : null;
-                if (poly) recon.setPerimeter(poly, `modelled perimeter at ${atLabel}`);
+                if (poly) recon.setPerimeter(poly, `modelled perimeter at ${atLabel} of run ${simulationId}`);
               }}
             >
               Use the modelled perimeter at {atLabel}
@@ -337,6 +354,16 @@ function PerimeterOverridePanel({
               {spinUp ? " · spin-up" : ""}
             </Badge>
           </div>
+          {restartWeather && setupWeather && (
+            <div className="status-line with-tip">
+              <Badge tone="neutral" testId="recon-weather">
+                {`Setup weather: ${restartWeather.weather.wind_speed} km/h from ${restartWeather.weather.wind_direction}° · RH ${restartWeather.weather.relative_humidity}% · FFMC ${setupWeather.fwi.ffmc ?? "—"}`}
+                {nLater ? ` · ${nLater} later change${nLater === 1 ? "" : "s"}` : ""}
+                {setupWeather.forecastOn ? " · hourly forecast" : ""}
+              </Badge>
+              <InfoTip label="Weather used by the restart" text={TIPS.reconWeather} />
+            </div>
+          )}
           <div className="with-tip">
             <button
               type="button"

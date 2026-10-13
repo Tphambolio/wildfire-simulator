@@ -21,6 +21,7 @@ import { BADGES, TIPS } from "../content/explanations";
 import { hfiClass } from "../utils/fireClasses";
 import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
 import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
+import { runScheduleLines } from "../utils/weatherSchedule";
 
 interface EOCSummaryProps {
   frames: SimulationFrame[];
@@ -173,6 +174,11 @@ function buildICSText(
     lines.push(`  Temperature:     ${params.weather.temperature}°C`);
     lines.push(`  Rel. humidity:   ${params.weather.relative_humidity}%`);
     lines.push(`  Precipitation:   ${params.weather.precipitation_24h ?? 0} mm/24h`);
+    const sched = runScheduleLines(params);
+    if (sched.length) {
+      lines.push("  Weather changes during the run (manual schedule; FFMC/ISI recomputed hourly):");
+      for (const l of sched) lines.push(`    ${l}`);
+    }
     lines.push("");
     lines.push("3. CFFDRS FIRE WEATHER INDEX");
     lines.push(`  FFMC:  ${params.fwi.ffmc ?? "—"}    (Fine Fuel Moisture Code)`);
@@ -180,6 +186,7 @@ function buildICSText(
     lines.push(`  DC:    ${params.fwi.dc ?? "—"}    (Drought Code)`);
     lines.push(`  FWI:   ${params.fwi_value.toFixed(1)}  — ${params.danger_rating}`);
     if (fuelTypeLabel) lines.push(`  Fuel:  ${fuelTypeLabel}`);
+    if (params.fuel_vintage_warning) lines.push(`  NOTE:  ${params.fuel_vintage_warning}`);
     lines.push(`  Sim duration:    ${params.duration_hours}h`);
     lines.push("");
   }
@@ -448,6 +455,14 @@ export default function EOCSummary({
             </span>
             <span className="eoc-label">FFMC</span>
             <span className="eoc-value">{runParams.fwi.ffmc ?? "—"}</span>
+            {runScheduleLines(runParams).length > 0 && (
+              <>
+                <span className="eoc-label">Weather changes</span>
+                <span className="eoc-value" data-testid="eoc-weather-schedule">
+                  {runScheduleLines(runParams).map((l) => <span key={l} className="eoc-sched-line">{l}<br /></span>)}
+                </span>
+              </>
+            )}
             {fuelTypeLabel && (
               <>
                 <span className="eoc-label">Fuel</span>

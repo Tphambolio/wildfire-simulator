@@ -28,7 +28,7 @@ test.describe("smoke", () => {
     expect(api.polls).toBe(0);
 
     // All frames arrived (plus the synthetic T=0 frame) and the metrics show the final frame
-    const n = fixture.frames.length + 1;
+    const n = fixture.frames.length; // the fixture starts at T+0: no synthetic start frame (owner bug 11)
     await expect(page.locator(".ts-frame-count")).toHaveText(`${n}/${n}`);
     const area = page.locator(".kpi", { hasText: "Area" }).locator(".kpi-value");
     await expect(area).toHaveText(`${finalFrame.area_ha.toFixed(1)} ha`);

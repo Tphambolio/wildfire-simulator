@@ -198,9 +198,7 @@ test("house-to-house spread: opt-in, counts, chart, map layer with tooltip", asy
   await page.getByRole("slider", { name: "Timeline" }).focus();
   await page.keyboard.press("Home");
   expect(await cursorX()).toBeLessThan(xEnd);
-  // The app's first frame is its synthetic ignition frame (no counts); the next is the run's first
-  await expect(row("Buildings involved")).toContainText("—");
-  await page.keyboard.press("ArrowRight");
+  // The first frame is the run's own T+0 frame (no synthetic start frame since owner bug 11)
   const first = (structureFixture.frames[0] as unknown as { structure_spread: Counts }).structure_spread;
   await expect(row("Buildings involved")).toContainText(String(first.units_involved));
 });

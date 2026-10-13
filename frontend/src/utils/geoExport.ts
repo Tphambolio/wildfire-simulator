@@ -5,6 +5,7 @@
  * KML 2.2 — coordinates are lng,lat,alt.
  */
 
+import { runScheduleLines } from "./weatherSchedule";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { PlanningEvacZone } from "./evacZones";
@@ -61,6 +62,10 @@ function scenarioMeta(runParams: RunParams | null, fuelTypeLabel?: string): Reco
     danger_rating: runParams.danger_rating,
     duration_hours: runParams.duration_hours,
     fuel_type: fuelTypeLabel ?? null,
+    ...(runParams.fuel_vintage_warning ? { fuel_vintage_warning: runParams.fuel_vintage_warning } : {}),
+    ...(runParams.weather_schedule?.length
+      ? { weather_schedule: runParams.weather_schedule, weather_schedule_text: runScheduleLines(runParams) }
+      : {}),
   };
 }
 
