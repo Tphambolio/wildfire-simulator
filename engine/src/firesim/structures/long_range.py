@@ -1383,3 +1383,33 @@ def two_mode_exceedance(d_m, i_mw_m: float, u10_ms: float, opts: LongRangeOption
     wl = opts.long_fraction * (opts.long_ignition if weighted else 1.0)
     ws = 1.0 - opts.long_fraction
     return (ws * (1.0 - cdf_s) + wl * (1.0 - cdf_l)) / (ws + wl)
+
+
+V5_DENSITY_RADIUS_M = 100.0  # Knapp et al. 2021: housing density within 100 m, the strongest pre-fire predictor
+V5_DENSITY_REF = 20.0  # buildings within 100 m at which the density term is 0 [H]
+
+
+def building_density(units, radius_m: float = V5_DENSITY_RADIUS_M) -> np.ndarray:
+    """Other buildings whose centroid lies within ``radius_m`` of each unit's centroid."""
+    from scipy.spatial import cKDTree
+
+    if len(units) == 0:
+        return np.zeros(0)
+    xy = np.column_stack([units.x, units.y])
+    return np.array([len(v) - 1 for v in cKDTree(xy).query_ball_point(xy, radius_m)], float)
+
+
+def survival_v5(s0: float, density=None, canopy=None, year_built=None, b_dens: float = 0.0,
+                b_canopy: float = 0.0, b_code: float = 0.0, code_year: int = 2001,
+                dens_ref: float = V5_DENSITY_REF) -> np.ndarray | float:
+    """v5 density variant: v4's survival logit minus b_dens · (ln(1 + N100) − ln(1 + ref)), so
+    buildings with more neighbours within 100 m are exposed to more building-to-building heat
+    and brands and survive less (Knapp et al. 2021; Syphard et al. 2012; diagnosis in the v5
+    report §2: N100 AUC 0.68-0.73 on three training fires) [H form, fitted b_dens]."""
+    s = survival_v4(s0, canopy, year_built, b_canopy, b_code, code_year)
+    if density is None or b_dens == 0.0:
+        return s
+    d = np.asarray(density, float)
+    z = np.log(np.asarray(s, float) / (1.0 - np.asarray(s, float))) if np.ndim(s) else np.full(len(d), math.log(s / (1 - s)))
+    z = z - b_dens * (np.log1p(d) - math.log1p(dens_ref))
+    return 1.0 / (1.0 + np.exp(-z))

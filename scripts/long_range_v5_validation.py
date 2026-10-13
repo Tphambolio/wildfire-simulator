@@ -55,12 +55,58 @@ N_FIT, N_LOFO, N_SCORE, N_SENS = 6, 20, 50, 20
 CODE_YEAR = V4.CODE_YEAR  # 2001 (Hakes et al. 2017 p.495)
 # Fixed from the literature before any fit (spec §6.7):
 FIXED = {"b_code": 1.9,  # Hakes p.495 (IBHS 2007): 2-3 % vs 13-17 % burned -> +1.9 logit [D]
-         "f_surface": LR.V5_F_SURFACE, "long_ignition": LR.V5_LONG_IGNITION,
-         "dry_factor": LR.V5_DRY_FACTOR}
+         "f_surface": LR.V5_F_SURFACE, "dry_factor": LR.V5_DRY_FACTOR}
+# long-mode weight per kernel: Sardoy-located 0.0535, Storey-located 0.904 (spec §6.7)
+LONG_IGNITION = {"sardoy": LR.V5_LONG_IGNITION, "storey": LR.V5_STOREY_LONG["long_ignition"]}
 # Free values (grid fixed 2026-10-12 before the fit; bounds from the sources in spec §6.7):
 GRID = {"threshold_g": [3.5, 4.6, 24.0, 91.0], "link_scale_m": [6.0, 10.0],
         "survival": [0.15, 0.3, 0.45], "b_canopy": [0.0, -3.0], "frp_gamma": [0.0, 1.0]}
 V3_THETA = {"link_scale_m": 160.0, "survival": 0.3, "ember_factor": 100.0}  # [R37]
+# Woolsey label rule (v5, fixed 2026-10-13 before PREREG_LR5; spec §6.7, report §2.4): DINS 2018
+# recorded damaged structures only, and v3/v4 scored every footprint without a DINS point as
+# undamaged (12,537 of 14,539 units). v5 keeps that assumption only where DINS teams surveyed:
+# a footprint without a DINS point is scored (as undamaged) only if a DINS-surveyed structure
+# lies within 100 m [H]; footprints within 20 m of a DINS point that matched no footprint are not
+# scored (possibly the same building, double-labelled). Surveyed structures are all scored.
+WOOLSEY_RULE = {"neighbourhood_m": 100.0, "duplicate_m": 20.0}
+DENSITY_GRID = {"b_dens": [0.5, 1.0, 2.0], "survival": [0.15, 0.3, 0.45], "threshold_g": [3.5, 24.0]}
+# density variant: the other values at the main (Sardoy + Storey kernels) leave-all-in selection
+DENSITY_BASE = {"kernel": "storey", "link_scale_m": 10.0, "b_canopy": -3.0, "frp_gamma": 0.0}
+
+
+def _woolsey_rule(ids, geoms, obs, scored, dry_run):
+    """Apply ``WOOLSEY_RULE`` to the v3 Woolsey units (footprints + unmatched DINS squares)."""
+    import csv
+
+    import shapely
+    from scipy.spatial import cKDTree
+
+    if dry_run:
+        return scored
+    st = {int(r["unit_id"]): r["DAMAGE"] for r in
+          csv.DictReader(open(L1.CALFIRE_DIR / "derived" / "woolsey_fp_units_status.csv"))}
+    ids = np.asarray(ids, np.int64)
+    extra = ids >= 10_000_000
+    surveyed = extra | np.array([st.get(int(i), "UNSURVEYED") != "UNSURVEYED" for i in ids])
+    c = shapely.centroid(np.asarray(geoms, dtype=object))
+    lat0 = float(np.mean(shapely.get_y(c)))
+    x = shapely.get_x(c) * 111_320.0 * math.cos(math.radians(lat0))
+    y = shapely.get_y(c) * 110_574.0
+    xy = np.column_stack([x, y])
+    d_surv, _ = cKDTree(xy[surveyed]).query(xy, k=1)
+    d_extra, _ = cKDTree(xy[extra]).query(xy, k=1) if extra.any() else (np.full(len(ids), np.inf), None)
+    keep_uns = (~surveyed) & (d_surv <= WOOLSEY_RULE["neighbourhood_m"]) & (d_extra > WOOLSEY_RULE["duplicate_m"])
+    return np.asarray(scored, bool) & (surveyed | keep_uns)
+
+
+def load_case_units_v5(fire: str, cfg: dict, dry_run: bool):
+    ids, geoms, obs, scored = V4.load_case_units_v4(fire, cfg, dry_run)
+    if fire == "woolsey":
+        scored = _woolsey_rule(ids, geoms, obs, scored, dry_run)
+    return ids, geoms, obs, scored
+
+
+V3.load_case_units = load_case_units_v5
 
 
 class Case5(V4.Case4):
@@ -88,7 +134,8 @@ class Case5(V4.Case4):
                 src.emit_scale = self.emit_scale(g)
                 fld = LR.landing_field(src, wind, self.window, o5, raster=self.raster)
                 short[g] = LR.landed_on_buildings(self.u, fld, o5).astype(np.float32)
-                long_[("sardoy", g)] = LR.landed_long_on_buildings(self.u, fld, o5).astype(np.float32)
+                if "sardoy" in self.kernels:
+                    long_[("sardoy", g)] = LR.landed_long_on_buildings(self.u, fld, o5).astype(np.float32)
                 if "storey" in self.kernels:  # same short mode; Storey-located long component
                     o5s = LR.LongRangeOptions.for_model("v5", members=1, seed=SEED, raster_m=h,
                                                         f_surface=FIXED["f_surface"], **LR.V5_STOREY_LONG)
@@ -110,9 +157,12 @@ class Case5(V4.Case4):
                                  "urban": urban})
 
     def survival_units(self, theta):
-        return LR.survival_v4(float(theta["survival"]), self.covariates["canopy_ring"],
-                              self.covariates["year_built"], float(theta.get("b_canopy", 0.0)),
-                              float(theta.get("b_code", FIXED["b_code"])), code_year=CODE_YEAR)
+        if getattr(self, "dens100", None) is None:
+            self.dens100 = LR.building_density(self.u)
+        return LR.survival_v5(float(theta["survival"]), self.dens100, self.covariates["canopy_ring"],
+                              self.covariates["year_built"], float(theta.get("b_dens", 0.0)),
+                              float(theta.get("b_canopy", 0.0)), float(theta.get("b_code", FIXED["b_code"])),
+                              code_year=CODE_YEAR)
 
     def run5(self, theta: dict, n_members: int, stop: bool = True, wild: bool = True,
              urban: bool = True, links: bool = True, long_mode: bool = True):
@@ -121,8 +171,7 @@ class Case5(V4.Case4):
         th = {**FIXED, **theta}
         g = float(th.get("frp_gamma", 0.0))
         kern = th.get("kernel", "sardoy")
-        if kern == "storey" and "long_ignition" not in theta:
-            th["long_ignition"] = LR.V5_STOREY_LONG["long_ignition"]
+        th.setdefault("long_ignition", LONG_IGNITION[kern])
         opts = LR.LongRangeOptions.for_model(
             "v5", members=1, seed=SEED, raster_m=self.cfg["h"], threshold_g=float(th["threshold_g"]),
             link_scale_m=float(th["link_scale_m"]) if links else 1e-9, survival=float(th["survival"]),
@@ -268,13 +317,18 @@ def fit(args):
     Sardoy-located charring mode, or "storey", the Storey-located variant); ``select`` then
     chooses over both by leave-one-fire-out."""
     S3._guard_out(args.out)
-    grid = [dict(zip(GRID, v)) for v in itertools.product(*GRID.values())]
+    if args.variant == "density":
+        args.kernel = DENSITY_BASE["kernel"]
+        grid = [{**DENSITY_BASE, **dict(zip(DENSITY_GRID, v))} for v in itertools.product(*DENSITY_GRID.values())]
+        prev = args.out / "fit_v5_density.json"
+    else:
+        grid = [dict(zip(GRID, v)) for v in itertools.product(*GRID.values())]
+        prev = args.out / ("fit_v5.json" if args.kernel == "sardoy" else f"fit_v5_{args.kernel}.json")
     table = {}
-    prev = args.out / ("fit_v5.json" if args.kernel == "sardoy" else f"fit_v5_{args.kernel}.json")
     if prev.exists():
         table = json.loads(prev.read_text()).get("table", {})
     for fire in (args.fires or TRAINING):
-        if fire in table and len(table[fire]["runs"]) == len(grid):
+        if fire in table and len(table[fire]["runs"]) == len(grid) and fire not in (args.redo or []):
             continue
         case = Case5(fire, training_cfg(fire), n_members=N_FIT if not args.quick else 2,
                      kernels=(args.kernel,) if args.kernel != "sardoy" else ("sardoy",))
@@ -296,7 +350,9 @@ def fit(args):
                   f"| {time.time() - t1:.0f} s rss {L1.rss_gb():.2f} GB", flush=True)
         prev.write_text(json.dumps({"table": table}, indent=1, default=float))
         del case
-    if args.fires and len(args.fires) < len(TRAINING):
+    if args.variant == "density":
+        select_tables({"storey": table}, args.out / "select_density.json", keyf=list(DENSITY_GRID) + ["kernel"],
+                      base=DENSITY_BASE)
         return
     select_tables({args.kernel: table}, args.out / f"select_{args.kernel}.json")
 
@@ -311,13 +367,14 @@ def select(args):
     select_tables(tables, args.out / "select_v5.json")
 
 
-def select_tables(tables: dict, path: Path):
+def select_tables(tables: dict, path: Path, keyf=None, base=None):
     table = {}
     for kern, tb in tables.items():
         for f, rec in tb.items():
             table.setdefault(f, {**{k: v for k, v in rec.items() if k != "runs"}, "runs": []})
             table[f]["runs"] += [{**r, "kernel": r.get("kernel", kern)} for r in rec["runs"]]
-    keyf = list(GRID) + ["kernel"]
+    keyf = keyf or (list(GRID) + ["kernel"])
+    base = base or {}
     for f in table:
         table[f]["runs"].sort(key=lambda r: tuple(str(r[k]) for k in keyf))
     fires = [f for f in TRAINING if f in table]
@@ -329,16 +386,16 @@ def select_tables(tables: dict, path: Path):
         others = [g for g in fires if g != f]
         j = int(np.argmin(np.mean([br[g] for g in others], axis=0)))
         r = table[f]["runs"][j]
-        cv[f] = {"theta": dict(zip(keyf, keys[j])), "brier_heldout": float(br[f][j]), "auc": r["auc"],
+        cv[f] = {"theta": {**base, **dict(zip(keyf, keys[j]))}, "brier_heldout": float(br[f][j]), "auc": r["auc"],
                  "bss_vs_base_rate": 1 - float(br[f][j]) / table[f]["climatology_brier"],
                  "block_skill": r["block"]["skill_vs_climatology"]}
     j = int(np.argmin(np.mean([br[g] for g in fires], axis=0)))
-    final = {"theta": {**FIXED, **dict(zip(keyf, keys[j]))},
+    final = {"theta": {**FIXED, **base, **dict(zip(keyf, keys[j]))},
              "mean_brier": float(np.mean([br[g][j] for g in fires])),
              "mean_auc": float(np.mean([table[g]["runs"][j]["auc"] for g in fires]))}
     best_auc = int(np.argmax(np.mean([[r["auc"] for r in table[g]["runs"]] for g in fires], axis=0)))
     out = {"grid": GRID, "kernels": list(tables), "fixed": FIXED, "members": N_FIT, "lofo_cv": cv, "final": final,
-           "best_mean_auc_set": {"theta": dict(zip(keyf, keys[best_auc])),
+           "best_mean_auc_set": {"theta": {**base, **dict(zip(keyf, keys[best_auc]))},
                                  "mean_auc": float(np.mean([table[g]["runs"][best_auc]["auc"] for g in fires]))},
            "table": table}
     path.write_text(json.dumps(out, indent=1, default=float))
@@ -353,7 +410,7 @@ def lofo(args):
     chosen without it (fit_v5.json), against v3 at [R37] and v4 at its own leave-one-out
     values (fit_v4.json, frp_gamma 0 only), ``N_LOFO`` members each."""
     S3._guard_out(args.out)
-    f5 = json.loads((args.fit_dir / "select_v5.json").read_text())
+    f5 = json.loads((args.fit_dir / args.select_file).read_text())
     f4 = json.loads(Path(args.v4_fit).read_text()) if args.v4_fit and Path(args.v4_fit).exists() else None
     eps = 1.0 / (2 * N_LOFO)
     res = {}
@@ -411,7 +468,7 @@ def score(args):
         n = (args.members or N_SCORE) if not args.quick else 3
         t0 = time.time()
         case = Case5(fire, cfg, dry_run=args.dry_run, n_members=n, gammas=tuple(sorted({0.0, g})), v3_fields=True,
-                     kernels=tuple(sorted({"sardoy", theta.get("kernel", "sardoy")})))
+                     kernels=(theta.get("kernel", "sardoy"),))
         p, pe, info = case.run5(theta, n)
         p3 = case.run3(V3_THETA, n)
         sens = {}
@@ -508,6 +565,8 @@ if __name__ == "__main__":
     a.add_argument("--quick", action="store_true")
     a.add_argument("--fires", nargs="+", default=None)
     a.add_argument("--kernel", choices=("sardoy", "storey"), default="sardoy")
+    a.add_argument("--variant", choices=("main", "density"), default="main")
+    a.add_argument("--redo", nargs="+", default=None, help="fires to re-run even if complete")
     e = sub.add_parser("select")
     e.add_argument("--out", type=Path, required=True)
     c = sub.add_parser("lofo")
@@ -515,6 +574,7 @@ if __name__ == "__main__":
     c.add_argument("--fit-dir", type=Path, required=True)
     c.add_argument("--v4-fit", default=str(L1.CALFIRE_DIR / "results-long-range-v4-2026-10-12" / "fit_v4.json"))
     c.add_argument("--fires", nargs="+", default=None)
+    c.add_argument("--select-file", default="select_v5.json")
     b = sub.add_parser("score")
     b.add_argument("--fires", nargs="+", required=True)
     b.add_argument("--out", type=Path, required=True)
