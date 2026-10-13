@@ -189,6 +189,26 @@ Start a new fire spread simulation.
 }
 ```
 
+### Run IDs
+
+`simulation_id` (and `{id}` in every path) is an opaque string. Runs started since 2026-10-13
+get **32 lowercase hex characters**, 128 random bits from Python's `secrets`
+(`api/src/firesim_api/services/run_ids.py`), e.g. `9f2c4e0b7a1d4c3e8b5f6a7d2e1c0b9a`. Runs
+started before then have **8 hex characters** (e.g. `1a2b3c4d`); those IDs stay valid for every
+endpoint (GET, `/arrival`, `/ensemble`, WebSocket, `PATCH`, `DELETE`, perimeter-override
+`simulation_id`) and in incidents saved in browsers or exported. Clients must not assume a
+length or pattern.
+
+**Unknown-ID backoff.** Answers that a run does not exist, under `/api/v1/simulations/`
+(404 or 422 with `detail` "Simulation … not found", or a WebSocket closed with code 4004), are
+counted per client IP (`Fly-Client-IP`, else the socket peer). After 20 such answers each
+further one locks the IP out for 2, 4, 8 ... s (at most 300 s); while locked, every request
+under `/api/v1/simulations/` from that IP gets **429** with `Retry-After` (a WebSocket is
+closed with code **4029**). The count is forgotten after 15 min without a miss. Found runs and
+"No ensemble requested" never count, so polling a run does not lock out
+(`api/src/firesim_api/middleware/run_probe_limit.py`). The counts are in memory and reset when
+the API restarts.
+
 ### GET /api/v1/simulations/{id}
 
 Runs are kept in server memory while the API runs. Beyond `FIRESIM_MAX_STORED_RUNS`
@@ -345,8 +365,9 @@ antimeridian), `kind` (`single`, `multiday`, `perimeter_override`).
   wrong passphrases from one IP (5 free, then 2, 4, 8 ... s, at most 300 s; a success clears
   it); **422** bad filter.
 
-`GET /api/v1/simulations/{id}` and its `/arrival` and `/ensemble` need no passphrase (run IDs
-are unguessable; the EOC console reloads its periods' runs by ID).
+`GET /api/v1/simulations/{id}` and its `/arrival` and `/ensemble` need no passphrase (the EOC
+console reloads its periods' runs by ID). Run IDs are therefore long enough not to be guessed;
+see "Run IDs" below.
 
 ### PATCH /api/v1/simulations/{id}
 
@@ -692,5 +713,6 @@ Perimeters are arrays of `[latitude, longitude]` pairs forming a closed polygon.
 Common status codes:
 - 401 / 403 / 429: saved-runs passphrase missing or wrong / list disabled / too many attempts
 - 404: Simulation not found
+- 429 (any `/api/v1/simulations/...` path): too many unknown run IDs from this IP (`Retry-After`; see "Run IDs")
 - 422: Validation error (invalid fuel type, missing fields)
 - 500: Internal simulation error

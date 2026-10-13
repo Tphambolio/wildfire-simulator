@@ -176,6 +176,10 @@ Saved runs (phase 2, owner decision 2026-10-12): the run list is shared behind o
 (`FIRESIM_RUNS_PASSPHRASE`, compared by SHA-256 + `hmac.compare_digest`, per-IP backoff);
 labels set later live in the index table `run_labels`; app panel Setup → Saved runs
 (`SavedRunsPanel.tsx`, passphrase in sessionStorage only).
+Run IDs (owner decision 2026-10-13): new IDs are 32 hex characters, 128 bits from `secrets`, made
+only by `services/run_ids.py`; pre-2026-10-13 8-hex IDs stay valid everywhere (treat IDs as
+opaque strings). Unknown IDs back off per IP (`middleware/run_probe_limit.py`: 20 free, then
+429; `docs/run-archive.md` "Run IDs").
 
 ---
 
