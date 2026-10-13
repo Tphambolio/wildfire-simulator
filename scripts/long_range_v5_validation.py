@@ -447,8 +447,66 @@ def lofo(args):
 
 # ------------------------------------------------------------------------------- scoring
 
-PREREG_LR5: dict = {}  # filled after the training fit; committed and pushed before scoring
-TRAINING_RATE = float("nan")
+# Pooled destroyed share of the five training fires' scored units (Eaton 7,195/13,177, Palisades
+# 5,729/9,851, Camp 18,803/23,256, Tubbs 5,656/6,013, Woolsey 1,643/4,816 under WOOLSEY_RULE)
+TRAINING_RATE = (7195 + 5729 + 18803 + 5656 + 1643) / (13177 + 9851 + 23256 + 6013 + 4816)
+PREREG_LR5: dict = {
+    "date_fixed": "2026-10-13",
+    "question": "Does v5 (two-mode ember transport, surface brands, threshold receptors, short contact "
+                "links, pre-fire survival covariates), with free values chosen by leave-one-fire-out on "
+                "five training fires, give skilful, calibrated per-building destruction probabilities on "
+                "held-out fires, and does it rank buildings better than v3?",
+    "primary": "main",
+    "primary_rule": "the variant with the lowest leave-one-fire-out mean held-out-fold Brier (6 members) "
+                    "among the pre-specified variants: main (Sardoy- and Storey-located long mode, 96 + 96 "
+                    "sets) 0.3899 vs density 0.3920 -> main. Fixed before any held-out outcome was read.",
+    "variants": {
+        "main": {"theta_final": {"threshold_g": 3.5, "link_scale_m": 10.0, "survival": 0.3, "b_canopy": -3.0,
+                                 "frp_gamma": 0.0, "kernel": "storey"},
+                 "lofo_mean_brier": 0.3899, "lofo_mean_auc": 0.529},
+        "density": {"theta_final": {"threshold_g": 3.5, "link_scale_m": 10.0, "survival": 0.3, "b_canopy": -3.0,
+                                    "frp_gamma": 0.0, "kernel": "storey", "b_dens": 0.5},
+                    "lofo_mean_brier": 0.3920, "lofo_mean_auc": 0.563,
+                    "status": "secondary, reported, never decides"},
+        "sardoy_kernel": {"note": "the Sardoy-located long mode (4.5-10 km) was in the main grid and lost "
+                                  "to the Storey-located component on mean Brier; reported via the "
+                                  "NO_LONG_MODE / LONG_IGNITION sensitivities, not scored separately"},
+    },
+    "theta_final": {"threshold_g": 3.5, "link_scale_m": 10.0, "survival": 0.3, "b_canopy": -3.0,
+                    "frp_gamma": 0.0, "kernel": "storey"},
+    "fixed": "FIXED (b_code 1.9, f_surface 0.007, dry_factor 3) and LONG_IGNITION per kernel (Storey 0.904)",
+    "training_cv_disclosed": "Leave-one-fire-out Brier skill vs each fire's base rate negative on every "
+                             "fold for both variants: main Eaton -0.14, Palisades -0.19, Camp -3.09, Tubbs "
+                             "-3.73, Woolsey -1.14 (AUC 0.56/0.54/0.52/0.51/0.52); density -0.30/-0.10/-2.91/"
+                             "-4.54/-1.02 (AUC 0.58/0.60/0.55/0.62/0.47). v4 (fit_v4.json, old Woolsey rule) "
+                             "was also negative on every fold. Expectation: the calibration condition fails.",
+    "diagnosis_disclosed": "v3 saturates (no survival: Eaton mean P 0.97); wildland ember load ranks loss "
+                           "backwards on Palisades/Camp/Tubbs (edge nearness AUC 0.31-0.39); buildings "
+                           "within 100 m AUC 0.68-0.73 there, reversed on Woolsey (0.34-0.36).",
+    "woolsey_rule": "WOOLSEY_RULE (training only): unsurveyed footprints scored undamaged only within 100 m "
+                    "of a DINS-surveyed structure and not within 20 m of an unmatched DINS point (14,539 -> "
+                    "4,816 scored). Held-out fires use v4's hybrid rule with DINS 'No Damage' records "
+                    "(unsurveyed not scored).",
+    "fires": {"glass": "held out (v4 config FIRES4)", "czu": "held out (FIRES4)",
+              "northcomplex": "held out (FIRES4)",
+              "blinding": "no held-out outcome read by this session; v4's agent was scoring the same "
+                          "fires on 2026-10-13 and its results were not opened before this commit; a "
+                          "dry run (random outcomes) of Glass and CZU checked the code path"},
+    "members": "50 (sensitivities 20); member draws default_rng([20261012, m]); wind draws as v3/v4",
+    "metrics": "as PREREG_LR3/LR4: Brier, BSS, log score, AUC, reliability, kappa at 0.5, count-matched, "
+               "distance bands, block-level secondary, false alarms in the outside ring",
+    "baselines": {"b": "upwind 5 % seeded + Hamada H30", "c": "Chen & McAneney", "d": "count-matched "
+                  "distance band", "e": "held-out fire's own base rate", "e2": "training rate 0.6833",
+                  "v3_R37": "v3 at its [R37] values on the same units"},
+    "decision_rule": "PASS only if, pooled over Glass, CZU and North Complex (250 m blocks within fires, "
+                     "2,000 resamples), all four 95 % intervals exclude zero in v5's favour: Brier(c) - "
+                     "Brier(v5) > 0; kappa(v5) - kappa(b) > 0; kappa(v5) - kappa(d) > 0; Brier(e) - "
+                     "Brier(v5) > 0. Secondary (reported, not deciding): AUC(v5) - 0.5 > 0; Brier(v3) - "
+                     "Brier(v5) > 0; the density variant's scores; v4's results from its own harness. "
+                     "No configuration may be promoted after scoring.",
+    "sensitivities_20_members": "NO_COVARIATES, NO_LONG_MODE, LONG_IGNITION_1KM, NO_URBAN, NO_STOP, "
+                                "THRESHOLD_4.6g/24g/91g",
+}
 
 
 def prereg_hash() -> str:
@@ -458,7 +516,8 @@ def prereg_hash() -> str:
 
 def score(args):
     S3._guard_out(args.out)
-    theta = json.loads(args.theta) if args.theta else PREREG_LR5["theta_final"]
+    theta = json.loads(args.theta) if args.theta else (PREREG_LR5["variants"][args.variant]["theta_final"]
+                                                       if args.variant else PREREG_LR5["theta_final"])
     theta = {**FIXED, **theta}
     g = float(theta.get("frp_gamma", 0.0))
     pooled = {"p": [], "o": [], "blk": [], "base": {}}
@@ -510,7 +569,7 @@ def score(args):
                          "Brier_v3_minus_v5": L1.boot_diff(blk, bri, p[sm], p3[sm], os_),
                          "AUC_v5_minus_v3": L1.boot_diff(blk, L1.auc, p[sm], p3[sm], os_),
                          "AUC_v5_minus_half": L1.boot_diff(blk, L1.auc, p[sm], np.full(len(os_), 0.5), os_)}}
-        tag = "_DRYRUN" if args.dry_run else ""
+        tag = ("_DRYRUN" if args.dry_run else "") + (f"_{args.variant}" if args.variant else "")
         (args.out / f"results_lr5_{fire}{tag}.json").write_text(json.dumps(res, indent=1, default=float))
         np.savez_compressed(args.out / f"units_lr5_{fire}{tag}.npz", x=case.u.x, y=case.u.y, dom=case.dom, scored=sm,
                             obs=o, d_edge=case.d_edge, P_V5=p, **{f"S_{k}": v for k, v in sens.items()},
@@ -548,7 +607,7 @@ def score(args):
                "units_scored": int(len(O)), "observed_destroyed": int(O.sum()),
                "scores": {"V5": V2.prob_scores(P, O, eps)},
                "baselines": {k: V2.prob_scores(v, O, eps) for k, v in base.items()}, "tests": tests, "decision": dec}
-        tag = "_DRYRUN" if args.dry_run else ""
+        tag = ("_DRYRUN" if args.dry_run else "") + (f"_{args.variant}" if args.variant else "")
         (args.out / f"results_lr5_pooled_{'_'.join(args.fires)}{tag}.json").write_text(json.dumps(out, indent=1, default=float))
         print(json.dumps({"tests": tests, "decision": dec}, indent=1, default=float))
 
@@ -583,6 +642,7 @@ if __name__ == "__main__":
     b.add_argument("--no-sens", action="store_true")
     b.add_argument("--members", type=int, default=None)
     b.add_argument("--theta", default=None)
+    b.add_argument("--variant", default=None, help="score a PREREG_LR5 variant (e.g. density)")
     sub.add_parser("prereg")
     args = ap.parse_args()
     {"diagnose": diagnose, "fit": fit, "select": select, "lofo": lofo, "score": score}.get(

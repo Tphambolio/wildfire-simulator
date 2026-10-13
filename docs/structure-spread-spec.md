@@ -674,6 +674,43 @@ Implementation: `IncrementalHamada(link_filter=…, blocked=…)`, `link_filter_
 Pre-registered held-out test `PREREG_LR3` (`adcee43`): Tubbs 2017 and Woolsey 2018, results in
 PROJECT_RECORD §4.4 and [R37].
 
+### 6.7 Long-range embers v5: two-mode transport, threshold receptors, short links (opt-in, 2026-10-12) — illustrative
+
+`LongRangeOptions.for_model("v5")`, API `structure_long_range_model: "v5"` (not with
+`structure_embers`). Section number 6.6 is left to v4 (harness-only, PR #59). Why: v3 and v4
+gave flat P (~0.6-0.7) and AUC 0.50-0.60 [R37]; the diagnosis (report *Long-range embers v5
+two-mode kernel 2026-10-12*, §2) found that the model's main spatial signal — wildland ember
+load, highest at the wildland edge — is **inversely** related to loss inside the burned area on
+three of five training fires, while building density ranks loss well, and that the single-hit
+per-brand ignition with k = 100 saturates. v5 changes the structure of transport and ignition,
+following the literature review addendum A1-A6 (*Literature review new references 2026-10-12*),
+each item re-checked in the papers. Labels as §1: [V] read in the paper, [D] derived, [S]
+second-hand, [H] hypothesis.
+
+| Piece | v5 | Source / tag |
+|---|---|---|
+| Short (flaming) mode | Sardoy lognormal with the **10 m canopy-top wind** (C40), truncated at its 99.9th percentile (and the §6.3 cap, whichever is smaller); share 1 − f_L of torching/crowning emission and all surface emission | Sardoy et al. 2008 p.483 ("wind velocities … at the top of the tree canopy, H = 10 m") [V]; short mode "up to around 1000 m", > 99 % landing flaming (p.486) [V]; q99.9 = 1.3 km at 30 MW/m, 11.17 m/s [D] |
+| Long (charring) mode | f_L = 0.2762 of torching/crowning crown-fuel emission; lognormal distance, median 6.3 km, σ_ln 0.18 (mode 6.1 km, q01-q99 4.1-9.6 km), crosswind σ_Y = tan 5° × 6.3 km [H]; own 100 m raster [H] | Sardoy p.486: 27.62 % of 7,338 landed brands, "> 4500 m … maximum at about 6100 m", charring, ≤ 550 K, 3.26 % > 500 K [V]; Fig. 6 landings to ~10.5 km [V, read off the figure] |
+| Validity flag | short-mode emission whose class is outside I 10-40 MW/m or U10 6.70-17.88 m/s is counted; the run's share is returned (`long_range_sardoy_extrapolated_share`) | Sardoy p.483 [V] |
+| Long-mode weight (k_g by distance) | a long-mode brand counts 0.0535 of a flaming brand, so that 2 % of spot fires lie beyond 3 km: 0.02 = f_L k / ((1 − f_L) + f_L k) [D]. **Misfit, stated:** the kernel then has 2.0-3.5 % beyond 1 km against Storey's 10 %; the 1-3 km band is under-represented 3-5×. Sensitivity: k = 0.29 (10 % beyond 1 km, then 10 % also beyond 3 km) | Storey et al. 2020 *Fire* 3:10 p.7: 4,219 spot fires, median 0.1 km, "only 10% … beyond 1 km and 2% … beyond 3 km" [V]; Sardoy p.486 3.26 % above 500 K (same order) |
+| Dry fuel | long-mode weight × 3 [H] when FFMC ≥ 96.75 (fine fuel moisture < 4 % by m = 147.2 (101 − F)/(59.5 + F)) [D] | Cruz et al. 2012 p.281: "With fuel moisture contents <4% … even tiny glowing particles had sufficient energy to start new spotfires" [V; qualitative, no factor] |
+| Surface brands f_s | **0.007** (range 0.0015-0.039) of crown-fuel brand mass per kg of surface fuel; surface cells (CFB < 0.1) now emit f_s · SFC; short mode only [H] | Filkov et al. 2017 Table 1 p.3267: 12-238 brands > 5 mg per m² (960 in the passive-crowning plot), consumption 0.92-1.21 kg/m² (67-72 % of 1.37-1.68, p.3266), mass 5-50 mg, mode 10-20 mg (p.3263) → 10-260 /kg × 15 mg = 0.15-3.9 g/kg vs 100 g/kg crown (Qin 500 /kg × 0.2 g) [D]. The addendum's "0.006-0.04" used 0.45 kg/m², the consumption of the 2015 fire that produced no measurable brands; corrected lower bound 0.0015 |
+| Receptor ignition | per building one receptor collecting the brands landing on 1.44 m² [V size, H as collector]; it ignites when the accumulated brand mass reaches **M\*** (k-hit Poisson: Gamma(M\*/0.2 g, 1) threshold on the expected count); wildland short and urban brands weight 1, long-mode brands as above. Replaces q = 4 p_bed p_b and the ember factor k. M\* fitted on {3.5, 4.6, 24, 91} g | 3.5 g mulch bed (Suzuki & Manzello 2020 via Masoudvaziri et al. 2021 SWUIFT p.8) [S, unverified]; 4.6 g = ψ* 0.059 g/cm² (FSJ104686) on 78.5 cm² [D]; 24 g roof pile = 0.31 g/cm² (SWUIFT p.8, after Santamaria et al. 2015) [V]; 91 g = 1,823 × 0.05 g (Suzuki et al. 2015, v2's p_bed) [D]. Lee & Davidson's per-brand probabilities are assumptions (Lee 2009 p.129) and are not used |
+| Contact links | p = exp(−sep / λ_r), λ_r ∈ {6, 10} m fitted, cutoff 30 m [H]; Hamada timing; branding is carried by the urban ember source (v2) | Lee & Davidson 2010b p.692: 17/50 single-ignition runs never left the first house at 6 m spacing, 7 m/s [V]; λ 6 m reproduces ~0.3 with s 0.3 [D]; branding 67 % of building-to-building spread (pp.698-699) [V]; Hakes et al. 2017: home-to-home ignition at 3-6 m (pp.498, 500), codes 4.5-9 m (p.486) [S] |
+| Survival | v4 form: logit s = logit s0 + b_canopy (canopy 0-30 m − 0.3) + b_code [year built ≥ 2001]; **b_code = 1.9 fixed**; s0 ∈ {0.15, 0.3, 0.45}, b_canopy ∈ {0, −3} fitted. No year built in the API (s0 only) | Hakes p.495 (2-3 % vs 13-17 % burned, IBHS 2007) [S → D +1.9]; Hakes p.496 Zone 1 (0-9.1 m) 67 % vs 32 % destroyed [S]. The 0-9 m ring is not available for the held-out fires; 0-30 m used (open item) |
+| Emission scaling, burn times, run end | v4's (VIIRS FRP^γ, γ ∈ {0, 1} fitted; VIIRS / NIST / GOFER times; event-gated wind end) | [R37], PR #59 v4 harness |
+
+**Fitting.** Grid 4 × 2 × 3 × 2 × 2 = 96 sets, 6 members, leave-one-fire-out over Eaton,
+Palisades, Camp, Tubbs and Woolsey (as v4), minimum mean Brier; held-out test `PREREG_LR5`
+on Glass, CZU and North Complex (as v4). Results: PROJECT_RECORD §4.4 and the v5 report.
+
+Implementation: `sardoy_extrapolated`, `long_mode_kernel`, `long_ignition_factor`,
+`landing_field` (v5 branch: `long_raster`, `long_density`, `extrapolated_share`),
+`landed_long_on_buildings`, `landed_v5`, `ignition_thresholds_v5`, `run_member_v5`,
+`run_ensemble_v5`, `two_mode_exceedance`; `run_member_v2(thresholds=…)`; tests
+`test_long_range_v5.py`. Harness `scripts/long_range_v5_validation.py` (diagnose, fit, lofo,
+score), figures `scripts/long_range_v5_figures.py`.
+
 ## 7. Conflicting published values and the choices made
 
 | # | Conflict | Values and sources | FireSim choice | Reason |
@@ -710,6 +747,11 @@ PROJECT_RECORD §4.4 and [R37].
 | C29 | Ember mass for count thresholds | Qin's generation and ψ assume 0.2 g; IBHS structural brands median ~0.05 g, σ_ln ~1.6; Suzuki 2012/2014: 56-85 % < 0.1 g | **0.2 g model embers, mass factor 4 on the tested 0.05 g brands** [D]; m_f = 1 sensitivity | Mass-equivalent: the bed tests show accumulated mass governs |
 | C30 | Bed → building transition p_b | No published probability; corner tests: none (≥ 200 mm non-combustible gap, shredded hardwood) to 6/6 (bare OSB) (Fire Technol. 53:535 Tables 1-2) | **U(0.1, 1) per member** [H]; 0.1 and 1 sensitivities | The test range, not a value |
 | C31 | Urban ember tail | Qin25 truncates the Himoto PDF at the 99th percentile; field maxima 1.2-2 km (Beppu 2010, Shurijo 2019 [S]) far beyond Himoto | **Himoto to the 99.9th percentile** (≈ 100-330 m); q99 a sensitivity; no km tail | No validated km kernel for buildings |
+| C40 | Wind height in the Sardoy kernel (long-range v5; C32-C39 left to v4) | Sardoy et al. 2008 p.483: canopy-top wind, H = 10 m; Qin25 worked case (C18) reproduces only with the 6.1 m wind | **10 m wind for v5's long-range kernel**; v1-v4 and the short-range stage keep 6.1 m (C18) | The long-range stage uses Sardoy's fit directly, not Qin's coupling; at Fr > 1 μ ∝ U^0.11 (small), at Fr < 1 μ ∝ U^-0.55 |
+| C41 | Long-range tail | v1-v4: untruncated short-mode lognormal (C25), P(> 1 km) 0.24 %, P(> 3 km) 4 × 10⁻⁵ at μ 4.2, σ 0.96 [D]; Sardoy p.486: separate charring mode > 4.5 km; Storey 2020 p.7: 10 % > 1 km, 2 % > 3 km; Cruz 2012 p.281: spot fires to 33 km | **v5: short mode truncated at q99.9 + long mode weighted to Storey's 3 km point**; 1-3 km band under-represented (stated) | The tail is a separate mode in the source paper; the observed share beyond 3 km is matched, the 1-3 km band is not (Storey's pooled data mix many intensities; eucalypt bark) |
+| C42 | Pile / receptor ignition threshold | ψ* 0.059 g/cm² (FSJ104686, PTW); 0.31 g/cm² (SWUIFT p.8, 24 g on 78.5 cm², Santamaria 2015); mulch 3.5 g (Suzuki & Manzello 2020 via SWUIFT p.8, unverified) vs ~91 g (Suzuki et al. 2015) | **v5: one fitted receptor mass M\* on the grid {3.5, 4.6, 24, 91} g** spanning the sources | The sources disagree 26×; the fit chooses within their range |
+| C43 | Surface-fire brand share f_s | v1-v4 0 (NOR-X-433 qualitative); addendum 0.006-0.04 (used 0.45 kg/m², the no-brand 2015 fire); Filkov Table 1 with 0.92-1.21 kg/m² → 0.0015-0.039 [D] | **0.007** (plot median) | Re-derived from the paper's own consumption figures |
+| C44 | Long-mode / glowing ignition factor | v1 k_g = 0.5 constant [H]; Sardoy p.486 3.26 % of charring brands > 500 K; Storey 2 % beyond 3 km → 0.0535 [D]; Cruz p.281 dry < 4 % | **0.0535, × 3 at FFMC ≥ 96.75 [H]**; 0.29 sensitivity (10 % beyond 1 km) | Calibrated to an observed spot-fire tail; the dry factor has no published number |
 | C20 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500
