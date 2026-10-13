@@ -42,6 +42,32 @@ export interface HourlyWeatherParams {
   precipitation?: number; // mm in the hour
 }
 
+/**
+ * One step of a manual weather schedule (API WeatherChange): this weather from
+ * `hours_from_start` (after the run's start_time) until the next step. The API turns the
+ * schedule into an hourly stream (FFMC recomputed hourly from the starting codes).
+ */
+export interface WeatherChange {
+  hours_from_start: number;
+  wind_speed: number; // km/h at 10 m
+  wind_direction: number; // degrees FROM
+  temperature: number;
+  relative_humidity: number;
+  /** Rain rate while the step is in force (mm/h); default 0 */
+  precipitation_mm_h?: number;
+}
+
+/** The weather a run actually used (API `weather_used`) */
+export interface WeatherUsed {
+  /** "source_run": a restart sent no weather and used its source run's */
+  source: "request" | "source_run";
+  weather: WeatherParams;
+  fwi_overrides?: FWIOverrides | null;
+  weather_schedule?: WeatherChange[] | null;
+  hourly_weather?: boolean;
+  start_time?: string | null;
+}
+
 export interface SimulationCreate {
   ignition_lat: number;
   ignition_lng: number;
@@ -53,6 +79,8 @@ export interface SimulationCreate {
   fwi_overrides?: FWIOverrides;
   fuel_modifiers?: FuelModifiers;
   hourly_weather?: HourlyWeatherParams[] | null;
+  /** Manual weather schedule (step changes); not with hourly_weather or ffmc_spin_up */
+  weather_schedule?: WeatherChange[] | null;
   duration_hours: number;
   snapshot_interval_minutes: number;
   fuel_type: string;
@@ -324,6 +352,10 @@ export interface SimulationResponse {
   archived?: boolean;
   /** Terrain the run used (absent from older API versions; docs/terrain-alberta.md) */
   terrain_source?: TerrainSourceInfo | null;
+  /** Weather and FWI codes the run used (single runs and restarts) */
+  weather_used?: WeatherUsed | null;
+  /** The scenario is dated before the year the run's fuel grid represents */
+  fuel_vintage_warning?: string | null;
 }
 
 /** Which terrain (slope, aspect) a run used (API `terrain_source`) */
@@ -366,6 +398,10 @@ export interface WSEvent {
   /** simulation.status: phase and spread fraction (0-1, null outside the spread) */
   phase?: RunPhase;
   progress?: number | null;
+  /** simulation.completed: frames the run has (the client checks it received them all) */
+  n_frames?: number;
+  /** simulation.completed: the scenario is dated before the fuel grid's year */
+  fuel_vintage_warning?: string | null;
 }
 
 export interface FWIResult {
@@ -494,6 +530,8 @@ export interface ScenarioConfig {
   burningPeriod?: BurningPeriod | null;
   /** Evening FFMC spin-up (with hourly forecast weather); absent in older saves = on */
   ffmcSpinUp?: boolean;
+  /** Weather changes during the run (Setup table rows, local clock times); absent = none */
+  weatherSchedule?: { time: string; wind_speed: number; wind_direction: number; temperature: number; relative_humidity: number; precipitation_mm_h: number }[];
   lastRunStats?: {
     areaHa: number;
     timeHours: number;
@@ -514,6 +552,12 @@ export interface PerimeterOverrideRequest {
   start_time?: string | null;
   burning_period?: BurningPeriod | null;
   ffmc_spin_up?: boolean;
+  /** Weather for the restart (Setup's); omitted = the source run's */
+  weather?: WeatherParams | null;
+  /** FFMC, DMC, DC for the restart (Setup's); omitted = the source run's */
+  fwi_overrides?: FWIOverrides | null;
+  /** Manual schedule, hours from this restart's start_time */
+  weather_schedule?: WeatherChange[] | null;
 }
 
 export const FUEL_TYPES: Record<string, string> = {

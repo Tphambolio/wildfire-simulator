@@ -22,7 +22,6 @@ from firesim_api.schemas.simulation import (
     PerimeterOverrideRequest,
     SimulationCreate,
     SimulationStatus,
-    engine_hourly,
     local_start_hour,
 )
 
@@ -99,6 +98,10 @@ class SimulationRun:
         self.done = threading.Event()
         # Terrain used (TerrainSourceInfo fields), set when the grids are loaded
         self.terrain_source: dict | None = None
+        # Perimeter restarts: the source run's request, and where the weather came from
+        # ("request": the restart's own; "source_run": the source's, none was sent)
+        self.source_config: SimulationCreate | None = None
+        self.weather_source: str = "request"
 
     def set_phase(self, phase: str, progress: float | None = None) -> None:
         """Record the run's phase and progress; notify ``on_status`` when the phase changes
@@ -234,28 +237,102 @@ def _burning_period(params) -> tuple[float, float] | None:
     return bp.as_tuple() if bp is not None else None
 
 
-def _override_clock(
-    req: PerimeterOverrideRequest, source: SimulationCreate
-) -> tuple[float | None, tuple[HourlyWeather, ...] | None]:
-    """Local start hour and hourly weather for a perimeter restart.
+def _rebase_schedule(base, changes, shift_h: float, duration_h: float):
+    """A schedule re-based ``shift_h`` hours later: (weather in force at the new start, the
+    later steps with their hours counted from it, dropping those at or after ``duration_h``)."""
+    from firesim_api.schemas.simulation import WeatherParams
 
-    The restart starts at ``req.start_time`` (default: the source's start). The source's hourly
-    stream is re-based to it, keeping the spin-up hours before it if ``req.ffmc_spin_up``.
+    weather = base
+    later = []
+    for c in sorted(changes or (), key=lambda c: c.hours_from_start):
+        t = c.hours_from_start - shift_h
+        if t <= 1e-9:
+            weather = WeatherParams(
+                wind_speed=c.wind_speed, wind_direction=c.wind_direction,
+                temperature=c.temperature, relative_humidity=c.relative_humidity,
+                precipitation_24h=base.precipitation_24h)
+        elif t < duration_h:
+            later.append(c.model_copy(update={"hours_from_start": t}))
+    return weather, later
 
-    Raises:
-        ValueError: a burning period or spin-up without any start time, or a stream that
-            cannot spin up.
+
+def restart_config(req: PerimeterOverrideRequest,
+                   source: SimulationCreate) -> tuple[SimulationCreate, str]:
+    """The request a perimeter restart runs as, and where its weather came from.
+
+    The source run's request with the restart's duration, snapshot interval, start time,
+    burning period and FFMC spin-up, no ensemble, and the restart's weather, FWI codes and
+    schedule when it sends them (the app sends Setup's). Without ``weather`` the source's
+    weather and its schedule, re-based to the restart time, apply ("source_run").
     """
     start = req.start_time or source.start_time
-    if start is None and (req.burning_period is not None or req.ffmc_spin_up):
-        raise ValueError("burning_period / ffmc_spin_up need start_time (on the request or the "
-                         "source simulation)")
     shift = 0.0
     if start is not None and source.start_time is not None:
         shift = (start - source.start_time).total_seconds() / 3600.0
-    start_hour = local_start_hour(start)
-    hourly = engine_hourly(source.hourly_weather, shift, start_hour, req.ffmc_spin_up)
-    return start_hour, hourly
+    if req.weather is not None:
+        weather, schedule, from_source = req.weather, req.weather_schedule or None, "request"
+    elif req.weather_schedule is not None:
+        weather, schedule, from_source = source.weather, req.weather_schedule or None, "request"
+    else:
+        weather, later = _rebase_schedule(source.weather, source.weather_schedule, shift,
+                                          req.duration_hours)
+        schedule, from_source = later or None, "source_run"
+    hourly = None
+    if not schedule and source.hourly_weather:
+        # The source's forecast stream, its hours counted from the restart time (records
+        # outside the API's -24..72 h range dropped)
+        hourly = [r.model_copy(update={"hours_from_start": r.hours_from_start - shift})
+                  for r in source.hourly_weather if -24.0 <= r.hours_from_start - shift <= 72.0]
+    params = source.model_copy(update={
+        "weather": weather,
+        "fwi_overrides": req.fwi_overrides if req.fwi_overrides is not None
+        else source.fwi_overrides,
+        "weather_schedule": schedule,
+        "hourly_weather": hourly or None,
+        "duration_hours": req.duration_hours,
+        "snapshot_interval_minutes": req.snapshot_interval_minutes,
+        "start_time": start,
+        "burning_period": req.burning_period,
+        "ffmc_spin_up": req.ffmc_spin_up,
+        "ensemble": None,
+    })
+    return params, from_source
+
+
+#: Year each fuel source represents (docs/PROJECT_RECORD.md §4.3 data sources)
+FUEL_VINTAGE = {"city": 2025, "ab_wildfire": 2025, "cfs_national": 2025,
+                "cfs_national_2014": 2011}
+
+
+def fuel_vintage_year(info: dict | None, national_scheme: str = "cfs_national") -> int | None:
+    """Year the run's fuel grid represents: the latest of the sources it used (a scenario
+    before it may meet burn scars mapped as grass or non-fuel); None for uniform, synthetic
+    or user-supplied grids."""
+    if not info:
+        return None
+    kind = info.get("kind")
+    national = FUEL_VINTAGE.get(national_scheme)
+    if kind == "city":
+        return FUEL_VINTAGE["city"]
+    if kind == "national":
+        return national
+    if kind == "provincial":
+        share = info.get("share") or {}
+        years = [FUEL_VINTAGE["city"] if k == "city" else FUEL_VINTAGE["ab_wildfire"]
+                 if k == "ab_wildfire" else national
+                 for k, v in share.items() if v and v > 0]
+        years = [y for y in years if y is not None]
+        return max(years) if years else FUEL_VINTAGE["ab_wildfire"]
+    return None
+
+
+def fuel_vintage_warning(vintage_year: int | None, start_time) -> str | None:
+    """Plain-language flag when the scenario starts before the fuel grid's year."""
+    if vintage_year is None or start_time is None or start_time.year >= vintage_year:
+        return None
+    return (f"Fuel grid represents {vintage_year}. Areas burned since {start_time.year} may be "
+            "mapped as grass or non-fuel, not the fuel that burned. Historical replays "
+            "overstate spread in old burn scars.")
 
 
 def _synthetic_seed(lat: float, lng: float) -> int:
@@ -796,6 +873,248 @@ class SimulationRunner:
             kind, label = "user_grid", f"Fuel grid {os.path.basename(grid_path)}"
         return {"kind": kind, "label": label, "attribution": None, "season": None, "share": None}
 
+    def _engine_config(self, params: SimulationCreate, **over) -> SimulationConfig:
+        """Engine config for a single run (``over``: fields that replace the request's)."""
+        fwi = params.fwi_overrides
+        kw = dict(
+            ignition_lat=params.ignition_lat,
+            ignition_lng=params.ignition_lng,
+            weather=WeatherInput(
+                temperature=params.weather.temperature,
+                relative_humidity=params.weather.relative_humidity,
+                wind_speed=params.weather.wind_speed,
+                wind_direction=params.weather.wind_direction,
+                precipitation_24h=params.weather.precipitation_24h,
+            ),
+            duration_hours=params.duration_hours,
+            snapshot_interval_minutes=params.snapshot_interval_minutes,
+            ffmc=fwi.ffmc if fwi and fwi.ffmc is not None else 85.0,
+            dmc=fwi.dmc if fwi and fwi.dmc is not None else 40.0,
+            dc=fwi.dc if fwi and fwi.dc is not None else 200.0,
+            **_fuel_kwargs(params),
+            start_hour=params.start_hour(),
+            burning_period=_burning_period(params),
+            seed=getattr(params, "seed", None),
+        )
+        kw.update(over)
+        if "hourly_weather" not in kw:
+            kw["hourly_weather"] = params.engine_hourly_weather()
+        return SimulationConfig(**kw)
+
+    def _prepare_inputs(self, run: SimulationRun, params: SimulationCreate,
+                        config: SimulationConfig) -> dict:
+        """Fuel, terrain, WUI grids and buildings for a single run or a perimeter restart (one
+        path, so a restart runs on exactly the grids, building mask, 20 m window source and
+        structure inputs of a normal run with the same request).
+
+        Returns a dict with ``fuel_grid`` (building-masked), ``spread_modifier_grid``,
+        ``terrain_grid``, ``building_centroids``, ``building_geoms``, ``structure_geoms`` and
+        ``fine_fuel``.
+        """
+        from firesim_api.settings import settings
+
+        # Resolve DEM path: per-request overrides env-var default
+        dem_path = getattr(params, "dem_path", None) or settings.dem_path
+
+        # Load spatial grids (cached — only loads once per unique path combo).
+        # Buildings are NOT baked in here; applied per-simulation below.
+        run.set_phase("loading")
+        # Default fuel (City grid where mapped, Alberta Wildfire grid elsewhere) when the
+        # request names the City grid and the Alberta grid is installed
+        provincial = self.provincial_applies(params)
+        prov_fine = None
+        if provincial:
+            water = params.water_path or (
+                settings.water_path if not params.fuel_grid_path else None)
+            (fuel_grid, spread_modifier_grid, terrain_grid, prov_fine,
+             run.fuel_source) = self.resolve_provincial(
+                params, config.day_of_year, dem_path,
+                getattr(params, "wui_zones_path", None), water)
+            fine_key = (None, None)
+        else:
+            fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
+                params.fuel_grid_path,
+                params.water_path,
+                getattr(params, "wui_zones_path", None),
+                dem_path,
+            )
+            fine_key = (params.fuel_grid_path, params.water_path)
+        # CA mode: load real grid from settings env var, fall back to synthetic
+        if not provincial and fuel_grid is None and getattr(params, "use_ca_mode", False):
+            default_fuel_path = settings.fuel_grid_path
+            if default_fuel_path and os.path.exists(default_fuel_path):
+                logger.info("CA mode: loading real fuel grid from %s", default_fuel_path)
+                real_grid, real_wui, real_terrain = self._load_grids(
+                    default_fuel_path,
+                    params.water_path or settings.water_path,
+                    getattr(params, "wui_zones_path", None),
+                    dem_path,
+                )
+                fuel_grid = real_grid
+                fine_key = (default_fuel_path, params.water_path or settings.water_path)
+                if real_wui is not None and spread_modifier_grid is None:
+                    spread_modifier_grid = real_wui
+                if real_terrain is not None and terrain_grid is None:
+                    terrain_grid = real_terrain
+                logger.info(
+                    "Real CA grid loaded: %dx%d (%.4f-%.4fN, %.4f-%.4fE)",
+                    fuel_grid.rows, fuel_grid.cols,
+                    fuel_grid.lat_min, fuel_grid.lat_max,
+                    fuel_grid.lng_min, fuel_grid.lng_max,
+                )
+            else:
+                from firesim.data.synthetic_grid import generate_synthetic_fuel_grid
+
+                # Seeded from the ignition point (~11 m precision) so re-running a
+                # scenario reproduces the same demo landscape and result.
+                fine_key = (None, None)
+                fuel_grid = generate_synthetic_fuel_grid(
+                    ignition_lat=params.ignition_lat,
+                    ignition_lng=params.ignition_lng,
+                    radius_km=5.0,
+                    cell_size_m=50.0,
+                    seed=_synthetic_seed(params.ignition_lat, params.ignition_lng),
+                )
+                logger.info(
+                    "Synthetic CA grid generated: %dx%d around (%.4f, %.4f)",
+                    fuel_grid.rows, fuel_grid.cols,
+                    params.ignition_lat, params.ignition_lng,
+                )
+
+        if run.fuel_source is None:
+            run.fuel_source = self._legacy_fuel_source(params, fuel_grid, fine_key[0])
+        run.fuel_source["vintage_year"] = fuel_vintage_year(
+            run.fuel_source, settings.national_fuel_scheme)
+        self._set_terrain_source(run, dem_path, terrain_grid)
+
+        # Buildings for the building mask, inside-perimeter counts and exposure
+        # (docs/buildings-alberta.md). In Edmonton (ignition in the former extract's box):
+        # the buildings of the 4 neighbourhoods nearest the ignition, exactly as before.
+        # Elsewhere (Alberta file): the buildings in the run grid's box, the nearest
+        # FIRESIM_BUILDINGS_MAX_NEAR to the ignition when there are more. Only a window of
+        # the file is read either way.
+        masked_fuel_grid = fuel_grid
+        building_centroids = None
+        building_geoms = None
+        structure_geoms = None
+        buildings_path = self.resolve_buildings_path(
+            getattr(params, "buildings_path", None) or settings.buildings_path)
+        is_fgb = bool(buildings_path) and buildings_path.lower().endswith(".fgb")
+        if buildings_path and fuel_grid is not None and (
+                settings.neighbourhoods_path or is_fgb):
+            import dataclasses
+            from firesim.data.building_index import EDMONTON_EXTRACT_BOX
+            from firesim.data.environment import load_environment_mask
+
+            run.set_phase("buildings")
+            bidx = self._get_building_index(buildings_path, settings.neighbourhoods_path)
+            lat0, lng0 = params.ignition_lat, params.ignition_lng
+            if bidx.in_partition(lat0, lng0):
+                nearest = bidx.nearest_neighbourhoods(lat0, lng0, n=4)
+                logger.info("Nearest neighbourhoods for ignition (%.4f, %.4f): %s",
+                            lat0, lng0, nearest)
+                building_geoms = bidx.building_geoms_for(nearest)
+                building_centroids = bidx.building_centroids_for(nearest)
+                # Structure spread reaches every building in the run area (the former
+                # extract box is no longer a limit, decision 2026-10-12); the legacy
+                # setting restores the clip for equivalence checks.
+                source = (bidx.clipped(EDMONTON_EXTRACT_BOX)
+                          if is_fgb and settings.edmonton_box_legacy else bidx)
+                run.buildings_source = _buildings_info(
+                    "edmonton_neighbourhoods", buildings_path, len(building_geoms), False,
+                    f"{len(nearest)} City of Edmonton neighbourhoods nearest the ignition")
+            else:
+                near = bidx.near(lat0, lng0, (fuel_grid.lat_min, fuel_grid.lat_max,
+                                              fuel_grid.lng_min, fuel_grid.lng_max),
+                                 max_buildings=settings.buildings_max_near)
+                building_geoms, building_centroids = near.geoms, near.centroids
+                source = bidx
+                run.buildings_source = _buildings_info(
+                    "near_ignition", buildings_path, len(building_geoms), near.capped,
+                    ("run area" if not near.capped else
+                     f"the {len(building_geoms):,} buildings nearest the ignition "
+                     "in the run area"), near.sources)
+            logger.info("Building mask: %d geometries (%s)", len(building_geoms),
+                        run.buildings_source["kind"])
+            if getattr(params, "structure_spread", False):
+                # Structure spread may reach any building in the run area, not only the
+                # selection above (docs/structure-spread-spec.md §2). The index is passed
+                # as a footprint source: after the grid run, units are built only for the
+                # area the spread can reach, read by window from the file.
+                structure_geoms = source
+
+            if building_geoms:
+                bldg_mask = load_environment_mask(
+                    bounds=(fuel_grid.lat_min, fuel_grid.lat_max,
+                            fuel_grid.lng_min, fuel_grid.lng_max),
+                    rows=fuel_grid.rows,
+                    cols=fuel_grid.cols,
+                    building_geoms=building_geoms,
+                )
+                # Apply mask to a copy of fuel_grid — never mutate the cached grid
+                new_fuel_types = [list(row) for row in fuel_grid.fuel_types]
+                masked = 0
+                for r in range(fuel_grid.rows):
+                    for c in range(fuel_grid.cols):
+                        if bldg_mask[r, c] and new_fuel_types[r][c] is not None:
+                            new_fuel_types[r][c] = None
+                            masked += 1
+                masked_fuel_grid = dataclasses.replace(fuel_grid, fuel_types=new_fuel_types)
+                logger.info("Building mask applied: %d cells masked", masked)
+
+        # 20 m WUI window (mechanics decision M5): tried when buildings are near the fire,
+        # kept only within the memory guards (firesim.spread.wui_window)
+        fine_fuel = None
+        if building_geoms:
+            fine_fuel = (prov_fine if provincial
+                         else self._get_fine_source(*fine_key, fuel_grid))
+        return {
+            "fuel_grid": masked_fuel_grid,
+            "spread_modifier_grid": spread_modifier_grid,
+            "terrain_grid": terrain_grid,
+            "building_centroids": building_centroids,
+            "building_geoms": building_geoms,
+            "structure_geoms": structure_geoms,
+            "fine_fuel": fine_fuel,
+        }
+
+    def _simulator(self, run: SimulationRun, config: SimulationConfig, params: SimulationCreate,
+                   prep: dict, **extra) -> Simulator:
+        """The Simulator for a single run or a restart, with the request's spotting and
+        house-to-house options (``extra``: e.g. initial_front, active_edges)."""
+        try:
+            fuel_type = FuelType(params.fuel_type)
+        except ValueError:
+            fuel_type = FuelType.C2
+        structure_geoms = prep["structure_geoms"]
+        bridge = getattr(params, "structure_vegetation_bridge", False)
+        return Simulator(
+            config,
+            fuel_grid=prep["fuel_grid"],
+            terrain_grid=prep["terrain_grid"],
+            default_fuel=fuel_type,
+            spread_modifier_grid=prep["spread_modifier_grid"],
+            enable_spotting=getattr(params, "enable_spotting", False),
+            spotting_intensity=getattr(params, "spotting_intensity", 1.0),
+            building_centroids=prep["building_centroids"],
+            building_footprints=prep["building_geoms"] or None,
+            structure_spread=getattr(params, "structure_spread", False),
+            structure_footprints=structure_geoms,
+            structure_embers=getattr(params, "structure_embers", False),
+            structure_design_fire_kw_m2=getattr(params, "structure_design_fire_kw_m2", 150),
+            structure_burnout=getattr(params, "structure_burnout", True),
+            structure_vegetation=(self._get_building_vegetation()
+                                  if structure_geoms is not None else None),
+            structure_vegetation_bridge=bridge,
+            structure_canopy=self._get_canopy() if bridge else None,
+            structure_combustible_roof_share=getattr(
+                params, "structure_combustible_roof_share", 0.0),
+            progress=run.set_phase,
+            fine_fuel=prep["fine_fuel"],
+            fine_building_mask=prep["building_geoms"] or None,
+            **extra,
+        )
+
     def _execute(
         self,
         run: SimulationRun,
@@ -806,215 +1125,9 @@ class SimulationRunner:
         params = run.config
 
         try:
-            # Resolve fuel type
-            try:
-                fuel_type = FuelType(params.fuel_type)
-            except ValueError:
-                fuel_type = FuelType.C2
-
-            # Build engine config
-            fwi = params.fwi_overrides
-            config = SimulationConfig(
-                ignition_lat=params.ignition_lat,
-                ignition_lng=params.ignition_lng,
-                weather=WeatherInput(
-                    temperature=params.weather.temperature,
-                    relative_humidity=params.weather.relative_humidity,
-                    wind_speed=params.weather.wind_speed,
-                    wind_direction=params.weather.wind_direction,
-                    precipitation_24h=params.weather.precipitation_24h,
-                ),
-                duration_hours=params.duration_hours,
-                snapshot_interval_minutes=params.snapshot_interval_minutes,
-                ffmc=fwi.ffmc if fwi else 85.0,
-                dmc=fwi.dmc if fwi else 40.0,
-                dc=fwi.dc if fwi else 200.0,
-                **_fuel_kwargs(params),
-                hourly_weather=params.engine_hourly_weather(),
-                start_hour=params.start_hour(),
-                burning_period=_burning_period(params),
-                seed=getattr(params, "seed", None),
-            )
-
-            from firesim_api.settings import settings
-
-            # Resolve DEM path: per-request overrides env-var default
-            dem_path = getattr(params, "dem_path", None) or settings.dem_path
-
-            # Load spatial grids (cached — only loads once per unique path combo).
-            # Buildings are NOT baked in here; applied per-simulation below.
-            run.set_phase("loading")
-            # Default fuel (City grid where mapped, Alberta Wildfire grid elsewhere) when the
-            # request names the City grid and the Alberta grid is installed
-            provincial = self.provincial_applies(params)
-            prov_fine = None
-            if provincial:
-                water = params.water_path or (
-                    settings.water_path if not params.fuel_grid_path else None)
-                (fuel_grid, spread_modifier_grid, terrain_grid, prov_fine,
-                 run.fuel_source) = self.resolve_provincial(
-                    params, config.day_of_year, dem_path,
-                    getattr(params, "wui_zones_path", None), water)
-                fine_key = (None, None)
-            else:
-                fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
-                    params.fuel_grid_path,
-                    params.water_path,
-                    getattr(params, "wui_zones_path", None),
-                    dem_path,
-                )
-                fine_key = (params.fuel_grid_path, params.water_path)
-            # CA mode: load real grid from settings env var, fall back to synthetic
-            if not provincial and fuel_grid is None and getattr(params, "use_ca_mode", False):
-                default_fuel_path = settings.fuel_grid_path
-                if default_fuel_path and os.path.exists(default_fuel_path):
-                    logger.info("CA mode: loading real fuel grid from %s", default_fuel_path)
-                    real_grid, real_wui, real_terrain = self._load_grids(
-                        default_fuel_path,
-                        params.water_path or settings.water_path,
-                        getattr(params, "wui_zones_path", None),
-                        dem_path,
-                    )
-                    fuel_grid = real_grid
-                    fine_key = (default_fuel_path, params.water_path or settings.water_path)
-                    if real_wui is not None and spread_modifier_grid is None:
-                        spread_modifier_grid = real_wui
-                    if real_terrain is not None and terrain_grid is None:
-                        terrain_grid = real_terrain
-                    logger.info(
-                        "Real CA grid loaded: %dx%d (%.4f-%.4fN, %.4f-%.4fE)",
-                        fuel_grid.rows, fuel_grid.cols,
-                        fuel_grid.lat_min, fuel_grid.lat_max,
-                        fuel_grid.lng_min, fuel_grid.lng_max,
-                    )
-                else:
-                    from firesim.data.synthetic_grid import generate_synthetic_fuel_grid
-
-                    # Seeded from the ignition point (~11 m precision) so re-running a
-                    # scenario reproduces the same demo landscape and result.
-                    fine_key = (None, None)
-                    fuel_grid = generate_synthetic_fuel_grid(
-                        ignition_lat=params.ignition_lat,
-                        ignition_lng=params.ignition_lng,
-                        radius_km=5.0,
-                        cell_size_m=50.0,
-                        seed=_synthetic_seed(params.ignition_lat, params.ignition_lng),
-                    )
-                    logger.info(
-                        "Synthetic CA grid generated: %dx%d around (%.4f, %.4f)",
-                        fuel_grid.rows, fuel_grid.cols,
-                        params.ignition_lat, params.ignition_lng,
-                    )
-
-            if run.fuel_source is None:
-                run.fuel_source = self._legacy_fuel_source(params, fuel_grid, fine_key[0])
-            self._set_terrain_source(run, dem_path, terrain_grid)
-
-            # Buildings for the building mask, inside-perimeter counts and exposure
-            # (docs/buildings-alberta.md). In Edmonton (ignition in the former extract's box):
-            # the buildings of the 4 neighbourhoods nearest the ignition, exactly as before.
-            # Elsewhere (Alberta file): the buildings in the run grid's box, the nearest
-            # FIRESIM_BUILDINGS_MAX_NEAR to the ignition when there are more. Only a window of
-            # the file is read either way.
-            masked_fuel_grid = fuel_grid
-            building_centroids = None
-            building_geoms = None
-            structure_geoms = None
-            buildings_path = self.resolve_buildings_path(
-                getattr(params, "buildings_path", None) or settings.buildings_path)
-            is_fgb = bool(buildings_path) and buildings_path.lower().endswith(".fgb")
-            if buildings_path and fuel_grid is not None and (
-                    settings.neighbourhoods_path or is_fgb):
-                import dataclasses
-                from firesim.data.building_index import EDMONTON_EXTRACT_BOX
-                from firesim.data.environment import load_environment_mask
-
-                run.set_phase("buildings")
-                bidx = self._get_building_index(buildings_path, settings.neighbourhoods_path)
-                lat0, lng0 = params.ignition_lat, params.ignition_lng
-                if bidx.in_partition(lat0, lng0):
-                    nearest = bidx.nearest_neighbourhoods(lat0, lng0, n=4)
-                    logger.info("Nearest neighbourhoods for ignition (%.4f, %.4f): %s",
-                                lat0, lng0, nearest)
-                    building_geoms = bidx.building_geoms_for(nearest)
-                    building_centroids = bidx.building_centroids_for(nearest)
-                    # Structure spread reaches every building in the run area (the former
-                    # extract box is no longer a limit, decision 2026-10-12); the legacy
-                    # setting restores the clip for equivalence checks.
-                    source = (bidx.clipped(EDMONTON_EXTRACT_BOX)
-                              if is_fgb and settings.edmonton_box_legacy else bidx)
-                    run.buildings_source = _buildings_info(
-                        "edmonton_neighbourhoods", buildings_path, len(building_geoms), False,
-                        f"{len(nearest)} City of Edmonton neighbourhoods nearest the ignition")
-                else:
-                    near = bidx.near(lat0, lng0, (fuel_grid.lat_min, fuel_grid.lat_max,
-                                                  fuel_grid.lng_min, fuel_grid.lng_max),
-                                     max_buildings=settings.buildings_max_near)
-                    building_geoms, building_centroids = near.geoms, near.centroids
-                    source = bidx
-                    run.buildings_source = _buildings_info(
-                        "near_ignition", buildings_path, len(building_geoms), near.capped,
-                        ("run area" if not near.capped else
-                         f"the {len(building_geoms):,} buildings nearest the ignition "
-                         "in the run area"), near.sources)
-                logger.info("Building mask: %d geometries (%s)", len(building_geoms),
-                            run.buildings_source["kind"])
-                if getattr(params, "structure_spread", False):
-                    # Structure spread may reach any building in the run area, not only the
-                    # selection above (docs/structure-spread-spec.md §2). The index is passed
-                    # as a footprint source: after the grid run, units are built only for the
-                    # area the spread can reach, read by window from the file.
-                    structure_geoms = source
-
-                if building_geoms:
-                    bldg_mask = load_environment_mask(
-                        bounds=(fuel_grid.lat_min, fuel_grid.lat_max,
-                                fuel_grid.lng_min, fuel_grid.lng_max),
-                        rows=fuel_grid.rows,
-                        cols=fuel_grid.cols,
-                        building_geoms=building_geoms,
-                    )
-                    # Apply mask to a copy of fuel_grid — never mutate the cached grid
-                    new_fuel_types = [list(row) for row in fuel_grid.fuel_types]
-                    masked = 0
-                    for r in range(fuel_grid.rows):
-                        for c in range(fuel_grid.cols):
-                            if bldg_mask[r, c] and new_fuel_types[r][c] is not None:
-                                new_fuel_types[r][c] = None
-                                masked += 1
-                    masked_fuel_grid = dataclasses.replace(fuel_grid, fuel_types=new_fuel_types)
-                    logger.info("Building mask applied: %d cells masked", masked)
-
-            simulator = Simulator(
-                config,
-                fuel_grid=masked_fuel_grid,
-                terrain_grid=terrain_grid,
-                default_fuel=fuel_type,
-                spread_modifier_grid=spread_modifier_grid,
-                enable_spotting=getattr(params, "enable_spotting", False),
-                spotting_intensity=getattr(params, "spotting_intensity", 1.0),
-                building_centroids=building_centroids,
-                building_footprints=building_geoms or None,
-                structure_spread=getattr(params, "structure_spread", False),
-                structure_footprints=structure_geoms,
-                structure_embers=getattr(params, "structure_embers", False),
-                structure_design_fire_kw_m2=getattr(params, "structure_design_fire_kw_m2", 150),
-                structure_burnout=getattr(params, "structure_burnout", True),
-                structure_vegetation=(self._get_building_vegetation()
-                                      if structure_geoms is not None else None),
-                structure_vegetation_bridge=getattr(params, "structure_vegetation_bridge", False),
-                structure_canopy=(self._get_canopy()
-                                  if getattr(params, "structure_vegetation_bridge", False)
-                                  else None),
-                structure_combustible_roof_share=getattr(
-                    params, "structure_combustible_roof_share", 0.0),
-                progress=run.set_phase,
-                # 20 m WUI window (mechanics decision M5): tried when buildings are near the
-                # fire, kept only within the memory guards (firesim.spread.wui_window)
-                fine_fuel=((prov_fine if provincial else self._get_fine_source(*fine_key, fuel_grid))
-                           if building_geoms else None),
-                fine_building_mask=building_geoms or None,
-            )
+            config = self._engine_config(params)
+            prep = self._prepare_inputs(run, params, config)
+            simulator = self._simulator(run, config, params, prep)
 
             run.set_phase("spread", 0.0)
             for frame in simulator.run():
@@ -1031,9 +1144,9 @@ class SimulationRunner:
                 run.status = SimulationStatus.COMPLETED
                 logger.info("Simulation %s completed: %d frames", run.id, len(run.frames))
                 ens = getattr(params, "ensemble", None)
-                if ens is not None and masked_fuel_grid is not None:
-                    self._run_ensemble(run, config, masked_fuel_grid, terrain_grid,
-                                       spread_modifier_grid, ens)
+                if ens is not None and prep["fuel_grid"] is not None:
+                    self._run_ensemble(run, config, prep["fuel_grid"], prep["terrain_grid"],
+                                       prep["spread_modifier_grid"], ens)
             else:
                 logger.info("Simulation %s cancelled after %d frames", run.id, len(run.frames))
 
@@ -1150,6 +1263,8 @@ class SimulationRunner:
                     dem_path,
                 )
                 run.fuel_source = self._legacy_fuel_source(params, fuel_grid, params.fuel_grid_path)
+            run.fuel_source["vintage_year"] = fuel_vintage_year(
+                run.fuel_source, settings.national_fuel_scheme)
             self._set_terrain_source(run, dem_path, terrain_grid)
 
             # Initialise FWI carry-in state from user overrides or spring defaults
@@ -1283,16 +1398,12 @@ class SimulationRunner:
         on_frame: Callable[[str, SimulationFrame], None] | None = None,
         on_status: Callable[[str, str, float | None], None] | None = None,
     ) -> str:
-        """Create a new simulation seeded from a drone-observed fire perimeter.
+        """Create a new simulation seeded from an observed (e.g. RPAS) fire perimeter.
 
-        Looks up the original simulation, reuses its spatial/weather config,
-        converts the supplied GeoJSON geometry to a FireVertex list, and runs
-        a fresh Huygens spread from that corrected initial front.
-
-        Args:
-            req: Perimeter override parameters including original simulation ID
-                 and GeoJSON geometry.
-            on_frame: Optional callback invoked per frame (sim_id, frame).
+        The restart is the source run's request with this request's weather, FWI codes,
+        schedule, duration, start time and burning period (``restart_config``), run through
+        the same path as a normal run (grids, building mask, exposure, house-to-house), from
+        the observed perimeter instead of the ignition point.
 
         Returns:
             New simulation ID.
@@ -1322,22 +1433,30 @@ class SimulationRunner:
         except (ValueError, KeyError, TypeError, IndexError) as exc:
             raise ValueError(f"Invalid perimeter GeoJSON: {exc}") from exc
 
-        clock = _override_clock(req, original.config)  # ValueError -> 422
+        params, weather_source = restart_config(req, original.config)
+        if params.start_time is None and (req.burning_period is not None or req.ffmc_spin_up):
+            raise ValueError("burning_period / ffmc_spin_up need start_time (on the request or "
+                             "the source simulation)")
+        # Local start hour and hourly stream (the restart's schedule, or the source's
+        # forecast re-based to the restart time); ValueError (422) if it cannot spin up
+        clock = (params.start_hour(), params.engine_hourly_weather())
 
         logger.info(
-            "Perimeter override: source=%s vertices=%d dur=%.1fh",
-            req.simulation_id, len(initial_front), req.duration_hours,
+            "Perimeter override: source=%s vertices=%d dur=%.1fh weather=%s",
+            req.simulation_id, len(initial_front), req.duration_hours, weather_source,
         )
 
         sim_id = str(uuid.uuid4())[:8]
-        run = SimulationRun(sim_id, original.config)
+        run = SimulationRun(sim_id, params)
         run.on_status = on_status
         run.kind = "perimeter_override"
         run.override_request = req.model_dump(mode="json")
+        run.source_config = original.config
+        run.weather_source = weather_source
 
         self._store(sim_id, run)
 
-        self._start(self._execute_perimeter_override, run, original.config, initial_front, req,
+        self._start(self._execute_perimeter_override, run, params, initial_front, req,
                     on_frame, clock)
 
         return sim_id
@@ -1351,73 +1470,18 @@ class SimulationRunner:
         on_frame: Callable[[str, SimulationFrame], None] | None,
         clock: tuple[float | None, tuple[HourlyWeather, ...] | None] = (None, None),
     ) -> None:
-        """Execute a simulation from a corrected drone-recon fire front.
+        """Execute a restart from an observed fire front (``params``: ``restart_config``).
 
-        ``clock`` is (local start hour, hourly weather) from ``_override_clock``.
+        ``clock`` is (local start hour, engine hourly weather) of the restart.
         """
         run.status = SimulationStatus.RUNNING
 
         try:
-            try:
-                fuel_type = FuelType(params.fuel_type)
-            except ValueError:
-                fuel_type = FuelType.C2
-
-            from firesim_api.settings import settings
-
-            fwi = params.fwi_overrides
-            config = SimulationConfig(
-                ignition_lat=params.ignition_lat,
-                ignition_lng=params.ignition_lng,
-                weather=WeatherInput(
-                    temperature=params.weather.temperature,
-                    relative_humidity=params.weather.relative_humidity,
-                    wind_speed=params.weather.wind_speed,
-                    wind_direction=params.weather.wind_direction,
-                    precipitation_24h=params.weather.precipitation_24h,
-                ),
-                duration_hours=req.duration_hours,
-                snapshot_interval_minutes=req.snapshot_interval_minutes,
-                ffmc=fwi.ffmc if fwi and fwi.ffmc is not None else 85.0,
-                dmc=fwi.dmc if fwi and fwi.dmc is not None else 40.0,
-                dc=fwi.dc if fwi and fwi.dc is not None else 200.0,
-                **_fuel_kwargs(params),
-                start_hour=clock[0],
-                hourly_weather=clock[1],
-                burning_period=_burning_period(req),
-                seed=getattr(params, "seed", None),
-            )
-
-            dem_path = params.dem_path or settings.dem_path
-            run.set_phase("loading")
-            if self.provincial_applies(params):  # same fuel as the source run
-                (fuel_grid, spread_modifier_grid, terrain_grid, _,
-                 run.fuel_source) = self.resolve_provincial(
-                    params, config.day_of_year, dem_path, params.wui_zones_path,
-                    params.water_path)
-            else:
-                fuel_grid, spread_modifier_grid, terrain_grid = self._load_grids(
-                    params.fuel_grid_path,
-                    params.water_path,
-                    params.wui_zones_path,
-                    dem_path,
-                )
-                run.fuel_source = self._legacy_fuel_source(params, fuel_grid, params.fuel_grid_path)
-            self._set_terrain_source(run, dem_path, terrain_grid)
-
-            simulator = Simulator(
-                config,
-                fuel_grid=fuel_grid,
-                terrain_grid=terrain_grid,
-                default_fuel=fuel_type,
-                spread_modifier_grid=spread_modifier_grid,
-                initial_front=initial_front,
-                enable_spotting=params.enable_spotting,
-                spotting_intensity=params.spotting_intensity,
-                active_edges=req.active_edges,
-                active_edge_buffer_m=req.active_edge_buffer_m,
-                progress=run.set_phase,
-            )
+            config = self._engine_config(params, start_hour=clock[0], hourly_weather=clock[1])
+            prep = self._prepare_inputs(run, params, config)
+            simulator = self._simulator(
+                run, config, params, prep, initial_front=initial_front,
+                active_edges=req.active_edges, active_edge_buffer_m=req.active_edge_buffer_m)
 
             run.set_phase("spread", 0.0)
             for frame in simulator.run():

@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers } from "../types/simulation";
+import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers, WeatherChange } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
 import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast, FORECAST_MODEL_LABEL } from "../services/api";
 import { isPyraSource } from "../utils/weatherSource";
@@ -25,6 +25,10 @@ import Badge from "./Badge";
 import InfoTip, { TipButton } from "./InfoTip";
 import FwiClassChip from "./FwiClassChip";
 import { SPRING_WINDOW_LABEL, curingFactor, defaultGrassCure } from "../utils/curing";
+import WeatherSchedulePanel from "./WeatherSchedulePanel";
+import { computeBUI, computeFWI, computeISI } from "../utils/fwiCalc";
+import { DEFAULT_FUEL_GRID_YEAR, edmontonYear, fuelVintageWarning } from "../utils/fuelVintage";
+import { scheduleErrors, scheduleRequest, timedSteps, type ScheduleRow, type TimedStep } from "../utils/weatherSchedule";
 
 /** Moving the ignition this far from where the weather was set shows a notice. */
 const FAR_KM = 25;
@@ -60,6 +64,17 @@ function readLastCure(): number | null {
   }
 }
 
+/** Setup's weather as a restart from an observed perimeter uses it (owner field test
+ * 2026-10-12: restarts used the earlier run's weather) */
+export interface SetupWeather {
+  weather: WeatherParams;
+  fwi: FWIOverrides;
+  /** Weather changes at absolute times (Setup's table against Setup's start); [] = none */
+  steps: TimedStep[];
+  /** Hourly forecast weather is on (the restart keeps the earlier run's forecast stream) */
+  forecastOn: boolean;
+}
+
 /** Setup's skill options as they apply to a restart from an observed perimeter */
 export interface SkillOptionsState {
   /** Burning period to apply (null = off or invalid) */
@@ -67,35 +82,6 @@ export interface SkillOptionsState {
   /** Evening FFMC spin-up wanted (only effective with hourly forecast weather) */
   spinUp: boolean;
 }
-
-// ── Client-side CFFDRS FWI computation (Forestry Canada 1992, ST-X-3) ──────────
-// FFMC coefficient 147.2 as printed (Van Wagner 1987 eq 2b; ST-X-3 eq 46), the same as the
-// engine (engine/src/firesim/fwi/calculator.py FFMC_COEFFICIENT); cffdrs uses 147.27723.
-function computeISI(ffmc: number, windSpeedKmh: number): number {
-  const m = 147.2 * (101 - ffmc) / (59.5 + ffmc);
-  const fW = Math.exp(0.05039 * windSpeedKmh);
-  const fF = 91.9 * Math.exp(-0.1386 * m) * (1 + Math.pow(m, 5.31) / 49300000);
-  return 0.208 * fW * fF;
-}
-
-function computeBUI(dmc: number, dc: number): number {
-  if (dmc + 0.4 * dc === 0) return 0;
-  if (dmc <= 0.4 * dc) {
-    return 0.8 * dmc * dc / (dmc + 0.4 * dc);
-  }
-  return dmc - (1 - 0.8 * dc / (dmc + 0.4 * dc)) * (0.92 + Math.pow(0.0114 * dmc, 1.7));
-}
-
-function computeFWI(isi: number, bui: number): number {
-  const fD = bui <= 80
-    ? 0.626 * Math.pow(bui, 0.809) + 2
-    : 1000 / (25 + 108.64 * Math.exp(-0.023 * bui));
-  const B = 0.1 * isi * fD;
-  return B > 1
-    ? Math.exp(2.72 * Math.pow(0.434 * Math.log(B), 0.647))
-    : B;
-}
-
 
 // ── Validation ───────────────────────────────────────────────────────────────
 interface ValidationErrors {
@@ -193,6 +179,14 @@ export interface RunParams {
   n_iterations: number;
   duration_hours: number;
   fuel_type?: string;
+  /** Manual weather changes the run used (hours after its start); null/absent = none */
+  weather_schedule?: WeatherChange[] | null;
+  /** The run used hourly forecast weather */
+  hourly_forecast?: boolean;
+  /** Run start (ISO with offset), for clock times of the weather changes */
+  start_time?: string | null;
+  /** The scenario is dated before the fuel grid's year (exports, ICS 209 remarks) */
+  fuel_vintage_warning?: string | null;
 }
 
 interface WeatherPanelProps {
@@ -216,6 +210,8 @@ interface WeatherPanelProps {
   runBarTarget?: HTMLElement | null;
   /** Current burning period / spin-up settings (for the observed-perimeter restart) */
   onSkillOptions?: (opts: SkillOptionsState) => void;
+  /** Current weather, FWI codes and weather changes (for the observed-perimeter restart) */
+  onSetupWeather?: (w: SetupWeather) => void;
   /** After a run: arm a new ignition on the map ("New ignition" in the run bar) */
   onNewIgnition?: () => void;
   /** Single run pressed: called before the hourly forecast is fetched, so the previous run
@@ -244,6 +240,7 @@ function WeatherPanel({
   onEdmontonGridChange,
   runBarTarget,
   onSkillOptions,
+  onSetupWeather,
   onNewIgnition,
   onRunRequested,
   runRequest = 0,
@@ -342,6 +339,8 @@ function WeatherPanel({
   const [lastCure, setLastCure] = useState<number | null>(readLastCure);
   const [percentConifer, setPercentConifer] = useState(50);
   const [useHourlyForecast, setUseHourlyForecast] = useState(false);
+  // Manual weather changes during the run (rows at local clock times; empty = none)
+  const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
   const [useEdmontonGrid, setUseEdmontonGrid] = useState(true);
   const [useSyntheticCA, setUseSyntheticCA] = useState(false);
   const [enableSpotting, setEnableSpotting] = useState(false);
@@ -424,6 +423,7 @@ function WeatherPanel({
       }
     }
     if (scenarioToLoad.ffmcSpinUp !== undefined) setSpinUpOn(scenarioToLoad.ffmcSpinUp);
+    setScheduleRows(scenarioToLoad.weatherSchedule ?? []);
   }, [scenarioToLoad]);
 
   // ── Provide config snapshot to parent for saving ──────────────────────────
@@ -449,13 +449,14 @@ function WeatherPanel({
       ensembleMembers: ensembleOn ? ensembleMembers : null,
       burningPeriod: burningOn ? { start_hour: bpStart, end_hour: bpEnd } : null,
       ffmcSpinUp: spinUpOn,
+      weatherSchedule: scheduleRows,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     ignitionPoint, weather, fwi, fuelType, useEdmontonGrid, useSyntheticCA,
     enableSpotting, spottingIntensity, includeWater, includeBuildings, includeWUI,
     includeDEM, durationHours, snapshotMinutes, simMode, multiDayDays, mcIterations,
-    ensembleOn, ensembleMembers, burningOn, bpStart, bpEnd, spinUpOn,
+    ensembleOn, ensembleMembers, burningOn, bpStart, bpEnd, spinUpOn, scheduleRows,
   ]);
 
   // ── Skill options: errors, and the settings a perimeter restart reuses ────
@@ -467,6 +468,25 @@ function WeatherPanel({
       spinUp: spinUpOn && spinUpAvailable,
     });
   }, [onSkillOptions, burningOn, burningError, bpStart, bpEnd, spinUpOn, spinUpAvailable]);
+
+  // ── Manual weather changes: errors, and Setup's weather for a restart ─────
+  const scheduleOn = simMode === "single" && !useHourlyForecast && scheduleRows.length > 0;
+  // Fuel-grid vintage: a scenario dated before the grid's year (issue 6; date check only)
+  const vintageWarning = useEdmontonGrid && startMs !== null
+    ? fuelVintageWarning(DEFAULT_FUEL_GRID_YEAR, edmontonYear(startMs))
+    : null;
+  const schedErrors = useMemo(
+    () => (scheduleOn ? scheduleErrors(scheduleRows, startMs, durationHours) : []),
+    [scheduleOn, scheduleRows, startMs, durationHours],
+  );
+  useEffect(() => {
+    onSetupWeather?.({
+      weather,
+      fwi,
+      steps: scheduleOn && startMs !== null ? timedSteps(scheduleRows, startMs) : [],
+      forecastOn: useHourlyForecast,
+    });
+  }, [onSetupWeather, weather, fwi, scheduleOn, scheduleRows, startMs, useHourlyForecast]);
 
   // ── Station weather (CWFIS) for the ignition point ───────────────────────
   // Weather and FWI are filled from the nearest station only while they are still "auto":
@@ -671,6 +691,7 @@ function WeatherPanel({
     if (spinWanted && skill.spinUpSkipped) {
       setWeatherMessage((m) => `${m ?? ""}${m ? " · " : ""}FFMC spin-up skipped: ${skill.spinUpSkipped}`);
     }
+    const weatherSchedule = scheduleOn ? scheduleRequest(scheduleRows, atMs) : null;
     onRunParams?.({
       weather,
       fwi,
@@ -681,6 +702,10 @@ function WeatherPanel({
       n_iterations: 1,
       duration_hours: durationHours,
       fuel_type: fuelType,
+      weather_schedule: weatherSchedule,
+      hourly_forecast: !!hourly,
+      start_time: toEdmontonIso(atMs),
+      fuel_vintage_warning: useEdmontonGrid ? fuelVintageWarning(DEFAULT_FUEL_GRID_YEAR, edmontonYear(atMs)) : null,
     });
     onStartSimulation({
       ignition_lat: ignitionPoint.lat,
@@ -690,6 +715,7 @@ function WeatherPanel({
       fwi_overrides: fwi,
       fuel_modifiers: fuelModifiers(atMs),
       hourly_weather: hourly,
+      weather_schedule: weatherSchedule,
       duration_hours: durationHours,
       snapshot_interval_minutes: snapshotMinutes,
       fuel_type: fuelType,
@@ -809,7 +835,9 @@ function WeatherPanel({
           ? `Fix the inputs: ${errorList.join("; ")}`
           : burningError
             ? `Fix the burning period: ${burningError}`
-            : null;
+            : schedErrors.length
+              ? `Fix the weather changes: ${schedErrors[0]}`
+              : null;
   const canRun = disabledReason === null && (simMode === "single" || !!onStartMultiDaySimulation);
 
   // Ctrl+Enter runs from anywhere (spec §2.2)
@@ -991,6 +1019,11 @@ function WeatherPanel({
           </button>
         </div>
         {startError && <div className="input-error" id={`${fieldId}-start-err`} role="alert">{startError}</div>}
+        {vintageWarning && (
+          <div className="status-line" role="note" data-testid="fuel-vintage-start">
+            <Badge tone="warn" tip={vintageWarning}>Before the fuel grid's year ({DEFAULT_FUEL_GRID_YEAR})</Badge>
+          </div>
+        )}
         <span className="visually-hidden" id={`${fieldId}-start-hint`}>{TIPS.startNow}</span>
         {useHourlyForecast && simMode === "single" && startMs !== null && startMs < nowMs - 3_600_000 && (
           <div className="status-line">
@@ -1009,9 +1042,9 @@ function WeatherPanel({
             ? "Check the inputs"
             : simMode === "multiday"
               ? `Multi-day weather · FFMC ${fwi.ffmc} DMC ${fwi.dmc} DC ${fwi.dc}`
-              : `${windLabel(weather.wind_direction)} ${weather.wind_speed} km/h · RH ${weather.relative_humidity}% · FWI ${liveFWI.toFixed(1)} ${liveDanger}${useHourlyForecast ? " · hourly forecast" : ""}`
+              : `${windLabel(weather.wind_direction)} ${weather.wind_speed} km/h · RH ${weather.relative_humidity}% · FWI ${liveFWI.toFixed(1)} ${liveDanger}${useHourlyForecast ? " · hourly forecast" : scheduleOn ? ` · ${scheduleRows.length} weather change${scheduleRows.length === 1 ? "" : "s"}` : ""}`
         }
-        attention={weatherErrors}
+        attention={weatherErrors || schedErrors.length > 0}
       >
         {simMode === "single" && (
           <div className="section">
@@ -1085,6 +1118,14 @@ function WeatherPanel({
               </label>
               <InfoTip label="About hourly forecast weather" text={TIPS.hourlyForecast} />
             </div>
+            <WeatherSchedulePanel
+              rows={scheduleRows}
+              onChange={(rows) => { setScheduleRows(rows); markWeatherManual(); }}
+              base={weather}
+              startMs={startMs}
+              forecastOn={useHourlyForecast}
+              errors={schedErrors}
+            />
           </div>
         )}
         {simMode === "multiday" && (
@@ -1228,8 +1269,13 @@ function WeatherPanel({
             ? `Edmonton grid · curing ${cure !== null ? `${cure}%` : "required"}${enableSpotting ? " · spotting on" : ""}`
             : `${fuelType} uniform${useSyntheticCA ? " · synthetic mosaic" : ""} · curing ${cure !== null ? `${cure}%` : "required"}`
         }
-        attention={curingError !== null}
+        attention={curingError !== null || vintageWarning !== null}
       >
+        {vintageWarning && (
+          <div className="status-line fuel-vintage-warning" role="note" data-testid="fuel-vintage-setup">
+            <Badge tone="warn">{vintageWarning}</Badge>
+          </div>
+        )}
         <div className="with-tip">
           <label>
             <input

@@ -139,7 +139,7 @@ test("re-run at a new ignition without reloading: weather kept, old results repl
   await setIgnitionAtMapCentre(page);
   await runToCompletion(page);
   await waitForMapQuiet(page);
-  const n = fixture.frames.length + 1;
+  const n = fixture.frames.length; // the fixture starts at T+0: no synthetic start frame (owner bug 11)
   await expect(page.locator(".ts-frame-count")).toHaveText(`${n}/${n}`);
   const viewAfterFirst = await bounds(page);
 

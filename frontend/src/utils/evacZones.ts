@@ -426,11 +426,19 @@ export function neighbourhoodArrivals(
   frames: SimulationFrame[],
   communities: GeoJSON.FeatureCollection | null | undefined,
   bufferM: number = ARRIVAL_BUFFER_M,
+  /** Fire points of earlier runs in a restart chain (hours before this run's start are
+   * negative), so an arrival keeps the chain's earliest time (owner field test, bug 3) */
+  carried: { lat: number; lng: number; h: number }[] = [],
 ): NeighbourhoodArrival[] {
   if (!communities || frames.length === 0) return [];
-  const pts = firePoints(frames);
+  const pts = withCarried(firePoints(frames), carried);
   const perimeterMode = !frames.some((f) => (f.burned_cells?.length ?? 0) > 0);
   return arrivalsFromPoints(pts, communities, bufferM, perimeterMode ? frames : null);
+}
+
+/** Fire points of this run and the carried ones of earlier runs, sorted by time. */
+export function withCarried<T extends { h: number }>(pts: T[], carried: T[]): T[] {
+  return carried.length ? [...carried, ...pts].sort((a, b) => a.h - b.h) : pts;
 }
 
 /**

@@ -4,7 +4,8 @@ import { Suspense, useCallback, useState, useMemo, useRef, useEffect } from "rea
 import { lazyChunk } from "./utils/lazyChunk";
 import MapView from "./components/MapView";
 import WeatherPanel from "./components/WeatherPanel";
-import type { RunParams, SkillOptionsState } from "./components/WeatherPanel";
+import type { RunParams, SetupWeather, SkillOptionsState } from "./components/WeatherPanel";
+import { runParamsFor } from "./utils/fwiCalc";
 import FireMetrics from "./components/FireMetrics";
 import EOCSummary from "./components/EOCSummary";
 import type { ICS209RunContext } from "./utils/ics209";
@@ -20,12 +21,14 @@ import { cancelEnsemble, computeBurnProbability, fetchAreaLayer, fetchFuelGridIm
 import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { useRecon } from "./hooks/useRecon";
 import { clockAt, formatClock, zoneAbbrev } from "./utils/time";
+import { weatherAt } from "./utils/weatherSchedule";
 import StructureSpreadPanel from "./components/StructureSpreadPanel";
 import { caveatFor, roofScenarioLabel, structureDetail, structureUnitsGeoJSON } from "./utils/structureSpread";
 import {
   ARRIVAL_BUFFER_M,
   arrivalsToGeoJSON,
   featureName,
+  firePoints,
   neighbourhoodArrivals,
   neighbourhoodArrivalsFromPoints,
   planningZones,
@@ -475,6 +478,7 @@ export default function App() {
     archived: runFromArchive,
     phase: runPhase,
     progress: runFraction,
+    fuelVintageWarning,
     startedAt: runStartedAt,
   } = useSimulation();
 
@@ -506,6 +510,12 @@ export default function App() {
   // Spread-skill options: Setup's current settings (reused by the perimeter restart), and the
   // burning period of the current run (timeline shading, Situation note)
   const [skillOptions, setSkillOptions] = useState<SkillOptionsState>({ burningPeriod: null, spinUp: false });
+  // Setup's current weather, FWI codes and weather changes: a perimeter restart uses them
+  // (owner field test 2026-10-12: restarts used the earlier run's weather)
+  const [setupWeather, setSetupWeather] = useState<SetupWeather | null>(null);
+  // Fire points of the earlier runs in a perimeter-restart chain, up to each restart's time
+  // (absolute times), so community and asset arrivals keep the chain's earliest time (bug 3)
+  const [carriedFire, setCarriedFire] = useState<{ lat: number; lng: number; atMs: number }[]>([]);
   const [runBurningPeriod, setRunBurningPeriod] = useState<BurningPeriod | null>(null);
   // Optional label sent with the next run (saved-runs list)
   const [runLabel, setRunLabel] = useState("");
@@ -513,30 +523,46 @@ export default function App() {
 
   // RPAS perimeter restart: observed perimeter, active edges, drawing on the map
   const recon = useRecon();
-  const { cancelDrawing: cancelReconDrawing } = recon;
+  const { cancelDrawing: cancelReconDrawing, clear: clearRecon } = recon;
 
   const handlePerimeterOverride = useCallback(
     (req: PerimeterOverrideRequest) => {
       const at = req.start_time ? Date.parse(req.start_time) : NaN;
+      const restartMs = Number.isFinite(at) ? at : Date.now();
+      // Carry the chain's fire history up to the restart time (this run's, and what it carried)
+      if (scenarioStart) {
+        const t0 = scenarioStart.getTime();
+        const own = firePoints(frames)
+          .map((p) => ({ lat: p.lat, lng: p.lng, atMs: t0 + p.h * 3_600_000 }))
+          .filter((p) => p.atMs <= restartMs);
+        setCarriedFire((prev) => [...prev.filter((p) => p.atMs <= restartMs), ...own]);
+      }
       leaveCurrentRun();
-      setScenarioStart(new Date(Number.isFinite(at) ? at : Date.now()));
+      setScenarioStart(new Date(restartMs));
       setRunBurningPeriod(req.burning_period ?? null);
       setLastRunSpinUp(false);
+      // Header chips and reports: the weather the restart runs with
+      if (req.weather && req.fwi_overrides) {
+        setLastRunParams((prev) => runParamsFor(req.weather!, req.fwi_overrides!, req.duration_hours ?? 4,
+          prev?.fuel_type, req.weather_schedule ?? null, prev?.hourly_forecast ?? false, req.start_time ?? null));
+      }
       cancelReconDrawing();
       startPerimeterOverride(req);
     },
-    [startPerimeterOverride, cancelReconDrawing, leaveCurrentRun]
+    [startPerimeterOverride, cancelReconDrawing, leaveCurrentRun, scenarioStart, frames]
   );
 
   const handleStartMultiDay = useCallback(
     (req: Parameters<typeof startMultiDaySimulation>[0], startMs: number) => {
       leaveCurrentRun();
+      setCarriedFire([]);
+      recon.clear();
       setScenarioStart(new Date(startMs));
       setRunBurningPeriod(req.burning_period ?? null);
       setLastRunSpinUp(false);
       startMultiDaySimulation(withRunLabel(req, runLabel));
     },
-    [startMultiDaySimulation, leaveCurrentRun, runLabel]
+    [startMultiDaySimulation, leaveCurrentRun, recon, runLabel]
   );
 
   // Run pressed but the request is still being prepared (hourly forecast fetch): leave the
@@ -682,6 +708,7 @@ export default function App() {
     const at = activePeriod.runStartIso ? Date.parse(activePeriod.runStartIso) : NaN;
     setScenarioStart(Number.isFinite(at) ? new Date(at) : null);
     setRunBurningPeriod(null);
+    setCarriedFire([]);
     restoreRun(activePeriod.simulationId);
   }, [incident, activePeriod, leaveCurrentRun, restoreRun]);
 
@@ -743,7 +770,17 @@ export default function App() {
 
   // Neighbourhoods: modelled earliest fire arrival within 500 m (a model fact, whole run).
   // With an ensemble, the P10 (early) arrival leads and the single run is secondary.
-  const arrivals = useMemo(() => neighbourhoodArrivals(frames, communities), [frames, communities]);
+  // Earlier runs of a restart chain: hours relative to this run's start (negative = before it)
+  const carriedPts = useMemo(
+    () => (scenarioStart
+      ? carriedFire.map((p) => ({ lat: p.lat, lng: p.lng, h: (p.atMs - scenarioStart.getTime()) / 3_600_000 }))
+      : []),
+    [carriedFire, scenarioStart],
+  );
+  const arrivals = useMemo(
+    () => neighbourhoodArrivals(frames, communities, ARRIVAL_BUFFER_M, carriedPts),
+    [frames, communities, carriedPts],
+  );
   // House-to-house spread (illustrative): involved footprints for the map, display only
   const structureSummary = useMemo(() => frames.find((f) => f.structure_spread)?.structure_spread ?? null, [frames]);
   const structureUnits = useMemo(() => {
@@ -829,7 +866,7 @@ export default function App() {
       features: [...(edmontonRoads?.features ?? []), ...(albertaRoads?.features ?? []), ...lines],
     };
   }, [edmontonRoads, albertaRoads, userLayers]);
-  const singleFire = useMemo(() => fireFromFrames(frames), [frames]);
+  const singleFire = useMemo(() => fireFromFrames(frames, carriedPts), [frames, carriedPts]);
   const worstFire = useMemo(() => (ensGrids ? fireFromEnsemble(ensGrids, "p10") : null), [ensGrids]);
   const singleAssetReach = useMemo(() => assetReach(singleFire, assets), [singleFire, assets]);
   const worstAssetReach = useMemo(() => (worstFire ? assetReach(worstFire, assets) : null), [worstFire, assets]);
@@ -932,6 +969,9 @@ export default function App() {
       lastStartRef.current = params;
       setDismissedError(null);
       leaveCurrentRun();
+      // A new fire: no restart chain, and the observed perimeter of the old run goes (bug 9)
+      setCarriedFire([]);
+      clearRecon();
       const start = params.start_time ? Date.parse(params.start_time) : NaN;
       setScenarioStart(new Date(Number.isFinite(start) ? start : Date.now()));
       setEnsembleMembers(params.ensemble?.n_members ?? null);
@@ -939,13 +979,22 @@ export default function App() {
       setLastRunSpinUp(!!params.ffmc_spin_up);
       startSimulation(withRunLabel(params, runLabel));
     },
-    [startSimulation, leaveCurrentRun, runLabel]
+    [startSimulation, leaveCurrentRun, clearRecon, runLabel]
   );
 
 
   const handleRunParams = useCallback((params: RunParams) => {
     setLastRunParams(params);
   }, []);
+
+  // Fuel-grid vintage (issue 6): the server's flag for the grid the run used goes into the
+  // run parameters, so the summary, exports and ICS 209 remarks carry it
+  useEffect(() => {
+    if (status !== "completed") return;
+    setLastRunParams((prev) => (prev && prev.fuel_vintage_warning !== fuelVintageWarning
+      ? { ...prev, fuel_vintage_warning: fuelVintageWarning }
+      : prev));
+  }, [status, fuelVintageWarning]);
 
   const handleComputeBurnProbability = useCallback(
     async (params: BurnProbabilityRequest) => {
@@ -1089,6 +1138,7 @@ export default function App() {
             onEdmontonGridChange={handleEdmontonGridChange}
             runBarTarget={runBarEl}
             onSkillOptions={setSkillOptions}
+            onSetupWeather={setSetupWeather}
             onNewIgnition={!isRunning && frames.length > 0 ? armNewIgnition : undefined}
             onRunRequested={handleRunRequested}
             runRequest={runRequest}
@@ -1134,6 +1184,7 @@ export default function App() {
               observedAtMs={scenarioStart && currentFrame ? clockAt(scenarioStart, currentFrame.time_hours).getTime() : null}
               burningPeriod={skillOptions.burningPeriod}
               spinUp={skillOptions.spinUp && lastRunSpinUp}
+              setupWeather={setupWeather}
             />
           </SetupSection>
           <SetupSection
@@ -1269,29 +1320,40 @@ export default function App() {
             <span>{layout.focusMode ? "Exit focus" : "Focus map"}</span>
           </button>
         )}
-        {/* Telemetry strip — floating glass chips over the map */}
-        {lastRunParams && (
-          <div className="telemetry-strip">
-            <div className="tel-chip">
-              <span className="tel-label">Wind</span>
-              <span className="tel-value">{lastRunParams.weather.wind_speed}<span className="tel-unit"> km/h</span></span>
-              <span className="tel-dir">{["N","NE","E","SE","S","SW","W","NW"][Math.round(lastRunParams.weather.wind_direction / 45) % 8]}</span>
+        {/* Telemetry strip — floating glass chips over the map: the shown run's weather
+            (with weather changes, the values in force at the timeline's time), labelled as run
+            values so a Setup edit is not mistaken for them (owner field test, bug 10) */}
+        {lastRunParams && (() => {
+          const scheduled = !!lastRunParams.weather_schedule?.length;
+          const w = weatherAt(lastRunParams.weather, lastRunParams.weather_schedule, currentFrame?.time_hours ?? 0);
+          const dir = ["N","NE","E","SE","S","SW","W","NW"][Math.round(w.wind_direction / 45) % 8];
+          return (
+            <div className="telemetry-strip" role="group" aria-label="Run weather (the shown run's inputs)" data-testid="run-chips">
+              <div className="tel-chip tel-chip-caption">
+                <span className="tel-label">Run</span>
+                <InfoTip label="About the run values" text={TIPS.runChips} />
+              </div>
+              <div className="tel-chip">
+                <span className="tel-label">Run wind{scheduled ? " now" : ""}</span>
+                <span className="tel-value">{w.wind_speed}<span className="tel-unit"> km/h</span></span>
+                <span className="tel-dir">{dir}</span>
+              </div>
+              <div className="tel-chip">
+                <span className="tel-label">Run RH</span>
+                <span className="tel-value">{w.relative_humidity}<span className="tel-unit">%</span></span>
+              </div>
+              <div className="tel-chip">
+                <span className="tel-label">Run temp</span>
+                <span className="tel-value">{w.temperature}<span className="tel-unit">°C</span></span>
+              </div>
+              <div className="tel-chip tel-chip-danger">
+                <span className="tel-label">Run FWI{scheduled ? " at start" : ""}</span>
+                <span className="tel-value">{lastRunParams.fwi_value.toFixed(0)}</span>
+                <FwiClassChip className="tel-danger" fwi={lastRunParams.fwi_value} label={lastRunParams.danger_rating} />
+              </div>
             </div>
-            <div className="tel-chip">
-              <span className="tel-label">Humidity</span>
-              <span className="tel-value">{lastRunParams.weather.relative_humidity}<span className="tel-unit">%</span></span>
-            </div>
-            <div className="tel-chip">
-              <span className="tel-label">Temp</span>
-              <span className="tel-value">{lastRunParams.weather.temperature}<span className="tel-unit">°C</span></span>
-            </div>
-            <div className="tel-chip tel-chip-danger">
-              <span className="tel-label">FWI</span>
-              <span className="tel-value">{lastRunParams.fwi_value.toFixed(0)}</span>
-              <FwiClassChip className="tel-danger" fwi={lastRunParams.fwi_value} label={lastRunParams.danger_rating} />
-            </div>
-          </div>
-        )}
+          );
+        })()}
         <MapErrorBoundary>
         <MapView
             frames={frames}
@@ -1375,6 +1437,8 @@ export default function App() {
                     leaveCurrentRun();
                     clearResults();
                     setRunBurningPeriod(null);
+                    setCarriedFire([]);
+                    clearRecon();
                   }}
                 >
                   Clear results
@@ -1401,6 +1465,11 @@ export default function App() {
             </SideRail>
           }
         >
+          {lastRunParams?.fuel_vintage_warning && frames.length > 0 && (
+            <div className="status-line fuel-vintage-warning" role="note" data-testid="fuel-vintage-result">
+              <Badge tone="warn">{lastRunParams.fuel_vintage_warning}</Badge>
+            </div>
+          )}
           <FireMetrics
             frame={currentFrame}
             status={status}

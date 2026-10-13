@@ -39,7 +39,7 @@ test("3-day recorded run: 72 h timeline with day boundaries, carried-over FWI pe
   await runMultiDay(page);
 
   expect((api.multidayPosts[0].days as unknown[]).length).toBe(3);
-  const n = multidayFixture.frames.length + 1; // + the synthetic T=0 frame
+  const n = multidayFixture.frames.length; // the fixture starts at T+0: no synthetic start frame (owner bug 11)
   await expect(page.locator(".ts-frame-count")).toHaveText(`${n}/${n}`);
   await expect(page.locator(".ts-day-tick-label")).toHaveText(["D2", "D3"]);
   await expect(page.locator(".ts-tick.last .ts-tick-elapsed")).toHaveText(/72/);
@@ -105,7 +105,7 @@ test("2-day request: only days 1-2, 48 h timeline; Clear results empties the tim
   await expect(page.locator(".status-badge.status-completed")).toHaveText("completed", { timeout: 30_000 });
 
   expect((api.multidayPosts[0].days as unknown[]).length).toBe(2);
-  const n = recordedMultiDayFrames(2).length + 1;
+  const n = recordedMultiDayFrames(2).length; // the fixture starts at T+0: no synthetic start frame (owner bug 11)
   await expect(page.locator(".ts-frame-count")).toHaveText(`${n}/${n}`);
   await expect(page.locator(".ts-day-tick-label")).toHaveText(["D2"]);
   await expect(page.locator(".ts-tick.last .ts-tick-elapsed")).toHaveText(/48/);

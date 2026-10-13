@@ -2425,6 +2425,11 @@ label.field.evac-pick-tier {
   letter-spacing: 0.05em;
 }
 
+.tel-chip-caption {
+  pointer-events: auto; /* the tip button */
+  align-items: center;
+}
+
 .tel-danger {
   font-size: var(--fs-xs);
   font-weight: 700;
@@ -3725,4 +3730,35 @@ label.field.evac-pick-tier {
   flex-direction: column;
   gap: 8px;
   align-items: flex-start;
+}
+
+/* ── Setup: weather changes during the run (manual schedule) ─────────────────── */
+.weather-schedule .schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  margin: 4px 0 6px;
+}
+.weather-schedule .schedule-table th,
+.weather-schedule .schedule-table td {
+  padding: 2px 3px;
+  text-align: left;
+  font-weight: 500;
+}
+.weather-schedule .schedule-table thead th {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.weather-schedule .schedule-table input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 3px;
+  font-size: var(--fs-xs);
+}
+.weather-schedule .schedule-table input[type="time"] {
+  min-width: 5.5em;
+}
+.weather-schedule .schedule-base td,
+.weather-schedule .schedule-base th {
+  color: var(--text-2);
 }

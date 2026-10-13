@@ -22,6 +22,7 @@
  * - Every report is stamped with the run ID and the model version (/api/v1/version git_sha).
  */
 
+import { runScheduleLines } from "./weatherSchedule";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { PlanningEvacZone } from "./evacZones";
@@ -413,7 +414,7 @@ export function buildICS209HTML(opts: ICS209Options): string {
     ? `<div class="note">Evacuation status set by Planning (reported as entered, never generated):</div><ul class="res">${evacZones.map((z) => `<li><strong>${esc(z.tier)}</strong>: ${esc(z.neighbourhoods.join(", "))}</li>`).join("")}</ul>`
     : "";
   const weather = runParams
-    ? `Inputs used by the run (not a forecast): wind ${runParams.weather.wind_speed} km/h from ${runParams.weather.wind_direction}° (${esc(windDirLabel(runParams.weather.wind_direction))}), ${runParams.weather.temperature} °C, RH ${runParams.weather.relative_humidity} %, precipitation ${runParams.weather.precipitation_24h ?? 0} mm; FFMC ${runParams.fwi.ffmc ?? "—"}, DMC ${runParams.fwi.dmc ?? "—"}, DC ${runParams.fwi.dc ?? "—"}, ISI ${runParams.isi.toFixed(1)}, BUI ${runParams.bui.toFixed(0)}, FWI ${runParams.fwi_value.toFixed(1)} (${esc(runParams.danger_rating)}, CWFIS FWI map class).<div class="note">Add the current and predicted weather synopsis from the forecast.</div>`
+    ? `Inputs used by the run (not a forecast): wind ${runParams.weather.wind_speed} km/h from ${runParams.weather.wind_direction}° (${esc(windDirLabel(runParams.weather.wind_direction))}), ${runParams.weather.temperature} °C, RH ${runParams.weather.relative_humidity} %, precipitation ${runParams.weather.precipitation_24h ?? 0} mm; FFMC ${runParams.fwi.ffmc ?? "—"}, DMC ${runParams.fwi.dmc ?? "—"}, DC ${runParams.fwi.dc ?? "—"}, ISI ${runParams.isi.toFixed(1)}, BUI ${runParams.bui.toFixed(0)}, FWI ${runParams.fwi_value.toFixed(1)} (${esc(runParams.danger_rating)}, CWFIS FWI map class).${runScheduleLines(runParams).length ? `<div>Weather changes during the run (manual schedule; FFMC and ISI recomputed hourly from the codes above): ${runScheduleLines(runParams).map(esc).join("; then ")}.</div>` : ""}<div class="note">Add the current and predicted weather synopsis from the forecast.</div>`
     : "";
 
   const projRows = projections.map((p) => {
@@ -486,7 +487,9 @@ export function buildICS209HTML(opts: ICS209Options): string {
       block("45. Estimated Incident Costs to Date", "user", "", "w2"),
       block("46. Projected Final Incident Cost Estimate", "user", "", "w2"),
     ),
-    row(block("47. Remarks", "user", "", "w6", { tall: true })),
+    row(block("47. Remarks", "user", runParams?.fuel_vintage_warning
+      ? `<div class="note">${esc(runParams.fuel_vintage_warning)}</div><div class="entry tall" contenteditable="true"></div>`
+      : "", "w6", { tall: true })),
     sectionHeader("INCIDENT RESOURCE COMMITMENT SUMMARY (blocks 48-53)", true),
     row(block("48-53. Agency or Organization, Resources, Additional Personnel, Totals, Cooperating and Assisting Organizations", "user", '<div class="note">Page 4 of the form: complete on the ICS Canada form; FireSim has no resource data.</div>', "w6")),
   ].join("");

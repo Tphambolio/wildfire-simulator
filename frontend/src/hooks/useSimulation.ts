@@ -12,7 +12,12 @@ import type {
   WSEvent,
 } from "../types/simulation";
 
-/** Synthetic T=0 frame prepended to every simulation so the scrubber always starts at ignition. */
+/**
+ * Synthetic T=0 frame, prepended only when a run's first frame is after the start, so the
+ * scrubber always starts at ignition. The engine's own first frame is at T+0 (the ignition
+ * cell, or the observed perimeter of a restart), so it is normally not needed: prepending it
+ * anyway showed two start frames (owner field test 2026-10-12, bug 11).
+ */
 const T0_FRAME: SimulationFrame = {
   time_hours: 0,
   perimeter: [],
@@ -42,6 +47,8 @@ interface SimulationState {
   durationHours: number | null;
   /** The run was read from the server's run archive (it finished before the API restarted) */
   archived: boolean;
+  /** Server flag: the scenario is dated before the run's fuel grid year (null = none) */
+  fuelVintageWarning: string | null;
 }
 
 const IDLE: SimulationState = {
@@ -57,6 +64,7 @@ const IDLE: SimulationState = {
   startedAt: null,
   durationHours: null,
   archived: false,
+  fuelVintageWarning: null,
 };
 
 /** Progress from a frame's time (Huygens runs stream frames as they compute). */
@@ -128,6 +136,7 @@ export function useSimulation() {
       const ws = new WebSocket(getWebSocketUrl(simId));
       wsRef.current = ws;
 
+      let received = 0; // frames this socket delivered
       ws.onmessage = (event) => {
         if (token !== runTokenRef.current) return;
         const data: WSEvent = JSON.parse(event.data);
@@ -141,12 +150,12 @@ export function useSimulation() {
             progress: typeof data.progress === "number" ? Math.max(prev.progress ?? 0, data.progress) : prev.progress,
           }));
         } else if (data.type === "simulation.frame" && data.frame) {
+          received += 1;
           setState((prev) => {
             const frame = withAllCells(data.frame!, prev.frames[prev.frames.length - 1]);
-            // Prepend a synthetic T=0 frame on the very first real frame so the
-            // scrubber always starts at the ignition state (nothing burning).
+            // The first frame: prepend a synthetic T=0 only if the run's own starts later
             const newFrames = prev.frames.length === 0
-              ? [T0_FRAME, frame]
+              ? withStartFrame([frame])
               : [...prev.frames, frame];
             return {
               ...prev,
@@ -156,12 +165,17 @@ export function useSimulation() {
             };
           });
         } else if (data.type === "simulation.completed") {
-          setState((prev) => ({
-            ...prev,
-            status: "completed",
-            isRunning: false,
-            isPaused: false,
-          }));
+          // The server says how many frames the run has: if any did not arrive (a dropped
+          // connection), read the run once from the server rather than show a short run
+          const expected = typeof data.n_frames === "number" ? data.n_frames : null;
+          if (expected !== null && received < expected) {
+            fallback();
+          } else {
+            setState((prev) => ({
+              ...prev, status: "completed", isRunning: false, isPaused: false,
+              fuelVintageWarning: data.fuel_vintage_warning ?? null,
+            }));
+          }
         } else if (data.type === "simulation.error") {
           setState((prev) => ({
             ...prev,
@@ -255,7 +269,7 @@ export function useSimulation() {
         if (token !== runTokenRef.current) return;
         const full: SimulationFrame[] = [];
         for (const f of resp.frames) full.push(withAllCells(f, full[full.length - 1]));
-        const framesWithT0 = full.length > 0 ? [T0_FRAME, ...full] : [];
+        const framesWithT0 = withStartFrame(full);
         setState((prev) => ({
           ...prev,
           frames: framesWithT0,
@@ -264,6 +278,7 @@ export function useSimulation() {
           isRunning: resp.status === "running",
           error: resp.error,
           archived: resp.archived === true,
+          fuelVintageWarning: resp.fuel_vintage_warning ?? null,
           phase: resp.phase ?? prev.phase,
           progress: typeof resp.progress === "number" ? Math.max(prev.progress ?? 0, resp.progress) : prev.progress,
         }));
@@ -348,6 +363,12 @@ export function useSimulation() {
     resumeSimulation,
     cancelSimulation,
   };
+}
+
+/** Frames with the synthetic T=0 frame in front when the first frame is after the start. */
+export function withStartFrame(frames: SimulationFrame[]): SimulationFrame[] {
+  if (frames.length === 0) return frames;
+  return frames[0].time_hours > 1e-9 ? [T0_FRAME, ...frames] : frames;
 }
 
 /**

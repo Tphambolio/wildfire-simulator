@@ -18,6 +18,7 @@ from firesim_api.schemas.simulation import (
     SimulationFrame as FrameSchema,
     SimulationResponse,
     SimulationStatus,
+    WeatherUsed,
 )
 from firesim_api.services import archive as run_archive
 from firesim_api.services.runner import SimulationRun, SimulationRunner
@@ -96,21 +97,10 @@ def _frame_to_schema(
 
 
 def _on_frame(sim_id: str, frame: SimulationFrame) -> None:
-    """Callback from simulation thread — broadcast frame via WebSocket."""
-    if ws_manager is None:
-        return
-    offset = 0
-    run = runner.get(sim_id) if runner is not None else None
-    if run is not None and _incremental(run):
-        frames = run.get_frames()  # this frame was added before the callback
-        if len(frames) > 1:
-            offset = len(frames[-2].burned_cells or [])
-    event = {
-        "type": "simulation.frame",
-        "simulation_id": sim_id,
-        "frame": _frame_to_schema(frame, offset=offset).model_dump(),
-    }
-    ws_manager.broadcast_from_thread(sim_id, event)
+    """Callback from the simulation thread: the run has a new frame. The WebSocket handler
+    sends it (in order, from the run; ws/manager.py), so nothing is serialised here."""
+    if ws_manager is not None:
+        ws_manager.frames_added_from_thread(sim_id)
 
 
 def _status_event(sim_id: str, phase: str, progress: float | None) -> dict:
@@ -131,22 +121,10 @@ def _on_status(sim_id: str, phase: str, progress: float | None) -> None:
 
 
 def _on_multiday_frame(sim_id: str, frame: SimulationFrame, day: int) -> None:
-    """Callback from multi-day simulation thread — broadcast frame with day tag."""
-    if ws_manager is None:
-        return
-    offset = 0
-    run = runner.get(sim_id) if runner is not None else None
-    if run is not None and _incremental(run):
-        frames = run.get_frames()  # this frame was added before the callback
-        if len(frames) > 1:
-            offset = _offset(run, frames[-2], frames[-1])
-    event = {
-        "type": "simulation.frame",
-        "simulation_id": sim_id,
-        "frame": _frame_to_schema(frame, day=day, offset=offset,
-                                  day_fwi=run.day_fwi.get(day) if run is not None else None).model_dump(),
-    }
-    ws_manager.broadcast_from_thread(sim_id, event)
+    """Callback from the multi-day thread: new frame (sent by the WebSocket handler with its
+    day tag and the day's FWI codes)."""
+    if ws_manager is not None:
+        ws_manager.frames_added_from_thread(sim_id)
 
 
 @router.post("", response_model=SimulationResponse)
@@ -274,7 +252,8 @@ def _response_for(run: SimulationRun) -> SimulationResponse:
                                   run.frame_meta(len(engine_frames)))
     ]
 
-    # Only include config in response for single-day simulations
+    # Only include config in response for single-day simulations (a restart: the request it
+    # ran as, with its own weather)
     config_out = run.config if isinstance(run.config, SimulationCreate) else None
 
     return SimulationResponse(
@@ -288,6 +267,33 @@ def _response_for(run: SimulationRun) -> SimulationResponse:
         fuel_source=run.fuel_source,
         buildings_source=getattr(run, "buildings_source", None),
         terrain_source=getattr(run, "terrain_source", None),
+        weather_used=_weather_used(run),
+        fuel_vintage_warning=_vintage_warning(run),
+    )
+
+
+def _vintage_warning(run: SimulationRun) -> str | None:
+    """Fuel-grid vintage flag of a run (owner field test 2026-10-12, issue 6)."""
+    from firesim_api.services.runner import fuel_vintage_warning
+
+    cfg = run.config
+    start = getattr(cfg, "start_time", None)
+    year = run.fuel_source.get("vintage_year") if isinstance(run.fuel_source, dict) else None
+    return fuel_vintage_warning(year, start)
+
+
+def _weather_used(run: SimulationRun) -> WeatherUsed | None:
+    """The weather a single run or restart used (None for multi-day runs)."""
+    cfg = run.config
+    if not isinstance(cfg, SimulationCreate):
+        return None
+    return WeatherUsed(
+        source=getattr(run, "weather_source", "request"),
+        weather=cfg.weather,
+        fwi_overrides=cfg.fwi_overrides,
+        weather_schedule=cfg.weather_schedule,
+        hourly_weather=bool(cfg.hourly_weather),
+        start_time=cfg.start_time,
     )
 
 
@@ -460,9 +466,58 @@ async def cancel_ensemble(sim_id: str) -> dict:
             "cancel_requested": run.ensemble_status not in ("completed", "failed")}
 
 
+_LIVE_STATUSES = (SimulationStatus.PENDING, SimulationStatus.RUNNING, SimulationStatus.PAUSED)
+
+
+def _frame_events(run: SimulationRun, sim_id: str, start: int) -> tuple[list[str], int]:
+    """JSON texts of the run's frames from index ``start`` on, and the new frame count.
+    Runs on a worker thread (large grid frames take a while to serialise)."""
+    frames = run.get_frames()
+    if start >= len(frames):
+        return [], start
+    offsets = _cell_offsets(run, frames)
+    meta = run.frame_meta(len(frames))
+    out = []
+    for i in range(start, len(frames)):
+        day, day_fwi = meta[i]
+        frame = _frame_to_schema(frames[i], offset=offsets[i], day=day, day_fwi=day_fwi)
+        out.append(json.dumps({"type": "simulation.frame", "simulation_id": sim_id,
+                               "frame": frame.model_dump()}))
+    return out, len(frames)
+
+
+async def _read_controls(websocket: WebSocket, run: SimulationRun, queue: asyncio.Queue) -> None:
+    """Pause / resume / cancel from the client; replies go through the handler's queue."""
+    try:
+        while True:
+            text = await websocket.receive_text()
+            try:
+                action = json.loads(text).get("action")
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            if action == "pause":
+                run.pause()
+                queue.put_nowait({"type": "status", "state": "paused"})
+            elif action == "resume":
+                run.resume()
+                queue.put_nowait({"type": "status", "state": "running"})
+            elif action == "cancel":
+                run.cancel()
+                queue.put_nowait({"type": "status", "state": "cancelled"})
+    except (WebSocketDisconnect, RuntimeError):
+        queue.put_nowait(None)  # the client left: stop the handler
+
+
 @router.websocket("/ws/{sim_id}")
 async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
-    """WebSocket endpoint for streaming simulation frames."""
+    """WebSocket endpoint for streaming simulation frames.
+
+    This handler is the socket's only writer (ws/manager.py). It sends the run's frames in
+    order, each exactly once, read from the run itself; status messages and control replies
+    come through its queue. The terminal event (``simulation.completed`` with ``n_frames``,
+    or ``simulation.error``) is sent only after every frame, read after the status, so a
+    finished run's last frames always arrive before it.
+    """
     if ws_manager is None or runner is None:
         await websocket.close(code=1011)
         return
@@ -472,94 +527,65 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
         await websocket.close(code=4004, reason="Simulation not found")
         return
 
-    await ws_manager.connect(sim_id, websocket)
-
+    queue = await ws_manager.connect(sim_id, websocket)
+    reader = asyncio.create_task(_read_controls(websocket, run, queue))
+    sent = 0
     try:
-        # Send any frames that already exist. Status first (see get_simulation): frames
-        # added after this snapshot reach the client by broadcast, and a run that finishes
-        # meanwhile gets its "completed" from the loop below, after them.
-        status0 = run.status
-        existing = run.get_frames()
-        for frame, offset, (day, day_fwi) in zip(existing, _cell_offsets(run, existing),
-                                                  run.frame_meta(len(existing))):
-            await websocket.send_json({
-                "type": "simulation.frame",
-                "simulation_id": sim_id,
-                "frame": _frame_to_schema(frame, offset=offset, day=day, day_fwi=day_fwi).model_dump(),
-            })
-
         # A client joining a run still computing gets its current phase first
-        if status0 == SimulationStatus.RUNNING and run.phase is not None:
-            await websocket.send_json(_status_event(sim_id, run.phase, run.progress if run.phase == "spread" else None))
-
-        # If already done, send completion
-        if status0 == SimulationStatus.COMPLETED:
-            await websocket.send_json({
-                "type": "simulation.completed",
-                "simulation_id": sim_id,
-                "fuel_source": run.fuel_source,
-                "buildings_source": getattr(run, "buildings_source", None),
-                "terrain_source": getattr(run, "terrain_source", None),
-            })
-        elif status0 == SimulationStatus.FAILED:
-            await websocket.send_json({
-                "type": "simulation.error",
-                "simulation_id": sim_id,
-                "error": run.error,
-            })
-
-        # Keep connection alive; process control messages and wait for terminal state
-        while run.status in (SimulationStatus.RUNNING, SimulationStatus.PAUSED):
+        if run.status == SimulationStatus.RUNNING and run.phase is not None:
+            await websocket.send_json(
+                _status_event(sim_id, run.phase, run.progress if run.phase == "spread" else None))
+        while True:
+            # Status before frames (see get_simulation): a terminal status read first means
+            # every frame is already in the run
+            status = run.status
+            texts, sent = await run_in_threadpool(_frame_events, run, sim_id, sent)
+            for text in texts:
+                await websocket.send_text(text)
+            if status not in _LIVE_STATUSES:
+                break
             try:
-                msg_text = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
-                try:
-                    msg = json.loads(msg_text)
-                    action = msg.get("action")
-                    if action == "pause":
-                        run.pause()
-                        await websocket.send_json({"type": "status", "state": "paused"})
-                    elif action == "resume":
-                        run.resume()
-                        await websocket.send_json({"type": "status", "state": "running"})
-                    elif action == "cancel":
-                        run.cancel()
-                        await websocket.send_json({"type": "status", "state": "cancelled"})
-                except (json.JSONDecodeError, AttributeError):
-                    pass
+                event = await asyncio.wait_for(queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
+            if event is None:
+                return  # client disconnected
+            if event.get("type") != "_frames_added":
+                await websocket.send_json(event)
+            # anything else queued meanwhile: status and control replies in order
+            while not queue.empty():
+                event = queue.get_nowait()
+                if event is None:
+                    return
+                if event.get("type") != "_frames_added":
+                    await websocket.send_json(event)
 
-        # Send final event based on terminal state
-        if run.status == SimulationStatus.COMPLETED:
+        while not queue.empty():  # control replies (e.g. "cancelled") before the end event
+            event = queue.get_nowait()
+            if event is not None and event.get("type") not in ("_frames_added",
+                                                                 "simulation.status"):
+                await websocket.send_json(event)
+        if status == SimulationStatus.COMPLETED:
             await websocket.send_json({
                 "type": "simulation.completed",
                 "simulation_id": sim_id,
+                "n_frames": sent,
+                "fuel_vintage_warning": _vintage_warning(run),
                 "fuel_source": run.fuel_source,
                 "buildings_source": getattr(run, "buildings_source", None),
                 "terrain_source": getattr(run, "terrain_source", None),
             })
-        elif run.status == SimulationStatus.CANCELLED:
-            # Status already sent on cancel action; send final frame if available
-            frames = run.get_frames()
-            if frames:
-                day, day_fwi = run.frame_meta(len(frames))[-1]
-                await websocket.send_json({
-                    "type": "simulation.frame",
-                    "simulation_id": sim_id,
-                    "frame": _frame_to_schema(frames[-1], offset=_cell_offsets(run, frames)[-1],
-                                              day=day, day_fwi=day_fwi).model_dump(),
-                })
-        elif run.status == SimulationStatus.FAILED and status0 != SimulationStatus.FAILED:
-            # failed after the snapshot above
+        elif status == SimulationStatus.FAILED:
             await websocket.send_json({
                 "type": "simulation.error",
                 "simulation_id": sim_id,
                 "error": run.error,
             })
 
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
+        reader.cancel()
         await ws_manager.disconnect(sim_id, websocket)
 
 
@@ -855,7 +881,13 @@ def _archive_meta(run: SimulationRun, resp: SimulationResponse) -> dict:
     cfg = run.config
     request = cfg.model_dump(mode="json") if cfg is not None else None
     if run.override_request is not None:
-        request = {"source_config": request, "perimeter_override": run.override_request}
+        # The restart's own request (perimeter, weather, schedule), the request it ran as
+        # (source run's + restart weather; restart_config) and the source run's request
+        src = getattr(run, "source_config", None)
+        request = {"source_config": src.model_dump(mode="json") if src is not None else None,
+                   "perimeter_override": run.override_request,
+                   "restart_config": request,
+                   "weather_source": getattr(run, "weather_source", "request")}
     frames = resp.frames
     last = frames[-1] if frames else None
     days = sorted({f.day for f in frames if f.day is not None})

@@ -74,6 +74,12 @@ export const TIPS = {
   hourlyForecast:
     "Wind, temperature, RH and rain change hour by hour (Open-Meteo forecast for the ignition " +
     "point); FFMC follows the hourly FFMC model from the FFMC above.",
+  weatherSchedule:
+    "Optional step changes during this run, e.g. 47 km/h from the start, then 20 km/h from " +
+    "20:00. Each row applies from its local time until the next; the weather above applies " +
+    "from the start. FFMC and ISI are recomputed hourly from the FFMC above (hourly FFMC " +
+    "model); DMC and DC stay fixed. The range of outcomes perturbs every step. A restart from " +
+    "an observed perimeter uses the step in force at its time and the later ones.",
   multiDayWeather: "In multi-day mode the weather is entered per day under 4 Run options.",
   d2Bui: (bui: number) =>
     `BUI ${bui.toFixed(0)} is below 80: green aspen (D-2) does not carry fire in the FBP System ` +
@@ -171,7 +177,15 @@ export const TIPS = {
     "red sooner, green later.",
   reconRestart: (at: string) =>
     `Restarts the run at ${at} (the timeline's selected time) from an observed fire perimeter, ` +
-    "with only its active edges spreading.",
+    "with only its active edges spreading. It uses Setup's current weather, FWI codes and " +
+    "weather changes (not the earlier run's), runs the full Predict time, and keeps the " +
+    "earlier run's arrival times near communities and assets.",
+  reconWeather:
+    "The restart uses these Setup values (Weather & FWI), with any weather changes after the " +
+    "restart time. Change them in Setup before restarting.",
+  runChips:
+    "Weather the shown run used (with weather changes: the values in force at the timeline's " +
+    "time). Setup edits apply from the next run or restart.",
   activeEdges:
     "Edges not marked active are treated as burned out and do not spread. This raised one-day " +
     "skill on held-out Alberta fires.",

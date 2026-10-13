@@ -16,7 +16,7 @@
 
 import type { SimulationFrame } from "../types/simulation";
 import { arrivalPoints, type EnsembleGrids } from "./ensemble";
-import { ARRIVAL_BUFFER_M, featureName, firePoints, labelPoint, perimeterContains } from "./evacZones";
+import { ARRIVAL_BUFFER_M, featureName, firePoints, labelPoint, perimeterContains, withCarried } from "./evacZones";
 import { formatClockAt, formatElapsed } from "./time";
 
 // ── Categories ──────────────────────────────────────────────────────────────
@@ -219,16 +219,21 @@ export interface FireSource {
   perimeterFrames: SimulationFrame[] | null;
 }
 
-/** The single run's fire: burned cells timed by arrival, or perimeter points per frame. */
-export function fireFromFrames(frames: SimulationFrame[]): FireSource | null {
+/**
+ * The single run's fire: burned cells timed by arrival, or perimeter points per frame.
+ * `carried`: fire points of earlier runs in a perimeter-restart chain (negative hours = before
+ * this run's start), so arrivals keep the chain's earliest time (owner field test, bug 3).
+ */
+export function fireFromFrames(frames: SimulationFrame[], carried: FirePoint[] = []): FireSource | null {
   if (frames.length === 0) return null;
-  const pts = firePoints(frames);
-  if (pts.length === 0) return null;
+  const own = firePoints(frames);
+  if (own.length === 0 && carried.length === 0) return null;
+  const pts = withCarried(own, carried);
   const hasCells = frames.some((f) => (f.burned_cells?.length ?? 0) > 0);
   if (!hasCells) return { pts, cellM: null, perimeterFrames: frames };
   // Cell size from the final area and cell count (grid runs report every burned cell)
   const area = frames[frames.length - 1].area_ha;
-  const cellM = area > 0 ? Math.sqrt((area * 10_000) / pts.length) : null;
+  const cellM = area > 0 && own.length > 0 ? Math.sqrt((area * 10_000) / own.length) : null;
   return { pts, cellM, perimeterFrames: null };
 }
 

@@ -22,7 +22,7 @@ test("single run with ensemble → multi-day: new request, old ensemble poll sto
   await setIgnitionAtMapCentre(page);
   await runToCompletion(page);
   expect(api.posts[0].ensemble).toEqual({ n_members: 30 });
-  const n1 = fixture.frames.length + 1;
+  const n1 = fixture.frames.length; // the fixture starts at T+0: no synthetic start frame (owner bug 11)
   await expect(page.locator(".ts-frame-count")).toHaveText(`${n1}/${n1}`);
   // The ensemble of the single run is being polled
   await expect.poll(() => api.ensemblePollIds.filter((id) => id === OLD).length).toBeGreaterThanOrEqual(2);
@@ -73,7 +73,7 @@ test("multi-day → single: the single run replaces the multi-day frames", async
   await page.getByRole("button", { name: "Single Event", exact: true }).click();
   await runToCompletion(page);
   expect(api.posts).toHaveLength(1);
-  const n1 = fixture.frames.length + 1;
+  const n1 = fixture.frames.length; // the fixture starts at T+0: no synthetic start frame (owner bug 11)
   await expect(page.locator(".ts-frame-count")).toHaveText(`${n1}/${n1}`);
   await expect(page.locator(".ts-day-tick")).toHaveCount(0);
   await expect(runButton(page)).toBeEnabled();

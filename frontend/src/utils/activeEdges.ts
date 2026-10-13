@@ -6,7 +6,7 @@
  * lines drawn on the map and/or whole perimeter sides picked from a list (keyboard).
  * Coordinates are GeoJSON [lng, lat].
  */
-import type { BurningPeriod, PerimeterOverrideRequest } from "../types/simulation";
+import type { BurningPeriod, FWIOverrides, PerimeterOverrideRequest, WeatherChange, WeatherParams } from "../types/simulation";
 
 export type Lnglat = [number, number];
 
@@ -134,6 +134,10 @@ export interface OverrideInputs {
   startTime: string | null;
   burningPeriod: BurningPeriod | null;
   ffmcSpinUp: boolean;
+  /** Setup's weather, FWI codes and schedule (hours from startTime); omitted = the source run's */
+  weather?: WeatherParams | null;
+  fwi?: FWIOverrides | null;
+  schedule?: WeatherChange[] | null;
 }
 
 /** The perimeter-override request. Throws if "marked" is chosen with no active edge. */
@@ -153,5 +157,8 @@ export function buildOverrideRequest(i: OverrideInputs): PerimeterOverrideReques
   if (i.startTime) req.start_time = i.startTime;
   if (i.burningPeriod) req.burning_period = i.burningPeriod;
   if (i.ffmcSpinUp) req.ffmc_spin_up = true;
+  if (i.weather) req.weather = i.weather;
+  if (i.fwi) req.fwi_overrides = i.fwi;
+  if (i.schedule?.length) req.weather_schedule = i.schedule;
   return req;
 }
