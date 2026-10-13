@@ -172,7 +172,7 @@ def cmd_domains(a) -> None:
     for m in man:
         fid = m["fire_id"]
         p = root / f"domains/{fid}.npz"
-        if p.exists() and not a.force:
+        if (p.exists() and not a.force) or (a.max_year and m["year"] > a.max_year):
             continue
         dom = FireDomain.load(VALDATA / f"domains/{fid}.npz")
         codes, g, st = backcast_codes(fid, a.grid)
@@ -240,7 +240,8 @@ def cmd_run(a) -> None:
     V = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(V)
     man = json.loads((OUT / "roots" / a.grid / "manifest.json").read_text())
-    tasks = sorted(({"fire_id": m["fire_id"], "day": d} for m in man for d in m["days"]),
+    tasks = sorted(({"fire_id": m["fire_id"], "day": d} for m in man for d in m["days"]
+                    if (OUT / "roots" / a.grid / f"domains/{m['fire_id']}.npz").exists()),
                    key=lambda t: (t["fire_id"], t["day"]))
     (OUT / "runs").mkdir(parents=True, exist_ok=True)
     out = OUT / "runs" / f"{a.grid}.jsonl"
@@ -337,6 +338,8 @@ def main() -> None:
     d = sub.add_parser("domains")
     d.add_argument("grid", choices=GRIDS)
     d.add_argument("--force", action="store_true")
+    d.add_argument("--max-year", type=int, default=None,
+                   help="only fires up to this year (epochs still being built)")
     r = sub.add_parser("run")
     r.add_argument("grid", choices=GRIDS)
     r.add_argument("--workers", type=int, default=3)

@@ -27,8 +27,10 @@ NBAC 20260513 (Hall et al. 2020), SCANFI v2 (Guindon et al. 2026). Downloads go 
 ``$PREFIRE_DATA/raw`` and products to ``$PREFIRE_DATA/out`` (outside the repository).
 
     python -m scripts.fuelgrid.backcast burns                 # NBAC -> burn key (~5 min)
-    python -m scripts.fuelgrid.backcast epoch 2010 [--workers 8]   # SCANFI read by window
+    python -m scripts.fuelgrid.backcast mirror 2010            # local sparse SCANFI copy
+    python -m scripts.fuelgrid.backcast epoch 2010 [--workers 8]   # type (mirror or server)
     python -m scripts.fuelgrid.backcast manifest              # backcast.json beside the rasters
+    python -m scripts.fuelgrid.backcast package               # tar for the data release
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ log = logging.getLogger("fuelgrid.backcast")
 DATA = Path(os.environ.get("PREFIRE_DATA", Path.home() / "dev/wildfire/prefire-data"))
 RAW_NBAC = DATA / "raw" / "nbac"
 OUT = DATA / "out"
+MIRROR = DATA / "raw" / "scanfi"
 AB_COG = Path(os.environ.get(
     "AB_WILDFIRE_FUEL", Path.home() / "dev/wildfire/reference-layers/ab_wildfire_fbp_fueltype/"
                                       "ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif"))
@@ -63,7 +66,7 @@ SCANFI_EPOCHS = (1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020)
 SPECIES = ("blackSpruce", "broadleaf", "balsamFir", "jackPine", "lodgepolePine",
            "otherConiferous", "tamarack", "whiteRedPine", "douglasFir", "ponderosaPine")
 LAYERS = ("att_nfiLandcover", "att_closure", "att_height") + tuple(f"spsCC_{s}" for s in SPECIES)
-TILE = 500  # Alberta cells (50 km) per build tile
+TILE = 128  # Alberta cells (12.8 km, about 1.7 SCANFI blocks) per tile; tiles without burns are skipped
 GDAL_ENV = {"GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR", "GDAL_HTTP_MAX_RETRY": "8",
             "GDAL_HTTP_RETRY_DELAY": "3", "GDAL_HTTP_MULTIRANGE": "YES",
             "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES", "CPL_VSIL_CURL_CHUNK_SIZE": "1048576",
@@ -335,7 +338,12 @@ def build_burns() -> Path:
 _local = threading.local()
 
 
+def _mirror_path(layer: str, epoch: int) -> Path:
+    return MIRROR / str(epoch) / f"{layer}.tif"
+
+
 def _scanfi(layer: str, epoch: int):
+    """SCANFI layer: the local partial mirror when built (``mirror``), else the NRCan server."""
     import rasterio
 
     cache = getattr(_local, "ds", None)
@@ -343,8 +351,133 @@ def _scanfi(layer: str, epoch: int):
         cache = _local.ds = {}
     k = (layer, epoch)
     if k not in cache:
-        cache[k] = rasterio.open("/vsicurl/" + SCANFI.format(layer=layer, epoch=epoch))
+        local = _mirror_path(layer, epoch)
+        cache[k] = rasterio.open(local if (MIRROR / str(epoch) / "complete").exists()
+                                 else "/vsicurl/" + SCANFI.format(layer=layer, epoch=epoch))
     return cache[k]
+
+
+def needed_blocks(epoch: int) -> tuple[dict, list[tuple[int, int, int]]]:
+    """SCANFI 256 x 256 blocks under the Alberta cells burned after ``epoch`` (each 100 m cell's
+    four corners), as runs of consecutive blocks per block row: (block row, first col, last col).
+    Returns (SCANFI profile, runs)."""
+    import rasterio
+    from pyproj import Transformer
+
+    prof = ab_profile()
+    with rasterio.open(OUT / "ab_burn_key_100m.tif") as k:
+        key = k.read(1)
+    need = key > (epoch + 1) * 1000
+    del key
+    with rasterio.open(AB_COG) as src:
+        for r0 in range(0, prof["height"], 1024):  # strip by strip: drop cells outside Alberta
+            h = min(1024, prof["height"] - r0)
+            ab = src.read(1, window=rasterio.windows.Window(0, r0, prof["width"], h))
+            need[r0:r0 + h] &= ~np.isin(ab, (0, -1))
+    r, c = np.nonzero(need)
+    del need
+    s = _scanfi("att_closure", epoch)
+    sp = {"crs": s.crs, "transform": s.transform, "width": s.width, "height": s.height,
+          "nodata": s.nodata}
+    tr = Transformer.from_crs(prof["crs"], s.crs, always_xy=True)
+    inv = ~s.transform
+    T = prof["transform"]
+    blocks = set()
+    for dx in (-50.0, 50.0):
+        for dy in (-50.0, 50.0):
+            X, Y = tr.transform(T.c + (c + 0.5) * T.a + dx, T.f + (r + 0.5) * T.e + dy)
+            col, row = inv * (np.asarray(X), np.asarray(Y))
+            blocks |= set(np.unique(np.floor(row / 256).astype(np.int64) * 100000
+                                    + np.floor(col / 256).astype(np.int64)).tolist())
+    rows: dict[int, list[int]] = {}
+    for b in blocks:
+        rows.setdefault(b // 100000, []).append(b % 100000)
+    runs = []
+    for br, cols in sorted(rows.items()):
+        cols = sorted(cols)
+        start = prev = cols[0]
+        for x in cols[1:] + [None]:
+            if x is not None and x == prev + 1:
+                prev = x
+                continue
+            runs.append((br, start, prev))
+            if x is not None:
+                start = prev = x
+    return sp, runs
+
+
+def build_mirror(epoch: int, workers: int = 4) -> None:
+    """Local sparse copy of the 13 SCANFI layers of ``epoch``, only the blocks under Alberta
+    cells burned after it (one range read per layer and run of consecutive blocks). Resumable."""
+    import rasterio
+    from rasterio.windows import Window
+
+    os.environ.update(GDAL_ENV)
+    sp, runs = needed_blocks(epoch)
+    d = MIRROR / str(epoch)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "complete").unlink(missing_ok=True)
+    br0 = min(r[0] for r in runs)
+    br1 = max(r[0] for r in runs)
+    bc0 = min(r[1] for r in runs)
+    bc1 = max(r[2] for r in runs)
+    ox, oy = bc0 * 256, br0 * 256
+    W = min(sp["width"], (bc1 + 1) * 256) - ox
+    H = min(sp["height"], (br1 + 1) * 256) - oy
+    from rasterio.windows import transform as wtr
+    tr = wtr(Window(ox, oy, W, H), sp["transform"])
+    for layer in LAYERS:
+        p = _mirror_path(layer, epoch)
+        if not p.exists():
+            with rasterio.open(p, "w", driver="GTiff", width=W, height=H, count=1,
+                               dtype="uint8", crs=sp["crs"], transform=tr, nodata=255,
+                               tiled=True, blockxsize=256, blockysize=256, compress="deflate",
+                               sparse_ok=True):
+                pass
+    done_p = d / "runs_done.json"
+    done = set(map(tuple, json.loads(done_p.read_text()))) if done_p.exists() else set()
+    todo = [r for r in runs if tuple(r) not in done]
+    log.info("mirror %d: %d blocks in %d runs (%d to do), local %d x %d px", epoch,
+             sum(c1 - c0 + 1 for _, c0, c1 in runs), len(runs), len(todo), W, H)
+    t0 = time.time()
+
+    def fetch(run):
+        br, c0, c1 = run
+        win = Window(c0 * 256, br * 256, min(sp["width"], (c1 + 1) * 256) - c0 * 256,
+                     min(sp["height"], (br + 1) * 256) - br * 256)
+        data = {}
+        for layer in LAYERS:
+            for attempt in range(5):
+                try:
+                    data[layer] = _scanfi(layer, epoch).read(1, window=win)
+                    break
+                except Exception as exc:
+                    log.warning("mirror %s %s: %r", layer, run, exc)
+                    _local.ds = {}
+                    time.sleep(5 * (attempt + 1))
+            else:
+                raise RuntimeError(f"mirror {layer} {run} failed")
+        return run, win, data
+
+    outs = {layer: rasterio.open(_mirror_path(layer, epoch), "r+") for layer in LAYERS}
+    try:
+        with ThreadPoolExecutor(workers) as ex:
+            for n, f in enumerate(as_completed([ex.submit(fetch, r) for r in todo]), 1):
+                run, win, data = f.result()
+                lw = Window(win.col_off - ox, win.row_off - oy, win.width, win.height)
+                for layer, a in data.items():
+                    outs[layer].write(a, 1, window=lw)
+                done.add(tuple(run))
+                if n % 50 == 0 or n == len(todo):
+                    done_p.write_text(json.dumps(sorted(done)))
+                    log.info("mirror %d: %d/%d runs, %.1f min", epoch, n, len(todo),
+                             (time.time() - t0) / 60)
+    finally:
+        for o in outs.values():
+            o.close()
+        done_p.write_text(json.dumps(sorted(done)))
+    if len(done) >= len(runs):
+        (d / "complete").write_text("ok")
 
 
 def _tile_attrs(epoch: int, transform, shape, crs) -> dict[str, np.ndarray]:
@@ -434,7 +567,7 @@ def build_epoch(epoch: int, workers: int = 8) -> Path:
                 h, w = code.shape
                 codes[r:r + h, c:c + w][m] = code[m]
                 rules[r:r + h, c:c + w][m] = (rule[m] - 99).clip(0, 255)
-            if done % 10 == 0 or done == len(tiles):
+            if done % 200 == 0 or done == len(tiles):
                 log.info("epoch %d: %d/%d tiles, %.1f min", epoch, done, len(tiles),
                          (time.time() - t0) / 60)
     del key
@@ -491,6 +624,21 @@ def write_manifest() -> Path:
     return dest
 
 
+def package() -> Path:
+    """``ab_prefire_backcast_v1.tar`` (manifest + rasters, flat) for the data release that
+    api/Dockerfile fetches; prints its SHA-256 for ``AB_BACKCAST_SHA256``."""
+    import tarfile
+
+    man = json.loads((OUT / "backcast.json").read_text())
+    names = ["backcast.json", *man["sha256"]]
+    dest = OUT / "ab_prefire_backcast_v1.tar"
+    with tarfile.open(dest, "w") as tar:
+        for n in names:
+            tar.add(OUT / n, arcname=n)
+    log.info("wrote %s (%d bytes) sha256 %s", dest, dest.stat().st_size, _sha256(dest))
+    return dest
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -499,15 +647,24 @@ def main() -> None:
     e = sub.add_parser("epoch")
     e.add_argument("epochs", type=int, nargs="+")
     e.add_argument("--workers", type=int, default=8)
+    m = sub.add_parser("mirror")
+    m.add_argument("epochs", type=int, nargs="+")
+    m.add_argument("--workers", type=int, default=4)
     sub.add_parser("manifest")
+    sub.add_parser("package")
     a = ap.parse_args()
     if a.cmd == "burns":
         build_burns()
     elif a.cmd == "epoch":
         for ep in a.epochs:
             build_epoch(ep, a.workers)
-    else:
+    elif a.cmd == "mirror":
+        for ep in a.epochs:
+            build_mirror(ep, a.workers)
+    elif a.cmd == "manifest":
         write_manifest()
+    else:
+        package()
 
 
 if __name__ == "__main__":

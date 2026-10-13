@@ -32,6 +32,21 @@ RUN python /tmp/fetch_ab_fuel_grid.py "$AB_FUEL_URL" "$AB_FUEL_SHA256" \
         /app/data/ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif
 ENV FIRESIM_AB_FUEL_GRID_PATH=/app/data/ab_wildfire_fbp_fueltype_2025_100m_3400_cog.tif
 
+# Pre-fire (back-cast) fuel for dated historical runs: NBAC burn key + SCANFI v2 epochs typed to
+# FBP, on the Alberta grid's lattice (Open Government Licence - Canada; built by
+# scripts/fuelgrid/backcast.py, docs/fuel-grid-backcast.md). One tar from the repository's data
+# release, checked against its SHA-256; read by window only. If the download fails the build
+# continues and historical runs report "pre-fire fuel data are not installed".
+ARG AB_BACKCAST_URL=https://github.com/Tphambolio/wildfire-simulator/releases/download/data-ab-prefire-v1/ab_prefire_backcast_v1.tar
+ARG AB_BACKCAST_SHA256=PENDING
+COPY scripts/fetch_ab_fuel_grid.py /tmp/fetch_backcast.py
+RUN python /tmp/fetch_backcast.py "$AB_BACKCAST_URL" "$AB_BACKCAST_SHA256" /tmp/backcast.tar \
+        "Pre-fire fuel (back-cast)" "historical runs use the 2025 fuel grid without back-cast" \
+    && if [ -f /tmp/backcast.tar ]; then mkdir -p /app/data/backcast \
+        && tar -xf /tmp/backcast.tar -C /app/data/backcast && rm /tmp/backcast.tar; fi \
+    && rm /tmp/fetch_backcast.py
+ENV FIRESIM_AB_BACKCAST_DIR=/app/data/backcast
+
 # Alberta building footprints, read by window only, never loaded whole (FlatGeobuf with a
 # packed R-tree; docs/buildings-alberta.md). Not in git: fetched from the repository's data
 # releases and checked against their SHA-256.
