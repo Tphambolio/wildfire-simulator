@@ -38,7 +38,7 @@ ENV FIRESIM_AB_FUEL_GRID_PATH=/app/data/ab_wildfire_fbp_fueltype_2025_100m_3400_
 # release, checked against its SHA-256; read by window only. If the download fails the build
 # continues and historical runs report "pre-fire fuel data are not installed".
 ARG AB_BACKCAST_URL=https://github.com/Tphambolio/wildfire-simulator/releases/download/data-ab-prefire-v1/ab_prefire_backcast_v1.tar
-ARG AB_BACKCAST_SHA256=PENDING
+ARG AB_BACKCAST_SHA256=979204814ec8f4ce79f6fb1fc9b612636bdc65929f9e8373e7c89ec9391c58ff
 COPY scripts/fetch_ab_fuel_grid.py /tmp/fetch_backcast.py
 RUN python /tmp/fetch_backcast.py "$AB_BACKCAST_URL" "$AB_BACKCAST_SHA256" /tmp/backcast.tar \
         "Pre-fire fuel (back-cast)" "historical runs use the 2025 fuel grid without back-cast" \

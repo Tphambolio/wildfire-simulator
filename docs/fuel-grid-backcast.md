@@ -5,8 +5,8 @@
 `services/runner.py` (`resolve_provincial`); offline build `scripts/fuelgrid/backcast.py` ·
 **Tests:** `engine/tests/data/test_backcast.py`, `engine/tests/fuelgrid/test_fuelgrid_backcast.py`,
 `api/tests/test_backcast_fuel.py` · **Reports:** *Pre-fire fuel grids for historical replays
-2026-10-12* (design, [R39-fuel]), *Burn-scar fuel bias in validation 2026-10-12*, *Pre-fire fuel
-grid build and Slave Lake replay 2026-10-12* (build, validation) [R41].
+2026-10-12* (design, [R39-fuel]), *Burn-scar fuel bias in validation 2026-10-12* ([R43]), *Pre-fire fuel
+grid build and Slave Lake replay 2026-10-12* (build, validation, [R44]).
 
 **Status:** heuristic. The restored fuel is typed from 30 m forest-inventory estimates
 (SCANFI v2), not observed fuel. It replaces post-fire typing (grass O-1, vegetated non-fuel)
@@ -70,10 +70,19 @@ percent conifer work as for the 2025 grid.
   pre-fire AVI: C/D/M κ 0.34 vs 0.18 for CFS 2014b and 0.15 for the 2025 grid; [R39-fuel] §6.3).
 - **Licence**: SCANFI and NBAC are Open Government Licence – Canada and can ship in the image;
   CFS 2014b is an NRCan internal-use agreement and cannot. 2014b was tested only as a validation
-  comparator (§5).
-- **Rescoring of the [R27] fire-days** (pre-registered, `PREREG` in
-  `scripts/validation/backcast_fire_test.py`, commit `3582102`): results in [R41] and
-  docs/PROJECT_RECORD.md §4.4.
+  comparator.
+- **Re-scoring of the [R27] fire-days** (pre-registered, `PREREG` in
+  `scripts/validation/backcast_fire_test.py`, commit `3582102`, tag `prereg-backcast-2026-10-12`;
+  [R44] §3). Held-out (16 fires, 79 fire-days), 17 h F1:
+  - back-cast 0.246 vs the scar-masked 2025 grid 0.160: **ΔF1 +0.086 [+0.046, +0.128], better**
+    (primary);
+  - vs CFS 2014b 0.212: +0.034 [+0.007, +0.058], better;
+  - the same back-cast filled from 2014b instead of SCANFI: −0.026 [−0.053, +0.001], no
+    detectable difference (all 32 fires: −0.031 [−0.051, −0.012], worse).
+
+  SCANFI was kept as the source on this evidence and on its licence.
+- **Group agreement with 2014b** on cells burned 2012-2025: C/D/M 0.59, κ 0.28. The back-cast is
+  more mixedwood (36 % vs 21 %) and less conifer (50 % vs 61 %) ([R44] Figure 4).
 
 ## 4. Data and deployment
 
@@ -84,8 +93,13 @@ GitHub release `data-ab-prefire-v1`, fetched and SHA-256-checked by `api/Dockerf
 so it adds no storage cost. Reads are windowed (40 km window: two extra 100 m reads, well under
 1 MB); the window cache key includes the scenario date.
 
-SCANFI is read from NRCan's server by `/vsicurl/` windows only around burned cells (12.8 km
-tiles without a burn are skipped); the server delivered under 1 MB/s in total.
+SCANFI is read from NRCan's server once into a local sparse mirror
+(`python -m scripts.fuelgrid.backcast mirror E`): only the 256 × 256 blocks under Alberta cells
+burned after the epoch (2010: 5,115 blocks; 2015: 4,105; 2020: 3,166; under 1 MB/s from the
+server). Typing then reads the mirror: 9-17 min per epoch, peak 1.7 GB.
+
+Installed: the burn key (5.1 MB) and epochs 2010, 2015, 2020 (5.6, 4.5, 3.6 MB); release tar
+18.7 MB. Epochs 1985-2005 are not built yet, so scenarios before 2011 are not back-cast and say so.
 
 ## 5. Limits
 
@@ -98,5 +112,7 @@ tiles without a burn are skipped); the server delivered under 1 MB/s in total.
 - 5-year epochs: a cell that burned between the epoch and the scenario and again after it is
   restored to the forest before both burns.
 - City LiDAR cells and grids outside Alberta are not back-cast.
+- Narrow features at 100 m: at Slave Lake the modelled head runs along a 100 m band of O-1 grass
+  beside Highway 2, outside the NBAC burn, so it is not back-cast ([R44] §4).
 - Town and building fuels are unchanged (the Flat Top report attributes part of the 2011
   Prometheus under-prediction to residential areas mapped as non-fuel).
