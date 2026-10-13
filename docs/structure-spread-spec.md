@@ -674,6 +674,18 @@ Implementation: `IncrementalHamada(link_filter=…, blocked=…)`, `link_filter_
 Pre-registered held-out test `PREREG_LR3` (`adcee43`): Tubbs 2017 and Woolsey 2018, results in
 PROJECT_RECORD §4.4 and [R37].
 
+### 6.6 Long-range embers v4: satellite timing, pre-fire vulnerability, five-fire calibration (validation harness, 2026-10-13) — illustrative
+
+v4 is the v3 engine (`model="v3"`) with: `survival_v4` (per-building survival logit s0 +
+b_canopy (canopy − 0.3) + b_code [year built ≥ 2001]; Hakes et al. 2017 pp.495-496, Zotero
+FMZYRBGN), `viirs_burn_times` (the earliest VIIRS 375 m detection within 750 m caps a source cell's
+burn time [H]) and `viirs_emit_scale` (emission × (local mean FRP / 50 MW)^γ [H]); timed
+perimeters where they exist (NIST TN 2135 Appendix F for Camp; GOFER hourly GOES perimeters,
+Liu et al. 2024, for 2020 fires); a run end only after a wind event. Fitted values: s 0.3, γ 1,
+b_canopy −3 (0-30 m ring), b_code 1.9, λ 160 m, k 100. Not exposed in the API (it needs per-fire
+observation data). Pre-registered held-out test `PREREG_LR4` (`528528a`): FAIL, 1 of 4 (PROJECT_RECORD
+§4.4, [R39]).
+
 ## 7. Conflicting published values and the choices made
 
 | # | Conflict | Values and sources | FireSim choice | Reason |
@@ -710,6 +722,7 @@ PROJECT_RECORD §4.4 and [R37].
 | C29 | Ember mass for count thresholds | Qin's generation and ψ assume 0.2 g; IBHS structural brands median ~0.05 g, σ_ln ~1.6; Suzuki 2012/2014: 56-85 % < 0.1 g | **0.2 g model embers, mass factor 4 on the tested 0.05 g brands** [D]; m_f = 1 sensitivity | Mass-equivalent: the bed tests show accumulated mass governs |
 | C30 | Bed → building transition p_b | No published probability; corner tests: none (≥ 200 mm non-combustible gap, shredded hardwood) to 6/6 (bare OSB) (Fire Technol. 53:535 Tables 1-2) | **U(0.1, 1) per member** [H]; 0.1 and 1 sensitivities | The test range, not a value |
 | C31 | Urban ember tail | Qin25 truncates the Himoto PDF at the 99th percentile; field maxima 1.2-2 km (Beppu 2010, Shurijo 2019 [S]) far beyond Himoto | **Himoto to the 99.9th percentile** (≈ 100-330 m); q99 a sensitivity; no km tail | No validated km kernel for buildings |
+| C32 | Roof brand flux and HRR in Lee & Davidson 2010 | Lee & Davidson 2010 pp.681-682 (Zotero Q7WIH3G3): N_b'' = 306.77 e^(0.1879u) brands per m² of roof over the fire and per-brand ignition 0 / 0.005 / 0.02 by size (assumed, Lee 2009 p.129), transport at a 1,500 kW/m² roof HRR | **FireSim keeps the 150 kW/m² design fire** (C1) and Qin's GR'; k = 100 is consistent with L&D's mean 1.75e-3 per brand × footprint area | L&D's HRR is 10× FireSim's design fire; their probabilities are assumptions, so the agreement is a convention, not evidence |
 | C20 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500

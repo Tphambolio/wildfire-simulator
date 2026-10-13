@@ -33,7 +33,7 @@ def calibration_curves(fit, out: Path):
     keys = list(grid)
     fig, axs = plt.subplots(1, len(keys), figsize=(4.3 * len(keys), 3.8), sharey=True)
     for ax, k in zip(axs, keys):
-        for fire, c in zip(table, ("#c2410c", "#2563eb", "#059669")):
+        for fire, c in zip(table, ("#c2410c", "#2563eb", "#059669", "#7c3aed", "#b45309")):
             rows = [r for r in table[fire]["runs"] if all(r[o] == fin[o] for o in keys if o != k)]
             rows.sort(key=lambda r: r[k])
             ax.plot([r[k] for r in rows], [r["brier"] for r in rows], "o-", color=c, label=fire)
@@ -42,7 +42,7 @@ def calibration_curves(fit, out: Path):
         ax.set_xlabel(k)
         if k in ("link_scale_m", "ember_factor"):
             ax.set_xscale("log")
-    axs[0].set_ylabel("Brier (8 members; dotted = climatology)")
+    axs[0].set_ylabel("Brier (6 members; dotted = base-rate Brier)")
     axs[0].legend(fontsize=8)
     fig.suptitle("v4 calibration on the training fires (others at the fitted value, dashed)", fontsize=11)
     _stamp(fig)
@@ -192,7 +192,7 @@ def summaries(results, pooled, out: Path):
                                  for k, v in {**r["scores"], **r["sensitivity"], **r["baselines"]}.items()}
     (out / "scores_by_fire.json").write_text(json.dumps(small, indent=1, default=float))
     if pooled:
-        (out / "prereg_lr3_pooled.json").write_text(json.dumps(
+        (out / "prereg_lr4_pooled.json").write_text(json.dumps(
             {k: pooled[k] for k in ("fires", "theta", "units_scored", "observed_destroyed", "tests", "decision",
                                     "prereg_sha256")}, indent=1, default=float))
 
