@@ -56,6 +56,54 @@ class HourlyWeatherParams(BaseModel):
     precipitation: float = Field(default=0.0, ge=0, description="Rain in the hour (mm)")
 
 
+class WeatherChange(BaseModel):
+    """One step of a manual weather schedule: this weather from ``hours_from_start`` until the
+    next step (e.g. 47 km/h from the start, then 20 km/h from 20:00)."""
+
+    hours_from_start: float = Field(
+        ..., ge=0, le=24,
+        description="Hours after the run's start_time (the restart's, for perimeter-override) "
+                    "when this weather takes over",
+    )
+    wind_speed: float = Field(..., ge=0, le=100, description="10 m wind speed (km/h)")
+    wind_direction: float = Field(..., ge=0, lt=360, description="Wind direction (degrees FROM)")
+    temperature: float = Field(..., ge=-40, le=50, description="Temperature (C)")
+    relative_humidity: float = Field(..., ge=0, le=100, description="Relative humidity (%)")
+    precipitation_mm_h: float = Field(
+        default=0.0, ge=0, le=50, description="Rain rate while this step is in force (mm/h)",
+    )
+
+
+WEATHER_SCHEDULE_DOC = (
+    "Optional manual weather schedule: step changes of wind, temperature, RH (and rain) at set "
+    "times, e.g. [{\"hours_from_start\": 2.1667, \"wind_speed\": 20, ...}]. `weather` applies from "
+    "the start until the first step. The schedule is turned into an hourly weather stream "
+    "(a record at every whole hour and at every step; firesim.spread.diurnal.schedule_hourly) "
+    "and run through the same path as hourly_weather: FBP rates are recomputed at each record, "
+    "and FFMC is recomputed hourly with the hourly FFMC model from fwi_overrides.ffmc (ISI "
+    "follows); DMC and DC stay fixed. The ensemble perturbs every step (one wind offset and "
+    "factor per member). Not with hourly_weather or ffmc_spin_up."
+)
+
+
+def schedule_records(base: WeatherParams, changes, duration_hours: float):
+    """Engine hourly records for a manual schedule (``schedule_hourly``; ValueError if bad)."""
+    from firesim.spread.diurnal import schedule_hourly
+    from firesim.types import HourlyWeather
+
+    def rec(t: float, w, rain: float) -> HourlyWeather:
+        return HourlyWeather(hours_from_start=t, temperature=w.temperature,
+                             relative_humidity=w.relative_humidity, wind_speed=w.wind_speed,
+                             wind_direction=w.wind_direction, precipitation=rain)
+
+    # Rain in the base weather is a 24 h total (the daily FWI input), not a rate: none in-run
+    return schedule_hourly(
+        rec(0.0, base, 0.0),
+        [rec(c.hours_from_start, c, c.precipitation_mm_h) for c in changes],
+        duration_hours,
+    )
+
+
 class FWIOverrides(BaseModel):
     """Optional FWI component overrides."""
 
@@ -234,6 +282,9 @@ class SimulationCreate(BaseModel):
             "its hour until the next; FFMC starts from fwi_overrides.ffmc and follows the hourly "
             "FFMC model. DMC and DC stay fixed. Without it, `weather` applies throughout."
         ),
+    )
+    weather_schedule: list[WeatherChange] | None = Field(
+        default=None, description=WEATHER_SCHEDULE_DOC,
     )
     start_time: datetime | None = Field(
         default=None,
@@ -417,8 +468,16 @@ class SimulationCreate(BaseModel):
     def _diurnal_options_need_clock(self) -> SimulationCreate:
         if self.burning_period is not None and self.start_time is None:
             raise ValueError("burning_period needs start_time (its local clock sets the hours)")
-        if self.ffmc_spin_up:
-            self.engine_hourly_weather()  # ValueError (422) if the stream cannot spin up
+        if self.weather_schedule:
+            if self.hourly_weather:
+                raise ValueError("weather_schedule and hourly_weather cannot both be set")
+            if self.ffmc_spin_up:
+                raise ValueError("ffmc_spin_up needs forecast hourly_weather, not a weather_schedule")
+            if any(c.hours_from_start >= self.duration_hours for c in self.weather_schedule):
+                raise ValueError("weather_schedule steps must start before the end of the run "
+                                 "(hours_from_start < duration_hours)")
+        if self.ffmc_spin_up or self.weather_schedule:
+            self.engine_hourly_weather()  # ValueError (422) if the stream is unusable
         return self
 
     @model_validator(mode="after")
@@ -433,7 +492,10 @@ class SimulationCreate(BaseModel):
         return local_start_hour(self.start_time)
 
     def engine_hourly_weather(self):
-        """Engine hourly records: spin-up hours kept (ffmc_spin_up) or dropped."""
+        """Engine hourly records: the manual weather_schedule as an hourly stream, else
+        hourly_weather with the spin-up hours kept (ffmc_spin_up) or dropped."""
+        if self.weather_schedule:
+            return schedule_records(self.weather, self.weather_schedule, self.duration_hours)
         return engine_hourly(self.hourly_weather, 0.0, self.start_hour(), self.ffmc_spin_up)
 
     def fuel_config_kwargs(self) -> dict:
@@ -511,6 +573,10 @@ class FuelSourceInfo(BaseModel):
         "grids (None for other sources)"))
     share: dict[str, float] | None = Field(default=None, description=(
         "Share of the run grid's cells each source supplied (window runs)"))
+    vintage_year: int | None = Field(default=None, description=(
+        "Year the fuel grid represents (the latest of the sources used: City LiDAR grid "
+        "2025, Alberta Wildfire FBP grid 2025, CFS 2026 grid 2025, CFS 2014b grid about "
+        "2011); None for uniform, synthetic or user grids"))
 
 
 class BuildingsSourceInfo(BaseModel):
@@ -543,6 +609,20 @@ class TerrainSourceInfo(BaseModel):
     attribution: str | None = Field(default=None, description="Licence attribution to show")
 
 
+class WeatherUsed(BaseModel):
+    """The weather a run actually used: what the run summary and header show."""
+
+    source: Literal["request", "source_run"] = Field(description=(
+        "request: this request's weather; source_run: a perimeter restart sent no weather, so "
+        "the source run's was used"))
+    weather: WeatherParams
+    fwi_overrides: FWIOverrides | None = None
+    weather_schedule: list[WeatherChange] | None = None
+    hourly_weather: bool = Field(default=False, description=(
+        "True when an hourly forecast stream (hourly_weather) drove the run"))
+    start_time: datetime | None = None
+
+
 class SimulationResponse(BaseModel):
     """Response from simulation creation or status query."""
 
@@ -565,6 +645,11 @@ class SimulationResponse(BaseModel):
     archived: bool = False
     #: Terrain the run used (None without terrain: flat)
     terrain_source: TerrainSourceInfo | None = None
+    #: Weather and FWI codes the run used (single runs and perimeter restarts)
+    weather_used: WeatherUsed | None = None
+    #: Set when the scenario start is before the year the fuel grid represents
+    #: (fuel_source.vintage_year): areas burned since may be mapped as grass or non-fuel
+    fuel_vintage_warning: str | None = None
 
 
 class DayWeatherParams(BaseModel):
@@ -706,6 +791,24 @@ class PerimeterOverrideRequest(BaseModel):
         description=BURNING_PERIOD_DOC + " Not inherited from the source run; needs start_time "
         "here or on the source.",
     )
+    weather: WeatherParams | None = Field(
+        default=None,
+        description=(
+            "Weather for the restart (the app sends Setup's current values). Omitted: the "
+            "source run's weather (and its weather_schedule, re-based to start_time)."
+        ),
+    )
+    fwi_overrides: FWIOverrides | None = Field(
+        default=None,
+        description="FFMC, DMC, DC for the restart (the app sends Setup's). Omitted: the source "
+                    "run's.",
+    )
+    weather_schedule: list[WeatherChange] | None = Field(
+        default=None,
+        description=WEATHER_SCHEDULE_DOC + " Hours count from this request's start_time. "
+        "Omitted: none when `weather` is given, else the source run's schedule re-based to "
+        "start_time.",
+    )
     ffmc_spin_up: bool = Field(
         default=False,
         description=SPIN_UP_DOC + " Uses the source run's hourly_weather, re-based to start_time.",
@@ -722,6 +825,16 @@ class PerimeterOverrideRequest(BaseModel):
     @classmethod
     def _burning_period_list(cls, v):
         return burning_period_from_list(v)
+
+    @model_validator(mode="after")
+    def _schedule_fits(self) -> PerimeterOverrideRequest:
+        if self.weather_schedule:
+            if self.ffmc_spin_up:
+                raise ValueError("ffmc_spin_up needs forecast hourly_weather, not a weather_schedule")
+            if any(c.hours_from_start >= self.duration_hours for c in self.weather_schedule):
+                raise ValueError("weather_schedule steps must start before the end of the run "
+                                 "(hours_from_start < duration_hours)")
+        return self
 
     @field_validator("active_edges")
     @classmethod

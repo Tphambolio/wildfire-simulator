@@ -161,3 +161,56 @@ def burning_period_schedule(
         k = 1.0 if burning(s + 1e-6) else off_factor
         out.append((s, replace(c, ros_multiplier=c.ros_multiplier * k)))
     return out
+
+
+def schedule_hourly(
+    base: HourlyWeather,
+    changes: list[HourlyWeather] | tuple[HourlyWeather, ...],
+    duration_hours: float,
+) -> tuple[HourlyWeather, ...]:
+    """Hourly weather stream (``SimulationConfig.hourly_weather``) from a manual schedule of
+    step changes, so a run with weather that changes at set times goes through the same
+    hourly path as forecast weather (``Simulator.weather_schedule``: FBP rates recomputed at
+    each record, FFMC advanced with the hourly FFMC model of Van Wagner 1977 from the starting
+    FFMC; ISI follows from the FFMC and the wind).
+
+    ``base`` (its ``hours_from_start`` is ignored) applies from the start until the first
+    change; each change applies from its ``hours_from_start`` until the next. ``precipitation``
+    of ``base`` and of each change is a rain rate (mm per hour) while that step is in force.
+    The stream has a record at every whole hour of the run and at every change, so the FFMC is
+    updated at least hourly and each change takes effect at its own time (not at the next
+    whole hour); a record's ``precipitation`` is the rain in its period (rate x length).
+
+    Raises:
+        ValueError: a change at a negative time, or two changes at the same time.
+    """
+    steps = sorted(changes, key=lambda c: c.hours_from_start)
+    times = [c.hours_from_start for c in steps]
+    if any(t < 0.0 for t in times):
+        raise ValueError("weather_schedule times must be at or after the start (hours >= 0)")
+    if len(set(round(t, 6) for t in times)) != len(times):
+        raise ValueError("weather_schedule has two changes at the same time")
+    end = max(float(duration_hours), 0.0)
+    marks = {float(h) for h in range(int(math.ceil(end)) + 1) if h < end or h == 0}
+    marks |= {t for t in times if t < end}
+    marks = sorted(marks)
+
+    def in_force(t: float) -> HourlyWeather:
+        cur = base
+        for c in steps:
+            if c.hours_from_start <= t + 1e-9:
+                cur = c
+            else:
+                break
+        return cur
+
+    out = []
+    for i, t in enumerate(marks):
+        nxt = marks[i + 1] if i + 1 < len(marks) else t + 1.0
+        w = in_force(t)
+        out.append(HourlyWeather(
+            hours_from_start=t, temperature=w.temperature,
+            relative_humidity=w.relative_humidity, wind_speed=w.wind_speed,
+            wind_direction=w.wind_direction, precipitation=w.precipitation * (nxt - t),
+        ))
+    return tuple(out)
