@@ -83,6 +83,8 @@ class Simulator:
         structure_vegetation_bridge: bool = False,
         structure_canopy=None,
         structure_combustible_roof_share: float = 0.0,
+        small_footprint_m2: float | None = None,
+        structure_small_footprints: str | None = None,
         progress=None,
         fine_fuel=None,
         fine_building_mask: list | None = None,
@@ -142,6 +144,17 @@ class Simulator:
             structure_combustible_roof_share: with ``structure_embers``, roof scenario share
                 (0, 0.05, 0.15, 0.30): seeded random buildings ignite from embers at 0.375 ψ*
                 (spec §6.2; a scenario, not observed roofs).
+            small_footprint_m2: size rule for headline building counts (decision 2026-10-12,
+                [R40]; docs/structure-spread-spec.md §2.2): footprints under this area (m²)
+                are outbuildings. They are left out of ``buildings_at_risk``, the exposure
+                counts and detail and the structure-spread headline counts, and reported as
+                ``small_within_500m`` / ``units_small_involved``; they still mask fuel cells
+                and carry fire between buildings. ``None`` = ``units.SMALL_FOOTPRINT_M2``
+                (20 m², read at call time); 0 = every footprint counts (former behaviour).
+                Needs ``building_footprints`` for the exposure side (centroids carry no area).
+            structure_small_footprints: ``"count_separately"`` (default) or ``"exclude"``
+                (outbuildings dropped from the structure-spread graph; sensitivity only);
+                ``None`` = the host default (API ``FIRESIM_SMALL_FOOTPRINTS``).
             progress: Optional callable(phase, fraction) for progress display only (no
                 effect on results). Grid model: ("spread", 0-1) while the front advances,
                 then ("structures", None) before house-to-house spread when it is on, and
@@ -184,6 +197,15 @@ class Simulator:
         self.structure_vegetation_bridge = bool(structure_vegetation_bridge)
         self.structure_canopy = structure_canopy
         self.structure_combustible_roof_share = float(structure_combustible_roof_share or 0.0)
+        from firesim.structures.units import footprint_areas_m2, resolve_small_footprint_m2
+
+        self.small_footprint_m2 = resolve_small_footprint_m2(small_footprint_m2)
+        self.structure_small_footprints = structure_small_footprints
+        # Outbuildings among the selected buildings (size rule): one flag per footprint, also
+        # valid for the centroids when they are the footprints' own (same order and length).
+        self._small_building = None
+        if self.small_footprint_m2 > 0 and building_footprints:
+            self._small_building = footprint_areas_m2(building_footprints) < self.small_footprint_m2
         self.progress = progress
         self.fine_fuel = fine_fuel
         self.fine_building_mask = fine_building_mask
@@ -519,10 +541,11 @@ class Simulator:
                 buildings_at_risk=(inside := self._buildings_inside(perimeter)),
                 ignition_snapped_m=cf.ignition_snapped_m,
                 building_exposure=(
-                    summarize(exposure, cf.time_hours * 60.0 + 1e-9, inside) if exposure else None
+                    self._exposure_summary(exposure, cf.time_hours * 60.0 + 1e-9, inside)
+                    if exposure else None
                 ),
                 building_exposure_detail=(
-                    _exposure_detail(exposure) if exposure and is_last else None
+                    _exposure_detail(self._counted(exposure)) if exposure and is_last else None
                 ),
                 head=self._head_summary(cf.head),
                 arrival_raster=arrival_raster if is_last else None,
@@ -624,7 +647,28 @@ class Simulator:
             canopy=self.structure_canopy,
             combustible_roof_share=self.structure_combustible_roof_share,
             seed=self.seed,
+            small_footprint_m2=self.small_footprint_m2,
+            small_footprints=self.structure_small_footprints,
         )
+
+    def _counted(self, records: list) -> list:
+        """Exposure records of the buildings the headline counts include (size rule)."""
+        small = self._small_building
+        if small is None or len(small) != len(records):
+            return records
+        return [r for r, s in zip(records, small) if not s]
+
+    def _exposure_summary(self, records: list, t_min: float, inside: int) -> dict:
+        """``summarize`` over the counted buildings; with the size rule, adds the outbuildings
+        within 500 m (``small_within_500m``) and the threshold."""
+        out = summarize(self._counted(records), t_min, inside)
+        small = self._small_building
+        if small is not None and len(small) == len(records):
+            out["small_within_500m"] = sum(
+                1 for r, s in zip(records, small)
+                if s and r.first_within_min.get(500.0, math.inf) <= t_min)
+            out["small_footprint_m2"] = int(round(self.small_footprint_m2))  # dict of ints
+        return out
 
     def _buildings_inside(self, perimeter: list[tuple[float, float]]) -> int:
         """Number of building centroids inside a (lat, lng) perimeter polygon."""
@@ -637,7 +681,18 @@ class Simulator:
             poly = poly.buffer(0)
         lats = np.array([b[0] for b in self.building_centroids])
         lngs = np.array([b[1] for b in self.building_centroids])
-        return int(shapely.contains_xy(poly, lngs, lats).sum())
+        n = int(shapely.contains_xy(poly, lngs, lats).sum())
+        small = self._small_building
+        if small is not None and small.any():
+            # size rule: outbuildings are not counted. The centroids can be a longer list than
+            # the footprints (invalid footprints are dropped from the latter), so the
+            # outbuildings inside are subtracted by their own footprint centroids.
+            if len(small) == len(lats):
+                n -= int(shapely.contains_xy(poly, lngs[small], lats[small]).sum())
+            else:
+                c = shapely.centroid(np.asarray(self.building_footprints, dtype=object)[small])
+                n -= int(shapely.contains_xy(poly, shapely.get_x(c), shapely.get_y(c)).sum())
+        return max(n, 0)
 
     def _foliar_moisture(self) -> float:
         """FMC: explicit override, else ST-X-3 eqs 1-8 from location and date, else 100 %."""

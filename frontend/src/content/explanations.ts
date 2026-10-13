@@ -37,6 +37,11 @@ export const BADGES = {
 } as const;
 
 export const TIPS = {
+  outbuildings:
+    "Footprints under 20 m² (sheds, small garages) are outbuildings. They still burn and pass " +
+    "fire between buildings, but are not counted as buildings above, so towns whose maps " +
+    "include sheds compare with towns whose maps do not. DINS also reports minor structures " +
+    "separately.",
   // ── Top bar ──
   lowSkill:
     "Training and planning tool, not an operational forecast. The FBP equations match the cffdrs " +

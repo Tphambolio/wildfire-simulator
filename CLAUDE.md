@@ -156,6 +156,8 @@ FIRESIM_NATIONAL_FUEL_GRID_PATH / _SCHEME, FIRESIM_PROVINCIAL_WINDOW_KM (40), FI
 FIRESIM_AB_BUILDINGS_PATH Alberta buildings FlatGeobuf (set by api/Dockerfile); stands in for FIRESIM_CITY_BUILDINGS_PATH
 FIRESIM_EDMONTON_BOX_LEGACY  1 = Edmonton runs clip structure spread to the former extract box and ignore buildings south of 53.39 N (pre-2026-10-12 behaviour; default off)
 FIRESIM_CITY_BUILDINGS_PATH  default /app/data/edmonton_buildings.geojson.gz; FIRESIM_BUILDINGS_MAX_NEAR (30000, outside Edmonton)
+FIRESIM_SMALL_FOOTPRINT_M2   size rule (20): footprints under it are outbuildings, counted separately from buildings at risk / exposure / structure spread, still carry fire; 0 = former counts ([R40], spec §2.2)
+FIRESIM_SMALL_FOOTPRINTS     count_separately (default) | exclude (drop outbuildings from the structure-spread graph; sensitivity only)
 FIRESIM_MAX_STORED_RUNS   runs kept in memory (40)
 FIRESIM_ARCHIVE(_DIR/_DB/_BACKEND/_S3_*/_MAX_AGE_DAYS/_MAX_BYTES/_RETENTION_HOURS)  run archive (docs/run-archive.md)
 FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)

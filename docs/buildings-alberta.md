@@ -174,7 +174,29 @@ distribute for any lawful purpose (commercial included) with attribution only (L
 v2.0 has no attribution clause but an indemnity and "may change" clause; Grande Prairie's
 licence text is published on its ArcGIS items, its portal licence page no longer exists). None
 is share-alike, so the combined file can be distributed under ODbL (required by the Microsoft
-part) with each provider's attribution.
+part) with each provider's attribution. Licence review 2026-10-12 ([R40] §4): Lethbridge
+**OK with a notice** (the indemnity binds each user for their own use and does not limit
+redistribution; notice in `docs/data-sources.md` and the release notes below); Grande Prairie
+**OK as is** (the same v1.0 text is on a City ArcGIS item modified 2026-10-05; Policy 702 still
+published).
+
+**Release notes text for `data-ab-buildings-2026-10` (owner step; draft, [R40] §6.1):**
+
+> Alberta building footprints, 2026-10 (`ab_buildings_2026_10.fgb`, 1,946,672 footprints;
+> fields `id`, `area_m2`, `source`; no addresses or other attributes). Building footprints:
+> Microsoft Canadian Building Footprints (2019), Open Data Commons ODbL 1.0; this file is
+> distributed under ODbL. Inside nine census subdivisions the footprints are municipal
+> footprints from Statistics Canada's Open Database of Buildings v3 (`source = odb:<provider>`);
+> each such record also remains under its provider's licence, and anyone using those records
+> accepts it: Contains information licensed under the Open Government Licence – City of
+> Calgary; the City of Lethbridge – Open Data License; the Open Government License – Parkland
+> County; the Open Data License – City of Grande Prairie; the Open Data Licence – City of
+> Airdrie; the Open Government Licence – Town of Okotoks; the Open Data Licence – Town of
+> Cochrane; the Town of Canmore Open Data Licence; the Open Government Licence – Banff. The
+> City of Lethbridge – Open Data License v2.0 provides its information "as is" and requires the
+> user to indemnify and hold harmless the City from liabilities and costs arising from the
+> user's use (https://opendata.lethbridge.ca/pages/open-data-license). Municipal layers include
+> sheds; FireSim counts footprints under 20 m² separately (docs/structure-spread-spec.md §2.2).
 
 **Not used:** City of Edmonton (Edmonton stays Microsoft; licence would allow it); Strathcona
 County (59 % of its ODB footprints, Sherwood Park, lie in the Edmonton box, which stays
@@ -195,7 +217,11 @@ Okotoks 30 → 147, Cochrane 38 → 246. Median area: Lethbridge 129 → 98 m²,
 102 m², Parkland County 128 → 63 m²; Calgary, Airdrie, Okotoks, Cochrane within ±16 %. Counts
 of "buildings within 500 m" and "units involved" in these towns are therefore not comparable
 with Microsoft-based towns (or with Edmonton): a house with a shed and a garage is three
-units. The D4 size filter (< 40 m², [H]) remains the way to test this. Coverage: Microsoft
+units. **Size rule (decision 2026-10-12, [R40]):** footprints under 20 m² are counted
+separately from every headline building count (they still carry fire; spec §2.2); this brings
+the edge-run ODB / Microsoft involvement ratios to 1.22 (Lethbridge), 1.66 (Grande Prairie) and
+1.16 (Canmore). What remains is genuine extra mapping (detached garages, newer buildings;
+Cochrane 1.6× at every size), not sheds. Coverage: Microsoft
 footprints with no ODB footprint within 5 m: 0.3-6 % per town (Parkland County 6.3 %, rural;
 Calgary 0.5 %), no cluster of more than 61 in a 500 m cell (`coverage.json`); they are not
 back-filled (that would mix units again).

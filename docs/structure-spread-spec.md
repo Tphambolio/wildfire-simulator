@@ -162,6 +162,40 @@ Per footprint, from **open data only** (`firesim.structures.vegetation.BuildingV
   entries (ΔAUC −0.001, −0.004 to +0.008; step-3 data report §3.2), so they are context and a
   validation baseline (§8 item 9), not a spread modifier.
 
+### 2.2 Size rule for headline counts (decision 2026-10-12, [R40])
+
+**Footprints under 20 m² are outbuildings: they are units in the graph and carry fire, but are
+counted separately from the headline building counts.** `units.SMALL_FOOTPRINT_M2` = 20;
+API `FIRESIM_SMALL_FOOTPRINT_M2` (0 = every footprint counts, the former payload exactly);
+`FIRESIM_SMALL_FOOTPRINTS=exclude` drops them from the graph (sensitivity only).
+
+- *Why a rule:* municipal layers (StatCan ODB; Lethbridge 30 %, Grande Prairie 28 %, Parkland
+  County 20 %, Canmore 16 %, Banff 12 % of footprints under 20 m²) map sheds that the Microsoft
+  2019 footprints mostly miss (0.3-2.5 % under 20 m²; Edmonton 0.7 %), so "units involved" and
+  "buildings within 500 m" meant different things in different towns ([R34] §3).
+- *Why 20 m²:* the per-town ODB / Microsoft count ratio drops from 1.85 to 1.32 (Lethbridge),
+  1.72 to 1.25 (Grande Prairie) and 1.41 to 1.19 (Canmore) between 0 and 20 m² and hardly moves
+  from 20 to 60 m² (Parkland County, rural, keeps falling to 40 m²). 40 m² would start removing
+  detached garages that both sources map (DINS Eaton "Other Minor Structure" median 55 m², 20 %
+  under 40 m²) and some dwellings (0.5 % of Eaton single residences under 40 m²). It is a
+  FireSim choice [H] informed by these data, not a published threshold.
+- *Why count separately rather than drop:* outbuildings burn and pass fire (D4; DINS records
+  the distance from a residence to its nearest utility/misc structure as an exposure factor;
+  FPI Jasper: structures within 5 m of a burned structure were very likely destroyed). DINS
+  inspects every structure from 120 ft² (11.15 m²) but reports "Other Minor Structure"
+  (15-31 % of records in Eaton, Camp, Tubbs, Palisades) apart from residences, which is the
+  same split. Dropping them (`exclude`) lowered Grande Prairie edge involvement 251 → 195
+  buildings ([R40] §3), i.e. sheds do bridge gaps in the model.
+- *What changes:* structure-spread counts (involved, front, b2b, ember, burning, burnt out,
+  roof scenario) and exposure (bands, `inside_perimeter`/`buildings_at_risk`, detail) cover
+  footprints ≥ 20 m²; `units_small_involved`, `units_involved_all`, `small_within_500m` report
+  the rest. Involvement times, areas, the building mask, `units_in_run` and `units_built` are
+  unchanged. Area is measured in local metres (equirectangular at the footprint's latitude).
+- *Effect* ([R40]): edge runs, ODB / Microsoft involved ratio Lethbridge 2.01 → 1.22, Grande
+  Prairie 2.42 → 1.66, Canmore 1.44 → 1.16, Cochrane 2.56 → 2.52 (Cochrane's ODB layer adds
+  buildings of every size, not sheds). Edmonton: Terwillegar identical; live request 43 → 42
+  involved, within 500 m 1,006 → 991.
+
 ## 3. Coupling to the FBP wildland front
 
 Wildland intensity and flame length come from FireSim's FBP layer as the grid model already

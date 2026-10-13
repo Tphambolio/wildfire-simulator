@@ -64,7 +64,7 @@ Inputs: ignition point or observed perimeter (optionally with its active edges: 
 along the perimeter or whole sides, from an RPAS thermal flight; the rest is treated as burned
 out), start time, weather (constant, hourly forecast optionally from 17:00 the evening before for
 the FFMC spin-up, or a manual schedule of step changes run as an hourly stream), FWI codes, burning period (local hours), FBP
-fuel grid (Edmonton: City canopy-LiDAR product, built from City open data — 2025 LiDAR `sz3i-y5ze`, uPLVI 2025, Naturalized Areas, Trees inventory — under the Open Government Licence – Edmonton, [R38]; from 2026-10-11 the Alberta Wildfire FBP fuel
+fuel grid (Edmonton: City canopy-LiDAR product, built from the City's 2025 LiDAR acquisition (published as 0.2 m rasters `sz3i-y5ze` / `i85g-8mg6`; the build used a City-supplied vegetation-classified point cloud of it, which is not on the portal, [R40] §4.3), uPLVI 2025, Naturalized Areas, Trees inventory — Open Government Licence – Edmonton, [R38]; written City confirmation for the point-cloud input recommended, [R40]; from 2026-10-11 the Alberta Wildfire FBP fuel
 types 2025, 100 m, wherever the City grid has no data and for ignitions outside it, with D-1/D-2
 and M-1/M-2 leaf-on from day of year 150 to 257, per-cell percent conifer from the map and O-1 as
 O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optional DEM
@@ -72,7 +72,9 @@ O-1b; outside Alberta the uniform fuel type; `docs/fuel-grid-alberta.md`), optio
 for runs outside it; `docs/terrain-alberta.md`), water
 and building masks (from 2026-10-11 Microsoft building footprints for all of Alberta, read by
 window; from 2026-10-12 municipal footprints in nine municipalities, which include sheds and
-garages, so building counts differ in unit by town; Edmonton keeps Microsoft footprints and its
+garages; since 2026-10-12 footprints under 20 m² are counted separately as outbuildings in
+every count (they still carry fire; [R40], `docs/structure-spread-spec.md` §2.2), which removes
+most of that difference; Edmonton keeps Microsoft footprints and its
 structure spread is no longer limited to the former extract box; `docs/buildings-alberta.md`),
 grass curing, percent conifer / dead fir, foliar moisture or date. Grass curing (decision M1,
 2026-10-10): 95 % by default from 1 March to 29 May (day of year 60-149, between snow-melt and

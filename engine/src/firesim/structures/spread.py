@@ -106,6 +106,8 @@ class StructureSpreadResult:
     combustible_roof: np.ndarray | None = None  # roof scenario: units assigned a combustible roof
     roof_scenario: dict | None = None  # scenario parameters and label (spec §6.2)
     veg: np.ndarray | None = None  # (units, len(VEG_FIELDS)) vegetation attributes, nan = none
+    small: np.ndarray | None = None  # size rule: units under ``small_footprint_m2`` (outbuildings)
+    small_footprint_m2: float = 0.0  # 0 = no size rule (every unit counts)
 
     @property
     def t_out_min(self) -> np.ndarray:
@@ -119,8 +121,17 @@ class StructureSpreadResult:
         """Counts of units involved by ``t_min`` (JSON-friendly, with the label).
 
         ``units_burning`` + ``units_burnt_out`` = ``units_involved``: a unit is burnt out once
-        its design fire has ended (spec §4.3); it is still counted as involved."""
-        by = self.t_min <= t_min
+        its design fire has ended (spec §4.3); it is still counted as involved.
+
+        Size rule (spec §2.2, [R40]): with ``small_footprint_m2`` > 0, units smaller than it
+        (outbuildings) are left out of every headline count (involved, front, b2b, ember,
+        burning, burnt out, roof scenario) and reported as ``units_small_involved``;
+        ``units_involved_all`` = ``units_involved`` + ``units_small_involved``. They still
+        carry fire. With no size rule the payload is exactly the former one."""
+        rule = self.small is not None and self.small_footprint_m2 > 0
+        small = self.small if rule else np.zeros(len(self.t_min), dtype=bool)
+        by_all = self.t_min <= t_min
+        by = by_all & ~small
         out_by = self.t_out_min <= t_min
         front = int(np.sum(by & (self.source == SOURCE_FRONT)))
         structure = int(np.sum(by & (self.source == SOURCE_STRUCTURE)))
@@ -150,8 +161,12 @@ class StructureSpreadResult:
             roof = (self.combustible_roof if self.combustible_roof is not None
                     else np.zeros(len(self.t_min), dtype=bool))
             out["roof_scenario"] = {**self.roof_scenario,
-                                    "units_combustible_roof_built": int(np.sum(roof)),
+                                    "units_combustible_roof_built": int(np.sum(roof & ~small)),
                                     "units_involved_combustible_roof": int(np.sum(by & roof))}
+        if rule:
+            out["small_footprint_m2"] = float(self.small_footprint_m2)
+            out["units_small_involved"] = int(np.sum(by_all & small))
+            out["units_involved_all"] = out["units_involved"] + out["units_small_involved"]
         return out
 
     def involved_detail(self, simplify_m: float = DETAIL_SIMPLIFY_M) -> list[dict]:
@@ -209,6 +224,8 @@ class StructureSpreadResult:
                     entry["veg"] = v
             if self.combustible_roof is not None and bool(self.combustible_roof[u]):
                 entry["combustible_roof_scenario"] = True
+            if self.small is not None and self.small_footprint_m2 > 0 and bool(self.small[u]):
+                entry["small"] = True  # outbuilding under the size rule (not in the counts)
             out.append(entry)
         return out
 
@@ -598,6 +615,8 @@ def structure_spread_for_grid_run(
     combustible_roof_share: float = 0.0,
     roof_psi_factor: float | None = None,
     seed: int = 0,
+    small_footprint_m2: float | None = None,
+    small_footprints: str | None = None,
 ):
     """Hamada structure spread coupled to a finished grid run, built only where it can reach.
 
@@ -654,6 +673,13 @@ def structure_spread_for_grid_run(
         combustible_roof_share: roof scenario (spec §6.2), share of buildings assigned a
             combustible roof (seeded by ``seed``); they ignite from embers at
             ``roof_psi_factor`` × ψ* (default ``roofs.ROOF_PSI_FACTOR``). Needs ``embers``.
+        small_footprint_m2: size rule (spec §2.2, [R40]): footprints under this area are
+            outbuildings; ``None`` = ``units.SMALL_FOOTPRINT_M2`` (20 m²), 0 = no rule.
+        small_footprints: ``None`` = the host default (``units.resolve_small_footprints_mode``),
+            else ``"count_separately"`` (default): outbuildings stay in the graph and
+            carry fire, but are left out of the headline counts (``units_small_involved``);
+            ``"exclude"``: they are dropped before the graph is built (sensitivity only: it
+            widens gaps, the less cautious direction, D4).
 
     Burn-out only removes crossings, so the exactness argument above is unchanged; the
     vegetation bridge only removes graph links (the guard uses the 45 m graph cutoff), and the
@@ -664,10 +690,15 @@ def structure_spread_for_grid_run(
         M_PER_DEG_LAT,
         LocalFrame,
         build_units,
+        resolve_small_footprint_m2,
+        resolve_small_footprints_mode,
     )
 
     if arrival_min is None or footprints is None:
         return None
+    small_m2 = resolve_small_footprint_m2(small_footprint_m2)
+    small_footprints = resolve_small_footprints_mode(small_footprints)
+    exclude_small = small_footprints == "exclude" and small_m2 > 0
     if design_fire_kw_m2 is None:
         design_fire_kw_m2 = (embers.design_fire_kw_m2 if embers is not None
                              else DEFAULT_DESIGN_FIRE_KW_M2)
@@ -699,6 +730,8 @@ def structure_spread_for_grid_run(
               "design_fire_kw_m2": int(design_fire_kw_m2), "burnout": bool(burnout),
               "burnout_min": burnout_min,
               "vegetation_attributes": vegetation is not None}
+    if small_m2 > 0:
+        params.update({"small_footprint_m2": small_m2, "small_footprints": small_footprints})
     if embers is not None:
         params.update(embers.params())
     roof_params = None
@@ -718,7 +751,8 @@ def structure_spread_for_grid_run(
         res = StructureSpreadResult(t_min=np.zeros(0), source=np.zeros(0, dtype=np.int8),
                                     parent=np.zeros(0, dtype=np.int64), t_front_min=np.zeros(0),
                                     params=params, units_in_run=units_in_run, frame=frame,
-                                    burnout_min=burnout_min)
+                                    burnout_min=burnout_min, small=np.zeros(0, dtype=bool),
+                                    small_footprint_m2=small_m2)
         return res
     dlat, dlng = (g_lat_max - g_lat_min) / rows, (g_lng_max - g_lng_min) / cols
     r_idx, c_idx = np.nonzero(burned.any(axis=1))[0], np.nonzero(burned.any(axis=0))[0]
@@ -749,7 +783,8 @@ def structure_spread_for_grid_run(
             return StructureSpreadSkipped(not_computed(units_in_run, needed, max_units, params))
         ids = source.ids_intersecting(reach) if hasattr(source, "ids_intersecting") else None
         units = build_units(source.footprints_intersecting(reach), neighbour_cutoff_m=cutoff,
-                            bbox=bbox, frame=frame, ids=ids)
+                            bbox=bbox, frame=frame, ids=ids,
+                            min_area_m2=small_m2 if exclude_small else 0.0)
         t_front = building_cell_contact_times(units, arrival_min, grid_bbox, contact_m)
         links = None
         if vegetation_bridge:
@@ -780,6 +815,8 @@ def structure_spread_for_grid_run(
     if vegetation is not None and units.building_id is not None:
         result.veg = vegetation.lookup(units.building_id)
     result.units_in_run = units_in_run
+    result.small = units.area_m2 < small_m2 if small_m2 > 0 else np.zeros(len(units), dtype=bool)
+    result.small_footprint_m2 = small_m2
     inv = np.isfinite(result.t_min)
     result.footprints = np.where(inv, units.footprints, None)  # keep only involved geometry
     result.frame = frame
