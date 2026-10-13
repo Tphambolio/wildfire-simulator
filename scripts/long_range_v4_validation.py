@@ -372,7 +372,57 @@ FIRES4 = {
                         "column": "HADS JBGC1 JarboGap", "t0": "2020-09-07 22:00", "fmt": "%Y-%m-%d %H:%M:%S"},
     },
 }
-PREREG_LR4: dict = {}  # filled after the training fit, committed and pushed before scoring
+PREREG_LR4 = {
+    "date_fixed": "2026-10-13",
+    "question": "Does v4 (v3 + VIIRS burn-time caps and FRP emission scaling, Camp NIST fronts, "
+                "per-building survival from pre-fire canopy and building-code era, event-gated run "
+                "end), with free values fitted on five training fires, give skilful, calibrated "
+                "per-building destruction probabilities on three held-out fires?",
+    "theta_final": {"ember_factor": 100.0, "survival": 0.3, "frp_gamma": 1.0, "b_canopy": -3.0,
+                    "b_code": 1.9, "link_scale_m": 160.0},
+    "theta_how": "grid GRID (72 sets) x 6 members on Eaton, Palisades, Camp, Tubbs, Woolsey; minimum "
+                 "mean Brier over the five (fit_v4.json, 2026-10-13). Grid revised from the "
+                 "literature review BEFORE this block (Hakes et al. 2017 Part II pp.495-496, 486-500; "
+                 "Lee & Davidson 2010 pp.681-682): b_code {0, 1.9} with code year 2001, canopy ring "
+                 "0-30 m, link scale {10, 160} m",
+    "training_cv_disclosed": "leave-one-fire-out Brier skill vs each fold's base rate was negative "
+                             "on every fold: Eaton -0.11 (AUC 0.58), Palisades -0.34 (0.51), Camp "
+                             "-3.09 (0.53), Tubbs -3.60 (0.52), Woolsey -5.20 (0.51). Expectation: the "
+                             "calibration condition fails again.",
+    "fires": {
+        "glass": "held out; CAL FIRE DINS; hybrid units; GOFER hourly GOES perimeters set burn times",
+        "czu": "held out; weak RAWS winds (no wind event -> no run end); GOFER perimeters",
+        "northcomplex": "held out, replaces Marshall 2021 (Boulder County damage data has no "
+                        "undamaged class; refs/heldout_v4_selection.md); GOFER perimeters",
+        "jasper": "not run (no digitised 2024 fire positions)",
+    },
+    "inputs_and_differences_disclosed": [
+        "burn times: training fires use the progression rule capped by VIIRS (Camp: NIST TN 2135 "
+        "arrival points); held-out fires use GOFER hourly GOES perimeters (Liu et al. 2024, ESSD "
+        "16:1395) where they exist, then the rule, capped by VIIRS",
+        "held-out canopy uses a fixed NDVI threshold 0.30 (median of the training fires' per-fire "
+        "NAIP calibrations 0.25-0.30); NAIP 2020 pre-fire for all three",
+        "no open pre-fire year-built data was joined for the held-out fires, so b_code does not act "
+        "there (training: Eaton, Palisades, Woolsey only)",
+        "held-out units: footprints + DINS points that matched no footprint (169 m2 squares); "
+        "unsurveyed footprints not scored",
+        "outcome-related material glimpsed in documents (aggregate loss totals only) is listed in "
+        "refs/<fire>/DATA_QUALITY or the data agents' reports; nothing building-level or spatial",
+        "batch-2 literature (Sardoy validity, Storey tail, f_s, SWUIFT thresholds) is NOT folded "
+        "into v4 (owner decision); it goes to v5",
+    ],
+    "metrics": "as PREREG_LR3, plus the block-level secondary (share destroyed per 250 m block with "
+               ">= 3 scored buildings vs mean P: weighted MSE skill vs climatology, Pearson r); "
+               "the secondary never decides",
+    "baselines": "as PREREG_LR3 (a Hamada from front contact, b windward 5 %, c Chen & McAneney, d "
+                 "count-matched distance band, e observed base rate, e2 training rate 0.584)",
+    "decision_rule": "PASS only if, pooled over Glass, CZU and North Complex (250 m blocks within "
+                     "fires, 2,000 resamples), all four 95 % intervals exclude zero in v4's favour: "
+                     "Brier(c) - Brier(v4) > 0; kappa(v4) - kappa(b) > 0; kappa(v4) - kappa(d) > 0; "
+                     "Brier(e) - Brier(v4) > 0. Per-fire results reported, never decide.",
+    "members": "50; wind default_rng([20261011, 1000 + m]); draws default_rng([20261012, m])",
+    "sensitivity_20_members": "NO_COVARIATES, NO_STOP, NO_SURVIVAL",
+}
 
 
 def score(args):
@@ -467,7 +517,7 @@ def score(args):
         print(json.dumps({"tests": tests, "decision": dec}, indent=1, default=float))
 
 
-TRAINING_RATE = float("nan")  # set in PREREG_LR4 from the five training fires
+TRAINING_RATE = (7195 + 5729 + 18803 + 5656 + 1643) / (13177 + 9851 + 23256 + 6013 + 14539)  # 0.584
 
 
 def prereg_hash() -> str:
