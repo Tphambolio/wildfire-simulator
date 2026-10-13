@@ -57,6 +57,9 @@ import RunProgress from "./components/RunProgress";
 import { TipButton } from "./components/InfoTip";
 import { fallbackScenarioConfig } from "./utils/scenarioDefaults";
 import SetupSection from "./components/SetupSection";
+import SavedRunsPanel from "./components/SavedRunsPanel";
+import RunLabelField from "./components/RunLabelField";
+import { withRunLabel, type SavedRun } from "./services/savedRuns";
 import SituationPanel from "./components/SituationPanel";
 import { CollapseButton, SideRail } from "./components/SideRail";
 import { isTypingTarget, useLayout } from "./hooks/useLayout";
@@ -504,6 +507,8 @@ export default function App() {
   // burning period of the current run (timeline shading, Situation note)
   const [skillOptions, setSkillOptions] = useState<SkillOptionsState>({ burningPeriod: null, spinUp: false });
   const [runBurningPeriod, setRunBurningPeriod] = useState<BurningPeriod | null>(null);
+  // Optional label sent with the next run (saved-runs list)
+  const [runLabel, setRunLabel] = useState("");
   const [lastRunSpinUp, setLastRunSpinUp] = useState(false);
 
   // RPAS perimeter restart: observed perimeter, active edges, drawing on the map
@@ -529,9 +534,9 @@ export default function App() {
       setScenarioStart(new Date(startMs));
       setRunBurningPeriod(req.burning_period ?? null);
       setLastRunSpinUp(false);
-      startMultiDaySimulation(req);
+      startMultiDaySimulation(withRunLabel(req, runLabel));
     },
-    [startMultiDaySimulation, leaveCurrentRun]
+    [startMultiDaySimulation, leaveCurrentRun, runLabel]
   );
 
   // Run pressed but the request is still being prepared (hourly forecast fetch): leave the
@@ -679,6 +684,19 @@ export default function App() {
     setRunBurningPeriod(null);
     restoreRun(activePeriod.simulationId);
   }, [incident, activePeriod, leaveCurrentRun, restoreRun]);
+
+  // Saved runs list: reload a run from the server (not filed under any operational period;
+  // "Attach" in the EOC console files it), with its ensemble, and fit the map to it
+  const handleOpenSavedRun = useCallback((run: SavedRun) => {
+    leaveCurrentRun();
+    runTargetRef.current = { incidentId: "", periodIndex: -1 };
+    const at = run.start_time ? Date.parse(run.start_time) : NaN;
+    setScenarioStart(Number.isFinite(at) ? new Date(at) : null);
+    setRunBurningPeriod(null);
+    setEnsembleMembers(run.ensemble ? (run.ensemble_members ?? 1) : null);
+    fittedOnceRef.current = false;
+    restoreRun(run.id);
+  }, [leaveCurrentRun, restoreRun]);
 
   // ── Ensemble (range of outcomes): polled after the single run, the headline once in ──
   const ensemble = useEnsemble(simulationId, ensembleMembers, status);
@@ -919,9 +937,9 @@ export default function App() {
       setEnsembleMembers(params.ensemble?.n_members ?? null);
       setRunBurningPeriod(params.burning_period ?? null);
       setLastRunSpinUp(!!params.ffmc_spin_up);
-      startSimulation(params);
+      startSimulation(withRunLabel(params, runLabel));
     },
-    [startSimulation, leaveCurrentRun]
+    [startSimulation, leaveCurrentRun, runLabel]
   );
 
 
@@ -1076,6 +1094,7 @@ export default function App() {
             runRequest={runRequest}
             onRunState={setRunState}
           />
+          <RunLabelField value={runLabel} onChange={setRunLabel} disabled={isRunning} />
           <div className="setup-more-label">More</div>
           <SetupSection
             title="Assets, roads & isochrones"
@@ -1140,6 +1159,9 @@ export default function App() {
               onExport={exportScenario}
               onImport={importScenario}
             />
+          </SetupSection>
+          <SetupSection title="Saved runs" summary="Runs kept on the server (passphrase)">
+            <SavedRunsPanel onOpen={handleOpenSavedRun} currentRunId={simulationId} currentFromArchive={runFromArchive} />
           </SetupSection>
         </div>
         <div className="run-bar" ref={setRunBarEl} />

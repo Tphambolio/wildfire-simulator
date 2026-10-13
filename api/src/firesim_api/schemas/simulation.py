@@ -215,9 +215,13 @@ class EnsembleParams(BaseModel):
     ignition_jitter_m: float = Field(default=0.0, ge=0, le=2000)
 
 
+RUN_LABEL_DOC = "Optional run label for the saved-runs list (plain text, at most 80 characters)"
+
+
 class SimulationCreate(BaseModel):
     """Request body for creating a new simulation."""
 
+    label: str | None = Field(default=None, max_length=80, description=RUN_LABEL_DOC)
     ignition_lat: float = Field(..., ge=-90, le=90, description="Ignition latitude")
     ignition_lng: float = Field(..., ge=-180, le=180, description="Ignition longitude")
     weather: WeatherParams
@@ -586,6 +590,7 @@ class MultiDaySimulationCreate(BaseModel):
     front for the next day.
     """
 
+    label: str | None = Field(default=None, max_length=80, description=RUN_LABEL_DOC)
     ignition_lat: float = Field(..., ge=-90, le=90, description="Ignition latitude")
     ignition_lng: float = Field(..., ge=-180, le=180, description="Ignition longitude")
     days: list[DayWeatherParams] = Field(
@@ -660,6 +665,7 @@ class PerimeterOverrideRequest(BaseModel):
         ...,
         description="ID of a running or completed simulation whose config is reused",
     )
+    label: str | None = Field(default=None, max_length=80, description=RUN_LABEL_DOC)
     perimeter_geojson: dict = Field(
         ...,
         description=(
