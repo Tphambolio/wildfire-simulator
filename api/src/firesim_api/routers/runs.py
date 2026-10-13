@@ -13,8 +13,9 @@ is never logged. Failed attempts are rate-limited per client IP (in memory): aft
 ``_FREE_FAILURES`` failures each further one locks the IP out for 2, 4, 8 ... seconds (at most
 ``_MAX_LOCK_S``), answered 429 with ``Retry-After``; a success clears the count.
 
-``GET /api/v1/simulations/{id}`` (routers/simulations.py) stays open: run IDs are unguessable
-and the EOC console reloads its periods' runs by ID. The list carries no address and no
+``GET /api/v1/simulations/{id}`` (routers/simulations.py) stays open: new run IDs are 128 random
+bits (services/run_ids.py), unknown IDs back off per IP (middleware/run_probe_limit.py), and the
+EOC console reloads its periods' runs by ID. The list carries no address and no
 per-building data: ignition point rounded to 3 decimals (about 100 m), times, kind, summary
 and source labels. See docs/run-archive.md (phase 2).
 """

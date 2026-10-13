@@ -98,6 +98,9 @@ export interface MockOptions {
   /** Each POST /simulations gets its own ID (fixture ID, then `<fixture ID>-2`, `-3`, ...);
    * the same frames are replayed for each */
   distinctRunIds?: boolean;
+  /** POST /simulations number n gets runIds[n - 1] (then the default ID); GET, /arrival and
+   * /ensemble (404, none requested) answer for these IDs, replaying the same frames */
+  runIds?: string[];
 }
 
 /** Frames with every coordinate shifted by [dLat, dLng] (perimeter, cells, head, spot fires). */
@@ -208,7 +211,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       const body = req.postDataJSON() as Record<string, unknown>;
       state.posts.push(body);
       const n = state.posts.length;
-      const id = opts.distinctRunIds && n > 1 ? `${fx.simulation_id}-${n}` : fx.simulation_id;
+      const id = opts.runIds?.[n - 1] ?? (opts.distinctRunIds && n > 1 ? `${fx.simulation_id}-${n}` : fx.simulation_id);
       return json(route, { simulation_id: id, status: "running", config: fx.config, frames: [], error: null });
     }
     if (path === "/api/v1/simulations/perimeter-override" && req.method() === "POST") {
@@ -241,10 +244,18 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       if (one[1] === MULTIDAY_ID) {
         return json(route, { simulation_id: MULTIDAY_ID, status: "completed", config: null, frames: mdFrames(multiDays), error: null });
       }
+      if (opts.runIds?.includes(one[1])) {
+        state.polls++;
+        return json(route, { ...fx, simulation_id: one[1], frames: fxFrames });
+      }
       if (opts.distinctRunIds && one[1].startsWith(`${fx.simulation_id}-`)) {
         state.polls++;
         return json(route, { ...fx, simulation_id: one[1], frames: fxFrames });
       }
+    }
+    const sub = path.match(/^\/api\/v1\/simulations\/([^/]+)\/(arrival|ensemble)$/);
+    if (sub && opts.runIds?.includes(sub[1])) {
+      return sub[2] === "arrival" ? json(route, arrival) : json(route, { detail: "No ensemble requested for this run" }, 404);
     }
     if (path === `/api/v1/simulations/${MULTIDAY_ID}/ensemble`) {
       return json(route, { detail: "No ensemble requested for this run" }, 404);

@@ -10,7 +10,6 @@ import logging
 import os
 import threading
 import time
-import uuid
 from typing import Callable
 
 from firesim.fbp.constants import FuelType
@@ -24,6 +23,7 @@ from firesim_api.schemas.simulation import (
     SimulationStatus,
     local_start_hour,
 )
+from firesim_api.services.run_ids import new_run_id
 
 logger = logging.getLogger(__name__)
 
@@ -390,7 +390,7 @@ class SimulationRunner:
         Returns:
             Simulation ID
         """
-        sim_id = str(uuid.uuid4())[:8]
+        sim_id = new_run_id()
         run = SimulationRun(sim_id, params)
         run.on_status = on_status
 
@@ -1218,7 +1218,7 @@ class SimulationRunner:
         Returns:
             Simulation ID.
         """
-        sim_id = str(uuid.uuid4())[:8]
+        sim_id = new_run_id()
         run = SimulationRun(sim_id, params)
 
         self._store(sim_id, run)
@@ -1446,7 +1446,7 @@ class SimulationRunner:
             req.simulation_id, len(initial_front), req.duration_hours, weather_source,
         )
 
-        sim_id = str(uuid.uuid4())[:8]
+        sim_id = new_run_id()
         run = SimulationRun(sim_id, params)
         run.on_status = on_status
         run.kind = "perimeter_override"

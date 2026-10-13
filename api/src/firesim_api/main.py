@@ -17,6 +17,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from firesim_api.middleware.run_probe_limit import RunProbeLimitMiddleware
 from firesim_api.routers import fwi, health, layers, runs, simulations, weather
 from firesim_api.services import archive as run_archive
 from firesim_api.services.runner import SimulationRunner
@@ -66,6 +67,10 @@ def create_app() -> FastAPI:
         version="3.0.0",
         lifespan=lifespan,
     )
+
+    # Per-IP backoff on unknown run IDs (slows guessing of pre-2026-10-13 8-hex IDs;
+    # middleware/run_probe_limit.py). Added before CORS so its 429s carry CORS headers.
+    application.add_middleware(RunProbeLimitMiddleware)
 
     # CORS — defaults to "*" for local dev; set FIRESIM_CORS_ORIGINS in production
     _cors_origins = os.environ.get("FIRESIM_CORS_ORIGINS", "*").split(",")

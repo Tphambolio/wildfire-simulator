@@ -54,6 +54,24 @@ describe("browser storage (QA 2026-10-11)", () => {
     expect(s.durationHours).toBe(4);
   });
 
+  it("keeps run IDs of either length verbatim (8-hex before 2026-10-13, 32-hex since)", () => {
+    // Stored incidents and exported incident files carry each period's run ID; the API made
+    // 8 hex characters before 2026-10-13 and 32 since (api services/run_ids.py). Both reload.
+    const legacy = "1a2b3c4d";
+    const current = "0123456789abcdef0123456789abcdef";
+    localStorage.setItem(KEY, JSON.stringify([{
+      id: "inc", name: "Two eras",
+      operationalPeriods: [
+        { day: 1, simulationId: legacy, simulationStatus: "completed" },
+        { day: 2, simulationId: current, simulationStatus: "completed" },
+      ],
+    }]));
+    const [inc] = loadIncidents(KEY);
+    expect(inc.operationalPeriods.map((p) => p.simulationId)).toEqual([legacy, current]);
+    const reimported = normaliseIncident(JSON.parse(JSON.stringify({ ...inc, id: "copy" })))!;
+    expect(reimported.operationalPeriods.map((p) => p.simulationId)).toEqual([legacy, current]);
+  });
+
   it("reports a refused write", () => {
     const orig = Storage.prototype.setItem;
     Storage.prototype.setItem = () => {
