@@ -812,6 +812,10 @@ class SimulationRunner:
                              getattr(params, "fuel_type", "C2"))
         info = {"kind": choice.kind, "label": choice.label, "attribution": choice.attribution,
                 "season": None, "share": None}
+        # Pre-fire back-cast for dated historical scenarios (docs/fuel-grid-backcast.md)
+        from firesim_api.services.backcast import plan_backcast
+
+        sources, info["backcast"] = plan_backcast(sources, choice.kind, params)
         fine = None
         if choice.kind == "city":
             fuel_grid, wui_grid, terrain = self._load_grids(
@@ -831,6 +835,11 @@ class SimulationRunner:
                      (stacked.share.get("national", 0.0),
                       f"{NATIONAL_LABEL} ({sources.national_scheme}) outside Alberta")]
             info["label"] = "; ".join(text for share, text in parts if share > 0) or choice.label
+            if stacked.backcast is not None:
+                from firesim_api.services.backcast import describe_backcast
+
+                info["backcast"] = describe_backcast(sources, stacked.backcast)
+                info["label"] += f" ({info['backcast']['label']})"
             wui_grid = None
             if wui_path:
                 from firesim.data.wui_loader import load_wui_modifiers

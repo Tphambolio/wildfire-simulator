@@ -562,6 +562,35 @@ class SimulationFrame(BaseModel):
     grid: dict | None = None
 
 
+class BackcastInfo(BaseModel):
+    """Whether a historical run's Alberta fuel was back-cast to its date
+    (``firesim.data.backcast``)."""
+
+    applied: bool = Field(description=(
+        "True when the Alberta cells burned since the scenario date (NBAC) were restored to "
+        "pre-fire fuel"))
+    as_of: str = Field(description="Scenario date the fuel represents (YYYY-MM-DD)")
+    reason: str | None = Field(default=None, description="Why it was not applied")
+    note: str | None = Field(default=None, description=(
+        "One plain-language line for the fuel-vintage warning: applied (with the restored "
+        "share and epoch) or not applied (with the reason)"))
+    epoch: int | None = Field(default=None, description=(
+        "SCANFI v2 epoch the restored fuel was typed from (the newest before the scenario's "
+        "year)"))
+    restored_share: float | None = Field(default=None, description=(
+        "Share of the window's cells restored to pre-fire fuel"))
+    unrestored_share: float | None = Field(default=None, description=(
+        "Share of cells burned since the scenario date with no pre-fire value (kept as 2025)"))
+    restored_before: dict[str, float] | None = Field(default=None, description=(
+        "Fuel groups of the restored cells on the 2025 grid (shares)"))
+    restored_after: dict[str, float] | None = Field(default=None, description=(
+        "Fuel groups of the restored cells after the back-cast (shares)"))
+    label: str | None = None
+    source: str | None = None
+    attribution: str | None = None
+    heuristic: str | None = Field(default=None, description="What is estimated, not observed")
+
+
 class FuelSourceInfo(BaseModel):
     """Which fuel data a run used (set once the grids are loaded)."""
 
@@ -572,6 +601,11 @@ class FuelSourceInfo(BaseModel):
     label: str = Field(description="Human-readable source, e.g. 'Alberta Wildfire FBP fuel "
                                    "types 2025, 100 m'")
     attribution: str | None = Field(default=None, description="Licence attribution to show")
+    backcast: BackcastInfo | None = Field(default=None, description=(
+        "Pre-fire fuel for a dated historical scenario (docs/fuel-grid-backcast.md): present "
+        "when the run is dated in or before the Alberta grid's vintage year (2025); absent for "
+        "undated runs and later scenarios (unchanged)"))
+
     season: str | None = Field(default=None, description=(
         "leaf-on / leaf-off used for the D-1/D-2 and M-1/M-2 cells of provincial or national "
         "grids (None for other sources)"))
