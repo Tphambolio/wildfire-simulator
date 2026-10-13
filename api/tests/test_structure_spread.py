@@ -408,7 +408,11 @@ async def test_long_range_model_option(client, files):
         files, structure_spread=True, structure_long_range_embers=True, structure_embers=True,
         structure_long_range_model="v3"))
     assert resp.status_code == 422
-    for model in ("v1", "v2", "v3"):
+    resp = await client.post("/api/v1/simulations", json=_payload(
+        files, structure_spread=True, structure_long_range_embers=True, structure_embers=True,
+        structure_long_range_model="v5"))
+    assert resp.status_code == 422
+    for model in ("v1", "v2", "v3", "v5"):
         data = await _finish(client, _payload(files, structure_spread=True,
                                               structure_long_range_embers=True,
                                               structure_long_range_members=2,
@@ -418,3 +422,5 @@ async def test_long_range_model_option(client, files):
         assert s["long_range_model"] == model
         if model == "v2":
             assert s["long_range_urban_source"] is True and s["long_range_receptive"] == "bed"
+        if model == "v5":
+            assert s["long_range_threshold_g"] > 0 and s["long_range_link_scale_m"] <= 10

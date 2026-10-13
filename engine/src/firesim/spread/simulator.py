@@ -152,7 +152,8 @@ class Simulator:
                 involved building an ignition probability (illustrative).
                 ``structure_long_range_model``: "v2" (default, spec §6.4: burning buildings
                 are ember sources too, per-ember ignition after Himoto & Tanaka 2008,
-                published parameter ranges drawn per member) or "v1" (spec §6.3).
+                published parameter ranges drawn per member), "v1" (spec §6.3), "v3" (§6.5)
+                or "v5" (§6.7: two-mode transport, threshold receptors, short links).
             progress: Optional callable(phase, fraction) for progress display only (no
                 effect on results). Grid model: ("spread", 0-1) while the front advances,
                 then ("structures", None) before house-to-house spread when it is on, and
@@ -626,10 +627,9 @@ class Simulator:
         if self.structure_long_range_embers:
             from firesim.structures.long_range import LongRangeOptions
 
-            long_range = LongRangeOptions(members=self.structure_long_range_members,
-                                          seed=int(self.seed or 0),
-                                          model=self.structure_long_range_model,
-                                          design_fire_kw_m2=int(self.structure_design_fire_kw_m2))
+            long_range = LongRangeOptions.for_model(
+                self.structure_long_range_model, members=self.structure_long_range_members,
+                seed=int(self.seed or 0), design_fire_kw_m2=int(self.structure_design_fire_kw_m2))
         g, area = self._run_grid, self.fuel_grid
         return structure_spread.structure_spread_for_grid_run(
             footprints, arrival, self._schedule, duration_min,

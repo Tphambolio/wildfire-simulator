@@ -178,6 +178,59 @@ V3_EMBER_FACTOR = 100.0  # multiplier on q [fitted, R37; grid edge]
 V3_STOP_WIND_KMH = 20.0  # wind-event end: 10 m wind < 20 km/h for 2 h, >= 3 h after ignition [H]
 URBAN_SIZE_CLASSES = 4  # building-size classes for the urban kernels (quartiles) [H]
 URBAN_RASTER_M = 10.0  # urban landing raster (Himoto medians are ~4-12 m) [H]
+# v5 (spec §6.7): two-mode transport, surface brands, glowing factor, threshold receptors,
+# short contact links. Report "Long-range embers v5 two-mode kernel 2026-10-12".
+SARDOY_I_RANGE_MW = (10.0, 40.0)  # fitted plumes: 10-40 MW/m (Sardoy et al. 2008 p.483) [V]
+SARDOY_U_RANGE_MS = (6.70, 17.88)  # canopy-top wind, H = 10 m, 6.70-17.88 m/s (p.483) [V]
+V5_SHORT_TAIL_Q = 0.999  # short (flaming) mode truncated at its 99.9th percentile [H]; Sardoy's
+#                          short mode reaches ~1,000-1,128 m at 30 MW/m (p.486), q99.9 = 1.3 km there
+V5_LONG_FRACTION = 0.2762  # long (charring) mode share of landed brands, νc 0.39, 30 MW/m,
+#                            11.17 m/s (p.486) [V]; applied to torching/crowning emission
+V5_LONG_MEDIAN_M = 6300.0  # long mode: > 4,500 m, maximum near 6,100 m, landings to ~10.5 km
+V5_LONG_SIGMA = 0.18  # (p.486, Fig. 6) -> lognormal mode 6.1 km, q01-q99 4.1-9.6 km [D]
+V5_LONG_SIGMA_Y_DEG = 5.0  # crosswind spread of the long mode: tan(5°) × distance [H]
+V5_LONG_RASTER_M = 100.0  # long-mode landing raster [H] (the kernel is km-wide)
+# Long-mode ignition factor relative to a flaming short-mode brand, calibrated so that 2 % of
+# spot fires lie beyond 3 km (Storey et al. 2020 Fire 3:10 p.7) [D]:
+# 0.02 = f_L k / ((1 - f_L) + f_L k) -> k = 0.02 (1 - f_L) / (0.98 f_L) = 0.0535. Cross-check:
+# only 3.26 % of the charring brands landed above 500 K (Sardoy p.486).
+V5_LONG_IGNITION = 0.02 * (1.0 - V5_LONG_FRACTION) / (0.98 * V5_LONG_FRACTION)
+V5_LONG_IGNITION_1KM = 0.10 * (1.0 - V5_LONG_FRACTION) / (0.90 * V5_LONG_FRACTION)  # 10 % > 1 km (sens.)
+# Alternative long component located by Storey's own distribution (pre-registered variant,
+# spec §6.7): short Sardoy mode at 30 MW/m, 11.17 m/s (10 m) + lognormal fitted to the pooled
+# median 0.1 km, 10 % > 1 km and 2 % > 3 km (Storey et al. 2020 p.7): spot-weighted share
+# 0.2565, median 733 m, σ_ln 0.99 (then 0.04 % beyond 13.9 km, Storey's maximum) [D]. With
+# f_L = 0.2762 the weight is k = 0.2565 (1 − f_L) / ((1 − 0.2565) f_L) = 0.904 (near-flaming).
+V5_STOREY_LONG = {"long_median_m": 733.0, "long_sigma": 0.99,
+                  "long_ignition": 0.2565 * (1.0 - V5_LONG_FRACTION) / ((1.0 - 0.2565) * V5_LONG_FRACTION)}
+# Fine fuel moisture < 4 %: "even tiny glowing particles had sufficient energy to start new
+# spotfires" (Cruz et al. 2012 p.281 [V], after Ellis 2011). 4 % moisture = FFMC 96.75 by the
+# FF-scale moisture relation m = 147.2 (101 - F) / (59.5 + F) (ST-X-3 / Van Wagner 1987) [D].
+V5_DRY_MOISTURE_PCT = 4.0
+V5_DRY_FFMC = (147.2 * 101.0 - V5_DRY_MOISTURE_PCT * 59.5) / (147.2 + V5_DRY_MOISTURE_PCT)  # 96.75
+V5_DRY_FACTOR = 3.0  # long-mode factor × 3 when dry [H] (Cruz: "increase significantly"; no number)
+# Surface-fuel brand emission share in mass (f_s): Filkov et al. 2017 Table 1 p.3267: 12-238
+# brands > 5 mg per m² landed (surface fire plots) over 0.92-1.21 kg/m² consumed (p.3266) ->
+# 10-260 /kg, × ~15 mg (mode 10-20 mg, p.3263) = 0.15-3.9 g/kg vs 100 g/kg for crown fuel
+# (500 /kg × 0.2 g, Qin) -> f_s 0.0015-0.039; the plot median (~48 /kg) -> 0.007 [D].
+V5_F_SURFACE = 0.007
+V5_F_SURFACE_RANGE = (0.0015, 0.039)
+# Short contact/radiant link: P(no spread from the first house) = 17/50 at 6 m spacing, 7 m/s
+# (Lee & Davidson 2010 Application p.692 [V]); λ = 6 m gives (1 - e^-1 (1 - s))^4 ≈ 0.30 with
+# s 0.3 [D]; home-to-home ignition at 3-6 m spacing (Hakes et al. 2017 pp.498, 500).
+V5_LINK_SCALE_M = 6.0
+V5_LINK_CUTOFF_M = 30.0  # p(30 m) = e^-5 = 0.007 at λ 6 m [H]
+# Receptor ignition by accumulated brand mass (k-hit, replaces the per-brand p_bed · p_b):
+# published thresholds per receptor, all [V] except the mulch value (second-hand, unverified):
+#   3.5 g  shredded-hardwood mulch bed 1.22 m × 1.22 m (Suzuki & Manzello 2020 via
+#          Masoudvaziri et al. 2021 SWUIFT p.8) [S, unverified]
+#   4.6 g  pile 0.059 g/cm² (ψ*, FSJ104686, PTW 17.9 m/s) on SWUIFT's 78.5 cm² circle [D]
+#   24 g   roof pile: 24 g on 78.5 cm² = 0.31 g/cm² (SWUIFT p.8, after Santamaria et al. 2015)
+#   91 g   mulch bed: ~1,823 brands × 0.05 g to sustained flaming (Suzuki et al. 2015, v2 p_bed) [D]
+V5_THRESHOLD_BOUNDS_G = (3.5, 91.0)
+V5_THRESHOLD_G = 24.0  # primary before fitting [H]; fitted within the bounds (spec §6.7)
+MODEL_EMBER_G = 0.2  # Qin 2025 model ember (C29)
+V5_SURVIVAL = 0.3  # baseline survival s0 before covariates [fitted]
 
 
 @dataclass(frozen=True)
@@ -230,14 +283,39 @@ class LongRangeOptions:
     survival: float = V3_SURVIVAL  # P(an exposed building never becomes fully involved)
     ember_factor: float = V3_EMBER_FACTOR  # multiplier on the per-ember probability q
     stop_wind_kmh: float | None = V3_STOP_WIND_KMH  # wind-event end rule (None: run to the end)
+    # v5 (spec §6.7): two-mode transport, surface brands, glowing factor, threshold receptor
+    long_fraction: float = V5_LONG_FRACTION  # share of torching/crowning emission in the long mode
+    long_median_m: float = V5_LONG_MEDIAN_M
+    long_sigma: float = V5_LONG_SIGMA
+    long_ignition: float = V5_LONG_IGNITION  # long-mode (charring) brand weight vs a flaming brand
+    dry_factor: float = V5_DRY_FACTOR  # × long_ignition when FFMC >= V5_DRY_FFMC (moisture < 4 %)
+    threshold_g: float = V5_THRESHOLD_G  # brand mass on the 1.44 m² receptor to ignite it
+    ember_mass_g: float = MODEL_EMBER_G
+    short_tail_q: float = V5_SHORT_TAIL_Q
+    long_raster_m: float = V5_LONG_RASTER_M
+
+    @classmethod
+    def for_model(cls, model: str, **kw) -> "LongRangeOptions":
+        """Options with the model's own primary values (v3: fitted λ 160 m, s 0.3, k 100 [R37];
+        v5: two-mode kernel, f_s, threshold receptor, λ 6 m, cutoff 30 m, s0; spec §6.7)."""
+        if model == "v5":
+            base = {"f_surface": V5_F_SURFACE, "link_scale_m": V5_LINK_SCALE_M,
+                    "link_cutoff_m": V5_LINK_CUTOFF_M, "survival": V5_SURVIVAL, "ember_factor": 1.0}
+            base.update(kw)
+            return cls(model=model, **base)
+        return cls(model=model, **kw)
 
     def __post_init__(self):
         if self.tail not in ("cap", "q99", "x2"):
             raise ValueError("tail must be 'cap', 'q99' or 'x2'")
         if not 1 <= int(self.members) <= MAX_MEMBERS:
             raise ValueError(f"members must be 1-{MAX_MEMBERS}")
-        if self.model not in ("v1", "v2", "v3"):
-            raise ValueError("model must be 'v1', 'v2' or 'v3'")
+        if self.model not in ("v1", "v2", "v3", "v5"):
+            raise ValueError("model must be 'v1', 'v2', 'v3' or 'v5'")
+        if not 0.0 <= self.long_fraction < 1.0:
+            raise ValueError("long_fraction must be in [0, 1)")
+        if not self.threshold_g > 0 or not self.ember_mass_g > 0:
+            raise ValueError("threshold_g and ember_mass_g must be > 0")
         if not 0.0 <= self.survival < 1.0:
             raise ValueError("survival must be in [0, 1)")
         if not self.link_scale_m > 0:
@@ -257,7 +335,13 @@ class LongRangeOptions:
                "long_range_model": self.model,
                "long_range_embers_per_kg": float(self.n_per_kg),
                "long_range_tail": self.tail}
-        if self.model == "v3":
+        if self.model == "v5":
+            out.update({"long_range_long_fraction": float(self.long_fraction),
+                        "long_range_long_median_m": float(self.long_median_m),
+                        "long_range_long_ignition": float(self.long_ignition),
+                        "long_range_surface_share": float(self.f_surface),
+                        "long_range_threshold_g": float(self.threshold_g)})
+        if self.model in ("v3", "v5"):
             out.update({"long_range_link_scale_m": float(self.link_scale_m),
                         "long_range_link_cutoff_m": float(self.link_cutoff_m),
                         "long_range_survival": float(self.survival),
@@ -320,10 +404,22 @@ class EmberSourceCells:
 
     def emitted(self, opts: LongRangeOptions) -> np.ndarray:
         """Embers emitted by each cell over its burning time: n_kg (f_s SFC + CFC) A_cell; only
-        torching/crowning cells emit unless f_s > 0 (then every burning cell)."""
-        fuel_kg = opts.f_surface * self.sfc + self.cfc
+        torching/crowning cells emit unless f_s > 0 (then every burning cell; v5: surface
+        cells emit f_s SFC only, their CFC is 0 below CFB 0.1)."""
+        fuel_kg = opts.f_surface * self.sfc + np.where(self.cfb >= CFB_TORCHING, self.cfc, 0.0) \
+            if opts.model == "v5" else opts.f_surface * self.sfc + self.cfc
         src = (self.cfb >= CFB_TORCHING) | (opts.f_surface > 0)
         out = np.where(src & (self.hfi_kw_m > 0), opts.n_per_kg * fuel_kg * self.cell_size_m ** 2, 0.0)
+        if self.emit_scale is not None:
+            out = out * np.asarray(self.emit_scale, float)
+        return out
+
+    def emitted_long(self, opts: LongRangeOptions) -> np.ndarray:
+        """v5: embers of each cell that enter the long (charring) mode: f_L × the crown-fuel
+        emission of torching/crowning cells (Sardoy 2008 p.486 [V share]; surface brands of
+        5-50 mg (Filkov 2017 p.3263) are given the short mode only [H])."""
+        out = np.where((self.cfb >= CFB_TORCHING) & (self.hfi_kw_m > 0),
+                       opts.long_fraction * opts.n_per_kg * self.cfc * self.cell_size_m ** 2, 0.0)
         if self.emit_scale is not None:
             out = out * np.asarray(self.emit_scale, float)
         return out
@@ -417,6 +513,44 @@ class LandingField:
     emitted_total: float = 0.0
     landed_total: float = 0.0
     classes: list = field(default_factory=list)
+    # v5: the long (charring) mode on its own coarse raster, and the Sardoy validity flag
+    long_raster: Raster | None = None
+    long_density: np.ndarray | None = None  # (bins, rows_L, cols_L) float32
+    long_emitted: float = 0.0
+    extrapolated_emitted: float = 0.0  # short-mode emission outside I 10-40 MW/m, U 6.7-17.9 m/s
+
+    @property
+    def extrapolated_share(self) -> float:
+        """Share of short-mode emission whose Sardoy kernel is used outside the fitted range."""
+        return float(self.extrapolated_emitted / self.emitted_total) if self.emitted_total > 0 else 0.0
+
+
+def sardoy_extrapolated(i_mw_m: float, u10_ms: float) -> bool:
+    """True when the Sardoy fit is used outside its plumes: I 10-40 MW/m, canopy-top (10 m)
+    wind 6.70-17.88 m/s (Sardoy et al. 2008 p.483) [V]."""
+    return not (SARDOY_I_RANGE_MW[0] <= float(i_mw_m) <= SARDOY_I_RANGE_MW[1]
+                and SARDOY_U_RANGE_MS[0] <= float(u10_ms) <= SARDOY_U_RANGE_MS[1])
+
+
+def long_mode_kernel(opts: LongRangeOptions, h: float, to_deg: float) -> np.ndarray:
+    """v5 long (charring) mode: lognormal in distance (median ``long_median_m``, σ_ln
+    ``long_sigma``; Sardoy 2008 p.486 Fig. 6: > 4.5 km, maximum ~6.1 km, to ~10.5 km at
+    30 MW/m, 11.17 m/s) × normal crosswind σ_Y = tan(5°) × median [H], cut at its 99.9th
+    percentile; shares per raster cell (sum ≈ 1)."""
+    mu = math.log(opts.long_median_m)
+    cap = math.exp(mu + opts.long_sigma * float(ndtri(0.999)))
+    sy = math.tan(math.radians(V5_LONG_SIGMA_Y_DEG)) * opts.long_median_m
+    return kernel(mu, opts.long_sigma, sy, cap, h, to_deg, "cap", subsample=2)
+
+
+def long_ignition_factor(opts: LongRangeOptions, ffmc: float | None) -> float:
+    """Weight of a long-mode (charring) brand relative to a flaming one (v5): ``long_ignition``
+    (Storey 2020 calibration), × ``dry_factor`` when the fine fuel moisture is below 4 %
+    (FFMC >= 96.75; Cruz et al. 2012 p.281), at most 1."""
+    k = float(opts.long_ignition)
+    if ffmc is not None and float(ffmc) >= V5_DRY_FFMC:
+        k *= float(opts.dry_factor)
+    return float(min(k, 1.0))
 
 
 def landing_field(sources: EmberSourceCells, wind, duration_min: float, opts: LongRangeOptions,
@@ -429,8 +563,11 @@ def landing_field(sources: EmberSourceCells, wind, duration_min: float, opts: Lo
     """
     from scipy.signal import fftconvolve
 
+    v5 = opts.model == "v5"
     emit = sources.emitted(opts)
     keep = emit > 0
+    emit_long = sources.emitted_long(opts) if v5 else np.zeros(len(emit))
+    emit_short = emit - emit_long
     starts = np.array([float(w[0]) for w in wind])
     u10 = np.array([float(w[1]) / 3.6 for w in wind])
     to_deg = np.array([float(w[2]) + 180.0 for w in wind])
@@ -463,10 +600,20 @@ def landing_field(sources: EmberSourceCells, wind, duration_min: float, opts: Lo
     s0, s1 = sources.start_min[idx], np.maximum(sources.end_min[idx], sources.start_min[idx] + 1e-6)
     period = np.clip(np.searchsorted(starts, edges[:-1], side="right") - 1, 0, len(wind) - 1)
     sigma_y = HIMOTO_SIGMA_Y * sources.cell_size_m * opts.sigma_y_factor
+    if v5:  # the long mode on a coarse raster around the sources [H]
+        hl = max(float(opts.long_raster_m), h)
+        reach_l = math.exp(math.log(opts.long_median_m) + opts.long_sigma * float(ndtri(0.999)))
+        xs_ = sources.x[keep] if keep.any() else sources.x
+        ys_ = sources.y[keep] if keep.any() else sources.y
+        out.long_raster = Raster.around(xs_, ys_, reach_l + 4.0 * hl, hl)
+        out.long_density = np.zeros((nb, out.long_raster.rows, out.long_raster.cols), dtype=np.float32)
+        rl, cl, onl = out.long_raster.index(sources.x, sources.y)
+        long_kernels = {}
     for kk in np.unique(key):
         m = key == kk
         ii = idx[m]
         w = emit[ii]
+        ws = emit_short[ii]
         kind, fuel = kk.split("|")[:2]
         hfi = float(10 ** (np.sum(w * lhfi[m]) / np.sum(w)))
         cfb = float(np.sum(w * sources.cfb[ii]) / np.sum(w))
@@ -477,28 +624,49 @@ def landing_field(sources: EmberSourceCells, wind, duration_min: float, opts: Lo
             # emission before 0 counts in the first bin (a fire already burning at the start)
             if b == 0:
                 ov = ov + np.clip(np.minimum(s1[m], 0.0) - s0[m], 0.0, None) / (s1[m] - s0[m])
-            cnt = w * ov
-            if not np.any(cnt > 0):
+            cnt = ws * ov
+            if not np.any(w * ov > 0):
                 continue
             k = int(period[b])
             if u10[k] <= 0:
                 continue
             if k not in kernels:
                 cap = cap_distance(kind, hfi, cfb, u10[k], fuel)
-                mu, sg = sardoy_lognormal(hfi / 1000.0, float(u10_to_u6(u10[k])))
+                if v5:  # Sardoy's own 10 m canopy-top wind (p.483; C40), short mode truncated
+                    mu, sg = sardoy_lognormal(hfi / 1000.0, u10[k])
+                    cap = min(cap, float(math.exp(float(mu) + float(sg) * float(ndtri(opts.short_tail_q)))))
+                else:
+                    mu, sg = sardoy_lognormal(hfi / 1000.0, float(u10_to_u6(u10[k])))
                 kernels[k] = kernel(float(mu), float(sg), sigma_y, cap, raster.h, float(to_deg[k]),
                                     opts.tail)
                 caps[(kk, k)] = cap
-                out.classes.append({"class": kk, "hfi_kw_m": round(hfi, 1), "cfb": round(cfb, 3),
-                                    "wind_period": k, "cap_m": round(cap, 1),
-                                    "median_m": round(float(math.exp(mu)), 1),
-                                    "kernel_share": round(float(kernels[k].sum()), 4)})
+                rec = {"class": kk, "hfi_kw_m": round(hfi, 1), "cfb": round(cfb, 3),
+                       "wind_period": k, "cap_m": round(cap, 1),
+                       "median_m": round(float(math.exp(mu)), 1),
+                       "kernel_share": round(float(kernels[k].sum()), 4)}
+                if v5:
+                    rec["sardoy_extrapolated"] = sardoy_extrapolated(hfi / 1000.0, u10[k])
+                out.classes.append(rec)
             grid = np.zeros((raster.rows, raster.cols))
             np.add.at(grid, (r[ii], c[ii]), cnt)
             landed = fftconvolve(grid, kernels[k], mode="same")
             np.maximum(landed, 0.0, out=landed)
             dens[b] += (landed / (raster.h * raster.h)).astype(np.float32)
             out.emitted_total += float(cnt.sum())
+            if v5 and sardoy_extrapolated(hfi / 1000.0, u10[k]):
+                out.extrapolated_emitted += float(cnt.sum())
+            if v5:
+                cnt_l = emit_long[ii] * ov
+                sel_l = onl[ii] & (cnt_l > 0)
+                if sel_l.any():
+                    if k not in long_kernels:
+                        long_kernels[k] = long_mode_kernel(opts, out.long_raster.h, float(to_deg[k]))
+                    gl = np.zeros((out.long_raster.rows, out.long_raster.cols))
+                    np.add.at(gl, (rl[ii][sel_l], cl[ii][sel_l]), cnt_l[sel_l])
+                    ll = fftconvolve(gl, long_kernels[k], mode="same")
+                    np.maximum(ll, 0.0, out=ll)
+                    out.long_density[b] += (ll / (out.long_raster.h ** 2)).astype(np.float32)
+                    out.long_emitted += float(cnt_l[sel_l].sum())
     out.landed_total = float(dens.sum(dtype=np.float64) * raster.h * raster.h)
     return out
 
@@ -607,6 +775,26 @@ def landed_on_buildings(units, fld: LandingField, opts: LongRangeOptions) -> np.
     if ok.any():
         lam[:, ok] = fld.density[:, r[ok], c[ok]]
     return lam * receptive_m2(units, opts)[None, :]
+
+
+def landed_long_on_buildings(units, fld: LandingField, opts: LongRangeOptions) -> np.ndarray:
+    """(bins, units) v5 long-mode (charring) embers landing on each building's receptive area
+    (unweighted; multiply by ``long_ignition_factor``). Zeros without a long field."""
+    n = len(units)
+    out = np.zeros((len(fld.edges) - 1, n))
+    if fld.long_density is None or n == 0:
+        return out
+    r, c, ok = fld.long_raster.index(units.x, units.y)
+    if ok.any():
+        out[:, ok] = fld.long_density[:, r[ok], c[ok]]
+    return out * receptive_m2(units, opts)[None, :]
+
+
+def landed_v5(units, fld: LandingField, opts: LongRangeOptions, ffmc: float | None) -> np.ndarray:
+    """(bins, units) v5 effective embers on each receptor: short (flaming, weight 1; > 99 % of
+    the short mode lands flaming, Sardoy p.486) + long × ``long_ignition_factor``."""
+    return (landed_on_buildings(units, fld, opts)
+            + long_ignition_factor(opts, ffmc) * landed_long_on_buildings(units, fld, opts))
 
 
 def weighted_hrrpua(design_fire) -> float:
@@ -862,8 +1050,10 @@ def member_draw(opts: LongRangeOptions, rng, n: int) -> MemberDraw:
     per member (no published value). ``"footprint"``/``"ring"``: q = α = α_B·β_B / β_B with
     α_B·β_B ~ U(HT08 range) per member. n_kg ~ U(250, 640) per member. Fixed values when
     ``param_draws`` is False. The draw order is fixed (n_kg, p_b or α, then p_bed)."""
-    draws = opts.model in ("v2", "v3") and opts.param_draws
+    draws = opts.model in ("v2", "v3", "v5") and opts.param_draws
     nk = float(rng.uniform(*opts.n_per_kg_range)) if draws else float(opts.n_per_kg)
+    if opts.model == "v5":  # every landed (weighted) model ember counts toward the mass threshold
+        return MemberDraw(np.ones(n), nk / opts.n_per_kg)
     if opts.receptive == "bed":
         p_b = float(rng.uniform(*opts.p_b_range)) if draws else float(opts.p_b)
         if draws:
@@ -880,7 +1070,7 @@ def member_draw(opts: LongRangeOptions, rng, n: int) -> MemberDraw:
 
 def run_member_v2(units, t_front_min, wild_landed, edges, opts: LongRangeOptions, stage,
                   duration_min: float, rng, urban: UrbanSource | None, wind_periods=None,
-                  alpha_factor=None, draw: MemberDraw | None = None):
+                  alpha_factor=None, draw: MemberDraw | None = None, thresholds=None):
     """One v2 member: wildland + urban embers, per-ember building ignition, structure stage.
 
     Every unit draws E ~ Exp(1); its hazard H(t) = q Σ (embers landed on its receptive
@@ -899,7 +1089,7 @@ def run_member_v2(units, t_front_min, wild_landed, edges, opts: LongRangeOptions
     a_unit = (draw.q if alpha_factor is None
               else np.minimum(draw.q * np.asarray(alpha_factor, float), 1.0))
     a_rec = receptive_m2(units, opts)
-    e_thr = rng.exponential(1.0, size=n)
+    e_thr = rng.exponential(1.0, size=n) if thresholds is None else np.asarray(thresholds, float)
     hz = np.zeros(n)
     landed = np.zeros(n)
     tf = np.asarray(t_front_min, float).copy()
@@ -1108,3 +1298,88 @@ def viirs_emit_scale(xs, ys, det_x, det_y, det_frp, gamma: float, frp_ref: float
         if nb:
             vals[j] = float(np.mean(frp[nb]))
     return np.maximum(vals / frp_ref, 1e-3) ** gamma
+
+
+# ----------------------------------------------------------------------------- v5 (spec §6.7)
+
+
+def ignition_thresholds_v5(opts: LongRangeOptions, rng, n: int) -> np.ndarray:
+    """Per-building ignition thresholds in landed (weighted) model embers (v5): the receptor
+    ignites when the brands on it reach ``threshold_g`` (a k-hit Poisson process: the n*-th
+    arrival, n* = threshold_g / ember_mass_g), i.e. when the expected count Λ(t) crosses
+    G ~ Gamma(n*, 1). Replaces v2-v3's single-hit Exp(1) threshold with p_bed · p_b [H form;
+    threshold values from SWUIFT p.8, FSJ104686, Suzuki et al. 2015; spec §6.7]."""
+    shape = max(float(opts.threshold_g) / float(opts.ember_mass_g), 1e-6)
+    return rng.gamma(shape, 1.0, size=n)
+
+
+def run_member_v5(units, t_front_min, wild_eff, edges, opts: LongRangeOptions, wind,
+                  duration_min: float, rng, urban: UrbanSource | None, wind_periods,
+                  burnout_min=None, fb: float = 1.0, alpha_factor=None, stop_min: float = math.inf,
+                  extra_filter=None, survival_unit=None):
+    """One v5 member (spec §6.7).
+
+    ``wild_eff``: (bins, n) effective wildland embers on each receptor (``landed_v5``: short
+    mode + weighted long mode, built with ``opts.n_per_kg``) or None. Urban embers (Himoto,
+    flaming, weight 1) add per coupling step as in v2. A building ignites when its effective
+    count crosses its Gamma(n*, 1) threshold (``ignition_thresholds_v5``), becomes involved
+    42 s + 300 s later, then spreads by short contact links p = exp(−sep / λ_r) (λ_r 6 m,
+    cutoff 30 m) with Hamada timing and its own urban embers; ``survival_unit`` (v4 covariates)
+    blocks a building from ever becoming involved; no involvement after ``stop_min``.
+    Draw order: n_kg (``member_draw``), thresholds, links/survival sub-stream, then v2's.
+    Returns as ``run_member_v2``."""
+    n = len(units)
+    draw = member_draw(opts, rng, n)
+    thr = ignition_thresholds_v5(opts, rng, n)
+    sub = np.random.default_rng(rng.integers(0, 2**63 - 1))
+    s_unit = float(opts.survival) if survival_unit is None else np.asarray(survival_unit, float)
+    blocked = sub.random(n) < s_unit
+    pf = link_filter_v3(sub, opts.link_scale_m, opts.link_cutoff_m)
+    if extra_filter is not None:
+        lf = lambda i, nb, sep: pf(i, nb, sep) & extra_filter(i, nb, sep)  # noqa: E731
+    else:
+        lf = pf
+    end = min(float(duration_min), float(stop_min))
+    stage = IncrementalHamada(units, wind, duration_min=end, fb=fb, burnout_min=burnout_min,
+                              link_filter=lf, blocked=blocked)
+    t, s, lr, landed, draw = run_member_v2(units, t_front_min, wild_eff, edges, opts, stage, end,
+                                           rng, urban, wind_periods, alpha_factor, draw=draw,
+                                           thresholds=thr)
+    draw.info["survivors_drawn"] = int(blocked.sum())
+    return t, s, lr, landed, draw
+
+
+def run_ensemble_v5(units, t_front_min, wild_eff, edges, opts: LongRangeOptions, wind,
+                    duration_min: float, urban, wind_periods, burnout_min=None, fb: float = 1.0,
+                    alpha_factor=None, stop_min: float = math.inf, extra_filter=None,
+                    survival_unit=None):
+    """M v5 members (seeded ``default_rng([seed, m])``); returns as ``run_ensemble_v2``."""
+    n = len(units)
+    m_count = int(opts.members)
+    t_all = np.full((m_count, n), np.inf, dtype=np.float32)
+    s_all = np.zeros((m_count, n), dtype=np.int8)
+    lr_all = np.zeros((m_count, n), dtype=bool)
+    for m in range(m_count):
+        rng = np.random.default_rng([int(opts.seed), m])
+        t, s, lr, _, _ = run_member_v5(units, t_front_min, wild_eff, edges, opts, wind,
+                                       duration_min, rng, urban, wind_periods, burnout_min, fb,
+                                       alpha_factor, stop_min, extra_filter, survival_unit)
+        t_all[m], s_all[m], lr_all[m] = t, s, lr
+    return t_all, s_all, lr_all, (lr_all.mean(axis=0) if m_count else np.zeros(n))
+
+
+def two_mode_exceedance(d_m, i_mw_m: float, u10_ms: float, opts: LongRangeOptions | None = None,
+                        weighted: bool = True) -> np.ndarray:
+    """P(spot distance > d) of the v5 two-mode kernel for one source (downwind distance only):
+    short Sardoy mode (10 m wind, truncated at ``short_tail_q``, renormalised) with share
+    1 − f_L and the long lognormal with share f_L; ``weighted`` weights the long mode by
+    ``long_ignition`` (spot fires rather than landed brands, as Storey et al. 2020 count)."""
+    opts = opts or LongRangeOptions.for_model("v5")
+    d = np.asarray(d_m, float)
+    mu, sg = (float(v) for v in sardoy_lognormal(i_mw_m, u10_ms))
+    zc = float(ndtri(opts.short_tail_q))
+    cdf_s = np.clip(ndtr((np.log(np.maximum(d, 1e-9)) - mu) / sg) / ndtr(zc), 0.0, 1.0)
+    cdf_l = ndtr((np.log(np.maximum(d, 1e-9)) - math.log(opts.long_median_m)) / opts.long_sigma)
+    wl = opts.long_fraction * (opts.long_ignition if weighted else 1.0)
+    ws = 1.0 - opts.long_fraction
+    return (ws * (1.0 - cdf_s) + wl * (1.0 - cdf_l)) / (ws + wl)

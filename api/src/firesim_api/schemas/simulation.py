@@ -405,7 +405,7 @@ class SimulationCreate(BaseModel):
         default=20, ge=1, le=50,
         description="Ensemble members for `structure_long_range_embers` (1-50, default 20).",
     )
-    structure_long_range_model: Literal["v1", "v2", "v3"] = Field(
+    structure_long_range_model: Literal["v1", "v2", "v3", "v5"] = Field(
         default="v2",
         description=(
             "Long-range ember model (illustrative — not validated). `v2` (default, "
@@ -418,7 +418,12 @@ class SimulationCreate(BaseModel):
             "per member. `v1`: the §6.3 chain (wildland source only, receptive ring, p_e · p_b). "
             "`v3` (§6.5): v2 plus probabilistic building-to-building links (exp(−separation / "
             "scale) to 50 m), building survival, an ember factor (values fitted on Eaton, "
-            "Palisades and Camp) and a wind-event end of the run; not with `structure_embers`."
+            "Palisades and Camp) and a wind-event end of the run; not with `structure_embers`. "
+            "`v5` (§6.7): two-mode ember transport (Sardoy et al. 2008 short flaming mode at the "
+            "10 m canopy-top wind plus a 4.5-10 km charring mode, weighted to Storey et al. "
+            "2020's spot-distance tail), surface-fire brands, receptor ignition by accumulated "
+            "brand mass (published thresholds) and short contact links (λ 6 m); not with "
+            "`structure_embers`."
         ),
     )
 
@@ -433,9 +438,10 @@ class SimulationCreate(BaseModel):
             raise ValueError("structure_combustible_roof_share must be one of 0, 0.05, 0.15, 0.30")
         if self.structure_long_range_embers and not self.structure_spread:
             raise ValueError("structure_long_range_embers needs structure_spread: true")
-        if (self.structure_long_range_embers and self.structure_long_range_model == "v3"
+        if (self.structure_long_range_embers and self.structure_long_range_model in ("v3", "v5")
                 and self.structure_embers):
-            raise ValueError("structure_long_range_model v3 replaces structure_embers; use one")
+            raise ValueError(f"structure_long_range_model {self.structure_long_range_model} "
+                             "replaces structure_embers; use one")
         if (self.structure_combustible_roof_share > 0 and not self.structure_embers
                 and not self.structure_long_range_embers):
             raise ValueError("structure_combustible_roof_share needs structure_embers: true "

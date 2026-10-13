@@ -785,11 +785,11 @@ def structure_spread_for_grid_run(
         from firesim.structures.vegetation import BRIDGE_BASE_CUTOFF_M, BRIDGE_MAX_CUTOFF_M
 
         cutoff = BRIDGE_MAX_CUTOFF_M  # graph to 45 m; links filtered by BridgedLinks
-    if long_range is not None and long_range.model == "v3":
+    if long_range is not None and long_range.model in ("v3", "v5"):
         if embers is not None:
-            raise ValueError("long-range model v3 replaces the short-range ember stage; "
-                             "use it without embers")
-        cutoff = max(cutoff, float(long_range.link_cutoff_m))  # probabilistic links (spec §6.5)
+            raise ValueError(f"long-range model {long_range.model} replaces the short-range "
+                             "ember stage; use it without embers")
+        cutoff = max(cutoff, float(long_range.link_cutoff_m))  # probabilistic links (§6.5, §6.7)
     frame = LocalFrame((lat_min + lat_max) / 2.0, (lng_min + lng_max) / 2.0)
     params = {"combustible_fraction": fb,
               "neighbour_cutoff_m": BRIDGE_BASE_CUTOFF_M if vegetation_bridge else cutoff,
@@ -920,9 +920,9 @@ def _long_range_run(units, t_front, wind, duration_min, fb, embers, wildland, bu
     from firesim.structures import long_range as lr_mod
 
     opts = replace(opts, seed=int(opts.seed) or int(seed))
-    if opts.model in ("v2", "v3"):
+    if opts.model in ("v2", "v3", "v5"):
         return _long_range_run_v2(units, t_front, wind, duration_min, fb, embers, wildland,
-                                  burnout_min, links, psi, fld, opts, roof)
+                                  burnout_min, links, psi, fld, opts, roof, ffmc)
     hazard = lr_mod.building_hazard(units, fld, opts, 90.0 if ffmc is None else float(ffmc),
                                     combustible_roof=roof)
 
@@ -942,33 +942,41 @@ def _long_range_run(units, t_front, wind, duration_min, fb, embers, wildland, bu
 
 
 def _long_range_run_v2(units, t_front, wind, duration_min, fb, embers, wildland, burnout_min,
-                       links, psi, fld, opts, roof) -> "LongRangeResult":
-    """The v2 long-range ensemble (spec §6.4): wildland and urban embers, per-ember ignition."""
+                       links, psi, fld, opts, roof, ffmc=None) -> "LongRangeResult":
+    """The v2 long-range ensemble (spec §6.4): wildland and urban embers, per-ember ignition;
+    v3 (§6.5) and v5 (§6.7) members on the same inputs."""
     from firesim.structures import long_range as lr_mod
 
     lr_wind = [(w.start_min, w.wind_speed_kmh, w.wind_direction_deg) for w in wind]
-    landed = lr_mod.landed_on_buildings(units, fld, opts)
+    if opts.model == "v5":
+        landed = lr_mod.landed_v5(units, fld, opts, 90.0 if ffmc is None else float(ffmc))
+    else:
+        landed = lr_mod.landed_on_buildings(units, fld, opts)
     urban = (lr_mod.UrbanSource.build(units, lr_wind, opts, lr_mod.URBAN_RASTER_M)
              if opts.urban_source and len(units) else None)
     alpha_factor = None
     if roof is not None:
         alpha_factor = np.where(np.asarray(roof, bool), opts.roof_factor, 1.0)
 
-    if opts.model == "v3":
+    if opts.model in ("v3", "v5"):
         speeds = [w.wind_speed_kmh for w in wind]
         starts = [w.start_min for w in wind]
         # piecewise-constant schedule sampled hourly for the wind-event end rule
         tt = np.arange(0.0, duration_min + 60.0, 60.0)
         vv = [speeds[max(int(np.searchsorted(starts, t, side="right")) - 1, 0)] for t in tt]
         stop = lr_mod.wind_event_end(tt, vv, opts.stop_wind_kmh)
-        t_all, s_all, _, p_ember = lr_mod.run_ensemble_v3(
+        run_ens = lr_mod.run_ensemble_v5 if opts.model == "v5" else lr_mod.run_ensemble_v3
+        t_all, s_all, _, p_ember = run_ens(
             units, t_front, landed, fld.edges, opts, wind, duration_min, urban, lr_wind,
             burnout_min=burnout_min, fb=fb, alpha_factor=alpha_factor, stop_min=stop,
             extra_filter=links)
         t_any = np.min(t_all, axis=0).astype(float) if len(t_all) else np.full(len(units), np.inf)
+        extra = {"long_range_stop_min": stop}
+        if opts.model == "v5":
+            extra["long_range_sardoy_extrapolated_share"] = round(fld.extrapolated_share, 4)
         res = LongRangeResult(t_min=t_any, source=np.zeros(len(units), dtype=np.int8),
                               parent=np.full(len(units), -1, dtype=np.int64),
-                              t_front_min=np.asarray(t_front, float), params={"long_range_stop_min": stop},
+                              t_front_min=np.asarray(t_front, float), params=extra,
                               burnout_min=burnout_min, t_members=t_all, source_members=s_all,
                               p_direct=p_ember, urban_reach_m=urban.reach_m if urban is not None else 0.0)
         return res
