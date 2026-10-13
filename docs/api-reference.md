@@ -34,6 +34,8 @@ Start a new fire spread simulation.
 ```
 
 - `fwi_overrides` is optional. If omitted, FWI components are computed from weather.
+- `label` (optional, added 2026-10-12): a run label for the saved-runs list, plain text, at
+  most 80 characters (422 beyond). Also accepted by `/multiday` and `/perimeter-override`.
 - `fuel_type` must be one of the 18 FBP fuel type codes (C1-C7, D1-D2, M1-M4, O1a, O1b, S1-S3).
 - `fuel_modifiers.grass_cure` (degree of curing, %, O-1a/O-1b; changed 2026-10-10, decision M1):
   an explicit value is always used as given. If omitted:
@@ -306,6 +308,58 @@ the spread has computed, 0-1. Clients that poll (no WebSocket) use them for the 
 | `structure_spread` | only with the request flag `structure_spread`, else `null`: counts by this frame `{model: "hamada", label: "illustrative — not validated in Canada", computed: true, units_in_run, units_built, units_front_contact, units_structure_to_structure, units_involved, units_burning, units_burnt_out, burnout, burnout_min, design_fire_kw_m2, combustible_fraction, neighbour_cutoff_m, wildland_contact_m, front_contact_rule}`. `units_burning` + `units_burnt_out` = `units_involved`: a unit is burnt out once its design fire has ended (`burnout_min` after involvement; `burnout: false` → `burnout_min: null` and `units_burnt_out: 0`). `units_in_run`: buildings whose centroid is in the run area (fuel grid box); `units_built`: units built for the area the spread can reach (spec §2); `units_front_contact`: units reached by the wildland front (a burned cell within `wildland_contact_m` of a grid cell the footprint touches; `front_contact_rule: "building_cells"`); `units_structure_to_structure`: units reached from another unit (Hamada). With `structure_embers` the counts also carry `embers: true`, `design_fire_kw_m2`, `ember_generation_pcs_per_mw_s`, `embers_from_wildland`, `hamada: true`, `units_ember` (ignited by embers) and `units_ember_from_wildland` (of those, the main ember source was the wildland front), and `units_involved` = front + building to building + ember; without it these keys are absent. `vegetation_attributes`: whether per-building vegetation attributes were available. With `structure_vegetation_bridge`: `vegetation_bridged_cutoff: true`, `bridge_base_cutoff_m` 20, `bridge_max_cutoff_m` 45, `bridge_min_gap_cover` 0.2, `bridge_canopy_data`, `links_tested` (20-45 m links whose gap cover was computed), `links_bridged` (of those, ≥ 20 %), and `neighbour_cutoff_m` 20. With a roof scenario: `roof_scenario: {combustible_roof_share, psi_factor: 0.375, seed, label: "scenario: X % combustible roofs (not observed roofs)", units_combustible_roof_built, units_involved_combustible_roof}`; any display must show its `label`. When the memory guard stops the build: `{model, label, computed: false, note: "not computed: too many buildings in run area", units_in_run, units_needed, max_units, ...}` with the counts `null`. **Size rule** (2026-10-12, [R40], spec §2.2): with `FIRESIM_SMALL_FOOTPRINT_M2` > 0 (default 20) the payload adds `small_footprint_m2`, `small_footprints` (`"count_separately"`; `"exclude"` only with `FIRESIM_SMALL_FOOTPRINTS=exclude`, a sensitivity setting), `units_small_involved` (outbuildings < threshold involved by this frame) and `units_involved_all` (= `units_involved` + `units_small_involved`); every other count (front, b2b, ember, burning, burnt out, roof scenario) covers buildings ≥ the threshold only. Outbuildings stay in the unit graph and carry fire. `units_in_run` and `units_built` count all footprints. With `0` the payload is exactly the former one. Any display must carry `label` (`docs/structure-spread-spec.md`) |
 | `grid` | grid runs: the grid the frame is on, `{cell_m, wui_window, reason, note}` plus `window` `[lat_min, lat_max, lng_min, lng_max]` and `window_cells` when `wui_window` is true. `cell_m` 20 when the run was repeated on the fuel raster's native 20 m cells in a window around the fire near buildings (mechanics decision M5); otherwise 50 with `reason` `no_buildings`, `too_large` (over 600,000 crop cells or 60,000 burned 20 m cells), `edge` (the fire kept reaching the window edge) or `no_native_grid`. Server setting `FIRESIM_WUI_FINE_GRID=0` keeps 50 m. Same on every frame of a run |
 | `structure_spread_detail` | final frame only, with `structure_spread` (else `null`; `[]` when not computed): one entry per **involved** unit, in involvement order, `{id, t_h, t_out_h, mechanism, source_id, polygon}`. `t_h`: hours from the start; `t_out_h`: burn-out, hours from the start (`t_h` + `burnout_min`/60; may be after the run's end; `null` when `structure_burnout` is false); `mechanism`: `"front"` (wildland front contact), `"b2b"` (building to building, Hamada) or `"ember"` (ember ignition, with `structure_embers`); `source_id`: the `id` of the unit that passed the fire on (`b2b`, or `ember` when the main ember source was a building; `null` for front contact and for embers from the wildland front); `polygon`: the footprint ring `[[[lng, lat], ...]]`, simplified (0.5 m) and rounded to 6 decimals, largest part of a multi-part footprint. Optional (structure step 3): `veg` `{cc_0_5, cc_5_10, cc_10_30, cc_0_10, overhang_frac, dist_stand_1ha_m}` (open-data canopy cover 0-1 in rings around the footprint, share of the roof under canopy, distance to a ≥ 1 ha stand in m; context only) and `combustible_roof_scenario: true` on units the roof scenario assigned a combustible roof (not observed), and `small: true` on outbuildings under the size rule (involved but not in the counts; the list then has `units_involved_all` entries). No other attributes (no address, owner or parcel data). About 200-250 bytes per unit (20-160 kB on the 2026-10-09 sensitivity runs). **Map display only** (owner decision 2026-10-10): the app does not put it in any export, ICS 209 or report. Illustrative — not validated in Canada |
+
+### GET /api/v1/simulations (saved runs list)
+
+Added 2026-10-12 (run archive phase 2, `docs/run-archive.md`; owner decision: a shared list
+behind a passphrase). Needs the header `X-FireSim-Passphrase`, compared with the server's
+`FIRESIM_RUNS_PASSPHRASE`. Lists the runs in the run archive plus the runs still in memory that
+are not archived yet, newest first (by submission time).
+
+Query (all optional): `limit` (1-200, default 50), `offset` (default 0), `since` / `until`
+(ISO 8601; runs submitted at or after / before; no offset = UTC), `south`, `west`, `north`,
+`east` (all four together: a box the ignition point must be in; `west > east` crosses the
+antimeridian), `kind` (`single`, `multiday`, `perimeter_override`).
+
+```json
+{
+  "runs": [{
+    "id": "a1b2c3d4", "label": "Day 2 west flank", "kind": "single", "status": "completed",
+    "archived": true, "created_at": "2026-10-12T20:05:11Z", "finished_at": "2026-10-12T20:06:40Z",
+    "start_time": "2026-10-12T14:00:00-06:00", "ignition_lat": 53.468, "ignition_lng": -113.617,
+    "area_ha": 42.1, "duration_hours": 4.0, "frame_count": 9, "days": null,
+    "fuel_source": "City of Edmonton ...", "buildings_source": "...",
+    "ensemble": true, "ensemble_status": "completed", "ensemble_members": 30
+  }],
+  "total": 27, "limit": 50, "offset": 0, "archive_enabled": true
+}
+```
+
+- `ignition_lat` / `ignition_lng` are rounded to 3 decimals (about 100 m). No address, no
+  request body and no per-building data are listed. A perimeter-override run lists its source
+  run's ignition point.
+- `label`: the label set by `PATCH`, else the one given at run time, else `null`.
+- `archived: false`: in memory only (running, or finished and not yet written).
+- Errors: **403** when `FIRESIM_RUNS_PASSPHRASE` is not set on the server (the list is
+  disabled); **401** missing or wrong passphrase; **429** with `Retry-After` after repeated
+  wrong passphrases from one IP (5 free, then 2, 4, 8 ... s, at most 300 s; a success clears
+  it); **422** bad filter.
+
+`GET /api/v1/simulations/{id}` and its `/arrival` and `/ensemble` need no passphrase (run IDs
+are unguessable; the EOC console reloads its periods' runs by ID).
+
+### PATCH /api/v1/simulations/{id}
+
+Passphrase as above. Body `{"label": "New label"}` (≤ 80 characters; `null` or `""` clears
+it, hiding the run-time label too). The label is stored as plain text (control characters
+removed, whitespace collapsed). Works for archived runs and runs still in memory. Returns
+`{"id", "label"}`; 404 for an unknown run; 409 when the run archive is off.
+
+### DELETE /api/v1/simulations/{id}
+
+Passphrase as above. Removes a finished run from the run archive (index, label, payloads) and
+from memory. 409 while the run (or its ensemble) is still running; 404 for an unknown run.
+Returns `{"id", "deleted": true}`.
 
 ### GET /api/v1/simulations/{id}/arrival
 
@@ -636,6 +690,7 @@ Perimeters are arrays of `[latitude, longitude]` pairs forming a closed polygon.
 ```
 
 Common status codes:
+- 401 / 403 / 429: saved-runs passphrase missing or wrong / list disabled / too many attempts
 - 404: Simulation not found
 - 422: Validation error (invalid fuel type, missing fields)
 - 500: Internal simulation error

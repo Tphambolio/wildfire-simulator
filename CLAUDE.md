@@ -114,6 +114,8 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | GET | `/api/v1/health` | Status + uptime |
 | GET | `/api/v1/version` | Version + deployed git SHA (stamp outputs with it) |
 | POST | `/api/v1/simulations` | Start simulation → `SimulationResponse` |
+| GET | `/api/v1/simulations` | Saved runs list (passphrase header; archive + in-memory, filters, paging; `routers/runs.py`) |
+| PATCH / DELETE | `/api/v1/simulations/{id}` | Rename (label ≤ 80) / delete a run (passphrase header) |
 | GET | `/api/v1/simulations/{id}` | Fetch results (memory, else the run archive: `archived: true`) |
 | WS | `/api/v1/simulations/ws/{id}` | Stream frames real-time (JSON) |
 | GET | `/api/v1/simulations/{id}/arrival` | Arrival-minute raster of a finished grid run |
@@ -160,6 +162,7 @@ FIRESIM_SMALL_FOOTPRINT_M2   size rule (20): footprints under it are outbuilding
 FIRESIM_SMALL_FOOTPRINTS     count_separately (default) | exclude (drop outbuildings from the structure-spread graph; sensitivity only)
 FIRESIM_MAX_STORED_RUNS   runs kept in memory (40)
 FIRESIM_ARCHIVE(_DIR/_DB/_BACKEND/_S3_*/_MAX_AGE_DAYS/_MAX_BYTES/_RETENTION_HOURS)  run archive (docs/run-archive.md)
+FIRESIM_RUNS_PASSPHRASE   shared passphrase for the saved-runs list / rename / delete (header X-FireSim-Passphrase; unset = list disabled, 403; Fly secret, set by the owner only)
 FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)
 FIRESIM_AB_ASSETS_PATH / FIRESIM_AB_ROADS_PATH  Alberta assets / roads FlatGeobuf (set by api/Dockerfile); FIRESIM_LAYERS_MAX_BOX_DEG (1.0)
 ```
@@ -169,6 +172,10 @@ Deployed (2026-10-12): local backend on a 1 GB Fly volume at `/data` (`/data/fir
 capped at 800 MB (`FIRESIM_ARCHIVE_MAX_BYTES`); one ensemble at a time on the live API
 (`FIRESIM_MAX_CONCURRENT_ENSEMBLES` 1). The S3-compatible offsite copy and Litestream index
 backup are in the code but not deployed (`docs/run-archive.md`).
+Saved runs (phase 2, owner decision 2026-10-12): the run list is shared behind one passphrase
+(`FIRESIM_RUNS_PASSPHRASE`, compared by SHA-256 + `hmac.compare_digest`, per-IP backoff);
+labels set later live in the index table `run_labels`; app panel Setup → Saved runs
+(`SavedRunsPanel.tsx`, passphrase in sessionStorage only).
 
 ---
 
