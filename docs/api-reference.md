@@ -108,6 +108,19 @@ Start a new fire spread simulation.
   RPAS active edges they raised one-day F1 on held-out Alberta fires from 0.12 to 0.21
   (docs/validation.md). The API keeps them off so existing clients see no change.
 - `ensemble` members inherit `burning_period` and the spin-up.
+- `weather_schedule` (optional, added 2026-10-12): a manual schedule of step changes during the
+  run, e.g. 47 km/h from the start, then 20 km/h from 20:00:
+  `[{"hours_from_start": 2.1667, "wind_speed": 20, "wind_direction": 135, "temperature": 20,
+  "relative_humidity": 15, "precipitation_mm_h": 0}]`. `weather` applies from the start until
+  the first step; each step applies from its `hours_from_start` (0 < h < `duration_hours`)
+  until the next; `precipitation_mm_h` is a rain rate while the step is in force. The API turns
+  the schedule into an hourly stream (`firesim.spread.diurnal.schedule_hourly`: a record at
+  every whole hour and at every step) and runs it through the same path as `hourly_weather`:
+  FBP rates recomputed at each record, FFMC recomputed hourly with the hourly FFMC model from
+  `fwi_overrides.ffmc` (so ISI follows), DMC and DC fixed. Ensemble members perturb every step
+  (one wind-direction offset and speed factor per member). 422 with `hourly_weather`, with
+  `ffmc_spin_up`, for two steps at the same time, or a step at or after the end. GET returns it
+  in `config` and `weather_used`; the run archive's request JSON keeps it.
 - `seed` (optional integer): seed for the stochastic parts of the run (ember spotting, with
   `enable_spotting`). Omitted, it is derived from the other inputs, so identical requests give
   identical results; set it to rerun the same inputs with different draws
@@ -231,6 +244,17 @@ Get simulation status and results.
 }
 ```
 
+`weather_used` (added 2026-10-12; single runs and restarts): the weather the run actually used:
+`source` (`request`, or `source_run` for a restart that sent no weather), `weather`,
+`fwi_overrides`, `weather_schedule`, `hourly_weather` (true when a forecast stream drove it) and
+`start_time`. The app's header chips and summary show these values.
+
+`fuel_vintage_warning` (added 2026-10-12): set when the scenario `start_time` is before the year
+the run's fuel grid represents (`fuel_source.vintage_year`), e.g. "Fuel grid represents 2025.
+Areas burned since 2011 may be mapped as grass or non-fuel, not the fuel that burned. Historical
+replays overstate spread in old burn scars."; `null` otherwise. A date check only (the burned
+fraction since that year needs NBAC data; open item).
+
 `fuel_source` (added 2026-10-11; `null` until the grids are loaded): `kind` is `city` (City
 grid lattice, Alberta grid in its no-data cells), `provincial` (40 km window: City grid where
 mapped, Alberta grid elsewhere, national grid outside Alberta if configured), `national`,
@@ -238,7 +262,10 @@ mapped, Alberta grid elsewhere, national grid outside Alberta if configured), `n
 the text to show, `attribution` the licence line to show with it (Alberta grid: OGL-Alberta),
 `season` the leaf-on / leaf-off state used for the seasonal pairs (provincial and national
 cells only; `null` otherwise) and `share` the fraction of the window's cells each source
-supplied (`city`, `ab_wildfire`, `national`; windows only).
+supplied (`city`, `ab_wildfire`, `national`; windows only). `vintage_year` (added 2026-10-12):
+the year the grid represents, the latest of the sources used: City LiDAR grid 2025, Alberta
+Wildfire FBP grid 2025, CFS national grid 2025 (`cfs_national`, the 2026 release) or about 2011
+(`cfs_national_2014`, 2014b); `null` for `uniform`, `synthetic` and `user_grid`.
 
 `buildings_source` (added 2026-10-11; `null` until buildings are selected, or when the run has
 none): `kind` is `edmonton_neighbourhoods` (ignition in the Edmonton area: the 4 City
@@ -305,12 +332,21 @@ Stream simulation frames in real-time.
 ```json
 {"type": "simulation.status", "simulation_id": "abc123", "phase": "spread", "progress": 0.42}
 {"type": "simulation.frame", "frame": { ... }}
-{"type": "simulation.completed", "fuel_source": { ... }, "buildings_source": { ... }, "terrain_source": { ... }}
+{"type": "simulation.completed", "n_frames": 9, "fuel_vintage_warning": null, "fuel_source": { ... }, "buildings_source": { ... }, "terrain_source": { ... }}
 {"type": "simulation.error", "error": "message"}
 ```
 
 `simulation.completed` carries the run's `fuel_source`, `buildings_source` and `terrain_source`
-(as in GET, added 2026-10-11).
+(as in GET, added 2026-10-11), `n_frames` (the number of frames the run has) and
+`fuel_vintage_warning` (added 2026-10-12).
+
+Delivery (changed 2026-10-12): the socket's handler is its only writer. It sends the run's
+frames in order, each exactly once, read from the run, and sends `simulation.completed` only
+after the last frame. Before, each frame was sent by its own task; on a slow link the handler
+could send `simulation.completed` and close the socket while the last (largest) frames were
+still being sent, so they never arrived: restarts looked capped at 1-2 h and runs ended one
+frame short (owner field test 2026-10-12). A client that received fewer than `n_frames` frames
+should read the run with GET (the app does).
 
 `simulation.status` (added 2026-10-10; single runs and perimeter restarts) reports the run's
 phase while it computes: `loading`, `buildings`, `spread` (with `progress` 0-1, rounded to 3
@@ -424,6 +460,22 @@ run's `start_time`), `burning_period` and `ffmc_spin_up` (as for POST /simulatio
 inherited from the source run). The source run's `hourly_weather` is re-based to `start_time`
 (before 2026-10 the restart ignored it and used the constant `weather`); with `ffmc_spin_up`
 it must reach back to 17:00 before the restart (422 otherwise).
+
+Weather (added 2026-10-12): optional `weather`, `fwi_overrides` and `weather_schedule` (hours
+from this request's `start_time`). The app sends Setup's current values: the step of Setup's
+schedule in force at the restart time as `weather`, and the later steps. When `weather` is
+omitted the source run's weather is used, with its `weather_schedule` re-based to `start_time`
+(`weather_used.source` = `source_run`); when `weather` is sent without a schedule, no schedule
+is inherited (a source forecast stream is still re-based). Before 2026-10-12 the restart always
+used the source run's weather.
+
+The restart runs as a normal run of its request (`config` in GET: the source run's request with
+the restart's weather, duration, start time and burning period, no ensemble): the same fuel
+grid, building mask, building exposure, house-to-house spread (`structure_spread` of the source)
+and 20 m window rules. Before 2026-10-12 restarts loaded no buildings: no mask (buildings were
+fuel, so a restart burned through subdivisions where the continuous run stalls), no exposure and
+no house-to-house. `duration_hours` (≤ 24) is run in full; the run archive stores
+`{"source_config", "perimeter_override", "restart_config", "weather_source"}`.
 
 ### POST /api/v1/simulations/burn-probability
 

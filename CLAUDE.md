@@ -129,13 +129,16 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 
 ### Frames
 WebSocket events are `{"type": "simulation.frame", "simulation_id": ..., "frame": {...}}`, then
-`simulation.completed` or `simulation.error`. Frame fields (`time_hours`, `perimeter`, `area_ha`,
+`simulation.completed` (with `n_frames`) or `simulation.error`; the handler is the socket's only
+writer (`ws/manager.py`), so every frame arrives, in order, before `simulation.completed`. Frame fields (`time_hours`, `perimeter`, `area_ha`,
 `head_ros_m_min`, `max_hfi_kw_m`, `fire_type`, `flame_length_m`, `burned_cells`, `cells_offset`,
 `head`, `building_exposure`, ...) are documented in `docs/api-reference.md` — keep that file, the
 Pydantic schema and `frontend/src/types/simulation.ts` in step. Requests can set `start_time`,
 `hourly_weather` and `cells_mode: "incremental"` (the frontend uses incremental), and the
 spread-skill options `burning_period` / `ffmc_spin_up` (API default off, UI default on; hours
-on `start_time`'s own clock), on perimeter-override, `active_edges`, and the opt-in
+on `start_time`'s own clock), `weather_schedule` (manual step changes → hourly stream,
+`diurnal.schedule_hourly`), on perimeter-override, `active_edges` and the restart's own
+`weather` / `fwi_overrides` / `weather_schedule` (else the source's; `weather_used`), and the opt-in
 `structure_spread` (Hamada building-to-building counts, frame `structure_spread`; involved units on the final
 frame `structure_spread_detail`, map display only, never exported; illustrative).
 

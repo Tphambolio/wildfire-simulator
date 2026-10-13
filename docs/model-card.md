@@ -62,8 +62,8 @@ head fire intensity and FWI codes mean.
 
 Inputs: ignition point or observed perimeter (optionally with its active edges: lines drawn
 along the perimeter or whole sides, from an RPAS thermal flight; the rest is treated as burned
-out), start time, weather (constant or hourly, optionally from 17:00 the evening before for
-the FFMC spin-up), FWI codes, burning period (local hours), FBP
+out), start time, weather (constant, hourly forecast optionally from 17:00 the evening before for
+the FFMC spin-up, or a manual schedule of step changes run as an hourly stream), FWI codes, burning period (local hours), FBP
 fuel grid (Edmonton: City canopy-LiDAR product, built from City open data — 2025 LiDAR `sz3i-y5ze`, uPLVI 2025, Naturalized Areas, Trees inventory — under the Open Government Licence – Edmonton, [R38]; from 2026-10-11 the Alberta Wildfire FBP fuel
 types 2025, 100 m, wherever the City grid has no data and for ignitions outside it, with D-1/D-2
 and M-1/M-2 leaf-on from day of year 150 to 257, per-cell percent conifer from the map and O-1 as
@@ -138,7 +138,13 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   represented (no spread outside it), and a run started at night shows no growth until it
   opens. Turn it off in Run options to model an overnight run.
 - No suppression is modelled.
-- Weather: constant or hourly; DMC and DC fixed within a run; the hourly forecast is
+- Fuel-grid year: the default grids represent 2025. Scenarios dated earlier (historical
+  replays) run on today's fuel, where old burn scars are often grass or non-fuel; the app and API
+  flag it (`fuel_vintage_warning`), but nothing corrects it yet.
+- RPAS restarts rebuild the fire front at burned-cell edges: a run restarted from its own
+  perimeter grows 1-2 % more than the continuous run on uniform fuel, about 7-10 % more on mixed
+  fuel (docs/PROJECT_RECORD.md §3, 2026-10-12).
+- Weather: constant, hourly or a manual schedule; DMC and DC fixed within a run; the hourly forecast is
   Open-Meteo GEM (`gem_seamless`, pinned 2026-10-10, the model the ensemble's error climatology
   was measured on). In Alberta the starting codes are the ones Pyra (the team's fire-weather app)
   shows for the nearest Pyra station: CWFIS carry-over stepped one day with the GEM noon-LST
