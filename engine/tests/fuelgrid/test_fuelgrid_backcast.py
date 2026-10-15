@@ -146,10 +146,12 @@ class TestCodes:
 
 class TestNbacKey:
     def test_end_dates(self):
-        import pandas as pd
+        from datetime import date, datetime
         assert B._end_key({"YEAR": 2011, "AG_EDATE": None, "HS_EDATE": None}) == 2011366
-        assert B._end_key({"YEAR": 2011, "AG_EDATE": pd.Timestamp("2011-07-28"),
-                           "HS_EDATE": pd.Timestamp("2011-06-01")}) == 2011209
+        assert B._end_key({"YEAR": 2011, "AG_EDATE": datetime(2011, 7, 28),
+                           "HS_EDATE": date(2011, 6, 1)}) == 2011209
+        assert B._end_key({"YEAR": 2011, "AG_EDATE": float("nan"),
+                           "HS_EDATE": "2011-06-01"}) == 2011152
         # an end date recorded in another year is ignored (typo), so the year default applies
-        assert B._end_key({"YEAR": 2011, "AG_EDATE": pd.Timestamp("2012-01-05"),
+        assert B._end_key({"YEAR": 2011, "AG_EDATE": datetime(2012, 1, 5),
                            "HS_EDATE": None}) == 2011366

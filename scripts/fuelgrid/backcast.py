@@ -276,18 +276,39 @@ def write_cog(path: Path, arr: np.ndarray, prof: dict, nodata: int, tags: dict) 
 
 # ── 1. NBAC burn key ─────────────────────────────────────────────────────────────────────────
 
+def _as_date(v):
+    """A date from a datetime / date / pandas Timestamp / ISO string; None for missing (None,
+    NaN, NaT). No pandas needed (the tests run without it)."""
+    from datetime import date, datetime
+
+    if v is None:
+        return None
+    try:
+        if v != v:  # NaN / NaT
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str) and len(v) >= 10:
+        try:
+            return date.fromisoformat(v[:10])
+        except ValueError:
+            return None
+    return None
+
+
 def _end_key(row) -> int:
     """Restore key of one NBAC polygon: latest recorded end date as YYYYDDD, else YYYY366."""
-    import pandas as pd
-
     year = int(row["YEAR"])
-    ends = [row.get(c) for c in ("AG_EDATE", "HS_EDATE")]
-    ends = [pd.Timestamp(e) for e in ends if e is not None and not pd.isna(e)]
-    ends = [e for e in ends if e.year == year]  # an end date in another year is a typo here
+    ends = [_as_date(row.get(c)) for c in ("AG_EDATE", "HS_EDATE")]
+    ends = [e for e in ends if e is not None and e.year == year]  # other years: typos here
     if not ends:
         return year * 1000 + 366
     e = max(ends)
-    return e.year * 1000 + e.dayofyear
+    return e.year * 1000 + e.timetuple().tm_yday
 
 
 def build_burns() -> Path:
