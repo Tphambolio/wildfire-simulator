@@ -674,6 +674,59 @@ Implementation: `IncrementalHamada(link_filter=…, blocked=…)`, `link_filter_
 Pre-registered held-out test `PREREG_LR3` (`adcee43`): Tubbs 2017 and Woolsey 2018, results in
 PROJECT_RECORD §4.4 and [R37].
 
+### 6.8 Long-range embers v6: reframed validation — ember transport and community arrival (A), building loss with a combined model (B) (2026-10-13) — illustrative
+
+**Decision** (owner, 2026-10-13; PROJECT_RECORD decisions log). v1-v5 were scored only on which
+buildings DINS recorded as destroyed. The v5 diagnosis on the training fires showed why that cannot
+show ember skill: v3 saturates (P ≈ 1 − s); wildland ember load and closeness to the edge rank
+destruction backwards (AUC 0.31-0.39); buildings within 100 m rank well (0.68-0.73) and year built
+0.57-0.66; Eaton is near 0.5 on everything; Woolsey's directions reverse
+(`calfire-dins/results-long-range-v5-2026-10-12/diagnosis/diagnosis.json`). Embers are therefore
+scored on what they physically do, **when fire reaches communities** (target A), and building loss is
+scored separately with a combined model (target B). Pre-registration `PREREG_LR6`
+(`docs/PREREG_LR6.md`, `scripts/long_range_v6_prereg.py`).
+
+**A. Engine: long-range ember spot fires in the grid model** (`engine/src/firesim/spread/ember_spotting.py`,
+`run_cellular_simulation(spot_hook=…)`; opt-in, not in the API yet). Until v5 long-range embers only
+ignited buildings (§6.3 "Not built"). v6 lets the same ember budget start spot fires in fuel cells:
+
+| Stage | v6 | Source / tag |
+|---|---|---|
+| Sources | cells the front reached in each 10 min slice; CFB from the crossing rate (ST-X-3 eqs 56-58), I = 300 TFC ROS (eq 69) | as `cellular._frames` |
+| Generation | n_kg (f_s SFC + CFC·[CFB ≥ 0.1]) A_cell; n_kg 500 /kg; f_s 0.007 | Qin 2025 eq 3.7 pp.59-61 [V]; Filkov et al. 2017 Table 1 p.3267 [D] (v5) |
+| Transport | v5 two-mode kernel: Sardoy short mode (10 m wind, q99.9 truncation, σ_Y 0.92 × cell) at the slice's emission-weighted intensity + long mode f_L 0.2762 located by Storey et al. 2020 (median 733 m, σ_ln 0.99); FFT convolution per slice | Sardoy et al. 2008 pp.483-488 [V]; Storey et al. 2020 *Fire* 3:10 p.7 [V] (v5 §6.7 variant) |
+| Establishment | expected spots per unburned fuel cell = η p_e (short + k_L long); Poisson draw per cell; p_e Beverly & Wotton grass-summer at the run FFMC; k_L v5 (× 3 at FFMC ≥ 96.75) | B&W 2007 eq 2.02 [V preprint]; Cruz et al. 2012 p.281 [V]; **η fitted** on training fires [H form] |
+| Logged | spot time, cell, distance to the nearest cell burned before it (Storey's measure, p.6); cumulative landed embers per m² (target B feature) | — |
+
+Bug fixed on the way (2026-10-13, own commit): spot fires from the existing short-range spotting that
+landed outside the burned area's box were reset to unburned and never spread (`_seed_spot`).
+
+**A. Validation harness** (`scripts/long_range_v6_arrival.py`; grids from `scripts/long_range_v6_data.py`).
+FireSim's level-set front runs on a 90 m lat/lng grid over each fire (perimeter box + 4 km) with the
+earlier harnesses' proxy fuel (C-4 or C-7), FFMC and wind ranges; non-fuel where ESA WorldCover 2021
+water or bare ≥ 50 %; town cells (built-up ≥ 25 %) at ROS × 0.5 [H] (C40); USGS 3DEP slope; hourly
+wind = member speed × station gain (station speed ÷ its 75th percentile in the window, clipped
+0.3-1.5) [H]; constant member direction. Point ignition at the documented origin and time, or the
+GOFER perimeter at the run start (CZU, North Complex). Paired ensembles: **A0** (front + FireSim's
+short-range spotting, spacing 150 m) and **V6** (A0 + long-range spot fires).
+Scoring unit: **community blocks** of 540 m (6 × 6 cells) with ≥ 10 buildings (Microsoft US v2
+footprints; Camp + DINS points). Observed arrival is an interval: upper bound = first VIIRS
+detection within 375 m, first timed perimeter containing the block centre (GOFER, FIRIS) or first
+NIST TN 2135 point (Camp); lower bound = last earlier perimeter not containing it, the previous VIIRS
+overpass [H] (C42), NIST time − 30 min [H]. Metrics in PREREG_LR6: block arrival error of the
+ensemble median (h), Brier of P(reached by each hour), spot-distance tail vs Storey and Cruz,
+ignitions ahead of the front, false alarms outside the final perimeter.
+
+**B. Building loss** (`scripts/long_range_v6_loss.py`). Logistic models on DINS units (destroyed vs
+other surveyed classes): density-only, density + year built, and combined (density, year built,
+nearest-neighbour separation, canopy 0-30 m — the closest available ring to 0-9 m — and target A's
+fire-reach share and landed embers). Leave-one-fire-out on the training fires; fitted on all five
+for the held-out fires. **Woolsey labels:** only surveyed units are scored (v3-v5 scored unsurveyed
+footprints as undamaged [H]); Woolsey's label is then destroyed vs damaged-not-destroyed.
+
+Results: PROJECT_RECORD §4.4 and the v6 report (*Long-range embers v6 reframed validation
+2026-10-13*).
+
 ## 7. Conflicting published values and the choices made
 
 | # | Conflict | Values and sources | FireSim choice | Reason |
@@ -710,6 +763,10 @@ PROJECT_RECORD §4.4 and [R37].
 | C29 | Ember mass for count thresholds | Qin's generation and ψ assume 0.2 g; IBHS structural brands median ~0.05 g, σ_ln ~1.6; Suzuki 2012/2014: 56-85 % < 0.1 g | **0.2 g model embers, mass factor 4 on the tested 0.05 g brands** [D]; m_f = 1 sensitivity | Mass-equivalent: the bed tests show accumulated mass governs |
 | C30 | Bed → building transition p_b | No published probability; corner tests: none (≥ 200 mm non-combustible gap, shredded hardwood) to 6/6 (bare OSB) (Fire Technol. 53:535 Tables 1-2) | **U(0.1, 1) per member** [H]; 0.1 and 1 sensitivities | The test range, not a value |
 | C31 | Urban ember tail | Qin25 truncates the Himoto PDF at the 99th percentile; field maxima 1.2-2 km (Beppu 2010, Shurijo 2019 [S]) far beyond Himoto | **Himoto to the 99.9th percentile** (≈ 100-330 m); q99 a sensitivity; no km tail | No validated km kernel for buildings |
+| C40 | Within-community spread rate (town cells in the v6 grid runs) | Observed 1,535 m/h (Camp) and 1,780 m/h (Tubbs) within communities (Masoudvaziri et al. 2021 SWUIFT Table 1 p.2 [V]); FBP C-4/C-7 heads at the v6 winds ~50-150 m/min | **Town ROS × 0.5** [H], one value for all fires, not fitted | No published FBP-style town multiplier; numbered from C40 to leave room for v4/v5 rows |
+| C41 | A realistic AUC for building-loss models | Zamanialaei et al. 2025 Nat. Commun. 16:8041 Table 2 p.7: XGBoost per fire 0.635 (Kincade) - 0.841 (Glass), random test splits within fires, DINS construction features (siding, vents, eaves); Table 1 p.7: logistic regression 0.65 (5 fires combined) and 0.81 (all CA DINS 2017-22) | **Owner's 0.7-0.8 is partly verified**: it matches in-fire tests with construction features; no published held-out-fire AUC was found. v6 reports AUC ≥ 0.70 as a realism reference, not a pass condition | Published values are in-sample-fire splits; held-out fires are harder |
+| C42 | Lower bound of arrival from VIIRS | A detection is an upper bound on arrival (overpass sampling); a non-detection at the previous overpass may be a missed or burned-out block | **Previous overpass = lower bound** [H] for blocks first detected later; sensitivity without it | Community blocks with burning structures stay detectable for hours; without the bound three training fires are one-sided |
+| C43 | Year-built source | DINS `YEARBUILT` (all fires; inspection record of a pre-fire attribute) vs county assessor rolls (v4: LA County fires only) | **DINS YEARBUILT** for every fire; missing flag | One consistent source for training and held-out fires; Tubbs has almost none (0.3 %) |
 | C20 | Small-flame delay | Qin25 eqs 5.2-5.4: random draw each step with P = 0.9 by τ; FSJ104686 p.5 worked example: + 42 s | **+ 42 s, deterministic** | Repeatable runs; 42 s is the time by which P = 0.9 (C4) |
 
 California-tuned or outcome-tuned values, all marked **[T]** wherever they appear: FTP 10,500

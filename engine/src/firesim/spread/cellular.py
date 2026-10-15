@@ -154,6 +154,7 @@ def run_cellular_simulation(
     seed: int | str | None = None,
     progress=None,
     spot_sample_spacing_m: float | None = None,
+    spot_hook=None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -206,6 +207,11 @@ def run_cellular_simulation(
             None = every 3rd newly burned cell (the original rule, 150 m on a 50 m grid);
             the 20 m WUI window passes 150 m so the number of sources per metre of front does
             not grow with resolution.
+        spot_hook: Optional extra spot-fire source (long-range embers v6, spec §6.8), called at
+            the end of every ``dt_minutes`` slice as ``spot_hook(newly, t0, t1, params, arrival,
+            cross_ros)`` with the (row, col) cells the front reached in (t0, t1]; it returns
+            (row, col) cells that ignite at t1 (unburned fuel cells only). Independent of
+            ``enable_spotting``; e.g. ``firesim.spread.ember_spotting.LongRangeSpotter``.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -298,7 +304,8 @@ def run_cellular_simulation(
         near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
         in_band = np.zeros((rows, cols), dtype=bool)
         in_band[_window(arrival < np.inf, BAND_CELLS)] = True
-        slice_len = dt_minutes if enable_spotting and spotting_intensity > 0.0 else duration
+        spotting_on = enable_spotting and spotting_intensity > 0.0
+        slice_len = dt_minutes if spotting_on or spot_hook is not None else duration
         next_slice = min(t + slice_len, duration)
         slice_start = t
 
@@ -342,8 +349,16 @@ def run_cellular_simulation(
                      acceleration, t_ign)
             t += step
             if t >= next_slice - 1e-9:
-                if enable_spotting and spotting_intensity > 0.0:
-                    newly = np.argwhere((arrival > slice_start) & (arrival <= t))
+                newly = (np.argwhere((arrival > slice_start) & (arrival <= t))
+                         if spotting_on or spot_hook is not None else None)
+                if spot_hook is not None and len(newly):
+                    for r, c in spot_hook(newly, slice_start, t, params, arrival, cross_ros):
+                        r, c = int(r), int(c)
+                        if fuel[r, c] and arrival[r, c] == np.inf:
+                            _seed_spot(phi, in_band, r, c, dx, dy, h_min)
+                            arrival[r, c] = t
+                            cross_ros[r, c] = params.head[r, c]
+                if spotting_on:
                     for spot in _spot_from_front(
                         newly, center, conditions, fuel_grid, spread_modifier_grid,
                         default_fuel, t - slice_start, spotting_intensity, rng, spot_stride,
@@ -356,7 +371,7 @@ def run_cellular_simulation(
                         if fuel[r, c] and arrival[r, c] == np.inf:
                             # 2026-10-13: seeded with _seed_spot; before, a spot outside the
                             # computational window's box was reset as an entering cell and never
-                            # spread (PROJECT_RECORD bug entry 2026-10-13)
+                            # spread (spec §6.8, PROJECT_RECORD bug entry)
                             _seed_spot(phi, in_band, r, c, dx, dy, h_min)
                             arrival[r, c] = t
                             cross_ros[r, c] = params.head[r, c]
