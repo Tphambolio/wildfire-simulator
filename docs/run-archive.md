@@ -121,6 +121,31 @@ on any 401 or 403.
   period; "Attach" in the EOC console does that on purpose.
 - **Deleting:** asks for confirmation first and removes the run for everyone.
 
+## Run IDs (2026-10-13)
+
+Owner decision 2026-10-13 (Travis Kennedy, EOC Chief of Plans): new run IDs are long enough
+not to be guessed, because `GET /simulations/{id}`, `/arrival`, `/ensemble` and the WebSocket
+stay open (no passphrase) for EOC operational-period links and the app.
+
+- **New IDs:** 32 lowercase hex characters, 128 random bits (`secrets.token_hex(16)`), made in
+  one place (`api/src/firesim_api/services/run_ids.py`) for single, multi-day and
+  perimeter-override runs; an ensemble shares its run's ID. Hex, not `token_urlsafe`: one
+  case and no `-`/`_`, so an ID is safe as a URL segment, an object-store key prefix
+  (`runs/<id>/…`), a file name on a case-insensitive disk and a shell argument.
+- **Old IDs** (8 hex characters, 32 bits, before 2026-10-13) stay valid. The archive accepts any
+  `[A-Za-z0-9_-]{1,64}` (`valid_id`), so old and new IDs share the same key layout and SQLite
+  `TEXT` primary key; nothing is renamed or migrated. The app and exported incident or
+  scenario files treat an ID as an opaque string, so saved operational periods still reload.
+- **Guessing old IDs** (about 4.3 × 10⁹ values) is slowed per IP: after 20 "Simulation not
+  found" answers under `/api/v1/simulations/` (HTTP 404/422, or WebSocket close 4004) each
+  further one locks the IP out for 2, 4, 8 ... s (at most 300 s), answered 429 with
+  `Retry-After` (WebSocket close 4029); forgotten after 15 min without a miss; in memory
+  (`api/src/firesim_api/middleware/run_probe_limit.py`). Found runs never count, so the app's
+  polling and "Load Day N run" are unaffected. At the maximum lock an IP gets about 12 guesses
+  an hour.
+- Tests: `api/tests/test_run_ids.py`, `frontend/src/utils/storage.test.ts`,
+  `frontend/tests/e2e/run-archive.spec.ts` (both formats through "Load Day N run").
+
 ## Retention
 
 `run_retention()` runs at startup and then every `FIRESIM_ARCHIVE_RETENTION_HOURS` (24) in

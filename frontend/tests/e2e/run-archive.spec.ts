@@ -58,3 +58,48 @@ test("Load Day N run after a server restart: from the archive, or the run is gon
   await expect(page.locator(".app-error-fallback")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("Load Day N run with both run ID formats: 8-hex (before 2026-10-13) and 32-hex (since)", async ({ page }) => {
+  // api services/run_ids.py: new runs get 32 hex characters; incidents saved before keep 8
+  const LEGACY = "1a2b3c4d";
+  const LONG = "0123456789abcdef0123456789abcdef";
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const api = await mockApi(page, { runIds: [LEGACY, LONG] });
+  await openApp(page);
+  await setIgnitionAtMapCentre(page);
+
+  await tab(page, /EOC Console/).click();
+  await page.getByRole("textbox", { name: "Incident name", exact: true }).fill("Run ID check");
+  await page.getByRole("button", { name: "Open EOC Console" }).click();
+  await tab(page, /Simulation/).click();
+  await runToCompletion(page);
+  await tab(page, /EOC Console/).click();
+  const runInfo = page.getByTestId("period-run");
+  await expect(runInfo).toHaveText(`Run ${LEGACY}`);
+
+  await panel(page).getByRole("button", { name: "+ New Period" }).click();
+  await panel(page).getByRole("button", { name: "Advance" }).click();
+  await tab(page, /Simulation/).click();
+  await runToCompletion(page);
+  await tab(page, /EOC Console/).click();
+  await expect(runInfo).toHaveText(`Run ${LONG}`);
+
+  // Reload (incident from localStorage): Day 1's run from the archive, Day 2's from memory
+  api.archived.add(LEGACY);
+  await page.reload();
+  await expect(page.locator("canvas.maplibregl-canvas").first()).toBeVisible();
+  await tab(page, /EOC Console/).click();
+  await dayBtn(page, 1).click();
+  await expect(runInfo).toContainText(`Run ${LEGACY} · not loaded`);
+  await panel(page).getByRole("button", { name: "Load Day 1 run" }).click();
+  await expect(runInfo).toHaveText(`Run ${LEGACY} · Loaded from archive`);
+
+  await dayBtn(page, 2).click();
+  await expect(runInfo).toContainText(`Run ${LONG} · not loaded`);
+  await panel(page).getByRole("button", { name: "Load Day 2 run" }).click();
+  await expect(runInfo).toHaveText(`Run ${LONG}`);
+  expect(api.getIds).toEqual(expect.arrayContaining([LEGACY, LONG]));
+  await expect(page.getByRole("alert").filter({ hasText: "no longer on the server" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

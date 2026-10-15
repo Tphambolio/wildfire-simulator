@@ -12,6 +12,7 @@ import tempfile
 
 import pytest
 
+from firesim_api.middleware import run_probe_limit
 from firesim_api.services import pyra as pyra_source
 
 
@@ -29,3 +30,11 @@ def _pyra_tier(request, monkeypatch):
     pyra_source.reset_cache()
     yield
     pyra_source.reset_cache()
+
+
+@pytest.fixture(autouse=True)
+def _run_probe_limit():
+    # Tests share one client IP: start each with no not-found count (middleware/run_probe_limit.py)
+    run_probe_limit.reset()
+    yield
+    run_probe_limit.reset()

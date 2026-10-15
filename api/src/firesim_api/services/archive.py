@@ -70,7 +70,8 @@ ENSEMBLE = "ensemble.json.gz"
 META = "meta.json"
 PAYLOADS = (RESPONSE, ARRIVAL, ENSEMBLE, META)
 
-#: Run IDs the archive accepts (the API makes 8 hex characters; never a path)
+#: Run IDs the archive accepts (never a path): new IDs are 32 hex characters, IDs made before
+#: 2026-10-13 are 8 (services/run_ids.py); both stay valid
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 _TERMINAL = {"completed", "failed", "cancelled"}
