@@ -724,8 +724,7 @@ fire-reach share and landed embers). Leave-one-fire-out on the training fires; f
 for the held-out fires. **Woolsey labels:** only surveyed units are scored (v3-v5 scored unsurveyed
 footprints as undamaged [H]); Woolsey's label is then destroyed vs damaged-not-destroyed.
 
-Results: PROJECT_RECORD §4.4 and the v6 report (*Long-range embers v6 reframed validation
-2026-10-13*).
+**Result (PREREG_LR6, `83e8c9f`, scored 2026-10-15):** η fitted on training fires = 1e-8 (grid edge). Target A **failed** on held-out Glass, CZU, North Complex: community-arrival MAE 11.17 h (V6) vs 10.64 h (A0), +0.53 h (95 % +0.34 to +0.75); Brier +0.021 (+0.015 to +0.027). The front, not the embers, dominates: A0 is ~10 h off (too fast on Glass/North Complex, too slow on CZU) and embers only add spread. Spot-distance tail P(>3 km)/P(>1 km) 0.106 (Storey 0.20; band 0.10-0.40 met), max 10.7 km. Target B: combined model AUC 0.604 vs density+age 0.507 (+0.096, +0.068 to +0.125, met) but long-range embers add nothing (+0.0001) and AUC is below 0.70. Stays opt-in (engine only, not in the API), illustrative. Details: PROJECT_RECORD §4.4 and [R47] (*Long-range embers v6 reframed validation 2026-10-13*).
 
 ## 7. Conflicting published values and the choices made
 

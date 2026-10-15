@@ -61,9 +61,9 @@ def spot_fig(fires, adir, eta, out, label):
         ax.plot(d / 1000, [np.mean(dd > x) for x in d], color=col, lw=2, label=f"{name} (n = {len(dd):,})")
     ax.scatter([0.1, 1.0, 3.0], [0.5, 0.10, 0.02], color="k", zorder=5, label="Storey et al. 2020: median, 10 % > 1 km, 2 % > 3 km")
     ax.axvline(13.9, color="k", ls=":", lw=1)
-    ax.text(13.9, 0.3, " Storey max 13.9 km", fontsize=7, rotation=90, va="bottom")
+    ax.text(13.9, 2e-3, " Storey max 13.9 km", fontsize=7, rotation=90, va="bottom")
     ax.axvline(33.0, color="k", ls="--", lw=1)
-    ax.text(33.0, 0.3, " Cruz 2012: 33 km", fontsize=7, rotation=90, va="bottom")
+    ax.text(33.0, 2e-3, " Cruz 2012: 33 km", fontsize=7, rotation=90, va="bottom")
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_ylim(1e-4, 1.05)
@@ -95,7 +95,7 @@ def arrival_figs(fires, adir, eta, outdir, label):
             relO[model].append(maps[model]["O"])
         # map
         if "A0" in maps and "V6" in maps:
-            figm, axm = plt.subplots(1, 2, figsize=(10, 4.6))
+            figm, axm = plt.subplots(1, 2, figsize=(11, 5), constrained_layout=True)
             for a2, model in zip(axm, ("A0", "V6")):
                 e = np.where(maps[model]["med"] < ob["t_lo"], -(ob["t_lo"] - maps[model]["med"]),
                              np.where(maps[model]["med"] > ob["t_hi"], maps[model]["med"] - ob["t_hi"], 0.0)) / 60
@@ -111,8 +111,8 @@ def arrival_figs(fires, adir, eta, outdir, label):
                 a2.set_ylabel("Latitude (°)")
                 a2.tick_params(labelsize=7)
             cb = figm.colorbar(im, ax=axm, shrink=0.8)
-            cb.set_label("Arrival error of the ensemble median (h): blue early, red late, 0 inside the observed interval")
-            figm.suptitle(f"Community-block arrival error, {label} (540 m blocks; grey = unscored community blocks)", fontsize=10)
+            cb.set_label("Median arrival error (h): − early, + late, 0 = inside observed interval", fontsize=8)
+            figm.suptitle(f"{f}: community-block arrival error, {label} (540 m blocks; grey = community blocks not scored)", fontsize=10)
             figm.savefig(outdir / f"fig_arrival_map_{f}.png", dpi=DPI)
             plt.close(figm)
     for ax, model in zip(axs, ("A0", "V6")):
