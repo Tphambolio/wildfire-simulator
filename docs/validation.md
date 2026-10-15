@@ -21,6 +21,10 @@ puts FireSim's operational set-up level with W.I.S.E. defaults (0.26 nationally;
 nine shared Alberta days), still well short of tuned W.I.S.E. (0.54). See "Skill
 improvements and held-out results".
 
+**Rescore (2026-10-15): pre-fire fuel grid.** On the back-cast fuel grid FireSim uses for
+historical Alberta replays, the operational set-up's held-out F1 is 0.246 (0.212 on CFS
+2014b); over-prediction is unchanged. See "Rescored on the pre-fire fuel grid".
+
 **Third round (2026-10-08): ensemble.** The ensemble's perturbation sizes are now set from an
 Alberta forecast-error climatology and one inflation factor chosen on the calibration fires.
 On held-out fires the observed one-day area falls inside the members' 10-90 % range on 49 %
@@ -28,6 +32,57 @@ of days (was 20 %; ideal about 80 %) and the CRPS of burned area beats the singl
 (was 11 %). The range is still too narrow, burn probability is over-confident, and the P10
 footprint is **not** a worst case (it held at least 90 % of the observed growth on 29 % of
 days). See "Ensemble calibration".
+
+## Rescored on the pre-fire fuel grid (2026-10-15)
+
+**In short:** scored on the fuel FireSim actually uses for a dated historical run in Alberta
+(the Alberta Wildfire 2025 grid back-cast to each fire's start, PR #79,
+`docs/fuel-grid-backcast.md`) instead of the CFS 2014b grid, every headline configuration
+scores higher. The held-out one-day F1 of the operational set-up is **0.246** (2014b: 0.212).
+The over-prediction and area-bias conclusions do not change. Pre-registered
+(`docs/PREREG_RESCORE_BACKCAST.md`, commit `a5da766`, pushed before scoring; the primary
+comparison overlaps #79's rescoring in full, as disclosed there). Both grids were rerun on the
+same code; only the fuel domain files differ (`scripts/validate.py --domains-dir`). Report:
+`~/dev/wildfire/reports/Validation rescored on pre-fire fuel grid 2026-10-15.md` [R45].
+
+| Set-up (17 h F1, fire-day mean) | Set | n | 2014b (rerun) | Back-cast | ΔF1 [95 % CI, whole-fire bootstrap] |
+|---|---|---|---|---|---|
+| **Active edges 2 d + spin-up + 10-20 h (operational)** | held-out | 79 | 0.212 | **0.246** | **+0.034 [+0.007, +0.058]** |
+| Same | all | 143 | 0.219 | 0.258 | +0.039 [+0.019, +0.059] |
+| Whole perimeter, 06-23 h (first round) | held-out | 79 | 0.123 | 0.147 | +0.023 [+0.009, +0.039] |
+| Same | all | 143 | 0.157 | 0.176 | +0.020 [+0.007, +0.032] |
+| Bennett (oracle) start + spin-up | held-out | 79 | 0.250 | 0.294 | +0.044 [+0.017, +0.072] |
+| Bennett start, first round | all | 143 | 0.249 | 0.294 | +0.045 [+0.026, +0.063] |
+| Ablations (spin-up; + burning period; active 1 d; active 2 d + spin-up) | held-out | 79 | 0.128 / 0.146 / 0.167 / 0.176 | 0.158 / 0.174 / 0.194 / 0.212 | +0.030 / +0.029 / +0.027 / +0.036 (all CIs exclude 0) |
+
+- **Over-prediction unchanged:** whole perimeter, all 143 days, 92 % → 94 % of days
+  over-predicted (+2 pp [−3, +7]), area difference +0.65 → +0.69; operational set-up, held-out,
+  75 % → 73 %, +0.25 → +0.26. Precision and recall both rise: the back-cast puts more of the
+  modelled growth where the fire went, without changing how much grows.
+- **The set-up's gain is the same on both grids:** +0.089 [+0.051, +0.127] (2014b) vs +0.099
+  [+0.054, +0.141] (back-cast); difference +0.010 [−0.016, +0.030].
+- **By fuel group** (descriptive): days whose observed growth is mostly deciduous on 2014b gain
+  most (all 18 days: 0.119 → 0.191), while their area bias rises (+0.08 → +0.47); conifer days
+  +0.032.
+- **Ensemble:** E1 (20-member ensemble on the record's 65 held-out fire-days) still running at this commit; its results are added to this PR before review.
+- **W.I.S.E. on identical inputs:** on the record's 9 fire-days (whole perimeter, 06-23 h), mean 17 h F1 W.I.S.E. 0.186 vs FireSim 0.242 on 2014b, and 0.232 vs 0.252 on the back-cast (W.I.S.E. 1.0.6-beta.6 with exactly FireSim's back-cast fuel). Both models gain; W.I.S.E. gains more, almost all on one day (2022_433, 0.18 → 0.51). Nine days are too few to rank the models (descriptive, as pre-registered).
+- **Reproduction:** the 2014b rerun of the operational set-up matches the recorded diagonal-fix
+  runs to 6e-5 per fire-day; the back-cast rerun matches #79 exactly. The first-round 2014b
+  numbers above differ slightly from the tables below because those predate the diagonal fix.
+- **Suppression (exploratory, post hoc):** excluding the 5 suppression-dominated or
+  burnout-enlarged fire-days of the suppression history (2026-10-15), held-out F1 is 0.226
+  (2014b) vs 0.256 (back-cast); calibration fire 2022_481 was a Parks Canada prescribed fire
+  (3 days; no effect on the held-out score).
+- **Scope:** the 0.246 applies to historical replays in Alberta. A live run (undated, or 2026)
+  uses the 2025 grid without a back-cast, which has not been scored on these fires (masked it
+  scored 0.160, [R27]). All 143 fire-days had a back-cast epoch (fires 2014-2024).
+
+```bash
+# both arms, same code; back-cast domains from scripts/validation/backcast_fire_test.py domains ab2025_backcast
+python scripts/validate.py --domains-dir $FIRESIM_VALIDATION_DATA/backcast/roots/ab2025_backcast/domains \
+    --runs-dir $FIRESIM_VALIDATION_DATA/rescore-backcast/backcast/runs run --name active2_spin_bp1020 \
+    --ignition active --active-days 2 --ffmc-spinup --burning-period 10 20 --windows 4 6 8 10 12 14 17 24
+```
 
 ## Grid diagonal-spread fix (2026-10-09)
 
