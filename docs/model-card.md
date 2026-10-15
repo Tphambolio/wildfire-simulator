@@ -140,9 +140,12 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   represented (no spread outside it), and a run started at night shows no growth until it
   opens. Turn it off in Run options to model an overnight run.
 - No suppression is modelled.
-- Fuel-grid year: the default grids represent 2025. Scenarios dated earlier (historical
-  replays) run on today's fuel, where old burn scars are often grass or non-fuel; the app and API
-  flag it (`fuel_vintage_warning`), but nothing corrects it yet.
+- Fuel-grid year: the default grids represent 2025. For scenarios dated 2011-2025 in an Alberta-grid
+  window, cells NBAC records as burned since the scenario date are restored to pre-fire fuel typed
+  from SCANFI v2 (CFS national rules; estimated, not observed; `docs/fuel-grid-backcast.md`). Held-out
+  one-day F1 on the [R27] fire-days: 0.246 vs 0.160 for the scar-masked grid and 0.212 for CFS 2014b
+  (pre-registered, [R44]). Burns before the scenario, harvest, City cells and scenarios before 2011
+  are not corrected; the run says which (`fuel_source.backcast`, `fuel_vintage_warning`).
 - RPAS restarts rebuild the fire front at burned-cell edges: a run restarted from its own
   perimeter grows 1-2 % more than the continuous run on uniform fuel, about 7-10 % more on mixed
   fuel (docs/PROJECT_RECORD.md §3, 2026-10-12).

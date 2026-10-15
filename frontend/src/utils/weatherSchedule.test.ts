@@ -82,6 +82,7 @@ describe("fuel-grid vintage (issue 6)", () => {
   it("warns for scenarios dated before the grid year only", () => {
     expect(fuelVintageWarning(DEFAULT_FUEL_GRID_YEAR, edmontonYear(START))).toMatch(
       /^Fuel grid represents 2025\. Areas burned since 2011 may be mapped as grass or non-fuel/);
+    expect(fuelVintageWarning(2025, 2011)).toContain("restores areas burned since then to estimated pre-fire fuel");
     expect(fuelVintageWarning(2025, 2025)).toBeNull();
     expect(fuelVintageWarning(null, 2011)).toBeNull();
   });

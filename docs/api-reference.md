@@ -289,6 +289,16 @@ the year the grid represents, the latest of the sources used: City LiDAR grid 20
 Wildfire FBP grid 2025, CFS national grid 2025 (`cfs_national`, the 2026 release) or about 2011
 (`cfs_national_2014`, 2014b); `null` for `uniform`, `synthetic` and `user_grid`.
 
+`fuel_source.backcast` (added 2026-10-12; docs/fuel-grid-backcast.md): present when the run's
+`start_time` falls in or before 2025 (the Alberta grid's last burn year); `null` for undated and
+later runs. `applied: true` means the Alberta cells NBAC records as burned on or after the
+scenario date were restored to pre-fire fuel typed from SCANFI v2: `as_of` (date), `epoch`,
+`restored_share` / `unrestored_share` (of the window's cells), `restored_before` /
+`restored_after` (fuel-group shares of the restored cells), `label` (also appended to
+`fuel_source.label`), `source`, `attribution` (OGL - Canada), `heuristic`. `applied: false`
+carries `reason` (data not installed, no SCANFI epoch before the scenario's year, City lattice
+or outside Alberta). Both carry `note`, one plain-language line for the fuel-vintage warning.
+
 `buildings_source` (added 2026-10-11; `null` until buildings are selected, or when the run has
 none): `kind` is `edmonton_neighbourhoods` (ignition in the Edmonton area: the 4 City
 neighbourhoods nearest the ignition, as before) or `near_ignition` (elsewhere: buildings in the

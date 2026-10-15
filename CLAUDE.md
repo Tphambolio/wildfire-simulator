@@ -73,6 +73,7 @@ docker compose up --build
 | `data/fuel_loader.py` | GeoTIFF → `FuelGrid`; integer codes mapped by code scheme (`CODE_SCHEMES`, explicit `code_scheme` or detection; `ab_wildfire` = Alberta Wildfire FBP 2025); `fill_path` fills no-data cells from a second raster; per-cell percent conifer (`FuelGrid.pc`) from 6xx / CIFFC codes |
 | `data/building_index.py` | Buildings read by window (FlatGeobuf R-tree via pyogrio; GeoJSON into compact arrays): Edmonton 4-nearest-neighbourhood selection (former extract's box, plus buildings within City neighbourhood polygons outside it, `within_outside_box`), `near()` for runs elsewhere (≤ `FIRESIM_BUILDINGS_MAX_NEAR`, with per-`source` counts), footprint source for structure spread (unclipped; `clipped()` only in legacy mode); `docs/buildings-alberta.md` |
 | `data/provincial.py` | Default fuel outside Edmonton: windowed reads of large rasters onto a lat/lng `Lattice`, source stacking (City where mapped → Alberta grid → national), `choose_fuel` (city / provincial / national / uniform); `docs/fuel-grid-alberta.md` |
+| `data/backcast.py` | Pre-fire back-cast for dated historical runs: Alberta cells burned (NBAC) since the scenario date take SCANFI v2 typing from the epoch before its year (`FuelSources.backcast`; built by `scripts/fuelgrid/backcast.py`); `docs/fuel-grid-backcast.md` |
 | `fbp/season.py` | Leaf-on / leaf-off swap of D-1, M-1, M-3 labels by day of year (150 / 258; the validation harness uses the same) |
 | `data/dem_loader.py` | DEM GeoTIFF → slope % + aspect ° → `TerrainGrid` (`slope_aspect` shared) |
 | `data/terrain.py` | Terrain outside Edmonton: windowed reads of the Alberta MRDEM-30 elevation COG (~100 m, uint16 dm) onto a run lattice → slope/aspect (`terrain_on_lattice`); `docs/terrain-alberta.md` |
@@ -153,6 +154,7 @@ FIRESIM_BUILDINGS_PATH    Building footprints GeoJSON
 FIRESIM_NEIGHBOURHOODS_PATH  Neighbourhood polygons (building index; needed for building masks/exposure)
 FIRESIM_GIT_SHA           Set by the Docker build (CI passes the commit); served by /api/v1/version
 FIRESIM_AB_FUEL_GRID_PATH Alberta Wildfire FBP fuel grid COG (default fuel outside the City grid; set by api/Dockerfile)
+FIRESIM_AB_BACKCAST_DIR   Pre-fire back-cast data (backcast.json + NBAC burn key + SCANFI epochs; release data-ab-prefire-v1, set by api/Dockerfile)
 FIRESIM_CITY_FUEL_GRID_PATH  City grid path that triggers it (default /app/data/Edmonton_FBP_FuelLayer_20251105_10m.tif)
 FIRESIM_NATIONAL_FUEL_GRID_PATH / _SCHEME, FIRESIM_PROVINCIAL_WINDOW_KM (40), FIRESIM_CITY_MARGIN_KM (5)
 FIRESIM_AB_BUILDINGS_PATH Alberta buildings FlatGeobuf (set by api/Dockerfile); stands in for FIRESIM_CITY_BUILDINGS_PATH
