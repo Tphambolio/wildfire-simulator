@@ -12,6 +12,16 @@ Stages (run in order; each is resumable):
     python scripts/validate.py run --ignition perimeter --wind-members --max-cases 40
     python scripts/validate.py report
 
+``--domains-dir DIR`` (or $FIRESIM_VALIDATION_DOMAINS) reads the fire domains (DOB, fuel, DEM)
+from DIR instead of $FIRESIM_VALIDATION_DATA/domains, so the same fire-days, weather and set-up
+can be scored on another fuel grid, e.g. the pre-fire back-cast domains built by
+``scripts/validation/backcast_fire_test.py domains ab2025_backcast``:
+
+    python scripts/validate.py --domains-dir $FIRESIM_VALIDATION_DATA/backcast/roots/ab2025_backcast/domains \
+        --runs-dir <dir> run --name active2_spin_bp1020 --ignition active --active-days 2 ...
+
+Each run record carries ``domains_dir`` and the domain's ``fuel_source``.
+
 ``prepare`` picks Alberta fires (2014-2024, >= 1,000 ha; the 2016 Horse River fire always
 included), resamples DOB / fuel / DEM onto a lat/lng grid per fire, picks fire-days and fetches
 hourly ERA5 weather. ``run`` simulates each fire-day and appends one JSON line per fire-day to
@@ -60,6 +70,30 @@ def groups_csv(year: int) -> Path:
 
 def manifest_path() -> Path:
     return ROOT / "manifest.json"
+
+
+DOMAINS_ENV = "FIRESIM_VALIDATION_DOMAINS"
+
+
+def domains_dir() -> Path:
+    """Directory the run stages read fire domains from.
+
+    ``$FIRESIM_VALIDATION_DOMAINS`` (set by ``--domains-dir``) when given, else
+    ``$FIRESIM_VALIDATION_DATA/domains`` (the CFS 2014b domains built by ``prepare``). Only the
+    fuel is expected to differ between domain sets; DOB, DEM and grid must match ``prepare``'s.
+    """
+    env = os.environ.get(DOMAINS_ENV, "").strip()
+    return Path(env) if env else ROOT / "domains"
+
+
+def load_domain(fid: str):
+    """The FireDomain of fire ``fid`` from :func:`domains_dir`."""
+    from firesim.validation.cfsds import FireDomain
+
+    path = domains_dir() / f"{fid}.npz"
+    if not path.exists():
+        raise FileNotFoundError(f"no domain for {fid} in {domains_dir()}")
+    return FireDomain.load(path)
 
 
 # --------------------------------------------------------------------------------------------
@@ -176,11 +210,11 @@ def cmd_prepare(args) -> None:
 
 @lru_cache(maxsize=2)
 def _load_fire(fid: str):
-    from firesim.validation.cfsds import FireDomain, read_groups
+    from firesim.validation.cfsds import read_groups
     from firesim.validation.weather import doy_to_date, fetch_era5_hourly
 
     m = next(x for x in json.loads(manifest_path().read_text()) if x["fire_id"] == fid)
-    dom = FireDomain.load(ROOT / f"domains/{fid}.npz")
+    dom = load_domain(fid)
     groups = read_groups(groups_csv(dom.year))[fid]
     lat, lng = m["weather_point"]
     d0, d1 = m["weather_range"]
@@ -219,8 +253,10 @@ def _run_task(task: dict) -> dict:
         else:
             members = wind_direction_members() if task["wind_members"] else DETERMINISTIC
             out = run_fire_day(case, opts, members)
+        out["fuel_source"] = dom.meta.get("fuel_source", "")
     except Exception as exc:  # recorded, not fatal: one bad fire-day must not stop the batch
         out = {"fire_id": task["fire_id"], "day": task["day"], "error": repr(exc)}
+    out["domains_dir"] = str(domains_dir())
     out["wall_s"] = time.time() - t
     return out
 
@@ -646,6 +682,10 @@ def main() -> None:
     ap.add_argument("--runs-dir", default="",
                     help="run files directory (default $FIRESIM_VALIDATION_DATA/runs); report.md "
                          "and fire_days.csv go to its parent")
+    ap.add_argument("--domains-dir", default="",
+                    help="read fire domains (fuel grid) from this directory instead of "
+                         "$FIRESIM_VALIDATION_DATA/domains (also $FIRESIM_VALIDATION_DOMAINS); "
+                         "e.g. the pre-fire back-cast domains of backcast_fire_test.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("prepare")
     p.add_argument("--n-fires", type=int, default=32)
@@ -702,6 +742,10 @@ def main() -> None:
     e.add_argument("--window", default="17h")
     e.add_argument("--out", default="")
     args = ap.parse_args()
+    if args.domains_dir:  # before any Pool forks, so workers inherit it
+        if args.cmd == "prepare":
+            ap.error("--domains-dir applies to run stages; prepare builds $FIRESIM_VALIDATION_DATA/domains")
+        os.environ[DOMAINS_ENV] = str(Path(args.domains_dir).resolve())
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", stream=sys.stdout)
     {"prepare": cmd_prepare, "run": cmd_run, "report": cmd_report,
      "compare": cmd_compare, "ens-compare": cmd_ens_compare}[args.cmd](args)

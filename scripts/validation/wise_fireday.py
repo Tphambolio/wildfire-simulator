@@ -11,6 +11,11 @@ and previous-day FWI codes, 06:00-23:00 local, spotting off. WISE perimeters are
 the validation grid and scored with firesim.validation.metrics, as are FireSim's.
 
     PYTHONPATH=engine/src python3 scripts/validation/wise_fireday.py 2016_255:126 2019_177:168
+
+Another fuel grid on the same fire-days (e.g. the pre-fire back-cast domains): set
+``$FIRESIM_VALIDATION_DOMAINS`` (as ``scripts/validate.py --domains-dir``), and give ``--out``
+(results file; default ``$FIRESIM_VALIDATION_DATA/runs_wise/wise_vs_firesim.jsonl``) and
+``--tag`` (suffix of the WISE job folders, so earlier jobs are not overwritten).
 """
 
 from __future__ import annotations
@@ -225,27 +230,35 @@ def score_wise(case, d: Path, src_t) -> dict:
 
 
 def main() -> None:
+    import argparse
+
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from validate import _load_fire  # noqa: E402  (same cached inputs as the FireSim runs)
+    from validate import _load_fire, domains_dir  # noqa: E402  (same inputs as the FireSim runs)
 
     from firesim.validation.harness import RunOptions, build_case, run_fire_day
 
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("fire_days", nargs="+", metavar="FIRE_ID:DAY")
+    ap.add_argument("--out", default=str(ROOT / "runs_wise" / "wise_vs_firesim.jsonl"))
+    ap.add_argument("--tag", default="", help="suffix of the WISE job folder names")
+    a = ap.parse_args()
     opts = RunOptions(windows_h=(8.0, 17.0), oracle_max_h=17)
-    out_path = ROOT / "runs_wise" / "wise_vs_firesim.jsonl"
-    out_path.parent.mkdir(exist_ok=True)
-    for arg in sys.argv[1:]:
+    out_path = Path(a.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    for arg in a.fire_days:
         fid, day = arg.split(":")
         day = int(day)
         dom, groups, rec = _load_fire(fid)
         case = build_case(dom, day, groups, rec, start_hour=6, hours=24, margin_m=20000.0)
-        d, src_t, _ = build_job(case, opts, f"{fid}_{day}")
+        d, src_t, _ = build_job(case, opts, f"{fid}_{day}{'_' + a.tag if a.tag else ''}")
         try:
             wise_s = run_wise(d)
             wise = score_wise(case, d, src_t)
         except Exception as exc:  # noqa: BLE001
             wise_s, wise = math.nan, {"error": repr(exc)}
         fs = run_fire_day(case, opts)
-        row = {"fire_id": fid, "day": day, "wise_run_s": wise_s, "wise": wise,
+        row = {"fire_id": fid, "day": day, "domains_dir": str(domains_dir()),
+               "fuel_source": dom.meta.get("fuel_source", ""), "wise_run_s": wise_s, "wise": wise,
                "firesim": {k: fs["members"]["det"][k] for k in ("8h", "17h", "oracle")},
                "firesim_run_s": fs["members"]["det"]["run_s"],
                "obs_growth_ha": fs["obs_growth_ha"]}
