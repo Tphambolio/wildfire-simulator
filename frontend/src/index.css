@@ -3762,3 +3762,18 @@ label.field.evac-pick-tier {
 .weather-schedule .schedule-base th {
   color: var(--text-2);
 }
+
+/* Round-3 field test: start outside the burning period (run bar), replaced-weather notice */
+.run-bar-warn {
+  font-size: var(--fs-sm, 12px);
+  margin-top: 2px;
+}
+.weather-replaced {
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.weather-replaced-actions {
+  display: inline-flex;
+  gap: 6px;
+}

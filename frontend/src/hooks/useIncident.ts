@@ -1,5 +1,6 @@
 /** Persist incident sessions (multi-day operational periods) to localStorage. */
 
+import type { RunParams } from "../components/WeatherPanel";
 import { useState, useCallback, useSyncExternalStore } from "react";
 import { fetchNearbyFacilities } from "../services/overpass";
 import type { SimulationFrame } from "../types/simulation";
@@ -251,6 +252,7 @@ export function useIncident() {
       simulationId: string,
       target?: { incidentId: string; periodIndex: number } | null,
       runStartIso?: string | null,
+      runParams?: RunParams | null,
     ) => {
       const summaries = framestoSummaries(frames);
       const lastFrame = frames[frames.length - 1];
@@ -264,6 +266,7 @@ export function useIncident() {
         frameSummaries: summaries,
         finalPerimeter,
         runStartIso: runStartIso ?? p.runStartIso ?? null,
+        runParams: runParams ?? p.runParams ?? null,
       });
       if (!target) {
         updateActivePeriod(apply);

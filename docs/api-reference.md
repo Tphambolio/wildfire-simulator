@@ -442,6 +442,13 @@ gets the current phase. Display only: it never changes results, and clients that
 event types are unaffected. Cancelling (`{"action": "cancel"}`) now also stops a grid run
 during the spread computation (status `cancelled`, no frames).
 
+Multi-day runs (since 2026-10-13, round-3 field test R12) send `simulation.status` too, with
+`day` (the day being computed, 1-based) and `n_days`; `progress` is over the whole run (day k's
+spread fills (k-1)/n to k/n). GET `/simulations/{id}` reports the same `day` / `n_days`.
+Heartbeat (R6): when a running run's socket has sent nothing for 15 s (a long grid computation,
+a multi-day day), the handler re-sends the run's current `simulation.status`, so proxies do not
+close an idle socket; clients ignore the repeat.
+
 ### GET /api/v1/health
 
 Health check endpoint.
@@ -511,7 +518,10 @@ Multi-day scenario: `days` is a list of 1-7 daily noon weather records
 codes are advanced day to day from `fwi_overrides` (Van Wagner & Pickett 1985; `month` sets
 the day-length factors) and each day's
 grid run continues from the previous day's burned area. Frames carry `day` and `day_fwi`
-(that day's `ffmc`, `dmc`, `dc`, `isi`, `bui`, `fwi` after the daily carry-over), on the
+(that day's `ffmc`, `dmc`, `dc`, `isi`, `bui`, `fwi` after the daily carry-over); a burned cell's
+`t` counts minutes from the start of its frame's day (cells carried from earlier days have `t` 0
+on each later day), so the time after the run start is (day - 1) x 24 h + `t`, the earliest over
+the days (the app's `firePoints`), on the
 WebSocket and, since 2026-10-11, on GET `/simulations/{id}` too (GET used to drop `day`).
 Buildings are not used by multi-day runs (`buildings_path` is accepted and ignored). `cells_mode`
 (grid runs): `"cumulative"` (default) or `"incremental"` as for single runs, except that a

@@ -161,7 +161,9 @@ export const TIPS = {
     "not overstated (Lawson et al. 1996). Needs hourly forecast weather; not for multi-day runs.",
   multiDay:
     "FWI codes (FFMC, DMC, DC) carry forward each day with the CFFDRS equations; the fire front " +
-    "continues from the previous day's perimeter.",
+    "continues from the previous day's perimeter. Each day runs 24 h from the start time; with a " +
+    "burning period, no spread is modelled outside it. A 3-day run takes about half an hour on " +
+    "the server; progress shows the day being computed. No ember spotting, buildings or ensemble.",
   burnProbability:
     "Monte Carlo burn probability: repeated runs with jittered ignition, wind speed and RH. More " +
     "iterations are slower and smoother.",
@@ -185,7 +187,10 @@ export const TIPS = {
     "restart time. Change them in Setup before restarting.",
   runChips:
     "Weather the shown run used (with weather changes: the values in force at the timeline's " +
-    "time). Setup edits apply from the next run or restart.",
+    "time; multi-day runs: the shown day's weather and FWI). Setup edits apply from the next run or restart.",
+  runShort: (shownTo: string, hours: number) =>
+    `The run was asked for ${hours} h but its frames end at ${shownTo}. The model always runs to the end, ` +
+    "so frames were lost on the way (e.g. a dropped connection). Reload run reads it again from the server.",
   activeEdges:
     "Edges not marked active are treated as burned out and do not spread. This raised one-day " +
     "skill on held-out Alberta fires.",
@@ -220,13 +225,15 @@ export const TIPS = {
   neighbourhoods: (ensemble: boolean) =>
     `Modelled fire within ${ARRIVAL_BUFFER_M} m of each neighbourhood for this run` +
     (ensemble ? ": the ensemble's P10 (early end of the range, 1 in 10 members) first, the single run beside it." : ".") +
+    " Times on a later day than the start read \"D2 16:25\" (D2 = the day after the start date)." +
     " Evacuation status is set by Planning: FireSim does not recommend evacuation tiers.",
   evacSaved: (incident: string | null) =>
     incident ? `Saved with the incident "${incident}".` : "Saved in this browser (no incident open).",
   criticalAssets: (ensemble: boolean) =>
     `When the modelled fire comes within ${ARRIVAL_BUFFER_M} m of each asset, and inside it, for this run` +
     (ensemble ? ": the ensemble's P10 (early end of the range, 1 in 10 members) first, the single run beside it" : "") +
-    ". Model output, not an instruction.",
+    ". Times on a later day than the start read \"D2 16:25\" (D2 = the day after the start date)." +
+    " Model output, not an instruction.",
   albertaAssets:
     "Outside Edmonton the assets and major roads come from Statistics Canada's healthcare facilities " +
     "(ODHF, 2020) and OpenStreetMap, for about 28 km around the ignition. Coverage depends on what " +

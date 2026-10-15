@@ -140,3 +140,33 @@ test("size: one incident with a completed 3-day run in localStorage", async ({ p
   // Summaries and the final perimeter only (no burned cells): far below a 5 MB origin quota
   expect(bytes).toBeLessThan(200_000);
 });
+
+// Round-3 field test R8 (Claude in Chrome tester, 2026-10-13): after a reload the ignition,
+// start time and grass curing were gone; the incident's setup now comes back
+test("the incident's setup (ignition, start, curing) survives a reload", async ({ page }) => {
+  const errors = pageErrors(page);
+  await mockApi(page);
+  await openApp(page);
+  await setIgnitionAtMapCentre(page);
+  await openStorageSection(page);
+  await page.getByLabel("New incident name").fill("Setup check");
+  await page.getByRole("button", { name: "Start Incident" }).click();
+  await page.getByLabel("Date").fill("2026-10-13");
+  await page.getByLabel(/^Time/).fill("04:57");
+  const lat = await page.getByLabel("Latitude").inputValue();
+  expect(lat).not.toBe("");
+  await page.locator(".setup-section-toggle", { hasText: "Fuel & landscape" }).click();
+  await page.getByLabel(/^Grass curing/).fill("80");
+  // the start is outside the 10-20 h burning period: said before the run (R3)
+  await expect(page.getByTestId("start-outside-burning")).toContainText("No spread until 10:00");
+  await page.waitForTimeout(700); // debounced save
+
+  await page.reload();
+  await expect(page.locator("canvas.maplibregl-canvas").first()).toBeVisible();
+  await expect(page.getByLabel("Latitude")).toHaveValue(lat);
+  await expect(page.getByLabel("Date")).toHaveValue("2026-10-13");
+  await expect(page.getByLabel(/^Time/)).toHaveValue("04:57");
+  await page.locator(".setup-section-toggle", { hasText: "Fuel & landscape" }).click();
+  await expect(page.getByLabel(/^Grass curing/)).toHaveValue("80");
+  expect(errors).toEqual([]);
+});

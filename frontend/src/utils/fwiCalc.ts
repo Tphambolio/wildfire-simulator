@@ -32,6 +32,13 @@ export function computeFWI(isi: number, bui: number): number {
 }
 
 
+/** An FWI code for display: one decimal at most ("71.8", not "71.7629123990164"; round-3
+ * field test R10); "—" when not set. */
+export function fmtCode(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+  return String(Math.round(v * 10) / 10);
+}
+
 /** Run parameters (header chips, reports) for a run with this weather and these FWI codes,
  * e.g. a perimeter restart with Setup's current values. */
 export function runParamsFor(

@@ -15,6 +15,9 @@ import {
   DEFAULT_BURNING_PERIOD,
   VALIDATION_DOC_URL,
   formatBurningPeriod,
+  formatHour,
+  formatWait,
+  hoursUntilBurning,
   skillRequestFields,
   spinupFromMs,
   validateBurningHours,
@@ -26,7 +29,7 @@ import InfoTip, { TipButton } from "./InfoTip";
 import FwiClassChip from "./FwiClassChip";
 import { SPRING_WINDOW_LABEL, curingFactor, defaultGrassCure } from "../utils/curing";
 import WeatherSchedulePanel from "./WeatherSchedulePanel";
-import { computeBUI, computeFWI, computeISI } from "../utils/fwiCalc";
+import { computeBUI, computeFWI, computeISI, fmtCode, runParamsFor } from "../utils/fwiCalc";
 import { DEFAULT_FUEL_GRID_YEAR, edmontonYear, fuelVintageWarning } from "../utils/fuelVintage";
 import { scheduleErrors, scheduleRequest, timedSteps, type ScheduleRow, type TimedStep } from "../utils/weatherSchedule";
 
@@ -62,6 +65,33 @@ function readLastCure(): number | null {
   } catch {
     return null;
   }
+}
+
+/** Scenario ids of a setup restored on reload (App; utils/setupStore.ts) start with this. */
+export const SETUP_RESTORE_PREFIX = "setup-restore:";
+
+/** Whether a scenario to load is a setup restored on reload (keeps its weather source). */
+export function isSetupRestore(s: { id: string }): boolean {
+  return s.id.startsWith(SETUP_RESTORE_PREFIX);
+}
+
+/** An FWI code from a station rounded to one decimal (CWFIS gives e.g. 71.7629123990164; R10). */
+export function roundCode(v: number): number {
+  return Math.round(v * 10) / 10;
+}
+
+/** Weather and codes an automatic station fill replaced, and where the new values came from. */
+export interface ReplacedWeather {
+  weather: WeatherParams;
+  fwi: FWIOverrides;
+  manual: boolean;
+  from: string;
+}
+
+/** "W 20 km/h · RH 30 % · FFMC 90 DMC 45 DC 300": the values a notice says were replaced. */
+export function weatherBrief(w: WeatherParams, f: FWIOverrides): string {
+  const c = (v: number | null) => (v === null ? "—" : String(roundCode(v)));
+  return `W ${w.wind_speed} km/h · RH ${w.relative_humidity} % · ${w.temperature} °C · FFMC ${c(f.ffmc)} DMC ${c(f.dmc)} DC ${c(f.dc)}`;
 }
 
 /** Setup's weather as a restart from an observed perimeter uses it (owner field test
@@ -187,6 +217,10 @@ export interface RunParams {
   start_time?: string | null;
   /** The scenario is dated before the fuel grid's year (exports, ICS 209 remarks) */
   fuel_vintage_warning?: string | null;
+  /** Multi-day runs: each day's weather (`weather` is Day 1's; `fwi` the starting codes) */
+  multi_day_days?: MultiDayWeatherParams[] | null;
+  /** Ember spotting was on (false: not modelled; multi-day runs have none) */
+  spotting?: boolean;
 }
 
 interface WeatherPanelProps {
@@ -333,6 +367,11 @@ function WeatherPanel({
     dmc: 45,
     dc: 300,
   });
+  // Latest weather and codes for the station fill (it runs after an await)
+  const weatherRef = useRef(weather);
+  weatherRef.current = weather;
+  const fwiRef = useRef(fwi);
+  fwiRef.current = fwi;
   const [fuelType, setFuelType] = useState("C2");
   // Grass curing as entered (null = not entered: the date-aware default applies, decision M1)
   const [grassCure, setGrassCure] = useState<number | null>(null);
@@ -387,6 +426,17 @@ function WeatherPanel({
     { wind_speed: 30, wind_direction: 260, temperature: 30, relative_humidity: 20, precipitation_24h: 0 },
   ]);
 
+  // Weather source state (used by the scenario restore below; see "Station weather")
+  const [weatherManual, setWeatherManual] = useState(false);
+  const weatherManualRef = useRef(false);
+  // Where the current weather applies (the point it was loaded for), for the distance notice
+  const weatherAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
+  // The ignition (rounded key) the station weather was last handled for
+  const autoFetchedRef = useRef<string | null>(null);
+  // Values an automatic station fill replaced, shown with Undo until acknowledged (R9)
+  const [replaced, setReplaced] = useState<ReplacedWeather | null>(null);
+  const startIsoSnap = startFollowsNow || startMs === null ? null : toEdmontonIso(startMs);
+
   // ── Apply scenario config when requested ─────────────────────────────────
   const loadedScenarioIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -394,9 +444,43 @@ function WeatherPanel({
     loadedScenarioIdRef.current = scenarioToLoad.id;
     setWeather(scenarioToLoad.weather);
     setFwi(scenarioToLoad.fwi);
-    weatherManualRef.current = true;
-    setWeatherManual(true);
+    setReplaced(null);
+    const origin = isSetupRestore(scenarioToLoad) ? scenarioToLoad.weatherOrigin : undefined;
+    if (origin) {
+      // A reload restoring this incident's setup: the weather keeps its source and is not
+      // fetched again for the restored ignition (R8, R9)
+      weatherManualRef.current = origin.manual;
+      setWeatherManual(origin.manual);
+      setWeatherSource(origin.source);
+      setStationName(origin.station);
+      setStationDistanceKm(origin.distanceKm);
+      setWeatherTimestamp(origin.timestamp);
+      const ip = scenarioToLoad.ignitionPoint;
+      if (ip) autoFetchedRef.current = `${ip.lat.toFixed(4)},${ip.lng.toFixed(4)}`;
+    } else {
+      weatherManualRef.current = true;
+      setWeatherManual(true);
+    }
     weatherAnchorRef.current = scenarioToLoad.ignitionPoint ?? null;
+    if (scenarioToLoad.startIso !== undefined) {
+      const at = scenarioToLoad.startIso ? Date.parse(scenarioToLoad.startIso) : NaN;
+      if (Number.isFinite(at)) {
+        setStartInputs(toDateTimeInputs(at));
+        setStartFollowsNow(false);
+      } else {
+        setNowMs(roundToMinute());
+        setStartFollowsNow(true);
+      }
+    }
+    if (scenarioToLoad.grassCure !== undefined) setGrassCure(scenarioToLoad.grassCure);
+    if (scenarioToLoad.percentConifer !== undefined) setPercentConifer(scenarioToLoad.percentConifer);
+    if (scenarioToLoad.useHourlyForecast !== undefined) setUseHourlyForecast(scenarioToLoad.useHourlyForecast);
+    if (scenarioToLoad.structure) {
+      setStructureSpread(scenarioToLoad.structure.spread);
+      setStructureEmbers(scenarioToLoad.structure.embers);
+      setStructureVegBridge(scenarioToLoad.structure.vegBridge);
+      setStructureRoofShare(scenarioToLoad.structure.roofShare);
+    }
     setFuelType(scenarioToLoad.fuelType);
     setUseEdmontonGrid(scenarioToLoad.useEdmontonGrid);
     setUseSyntheticCA(scenarioToLoad.useSyntheticCA);
@@ -412,7 +496,7 @@ function WeatherPanel({
     setMultiDayDays(scenarioToLoad.multiDayDays);
     setMcIterations(scenarioToLoad.mcIterations);
     if (scenarioToLoad.ensembleMembers !== undefined) {
-      setEnsembleOn(scenarioToLoad.ensembleMembers !== null);
+      setEnsembleOn(scenarioToLoad.ensembleOn ?? scenarioToLoad.ensembleMembers !== null);
       if (scenarioToLoad.ensembleMembers) setEnsembleMembers(scenarioToLoad.ensembleMembers);
     }
     if (scenarioToLoad.burningPeriod !== undefined) {
@@ -450,6 +534,19 @@ function WeatherPanel({
       burningPeriod: burningOn ? { start_hour: bpStart, end_hour: bpEnd } : null,
       ffmcSpinUp: spinUpOn,
       weatherSchedule: scheduleRows,
+      startIso: startIsoSnap,
+      grassCure,
+      percentConifer,
+      useHourlyForecast,
+      weatherOrigin: {
+        manual: weatherManual,
+        source: weatherSource,
+        station: stationName,
+        distanceKm: stationDistanceKm,
+        timestamp: weatherTimestamp,
+      },
+      structure: { spread: structureSpread, embers: structureEmbers, vegBridge: structureVegBridge, roofShare: structureRoofShare },
+      ensembleOn,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -457,10 +554,21 @@ function WeatherPanel({
     enableSpotting, spottingIntensity, includeWater, includeBuildings, includeWUI,
     includeDEM, durationHours, snapshotMinutes, simMode, multiDayDays, mcIterations,
     ensembleOn, ensembleMembers, burningOn, bpStart, bpEnd, spinUpOn, scheduleRows,
+    startIsoSnap, grassCure, percentConifer, useHourlyForecast, weatherManual,
+    weatherSource, stationName, stationDistanceKm, weatherTimestamp, structureSpread,
+    structureEmbers, structureVegBridge, structureRoofShare,
   ]);
 
   // ── Skill options: errors, and the settings a perimeter restart reuses ────
   const burningError = burningOn ? validateBurningHours(bpStart, bpEnd) : null;
+  // A start outside the burning period: no spread until it opens (R3)
+  const waitH = burningOn && !burningError && startMs !== null
+    ? hoursUntilBurning(startMs, { start_hour: bpStart, end_hour: bpEnd })
+    : null;
+  const outsideBurning = waitH !== null && startDate
+    ? `Starts ${formatClock(startDate)}, outside the burning period (${formatBurningPeriod({ start_hour: bpStart, end_hour: bpEnd })}): ` +
+      `no spread is modelled until ${formatHour(bpStart)}, ${formatWait(waitH)} after the start.`
+    : null;
   const spinUpAvailable = simMode === "single" && useHourlyForecast;
   useEffect(() => {
     onSkillOptions?.({
@@ -493,14 +601,20 @@ function WeatherPanel({
   // never edited, not from a preset or a loaded scenario. Once the user has set them, moving
   // the ignition keeps them (owner bug 2026-10-10: a move used to overwrite every input);
   // "Update weather for this location" loads the station values on request.
-  const [weatherManual, setWeatherManual] = useState(false);
-  const weatherManualRef = useRef(false);
   const markWeatherManual = () => {
     weatherManualRef.current = true;
     setWeatherManual(true);
+    setReplaced(null);
   };
-  // Where the current weather applies (the point it was loaded for), for the distance notice
-  const weatherAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
+  // Undo an automatic station fill: the values before it, as they were (manual or not)
+  const undoReplaced = () => {
+    if (!replaced) return;
+    setWeather(replaced.weather);
+    setFwi(replaced.fwi);
+    weatherManualRef.current = true;
+    setWeatherManual(true);
+    setReplaced(null);
+  };
   const [farKm, setFarKm] = useState<number | null>(null);
 
   const loadStationWeather = async (point: { lat: number; lng: number }, onRequest: boolean) => {
@@ -511,16 +625,35 @@ function WeatherPanel({
       // An edit made while the request was out wins over an automatic fill
       if (!onRequest && weatherManualRef.current) return;
       if (w.available) {
-        if (w.wind_speed !== null) setWeather((prev) => ({ ...prev, wind_speed: Math.round(w.wind_speed!) }));
-        if (w.wind_direction !== null) setWeather((prev) => ({ ...prev, wind_direction: Math.round(w.wind_direction!) }));
-        if (w.temperature !== null) setWeather((prev) => ({ ...prev, temperature: Math.round(w.temperature!) }));
-        if (w.relative_humidity !== null) setWeather((prev) => ({ ...prev, relative_humidity: Math.round(w.relative_humidity!) }));
-        if (w.ffmc !== null || w.dmc !== null || w.dc !== null) {
-          setFwi((prev) => ({
-            ffmc: w.ffmc ?? prev.ffmc,
-            dmc: w.dmc ?? prev.dmc,
-            dc: w.dc ?? prev.dc,
-          }));
+        const prevWeather = weatherRef.current;
+        const prevFwi = fwiRef.current;
+        const nextWeather: WeatherParams = {
+          ...prevWeather,
+          ...(w.wind_speed !== null ? { wind_speed: Math.round(w.wind_speed) } : {}),
+          ...(w.wind_direction !== null ? { wind_direction: Math.round(w.wind_direction) } : {}),
+          ...(w.temperature !== null ? { temperature: Math.round(w.temperature) } : {}),
+          ...(w.relative_humidity !== null ? { relative_humidity: Math.round(w.relative_humidity) } : {}),
+        };
+        // Codes rounded to one decimal (R10: the summary showed "FFMC 71.7629123990164")
+        const nextFwi: FWIOverrides = {
+          ffmc: w.ffmc !== null ? roundCode(w.ffmc) : prevFwi.ffmc,
+          dmc: w.dmc !== null ? roundCode(w.dmc) : prevFwi.dmc,
+          dc: w.dc !== null ? roundCode(w.dc) : prevFwi.dc,
+        };
+        setWeather(nextWeather);
+        setFwi(nextFwi);
+        // An automatic fill says what it replaced and from where (round-3 field test R9: the
+        // weather changed silently from W 20 km/h, RH 30 %, FWI 28.5 to W 8, RH 63, FWI 3.1)
+        const changed = weatherBrief(prevWeather, prevFwi) !== weatherBrief(nextWeather, nextFwi);
+        if (!onRequest && changed) {
+          const from = [
+            w.station_name ?? w.source ?? "CWFIS",
+            w.distance_km != null ? `${w.distance_km} km away` : null,
+            w.data_timestamp ? `as of ${w.data_timestamp.slice(0, 10)}` : null,
+          ].filter(Boolean).join(", ");
+          setReplaced({ weather: prevWeather, fwi: prevFwi, manual: weatherManualRef.current, from });
+        } else {
+          setReplaced(null);
         }
         setWeatherSource(w.source);
         setWeatherTimestamp(w.data_timestamp ?? null);
@@ -539,7 +672,6 @@ function WeatherPanel({
     }
   };
 
-  const autoFetchedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!ignitionPoint) return;
     const key = `${ignitionPoint.lat.toFixed(4)},${ignitionPoint.lng.toFixed(4)}`;
@@ -706,6 +838,7 @@ function WeatherPanel({
       hourly_forecast: !!hourly,
       start_time: toEdmontonIso(atMs),
       fuel_vintage_warning: useEdmontonGrid ? fuelVintageWarning(DEFAULT_FUEL_GRID_YEAR, edmontonYear(atMs)) : null,
+      spotting: enableSpotting && (useEdmontonGrid || useSyntheticCA),
     });
     onStartSimulation({
       ignition_lat: ignitionPoint.lat,
@@ -742,6 +875,15 @@ function WeatherPanel({
   const handleMultiDaySubmit = () => {
     const atMs = runStartMs();
     if (!ignitionPoint || !onStartMultiDaySimulation || curingError || atMs === null) return;
+    // Run parameters for the header chips, the EOC summary and the ICS forms: Day 1's weather,
+    // the starting codes and every day's weather (R5, R11: "FIRE SPREAD · ?H" and the previous
+    // single run's weather were shown for a multi-day run)
+    onRunParams?.({
+      ...runParamsFor(multiDayDays[0], fwi, multiDayDays.length * 24, fuelType, null, false, toEdmontonIso(atMs)),
+      fuel_vintage_warning: useEdmontonGrid ? fuelVintageWarning(DEFAULT_FUEL_GRID_YEAR, edmontonYear(atMs)) : null,
+      multi_day_days: multiDayDays,
+      spotting: false,
+    });
     onStartMultiDaySimulation({
       ignition_lat: ignitionPoint.lat,
       ignition_lng: ignitionPoint.lng,
@@ -903,13 +1045,30 @@ function WeatherPanel({
         </TipButton>
       )}
       <div id="run-bar-reason" className={`run-bar-reason${disabledReason && !isRunning ? " attention" : ""}`}>
-        {disabledReason ?? `${simMode === "single" ? `${durationHours} h` : `${multiDayDays.length} days`} from ${startFollowsNow ? "now" : startDate ? `${formatClock(startDate)} ${zoneAbbrev(startDate)}` : "the start"}`}
+        {disabledReason ?? `${simMode === "single" ? `${durationHours} h` : `${multiDayDays.length * 24} h (${multiDayDays.length} days)`} from ${startDate ? (startFollowsNow ? `now (${formatClock(startDate)} ${zoneAbbrev(startDate)})` : `${formatClock(startDate)} ${zoneAbbrev(startDate)}`) : "the start"}`}
       </div>
+      {!disabledReason && outsideBurning && (
+        <div className="run-bar-warn" role="note" data-testid="run-bar-burning-warning">
+          <Badge tone="warn" tip={outsideBurning}>{`No spread until ${formatHour(bpStart)}`}</Badge>
+        </div>
+      )}
     </div>
   );
 
   return (
     <div className="weather-panel">
+      {replaced && (
+        <div className="status-line weather-replaced" role="status" data-testid="weather-replaced">
+          <Badge tone="warn" tip={`Was ${weatherBrief(replaced.weather, replaced.fwi)}. Undo puts those values back.`}>
+            Weather replaced
+          </Badge>
+          <span className="hint-sm"> by station values for this ignition: {replaced.from}. Was {weatherBrief(replaced.weather, replaced.fwi)}.</span>
+          <span className="weather-replaced-actions">
+            <button type="button" className="btn-secondary btn-inline" onClick={undoReplaced}>Undo</button>
+            <button type="button" className="btn-secondary btn-inline" onClick={() => setReplaced(null)}>Keep</button>
+          </span>
+        </div>
+      )}
       <div className="setup-preset with-tip">
         <label className="setup-preset-label">
           Start from a preset
@@ -1024,6 +1183,12 @@ function WeatherPanel({
             <Badge tone="warn" tip={vintageWarning}>Before the fuel grid's year ({DEFAULT_FUEL_GRID_YEAR})</Badge>
           </div>
         )}
+        {outsideBurning && (
+          <div className="status-line" role="note" data-testid="start-outside-burning">
+            <Badge tone="warn" tip={outsideBurning}>Outside the burning period</Badge>
+            <span className="hint-sm"> No spread until {formatHour(bpStart)} ({formatWait(waitH!)})</span>
+          </div>
+        )}
         <span className="visually-hidden" id={`${fieldId}-start-hint`}>{TIPS.startNow}</span>
         {useHourlyForecast && simMode === "single" && startMs !== null && startMs < nowMs - 3_600_000 && (
           <div className="status-line">
@@ -1041,7 +1206,7 @@ function WeatherPanel({
           weatherErrors
             ? "Check the inputs"
             : simMode === "multiday"
-              ? `Multi-day weather · FFMC ${fwi.ffmc} DMC ${fwi.dmc} DC ${fwi.dc}`
+              ? `Multi-day weather · start FFMC ${fmtCode(fwi.ffmc)} DMC ${fmtCode(fwi.dmc)} DC ${fmtCode(fwi.dc)}`
               : `${windLabel(weather.wind_direction)} ${weather.wind_speed} km/h · RH ${weather.relative_humidity}% · FWI ${liveFWI.toFixed(1)} ${liveDanger}${useHourlyForecast ? " · hourly forecast" : scheduleOn ? ` · ${scheduleRows.length} weather change${scheduleRows.length === 1 ? "" : "s"}` : ""}`
         }
         attention={weatherErrors || schedErrors.length > 0}
@@ -1137,7 +1302,7 @@ function WeatherPanel({
         <div className="section">
           <h4>FWI fuel moisture codes</h4>
           <label>
-            FFMC: <strong>{fwi.ffmc}</strong>
+            FFMC: <strong>{fmtCode(fwi.ffmc)}</strong>
             <input
               type="range"
               min={0}
@@ -1149,7 +1314,7 @@ function WeatherPanel({
           {validationErrors.ffmc && <div className="input-error">{validationErrors.ffmc}</div>}
 
           <label>
-            DMC: <strong>{fwi.dmc}</strong>
+            DMC: <strong>{fmtCode(fwi.dmc)}</strong>
             <input
               type="range"
               min={0}
@@ -1161,7 +1326,7 @@ function WeatherPanel({
           {validationErrors.dmc && <div className="input-error">{validationErrors.dmc}</div>}
 
           <label>
-            DC: <strong>{fwi.dc}</strong>
+            DC: <strong>{fmtCode(fwi.dc)}</strong>
             <input
               type="range"
               min={0}

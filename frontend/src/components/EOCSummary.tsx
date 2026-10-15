@@ -22,6 +22,25 @@ import { hfiClass } from "../utils/fireClasses";
 import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
 import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
 import { runScheduleLines } from "../utils/weatherSchedule";
+import { fmtCode } from "../utils/fwiCalc";
+
+/** Hours the run models: the requested duration, else the last frame's time (R11: "· ?h"). */
+export function runHours(params: RunParams | null, frames: SimulationFrame[]): number | null {
+  if (params?.duration_hours) return params.duration_hours;
+  const last = frames[frames.length - 1];
+  return last && last.time_hours > 0 ? Math.round(last.time_hours * 10) / 10 : null;
+}
+
+/**
+ * Spotting line: events when modelled; "Off" / "not modelled for multi-day runs" when the run
+ * had no spotting, rather than "None", which read as "modelled, none found" (R11).
+ */
+export function spottingText(spotCount: number, maxSpotDistM: number, params: RunParams | null): string {
+  if (spotCount > 0) return `${spotCount} events · max ${maxSpotDistM.toFixed(0)} m`;
+  if (params?.multi_day_days?.length) return "Not modelled (multi-day runs)";
+  if (params?.spotting === false) return "Off (not modelled)";
+  return "None";
+}
 
 interface EOCSummaryProps {
   frames: SimulationFrame[];
@@ -168,7 +187,13 @@ function buildICSText(
   }
 
   if (params) {
-    lines.push("2. FIRE WEATHER CONDITIONS");
+    lines.push("2. FIRE WEATHER CONDITIONS (run inputs)");
+    if (params.multi_day_days?.length) {
+      params.multi_day_days.forEach((d, i) => {
+        lines.push(`  Day ${i + 1}: wind ${d.wind_speed} km/h ${windDirLabel(d.wind_direction)}, ${d.temperature}°C, RH ${d.relative_humidity}%, ${d.precipitation_24h} mm`);
+      });
+      lines.push("  Day 1 below; FWI codes carried over day to day (see the multi-day table).");
+    }
     lines.push(`  Wind speed:      ${params.weather.wind_speed} km/h`);
     lines.push(`  Wind direction:  ${params.weather.wind_direction}° (${windDirLabel(params.weather.wind_direction)})`);
     lines.push(`  Temperature:     ${params.weather.temperature}°C`);
@@ -181,9 +206,9 @@ function buildICSText(
     }
     lines.push("");
     lines.push("3. CFFDRS FIRE WEATHER INDEX");
-    lines.push(`  FFMC:  ${params.fwi.ffmc ?? "—"}    (Fine Fuel Moisture Code)`);
-    lines.push(`  DMC:   ${params.fwi.dmc ?? "—"}    (Duff Moisture Code)`);
-    lines.push(`  DC:    ${params.fwi.dc ?? "—"}    (Drought Code)`);
+    lines.push(`  FFMC:  ${fmtCode(params.fwi.ffmc)}    (Fine Fuel Moisture Code${params.multi_day_days?.length ? ", start" : ""})`);
+    lines.push(`  DMC:   ${fmtCode(params.fwi.dmc)}    (Duff Moisture Code)`);
+    lines.push(`  DC:    ${fmtCode(params.fwi.dc)}    (Drought Code)`);
     lines.push(`  FWI:   ${params.fwi_value.toFixed(1)}  — ${params.danger_rating}`);
     if (fuelTypeLabel) lines.push(`  Fuel:  ${fuelTypeLabel}`);
     if (params.fuel_vintage_warning) lines.push(`  NOTE:  ${params.fuel_vintage_warning}`);
@@ -221,7 +246,7 @@ function buildICSText(
     if (spread.flameLengthM > 0) {
       lines.push(`  Flame length:      ${spread.flameLengthM.toFixed(1)} m`);
     }
-    lines.push(`  Ember spotting:    ${spread.spotCount > 0 ? `${spread.spotCount} events, max ${spread.maxSpotDistM.toFixed(0)} m` : "None projected"}`);
+    lines.push(`  Ember spotting:    ${spottingText(spread.spotCount, spread.maxSpotDistM, params)}`);
     lines.push("");
   }
 
@@ -259,11 +284,13 @@ function buildICSText(
     const nBase = (spread ? 1 : 0) + (burnArea ? 1 : 0) + (hasAtRisk ? 1 : 0) + (hasEvac ? 1 : 0);
     const nSupp = (dayStats && dayStats.length > 0 ? 5 : 4) + nBase;
 
-    lines.push(`${nSupp}. SUPPRESSION ADVISORY — ${suppAdvisory.intensityLabel.toUpperCase()}`);
-    lines.push(`  Strategy:     ${suppAdvisory.strategy}`);
-    lines.push(`  Direct attack: ${suppAdvisory.suppressionFeasible ? "FEASIBLE" : "NOT SAFE — withdraw all crews from fire zone"}`);
-    lines.push(`  Detail:       ${suppAdvisory.strategyDetail}`);
-    lines.push("  Suggested initial attack resources:");
+    // Model context only: the class interpretation, never a strategy, tactic or resource order
+    // (round-3 field test R4)
+    lines.push(`${nSupp}. HEAD FIRE INTENSITY CLASS — ${suppAdvisory.intensityLabel.toUpperCase()} (MODEL OUTPUT, NOT A TACTIC)`);
+    lines.push(`  Class:        ${suppAdvisory.strategy}`);
+    lines.push(`  Direct attack at the head: ${suppAdvisory.suppressionFeasible ? "generally possible" : "generally not possible"} (class interpretation)`);
+    lines.push(`  Meaning:      ${suppAdvisory.strategyDetail}`);
+    lines.push("  Equipment the source associates with this class (not a resource order):");
     for (const r of suppAdvisory.resources) {
       lines.push(`    • ${r}`);
     }
@@ -346,6 +373,7 @@ export default function EOCSummary({
 
   const suppAdvisoryEarly = spread ? buildSuppressionAdvisory(spread) : null;
   const icsText = buildICSText(spread, burnArea, runParams, ignitionPoint, fuelTypeLabel, criticalReach, dayStats, evacZones, suppAdvisoryEarly);
+  const hours = runHours(runParams, frames);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(icsText).catch(() => {
@@ -440,7 +468,7 @@ export default function EOCSummary({
         <section className="eoc-section">
           <h4>Conditions</h4>
           <div className="eoc-grid">
-            <span className="eoc-label">Wind</span>
+            <span className="eoc-label">Wind{runParams.multi_day_days?.length ? " (day 1)" : ""}</span>
             <span className="eoc-value">
               {runParams.weather.wind_speed} km/h {windDirLabel(runParams.weather.wind_direction)}
             </span>
@@ -448,13 +476,13 @@ export default function EOCSummary({
             <span className="eoc-value">
               {runParams.weather.temperature}°C / {runParams.weather.relative_humidity}%
             </span>
-            <span className="eoc-label">FWI</span>
+            <span className="eoc-label">FWI{runParams.multi_day_days?.length ? " (day 1 wind, start codes)" : ""}</span>
             <span className="eoc-value">
               {runParams.fwi_value.toFixed(1)}{" "}
               <FwiClassChip className="eoc-badge" fwi={runParams.fwi_value} label={runParams.danger_rating} />
             </span>
-            <span className="eoc-label">FFMC</span>
-            <span className="eoc-value">{runParams.fwi.ffmc ?? "—"}</span>
+            <span className="eoc-label">FFMC{runParams.multi_day_days?.length ? " (start)" : ""}</span>
+            <span className="eoc-value">{fmtCode(runParams.fwi.ffmc)}</span>
             {runScheduleLines(runParams).length > 0 && (
               <>
                 <span className="eoc-label">Weather changes</span>
@@ -515,7 +543,7 @@ export default function EOCSummary({
       {/* Spread simulation stats */}
       {spread && (
         <section className="eoc-section">
-          <h4>Fire Spread · {runParams?.duration_hours ?? "?"}h</h4>
+          <h4>Fire Spread{hours !== null ? ` · ${hours}h` : ""}</h4>
           <div className="eoc-grid">
             <span className="eoc-label">Area</span>
             <span className="eoc-value eoc-highlight">{spread.finalAreaHa.toFixed(1)} ha</span>
@@ -547,9 +575,7 @@ export default function EOCSummary({
 
             <span className="eoc-label">Spotting</span>
             <span className="eoc-value">
-              {spread.spotCount > 0
-                ? `${spread.spotCount} events · max ${spread.maxSpotDistM.toFixed(0)} m`
-                : "None"}
+              {spottingText(spread.spotCount, spread.maxSpotDistM, runParams)}
               {spread.spotCount > 0 && (
                 <>
                   {" "}
@@ -627,23 +653,23 @@ export default function EOCSummary({
         <section className="eoc-section eoc-supp-section">
           <div className="card-h-row eoc-supp-title" style={{ borderLeftColor: suppAdvisory.color }}>
             <h4 className="with-tip">
-              Suppression Advisory · {suppAdvisory.intensityLabel}
+              Head fire intensity · {suppAdvisory.intensityLabel}
               <InfoTip label="What this class means" text={hfiClass(spread?.peakHfiKwM ?? 0).meaning} />
             </h4>
             <Badge tone="info" tip={`${TIPS.hfiClassCaveat} Source: ${TIPS.hfiClassSource}.`}>{BADGES.c2Generalisation}</Badge>
           </div>
           <div className="eoc-grid">
-            <span className="eoc-label">Strategy</span>
+            <span className="eoc-label">Class</span>
             <span className="eoc-value eoc-strong">
               {suppAdvisory.strategy}
             </span>
-            <span className="eoc-label">Direct attack</span>
+            <span className="eoc-label">Direct attack at head</span>
             <span className="eoc-value">
-              {suppAdvisory.suppressionFeasible ? "Feasible" : "NOT safe — withdraw crews"}
+              {suppAdvisory.suppressionFeasible ? "Generally possible" : "Generally not possible"}
             </span>
           </div>
           <div className="eoc-sublabel eoc-strong">
-            Initial attack resources:
+            Equipment for this class (not a resource order):
           </div>
           <ul className="eoc-resource-list">
             {suppAdvisory.resources.map((r, i) => (

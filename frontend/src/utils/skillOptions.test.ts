@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   coversSpinup,
   formatBurningPeriod,
+  formatWait,
+  hoursUntilBurning,
   inBurningPeriod,
   localHour,
   offPeriods,
@@ -92,5 +94,18 @@ describe("request fields", () => {
     expect(skillRequestFields({ ...on, startHour: 20, endHour: 10 }, null, start).burning_period).toBeNull();
     expect(skillRequestFields({ ...on, burningOn: false }, null, start).burning_period).toBeNull();
     expect(skillRequestFields({ ...on, spinUpOn: false }, null, start)).toMatchObject({ ffmc_spin_up: false, spinUpSkipped: null });
+  });
+});
+
+describe("start outside the burning period (round-3 field test R3)", () => {
+  const bp = { start_hour: 10, end_hour: 20 };
+  it("gives the hours until the burning period opens, null inside it", () => {
+    const at = (hhmm: string) => Date.parse(`2026-10-13T${hhmm}:00-06:00`);
+    expect(hoursUntilBurning(at("04:57"), bp)).toBeCloseTo(5.05, 6);
+    expect(hoursUntilBurning(at("21:00"), bp)).toBeCloseTo(13, 6);
+    expect(hoursUntilBurning(at("10:00"), bp)).toBeNull();
+    expect(hoursUntilBurning(at("19:59"), bp)).toBeNull();
+    expect(formatWait(5.05)).toBe("5 h 03 min");
+    expect(formatWait(0.5)).toBe("30 min");
   });
 });

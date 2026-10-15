@@ -125,3 +125,71 @@ describe("WeatherPanel station weather", () => {
     expect(fetchCurrentWeather).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── Round-3 field test (Claude in Chrome tester, 2026-10-13) ─────────────────
+
+describe("WeatherPanel: replaced weather is announced; setup restores (R8, R9, R10)", () => {
+  it("says what an automatic station fill replaced and from where, and Undo puts it back", async () => {
+    fetchCurrentWeather.mockImplementation(async () => station({ wind_speed: 8, relative_humidity: 63, ffmc: 71.7629123990164 }));
+    setup();
+    const notice = await screen.findByTestId("weather-replaced");
+    expect(notice).toHaveTextContent("Weather replaced");
+    expect(notice).toHaveTextContent("Edmonton Stony Plain, 12 km away, as of 2026-10-10");
+    expect(notice).toHaveTextContent("Was W 20 km/h · RH 30 % · 25 °C · FFMC 90 DMC 45 DC 300");
+    expect(windSlider().value).toBe("8");
+    // R10: the code is rounded (the summary showed FFMC 71.7629123990164)
+    expect(screen.getByLabelText(/^FFMC/).closest("label")).toHaveTextContent("FFMC: 71.8");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(windSlider().value).toBe("20");
+    expect(screen.queryByTestId("weather-replaced")).not.toBeInTheDocument();
+    expect(screen.getByTestId("weather-source")).toHaveTextContent("Manual");
+  });
+
+  it("switching run mode keeps the single-event weather", async () => {
+    setup(A, { onStartMultiDaySimulation: vi.fn() });
+    await waitFor(() => expect(windSlider().value).toBe("11"));
+    fireEvent.change(windSlider(), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: /Run options/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Multi-day" }));
+    fireEvent.click(screen.getByRole("button", { name: "Single Event" }));
+    expect(windSlider().value).toBe("20");
+    expect(fetchCurrentWeather).toHaveBeenCalledTimes(1);
+  });
+
+  it("a restored setup keeps its start, curing, weather and source without refetching", async () => {
+    const restored = {
+      id: "setup-restore:inc-1:1", name: "Restored setup", createdAt: "2026-10-13", ignitionPoint: B,
+      weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
+      fwi: { ffmc: 90, dmc: 45, dc: 300 }, fuelType: "C2", useEdmontonGrid: true, useSyntheticCA: false,
+      enableSpotting: false, spottingIntensity: 1, includeWater: false, includeBuildings: true, includeWUI: false,
+      includeDEM: true, durationHours: 6, snapshotMinutes: 30, simMode: "single", multiDayDays: [], mcIterations: 50,
+      startIso: "2026-10-13T10:00:00-06:00", grassCure: 80, percentConifer: 40,
+      weatherOrigin: { manual: false, source: "CWFIS", station: "Edmonton Namao", distanceKm: 9, timestamp: "2026-10-12" },
+    } as ScenarioConfig;
+    const { rerender } = setup(A);
+    await waitFor(() => expect(fetchCurrentWeather).toHaveBeenCalledTimes(1));
+    rerender(B, { scenarioToLoad: restored });
+    await act(async () => {});
+    expect(fetchCurrentWeather).toHaveBeenCalledTimes(1); // the restored ignition is not refetched
+    expect(windSlider().value).toBe("20");
+    expect(screen.getByTestId("weather-source")).toHaveTextContent("Edmonton Namao");
+    expect((screen.getByLabelText(/^Grass curing/) as HTMLInputElement).value).toBe("80");
+    expect((screen.getByLabelText("Date") as HTMLInputElement).value).toBe("2026-10-13");
+    expect((screen.getByLabelText(/^Time/) as HTMLInputElement).value).toBe("10:00");
+  });
+
+  it("warns when the start is outside the burning period", async () => {
+    const restored = {
+      id: "setup-restore:inc-1:2", name: "r", createdAt: "2026-10-13", ignitionPoint: A,
+      weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
+      fwi: { ffmc: 90, dmc: 45, dc: 300 }, fuelType: "C2", useEdmontonGrid: true, useSyntheticCA: false,
+      enableSpotting: false, spottingIntensity: 1, includeWater: false, includeBuildings: true, includeWUI: false,
+      includeDEM: true, durationHours: 6, snapshotMinutes: 30, simMode: "single", multiDayDays: [], mcIterations: 50,
+      startIso: "2026-10-13T04:57:00-06:00", grassCure: 80,
+    } as ScenarioConfig;
+    const { rerender } = setup(A);
+    rerender(A, { scenarioToLoad: restored });
+    await act(async () => {});
+    expect(screen.getByTestId("start-outside-burning")).toHaveTextContent("No spread until 10:00 (5 h 03 min)");
+  });
+});

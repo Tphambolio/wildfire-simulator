@@ -342,6 +342,9 @@ export interface SimulationResponse {
   error: string | null;
   /** Run phase while computing (absent from older API versions) */
   phase?: RunPhase | null;
+  /** Multi-day runs: the day being computed and the number of days */
+  day?: number | null;
+  n_days?: number | null;
   /** Fraction of the spread computed, 0-1 */
   progress?: number | null;
   /** Fuel data the run used (absent from older API versions; docs/api-reference.md) */
@@ -420,6 +423,9 @@ export interface WSEvent {
   /** simulation.status: phase and spread fraction (0-1, null outside the spread) */
   phase?: RunPhase;
   progress?: number | null;
+  /** simulation.status of a multi-day run: the day being computed (1-based) and the days */
+  day?: number | null;
+  n_days?: number | null;
   /** simulation.completed: frames the run has (the client checks it received them all) */
   n_frames?: number;
   /** simulation.completed: the scenario is dated before the fuel grid's year */
@@ -554,6 +560,23 @@ export interface ScenarioConfig {
   ffmcSpinUp?: boolean;
   /** Weather changes during the run (Setup table rows, local clock times); absent = none */
   weatherSchedule?: { time: string; wind_speed: number; wind_direction: number; temperature: number; relative_humidity: number; precipitation_mm_h: number }[];
+  // Restore fields (round-3 field test R8; absent in older saves = left as they are)
+  /** Scenario start (ISO with offset); null = follows the clock ("Now") */
+  startIso?: string | null;
+  /** Grass curing as entered (null = not entered: the date-aware default) */
+  grassCure?: number | null;
+  percentConifer?: number;
+  useHourlyForecast?: boolean;
+  /** Where the weather came from, so a restore neither refetches nor relabels it */
+  weatherOrigin?: {
+    manual: boolean;
+    source: string | null;
+    station: string | null;
+    distanceKm: number | null;
+    timestamp: string | null;
+  };
+  structure?: { spread: boolean; embers: boolean; vegBridge: boolean; roofShare: number };
+  ensembleOn?: boolean;
   lastRunStats?: {
     areaHa: number;
     timeHours: number;
