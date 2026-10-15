@@ -64,6 +64,9 @@ _MAX_SNAP_CELLS = 100
 _INTENSITY_FACTOR = 300.0
 # Head run (in cells) covered by the exact point-ignition ellipse before the level set takes over
 START_CELLS = 5.0
+# ... and the starting ellipse's minimum semi-minor axis (cells): the head run is extended until
+# the ellipse is this wide, so a narrow high-LB ellipse off the grid axes cannot stall
+START_SEMI_MINOR_CELLS = 1.0
 # Courant number for the second-order scheme
 CFL = 0.2
 # Cells of margin around the burned area in which phi is advanced each step
@@ -688,25 +691,35 @@ def _initial_front(params, r0, c0, dx, dy, duration, arrival, cross_ros, acceler
     rows, cols = params.fuel.shape
     a, b, c = params.a[r0, c0], params.b[r0, c0], params.c[r0, c0]
     hx, hy, head = params.hx[r0, c0], params.hy[r0, c0], params.head[r0, c0]
-    run = START_CELLS * min(dx, dy)
-    if acceleration:
-        alpha, lb = params.alpha[r0, c0], params.lb[r0, c0]
+    h = min(dx, dy)
+    run = START_CELLS * h
+    a_eq, c_eq, head_eq = a, c, head
+    for _ in range(40):
+        # The starting ellipse must be at least START_SEMI_MINOR_CELLS cells wide on each side of
+        # its axis: a narrower ellipse whose axis is off the grid lines holds only the ignition
+        # cell, and the level set cannot advance a front thinner than a cell (strong wind, high
+        # LB; fix 2026-10-15, long-range embers v7: C-7 at 61 km/h burned 2 cells at 180 m).
+        if acceleration:
+            alpha, lb = params.alpha[r0, c0], params.lb[r0, c0]
 
-        def head_dist(t):
-            return head * (t + math.exp(-alpha * t) / alpha - 1.0 / alpha)
+            def head_dist(t):
+                return head_eq * (t + math.exp(-alpha * t) / alpha - 1.0 / alpha)
 
-        lo, hi = 0.0, run / head + 5.0 / alpha
-        for _ in range(60):  # bisection for the time the head has run `run` metres
-            mid = 0.5 * (lo + hi)
-            lo, hi = (mid, hi) if head_dist(mid) < run else (lo, mid)
-        t0 = min(hi, 0.5 * duration)
-        g0 = head_dist(t0) / (head * t0) if t0 > 0 else 0.0
-        lb_t0 = (lb - 1.0) * (1.0 - math.exp(-alpha * t0)) + 1.0
-        a, c = a * g0, c * g0
-        b = a / lb_t0
-        head = head * g0
-    else:
-        t0 = min(run / head, 0.5 * duration)
+            lo, hi = 0.0, run / head_eq + 5.0 / alpha
+            for _ in range(60):  # bisection for the time the head has run `run` metres
+                mid = 0.5 * (lo + hi)
+                lo, hi = (mid, hi) if head_dist(mid) < run else (lo, mid)
+            t0 = min(hi, 0.5 * duration)
+            g0 = head_dist(t0) / (head_eq * t0) if t0 > 0 else 0.0
+            lb_t0 = (lb - 1.0) * (1.0 - math.exp(-alpha * t0)) + 1.0
+            a, c = a_eq * g0, c_eq * g0
+            b = a / lb_t0
+            head = head_eq * g0
+        else:
+            t0 = min(run / head_eq, 0.5 * duration)
+        if b * t0 >= START_SEMI_MINOR_CELLS * h or t0 >= 0.5 * duration:
+            break
+        run *= 1.25
     rr, cc = np.mgrid[0:rows, 0:cols]
     x = (cc - c0) * dx
     y = (r0 - rr) * dy
