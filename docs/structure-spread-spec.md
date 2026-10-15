@@ -700,9 +700,22 @@ second-hand, [H] hypothesis.
 | Survival | v4 form: logit s = logit s0 + b_canopy (canopy 0-30 m − 0.3) + b_code [year built ≥ 2001]; **b_code = 1.9 fixed**; s0 ∈ {0.15, 0.3, 0.45}, b_canopy ∈ {0, −3} fitted. No year built in the API (s0 only) | Hakes p.495 (2-3 % vs 13-17 % burned, IBHS 2007) [S → D +1.9]; Hakes p.496 Zone 1 (0-9.1 m) 67 % vs 32 % destroyed [S]. The 0-9 m ring is not available for the held-out fires; 0-30 m used (open item) |
 | Emission scaling, burn times, run end | v4's (VIIRS FRP^γ, γ ∈ {0, 1} fitted; VIIRS / NIST / GOFER times; event-gated wind end) | [R37], PR #59 v4 harness |
 
-**Fitting.** Grid 4 × 2 × 3 × 2 × 2 = 96 sets, 6 members, leave-one-fire-out over Eaton,
-Palisades, Camp, Tubbs and Woolsey (as v4), minimum mean Brier; held-out test `PREREG_LR5`
-on Glass, CZU and North Complex (as v4). Results: PROJECT_RECORD §4.4 and the v5 report.
+**Fitting.** Grid 4 × 2 × 3 × 2 × 2 = 96 sets × two long-mode kernels (Sardoy-located, and a
+pre-specified Storey-located component: lognormal median 733 m, σ_ln 0.99, weight 0.904, fitted to
+Storey's median 0.1 km, 10 % > 1 km, 2 % > 3 km [D]), 6 members, leave-one-fire-out over Eaton,
+Palisades, Camp, Tubbs and Woolsey (as v4; Woolsey under the surveyed-neighbourhood label rule,
+`WOOLSEY_RULE`), minimum mean Brier. Selected: **Storey kernel, M\* 3.5 g, λ_r 10 m, s0 0.3,
+b_canopy −3, no FRP scaling** (engine `for_model("v5")` defaults keep the literature primaries;
+the fitted values are in `PREREG_LR5`). A pre-specified density variant (survival logit −
+b_dens (ln(1 + N100) − ln 21), `survival_v5`, `building_density`; b_dens 0.5 selected) is the
+secondary.
+
+**Validation.** `PREREG_LR5` (`def8426`) on held-out Glass, CZU and North Complex 2020: **FAIL, 2
+of 4** (κ vs windward seeding and vs the distance band pass; Brier vs Chen & McAneney −0.042 and vs
+the base rate −0.083 fail). Pooled AUC 0.70 (95 % 0.69-0.72) vs v3 0.57 and v4 0.68: the first
+held-out ranking signal; the level is too high (ΣP 8,036 vs 5,045). Density variant: Brier 0.262
+(best of all versions), AUC 0.66, fails 3 of 4. Report *Long-range embers v5 two-mode kernel
+2026-10-12*; PROJECT_RECORD §4.4.
 
 Implementation: `sardoy_extrapolated`, `long_mode_kernel`, `long_ignition_factor`,
 `landing_field` (v5 branch: `long_raster`, `long_density`, `extrapolated_share`),

@@ -171,7 +171,7 @@ Start a new fire spread simulation.
 - `structure_long_range_members` (optional, default `20`, 1-50, else 422): ensemble members for
   `structure_long_range_embers` (each is one structure run; ~1-10 s each for a few thousand
   buildings; v2 adds one landing-density update per 10 min step).
-- `structure_long_range_model` (optional, `"v2"` default or `"v1"`, else 422; used only with
+- `structure_long_range_model` (optional, `"v2"` default, `"v1"`, `"v3"` or `"v5"`, else 422; used only with
   `structure_long_range_embers`). **`v2`** (spec §6.4, 2026-10-11): burning buildings are ember
   sources too (Qin 2025 GR' = 10 embers per MJ, Himoto & Tanaka 2008 transport from the
   downwind edge), iterated every 10 min so that ember- and Hamada-involved buildings emit
@@ -189,6 +189,15 @@ Start a new fire spread simulation.
   `structure_embers`. Params add `long_range_link_scale_m`, `long_range_survival`,
   `long_range_ember_factor`, `long_range_stop_wind_kmh`, `long_range_stop_min`. Failed its
   pre-registered held-out test (PROJECT_RECORD [R37]).
+  **`v5`** (spec §6.7, 2026-10-13): two-mode ember transport (Sardoy short flaming mode at the 10 m
+  wind, truncated at q99.9, plus a long charring mode weighted to Storey et al. 2020's spot-fire
+  tail), surface-fire brands f_s 0.007, a receptor that ignites when 24 g of brands (literature
+  primary; 3.5-91 g bounds) have landed on 1.44 m², short contact links exp(−sep / 6 m) to 30 m,
+  survival 0.3; 422 with `structure_embers`. Params add `long_range_long_fraction`,
+  `long_range_long_median_m`, `long_range_long_ignition`, `long_range_surface_share`,
+  `long_range_threshold_g` and `long_range_sardoy_extrapolated_share` (share of emission outside
+  Sardoy's fitted 10-40 MW/m, 6.7-17.9 m/s). Failed its pre-registered held-out test
+  (`PREREG_LR5`; report *Long-range embers v5 two-mode kernel 2026-10-12*).
 - Per-building vegetation attributes (spec §2.1; no request flag): when the server has
   `FIRESIM_BUILDING_VEGETATION_PATH` (default `edmonton_building_vegetation.csv.gz` next to the
   buildings file) and the footprints carry an `id`, involved units in the detail gain `veg`.
