@@ -64,7 +64,7 @@ same code; only the fuel domain files differ (`scripts/validate.py --domains-dir
 - **By fuel group** (descriptive): days whose observed growth is mostly deciduous on 2014b gain
   most (all 18 days: 0.119 → 0.191), while their area bias rises (+0.08 → +0.47); conifer days
   +0.032.
-- **Ensemble:** E1 (20-member ensemble on the record's 65 held-out fire-days) still running at this commit; its results are added to this PR before review.
+- **Ensemble:** E1 (20-member ensemble, 65 held-out fire-days) not completed: 18 / 65 (2014b) and 16 / 65 (back-cast) fire-days had run when the agent session ended; as pre-registered, no partial score is reported and the ensemble statement stays as measured on 2014b (resumable: `run_grid.sh <grid> 3 E1`).
 - **W.I.S.E. on identical inputs:** on the record's 9 fire-days (whole perimeter, 06-23 h), mean 17 h F1 W.I.S.E. 0.186 vs FireSim 0.242 on 2014b, and 0.232 vs 0.252 on the back-cast (W.I.S.E. 1.0.6-beta.6 with exactly FireSim's back-cast fuel). Both models gain; W.I.S.E. gains more, almost all on one day (2022_433, 0.18 → 0.51). Nine days are too few to rank the models (descriptive, as pre-registered).
 - **Reproduction:** the 2014b rerun of the operational set-up matches the recorded diagonal-fix
   runs to 6e-5 per fire-day; the back-cast rerun matches #79 exactly. The first-round 2014b
