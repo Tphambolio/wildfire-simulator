@@ -112,3 +112,51 @@ def test_options_validation():
     s = LongRangeSpotter(H, lambda t: (10.0, 0.0), 97.0)
     assert s.k_long > LongRangeSpotter(H, lambda t: (10.0, 0.0), 90.0).k_long  # dry factor (Cruz 2012 p.281)
     assert 0.0 < s.p_e <= 1.0
+
+
+# ----------------------------------------------------------------------- v7 variable establishment
+
+
+def test_v7_unset_options_match_v6_behaviour():
+    """receptivity=1, pe_category grass_summer and ffmc_at constant = the run FFMC reproduce v6 exactly."""
+    fg, cl, cg = _grid()
+    n = 70
+    ev = []
+    for kw in ({}, {"receptivity": np.ones((n, n)), "pe_category": np.full((n, n), "grass_summer"),
+                    "ffmc_at": lambda t: 94.0}):
+        hook = LongRangeSpotter(H, lambda t: (40.0, 225.0), 94.0, eta=1e-6, seed=5, **kw)
+        run_cellular_simulation(_cfg(cl, cg, hours=1.5), fg, COND, compute_perimeter=False, seed=1, dt_minutes=10,
+                                spot_hook=hook)
+        ev.append([(e.row, e.col, e.t_min) for e in hook.events])
+    assert ev[0] == ev[1] and len(ev[0]) > 0
+
+
+def test_v7_zero_receptivity_blocks_spots_where_zero():
+    fg, cl, cg = _grid()
+    n = 70
+    rec = np.ones((n, n))
+    rec[:, 30:] = 0.0  # no establishment east of column 30
+    hook = LongRangeSpotter(H, lambda t: (40.0, 225.0), 94.0, eta=1e-5, seed=7, receptivity=rec)
+    run_cellular_simulation(_cfg(cl, cg, hours=1.5), fg, COND, compute_perimeter=False, seed=1, dt_minutes=10,
+                            spot_hook=hook)
+    assert len(hook.events) > 0
+    assert all(e.col < 30 for e in hook.events)
+
+
+def test_v7_hourly_ffmc_lowers_establishment():
+    """A moist slice FFMC (Beverly & Wotton 2007: p_e(80) ~ 0.44 vs p_e(94) ~ 0.99) gives fewer spots."""
+    fg, cl, cg = _grid()
+    n = []
+    for f in (94.0, 80.0):
+        hook = LongRangeSpotter(H, lambda t: (40.0, 225.0), 94.0, eta=1e-6, seed=5, ffmc_at=lambda t, _f=f: _f)
+        run_cellular_simulation(_cfg(cl, cg, hours=1.5), fg, COND, compute_perimeter=False, seed=1, dt_minutes=10,
+                                spot_hook=hook)
+        n.append(len(hook.events))
+    assert n[1] < n[0]
+
+
+def test_v7_option_validation():
+    with pytest.raises(ValueError):
+        LongRangeSpotter(H, lambda t: (40.0, 225.0), 94.0, receptivity=-np.ones((3, 3)))
+    with pytest.raises(ValueError):
+        LongRangeSpotter(H, lambda t: (40.0, 225.0), 94.0, pe_category=np.full((3, 3), "chaparral"))

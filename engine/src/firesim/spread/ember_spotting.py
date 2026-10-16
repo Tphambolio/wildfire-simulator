@@ -28,6 +28,13 @@ Chain per spotting slice (``dt_minutes`` of the grid run, 10 min in the v6 harne
    **fitted** on training fires (v6 harness). One Poisson draw per cell; a cell with >= 1 spot
    ignites at the slice end.
 
+**v7 variable establishment (opt-in, spec §6.8 v7).** ``receptivity`` (a per-cell multiplier on η,
+e.g. a fuel-group contrast), ``pe_category`` (a per-cell Beverly & Wotton (2007) fuel category:
+``grass_summer`` eq 2.02 or ``pine_lichen`` eq 2.03, AMS preprint p.5) and ``ffmc_at(t)`` (the hourly
+FFMC of the slice, Van Wagner 1977 hourly model) make the expected spot fires per cell
+η · w(cell) · p_e(category(cell), FFMC(t)) · (landed short + k_L(FFMC(t)) · landed long). With all three
+unset the v6 behaviour (one p_e at the run's FFMC, w = 1) is unchanged.
+
 Spot events are logged with the distance to the nearest burned cell at ignition time, the
 quantity Storey et al. (2020) measured ("distance to the closest point on the edge of the source
 fire", p.6).
@@ -81,6 +88,9 @@ class LongRangeSpotter:
     long_fraction: float = LR.V5_LONG_FRACTION
     min_dist_m: float = 0.0  # ignore landings closer than this to the fire (0 = all)
     seed: int = 0
+    receptivity: np.ndarray | None = None  # v7: per-cell multiplier on eta (None = 1 everywhere)
+    pe_category: np.ndarray | None = None  # v7: per-cell Beverly & Wotton category name (None = grass_summer)
+    ffmc_at: object = None  # v7: callable t_min -> FFMC of the slice (None = the run's ffmc)
     events: list = field(default_factory=list)
     emitted: float = 0.0
     landed: np.ndarray | None = None  # cumulative landed embers per m² (unweighted, both modes)
@@ -100,6 +110,26 @@ class LongRangeSpotter:
         if self.ffmc >= LR.V5_DRY_FFMC:
             k *= LR.V5_DRY_FACTOR
         self.k_long = min(k, 1.0)
+        if self.receptivity is not None and np.any(np.asarray(self.receptivity) < 0):
+            raise ValueError("receptivity must be >= 0")
+        if self.pe_category is not None:
+            bad = set(np.unique(np.asarray(self.pe_category)).tolist()) - set(LR.BW2007)
+            if bad:
+                raise ValueError(f"unknown pe_category {sorted(bad)}")
+
+    def _pe_and_klong(self, t_mid: float, shape):
+        """p_e (scalar or per-cell grid) and k_L for the slice (v7: hourly FFMC, per-cell category)."""
+        if self.ffmc_at is None and self.pe_category is None:
+            return self.p_e, self.k_long
+        f = float(self.ffmc_at(t_mid)) if self.ffmc_at is not None else self.ffmc
+        k = float(self._long["long_ignition"]) * (LR.V5_DRY_FACTOR if f >= LR.V5_DRY_FFMC else 1.0)
+        if self.pe_category is None:
+            return LR.p_sustained_flaming(f, "grass_summer"), min(k, 1.0)
+        cat = np.asarray(self.pe_category)
+        pe = np.zeros(shape)
+        for name in np.unique(cat):
+            pe[cat == name] = LR.p_sustained_flaming(f, str(name))
+        return pe, min(k, 1.0)
 
     # ------------------------------------------------------------------ kernels
     def _short_kernel(self, i_mw: float, u10_ms: float, to_deg: float) -> np.ndarray:
@@ -160,13 +190,16 @@ class LongRangeSpotter:
             ls = np.maximum(fftconvolve(g, self._short_kernel(i_mw, u10, to_deg), mode="same"), 0.0)
             lam += ls
             self.landed += ls / a
+        pe, k_long = self._pe_and_klong(0.5 * (t0 + t1), shape)
         if e_long.sum() > 0:
             g = np.zeros(shape)
             np.add.at(g, (r, c), e_long)
             ll = np.maximum(fftconvolve(g, self._long_kernel(to_deg), mode="same"), 0.0)
-            lam += self.k_long * ll
+            lam += k_long * ll
             self.landed += ll / a
-        lam = lam * self.eta * self.p_e
+        lam = lam * self.eta * pe
+        if self.receptivity is not None:
+            lam = lam * np.asarray(self.receptivity)
         cand = params.fuel & ~np.isfinite(arrival) & (lam > 1e-9)
         if not cand.any():
             return np.empty((0, 2), dtype=np.int64)
