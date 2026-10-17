@@ -66,7 +66,7 @@ All intervals are 95 % CIs.
 | Component | Status | Key evidence | Ref |
 |---|---|---|---|
 | FBP engine (equations) | **Validated** (verification) | Matches CFS `cffdrs` to float precision. FBP: 12,960 cases, relative difference ≤ 3e-10. Daily FWI: FFMC/ISI/DC ≤ 1e-13. Spread area is 0.91-1.07 × the FBP ellipse for any wind angle. WISE comparison: area ratio 0.955-1.09. This shows the equations are right, not that predictions match real fires. | `verification.md` §1-3; [R5] |
-| Fire growth on observed fires (single run) | **Partly validated** | 143 fire-days on 32 Alberta fires. Held-out one-day F1 rose 0.118 → 0.208 (+0.091, CI +0.056 to +0.125) with active edges, spin-up and a 10-20 h burning period; 0.212 after the diagonal fix. That is level with WISE defaults (0.26 nationally) and short of tuned WISE (0.54). Area is still over-predicted (+0.27), and the largest wind-driven runs are under-predicted. | `validation.md`; [R5] |
+| Fire growth on observed fires (single run) | **Partly validated** | 143 fire-days on 32 Alberta fires. Held-out one-day F1 rose 0.118 → 0.208 (+0.091, CI +0.056 to +0.125) with active edges, spin-up and a 10-20 h burning period; 0.212 after the diagonal fix. On the pre-fire fuel grid the app uses for historical Alberta replays it is **0.246** (+0.034, CI +0.007 to +0.058; pre-registered rescore 2026-10-15). That is level with WISE defaults (0.26 nationally) and short of tuned WISE (0.54). Area is still over-predicted (+0.27), and the largest wind-driven runs are under-predicted. | `validation.md`; [R5]; [R45] |
 | Ensemble P10/P50/P90 | **Partly validated** (over-confident) | 65 held-out fire-days. The observed area falls inside P10-P90 on 49 % of days (ideal about 80 %). CRPS skill vs the single run is +0.24. Spread/skill is 1.6, so the range is too narrow. Cells at about 95 % burn probability burned 33 % of the time. **P10 is not a worst case:** it held at least 90 % of the observed growth on only 29 % of days. No CIs were computed for these scores. | `validation.md` "Ensemble calibration" |
 | Edmonton fuel grid (City LiDAR; open data, OGL – Edmonton) | **Not validated** | It has never had an accuracy assessment, and no field check exists. The open-data grid agrees with it at κ 0.56 (six classes; v2.1: 74 % of mapped cells, [R38]), which measures agreement, not accuracy. About 3,173 ha south of 41 Ave SW is mapped non-fuel over cropland. | [R2], [R17], [R38] |
 | Open-data fuel grid (v1, v2.1; not used by the app) | **Partly validated** (no better than the national grid) | Pre-registered northern Alberta fire test: held-out F1 0.192 vs 0.212 for the national 2014b grid (ΔF1 −0.020, CI −0.066 to +0.023, no detectable difference). It beat CFS 2026 (+0.021, CI +0.002 to +0.044). It maps 64 % of the fire areas as O-1b. v2.1 against pure stands: balanced accuracy 0.70 in Edmonton, but the north goal was not met. | [R17], [R26], [R27] |
@@ -123,7 +123,7 @@ All intervals are 95 % CIs.
 
 ## 6. Known limits that matter operationally
 
-- **One-day skill is low.** The held-out F1 is about 0.21. Read runs as a range or an upper
+- **One-day skill is low.** The held-out F1 is about 0.25 (0.21 on the older national grid). Read runs as a range or an upper
   envelope, not tomorrow's perimeter.
 - **The ensemble is too narrow, and P10 is not a worst case.**
 - **No suppression is modelled.** The burning period is a fixed clock window.
