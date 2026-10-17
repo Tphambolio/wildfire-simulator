@@ -762,14 +762,14 @@ def prereg_hash() -> str:
         return "unregistered"
 
 
-def addendum_hash() -> str:
-    """SHA-256 of PREREG_LR7_ADDENDUM_1 (dated block after the PREREG_LR7 commit), carried next to prereg_sha256."""
+def addendum_hash() -> list:
+    """SHA-256 of the dated PREREG_LR7 addenda (blocks after the PREREG_LR7 commit), carried next to prereg_sha256."""
     try:
         import long_range_v7_prereg as P
 
-        return P.sha256_addendum_1()
+        return [P.sha256_addendum_1(), P.sha256_addendum_2()]
     except Exception:
-        return "none"
+        return []
 
 
 def _model_runs(fire: str, model: str, args) -> list:
@@ -802,7 +802,7 @@ def cmd_score(args):
     fires, 2,000 draws, percentile 95 % CI (seed SEED)."""
     out = {"_about": {"purpose": f"PREREG_LR7 target A scores ({args.tag})", "units": "hours (MAE), Brier",
                       "status": args.tag, "prereg_sha256": prereg_hash(),
-                      "prereg_addendum_1_sha256": addendum_hash(), "eta_tag": args.eta_tag,
+                      "prereg_addenda_sha256": addendum_hash(), "eta_tag": args.eta_tag,
                       "method": cmd_score.__doc__, "script": "scripts/long_range_v7_arrival.py score"},
            "fires": {}}
     pooled = {k: [] for k in ("A0v6", "A0c", "V7", "cl", "bA0c", "bV7", "bcl")}

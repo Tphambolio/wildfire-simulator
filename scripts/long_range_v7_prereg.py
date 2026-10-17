@@ -197,6 +197,28 @@ PREREG_LR7_ADDENDUM_1 = {
 }
 
 
+# Second dated block (after addendum 1, commit c77a96b); PREREG_LR7 and addendum 1 unchanged.
+PREREG_LR7_ADDENDUM_2 = {
+    "date": "2026-10-17",
+    "when": "during the held-out runs, before any scoring (nothing scored)",
+    "why": "held-out Caldor V7 member 15 was killed at the 5 GB cap (peak 5.29 GB): for an east/west wind the "
+           "kernel's crosswind strip spans every column of its box, so one 64-row block of an extreme-cap kernel "
+           "allocated whole rows (2.8e7 columns in the analytic case)",
+    "change": "engine LR.kernel: in the analytic case columns are limited to the crop window (nothing outside it is "
+              "kept or summed); in the exact case a row block wider than 4e6 elements is evaluated in column chunks",
+    "evidence": "kept cells unchanged: 300 random kernels bit-identical to 72b0a76; 5 training re-runs give the same "
+                "result as for addendum 1 (arrival / spots / emitted bit-identical, landed <= 4.6e-13); the re-run of "
+                "Caldor V7 m15 completes at 0.42 GB peak; unit test test_kernel_east_west_extreme_cap_stays_small",
+    "effect_on_prereg": "none intended; held-out runs that were killed are re-run with this engine; held-out V7 runs "
+                        "that finished on c77a96b are kept (kept kernel cells unchanged; a normalising sum changes only by "
+                        "summation order, at rounding level, in row blocks wider than 4e6 elements)",
+}
+
+
+def sha256_addendum_2() -> str:
+    return hashlib.sha256(json.dumps(PREREG_LR7_ADDENDUM_2, sort_keys=True, default=float).encode()).hexdigest()
+
+
 def sha256() -> str:
     return hashlib.sha256(json.dumps(PREREG_LR7, sort_keys=True, default=float).encode()).hexdigest()
 
@@ -210,3 +232,5 @@ if __name__ == "__main__":
     print("sha256", sha256())
     print(json.dumps(PREREG_LR7_ADDENDUM_1, indent=1))
     print("sha256 addendum 1", sha256_addendum_1())
+    print(json.dumps(PREREG_LR7_ADDENDUM_2, indent=1))
+    print("sha256 addendum 2", sha256_addendum_2())

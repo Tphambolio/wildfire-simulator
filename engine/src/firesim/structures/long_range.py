@@ -507,36 +507,41 @@ def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_d
             c1 = min(nc, int(math.ceil(max(ends) / h)) + 1)
         else:
             c0, c1 = -nc, nc
+        if analytic:  # cells outside the crop are neither kept nor summed
+            c0, c1 = max(c0, -kc), min(c1, kc)
         reach = abs(uy) * (nc + 1) * h
         if c0 > c1 or min(abs(py_lo * ux), abs(py_hi * ux)) - reach > c_max and py_lo * py_hi > 0:
             continue
-        cols = np.arange(c0, c1 + 1)
-        acc = np.zeros((len(r_off), len(cols)))
-        for qy in q:
-            py = (-r_off + qy) * h  # north-up: row offset +1 = 1 cell south
-            for qx in q:
-                px = (cols + qx) * h
-                a = px * ux + py * uy - offset_m
-                c = -px * uy + py * ux
-                if tail == "x2":
-                    a_eff = np.where(a > med, med + (a - med) / 2.0, a)
-                    jac = np.where(a > med, 0.5, 1.0)
-                else:
-                    a_eff, jac = a, 1.0
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    fx = np.exp(-((np.log(np.maximum(a_eff, 1e-9)) - mu) ** 2) / (2 * sigma * sigma)) / (
-                        np.maximum(a_eff, 1e-9) * sigma * math.sqrt(2 * math.pi))
-                fx = np.where((a > 0) & (a <= length), fx * jac, 0.0)
-                fy = np.exp(-c * c / (2 * sigma_y * sigma_y)) / (sigma_y * math.sqrt(2 * math.pi))
-                acc += fx * fy
-        acc = acc * h * h / subsample ** 2  # same evaluation order as before the crop (bit-identical)
-        if not analytic:
-            total += float(acc.sum())
         rows = r_off[:, 0]
         keep = np.abs(rows) <= kr
-        k0, k1 = max(c0, -kc), min(c1, kc)
-        if keep.any() and k0 <= k1:
-            out[rows[keep] + kr, k0 + kc:k1 + kc + 1] = acc[keep][:, k0 - c0:k1 - c0 + 1]
+        width = max(1, 4_000_000 // len(r_off))  # a near east/west strip spans every column: chunk it
+        for b0 in range(c0, c1 + 1, width):
+            b1 = min(b0 + width - 1, c1)
+            cols = np.arange(b0, b1 + 1)
+            acc = np.zeros((len(r_off), len(cols)))
+            for qy in q:
+                py = (-r_off + qy) * h  # north-up: row offset +1 = 1 cell south
+                for qx in q:
+                    px = (cols + qx) * h
+                    a = px * ux + py * uy - offset_m
+                    c = -px * uy + py * ux
+                    if tail == "x2":
+                        a_eff = np.where(a > med, med + (a - med) / 2.0, a)
+                        jac = np.where(a > med, 0.5, 1.0)
+                    else:
+                        a_eff, jac = a, 1.0
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        fx = np.exp(-((np.log(np.maximum(a_eff, 1e-9)) - mu) ** 2) / (2 * sigma * sigma)) / (
+                            np.maximum(a_eff, 1e-9) * sigma * math.sqrt(2 * math.pi))
+                    fx = np.where((a > 0) & (a <= length), fx * jac, 0.0)
+                    fy = np.exp(-c * c / (2 * sigma_y * sigma_y)) / (sigma_y * math.sqrt(2 * math.pi))
+                    acc += fx * fy
+            acc = acc * h * h / subsample ** 2  # same evaluation order as before the crop (bit-identical)
+            if not analytic:
+                total += float(acc.sum())
+            k0, k1 = max(b0, -kc), min(b1, kc)
+            if keep.any() and k0 <= k1:
+                out[rows[keep] + kr, k0 + kc:k1 + kc + 1] = acc[keep][:, k0 - b0:k1 - b0 + 1]
     if analytic:
         total = float(ndtr((math.log(length) - mu) / sigma))
     if tail == "q99":

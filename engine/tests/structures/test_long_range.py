@@ -129,6 +129,21 @@ def test_kernel_analytic_total_beyond_the_exact_extent(monkeypatch):
     assert t_fast == pytest.approx(t_exact, rel=1e-6)
 
 
+@pytest.mark.parametrize("to_deg", [90.0, 270.0])
+def test_kernel_east_west_extreme_cap_stays_small(to_deg):
+    # an east/west strip spans every column of the box: a 2.6e9 m cap (v7 Caldor) must not allocate
+    # whole rows of it (2026-10-17: a held-out run was killed at 5.3 GB)
+    import tracemalloc
+
+    tracemalloc.start()
+    k, total = LR.kernel(math.log(5.9e8), 0.48, 166.0, 2.6e9, 180.0, to_deg, subsample=2, crop=(200, 200),
+                         return_total=True)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 200e6
+    assert k.shape[1] == 401 and total == pytest.approx(float(ndtr((math.log(2.6e9) - math.log(5.9e8)) / 0.48)))
+
+
 def test_kernel_points_downwind():
     k = LR.kernel(math.log(200.0), 0.8, 18.4, 1000.0, 20.0, 90.0)  # blowing toward the east
     rc, cc = k.shape[0] // 2, k.shape[1] // 2

@@ -206,7 +206,7 @@ def cmd_score(args):
         P, coef = _fit_all(train, d)
         per_fire.append({"fire": f, "y": d[1], "blocks": d[2], "P": P, "coef": coef, "cov": d[3]})
     out = {"_about": {"purpose": f"PREREG_LR7 target B held-out scores ({args.tag})", "units": "AUC, Brier",
-                      "eta_tag": args.eta_tag, "status": args.tag, "prereg_sha256": V.prereg_hash(), "prereg_addendum_1_sha256": V.addendum_hash(), "models": MODELS,
+                      "eta_tag": args.eta_tag, "status": args.tag, "prereg_sha256": V.prereg_hash(), "prereg_addenda_sha256": V.addendum_hash(), "models": MODELS,
                       "script": "scripts/long_range_v7_loss.py score"},
            **summarise(per_fire, rate), "training_rate": rate}
     (args.out / f"loss_{args.tag}.json").write_text(json.dumps(out, indent=1, default=float))

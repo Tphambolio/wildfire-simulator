@@ -129,6 +129,15 @@ The block above is unchanged (sha256 `5f138494…fd31`). Machine-readable copy: 
 - **Evidence.** The analytic mass matches the exact cell sum within 1.2e-7 relative for medians ≥ 80 km (6 kernels × 5 directions). The Caldor kernel's mass on the run grid is 9e-76: nothing lands. 300 random kernels remain bit-identical to `72b0a76`. Five training stage-2 re-runs (Tubbs member 2 at η0 1e-7 κ 1 and κ 3, Tubbs m1, Palisades, Camp) give bit-identical arrival, spot lists and emitted embers (`landed` ≤ 4.6e-13 vs `72b0a76`; identical to the stored final-form Tubbs m2 run). No training kernel exceeded the threshold: under the fix's first form one such kernel would have taken ~9,700 s, and no training setting took more than 1,473 s.
 - **Effect on the test.** None intended: models, η_final, metrics and pass criteria are unchanged. Every held-out V7 run uses this engine. Held-out A0v6 and A0c runs do not use the ember kernel and are kept.
 
+## Addendum 2 (2026-10-17, during the held-out runs; nothing scored)
+
+Machine-readable copy: `PREREG_LR7_ADDENDUM_2`. PREREG_LR7 and addendum 1 are unchanged.
+
+- **Why.** Held-out Caldor V7 member 15 was killed at the 5 GB cap (peak 5.29 GB). For an east/west wind the kernel's crosswind strip spans every column of its box, so one 64-row block of an extreme-cap kernel allocated whole rows (2.8e7 columns in the analytic case).
+- **Change.** In the analytic case, columns are limited to the crop window: nothing outside it is kept or summed. In the exact case, a row block wider than 4e6 elements is evaluated in column chunks.
+- **Evidence.** Kept cells are unchanged: 300 random kernels are bit-identical to `72b0a76`, and 5 training re-runs give the same result as for addendum 1. The re-run of Caldor V7 m15 completes at a 0.42 GB peak. Unit test `test_kernel_east_west_extreme_cap_stays_small`.
+- **Effect.** None intended. Killed held-out runs are re-run with this engine. Held-out V7 runs that finished on `c77a96b` are kept: kept kernel cells are unchanged, and a normalising sum changes only by summation order (rounding level) in row blocks wider than 4e6 elements.
+
 ## References
 
 | Reference | Use | Zotero key |
