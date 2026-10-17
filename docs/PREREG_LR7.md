@@ -119,6 +119,16 @@ Mean LOFO J 0.97. **η0 sits at the grid's lower edge again** (as in v6). The su
 
 Fit only on training fires. No held-out simulation before this block is pushed. No configuration promoted after scoring. Aggregate outputs only: no addresses, no per-building outputs outside research files. FireSim never suggests evacuation tiers.
 
+## Addendum 1 (2026-10-17, after the PREREG_LR7 commit `a5fa8ba`; nothing scored)
+
+The block above is unchanged (sha256 `5f138494…fd31`). Machine-readable copy: `PREREG_LR7_ADDENDUM_1`.
+
+- **When.** The first held-out runs had started at 12:02 (written: Dixie A0v6 × 7; Caldor A0v6 × 1 and A0c × 1). No held-out V7 run had finished and nothing was scored. All held-out processes were stopped at 12:58.
+- **Why.** Caldor V7 member 0 built a short-range (Sardoy) kernel with a 5.9e8 m median and a 2.6e9 m cap at extreme intensity. The exact full-kernel sum that normalises it (`a5fa8ba`) takes many minutes per kernel at ~1.4e7 rows, so held-out V7 runs could not finish. `72b0a76` could not allocate the kernel at all.
+- **Change.** For a cropped `cap` kernel whose half-extent exceeds 100,000 cells (`KERNEL_EXACT_CELLS`, an 18,000 km cap at 180 m), the normalising sum is the analytic lognormal mass Φ((ln cap − μ)/σ), and only the cropped rows are built. Below that the exact cell sum is kept.
+- **Evidence.** The analytic mass matches the exact cell sum within 1.2e-7 relative for medians ≥ 80 km (6 kernels × 5 directions). The Caldor kernel's mass on the run grid is 9e-76: nothing lands. 300 random kernels remain bit-identical to `72b0a76`. Five training stage-2 re-runs (Tubbs member 2 at η0 1e-7 κ 1 and κ 3, Tubbs m1, Palisades, Camp) give bit-identical arrival, spot lists and emitted embers (`landed` ≤ 4.6e-13 vs `72b0a76`; identical to the stored final-form Tubbs m2 run). No training kernel exceeded the threshold: under the fix's first form one such kernel would have taken ~9,700 s, and no training setting took more than 1,473 s.
+- **Effect on the test.** None intended: models, η_final, metrics and pass criteria are unchanged. Every held-out V7 run uses this engine. Held-out A0v6 and A0c runs do not use the ember kernel and are kept.
+
 ## References
 
 | Reference | Use | Zotero key |

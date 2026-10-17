@@ -72,6 +72,7 @@ DELAY_S = 42.0 + 300.0  # t_ign,small + t_ign,large (FSJ104686 p.4) [V]
 DEFAULT_MEMBERS = 20  # API default (offline validation: 50)
 MAX_MEMBERS = 50
 DEFAULT_BIN_MIN = 30.0  # time bins of the landing field [H]
+KERNEL_EXACT_CELLS = 100_000  # kernel half-extent (cells) above which a cropped 'cap' kernel's sum is analytic [D]
 
 # Albini, Alexander & Cruz (2012) Table 1, p.L: maximum spot distance (km) for a 1.0 mm
 # firebrand on alighting; rows (canopy-top height Hc, free flame height Hf = Hc, 2 Hc),
@@ -491,9 +492,14 @@ def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_d
     # strip of columns per row block is evaluated (2026-10-17: a 2,400 km cap took 170 s per kernel).
     # Skipped cells are exact zeros; cells kept are computed as before, only the sum order changes.
     c_max = math.sqrt(2.0 * 746.0) * sigma_y + 2.0 * h
+    # Beyond KERNEL_EXACT_CELLS (an 18,000 km cap on 180 m cells; v7 Caldor reached a 2.6e9 m cap) even the
+    # strip takes minutes per kernel: a 'cap' kernel's full sum is then its analytic mass Phi((ln cap - mu) /
+    # sigma) (matches the cell sum to <= 1.2e-7 for medians >= 80 km) and only the cropped rows are built.
+    analytic = tail == "cap" and crop is not None and max(nr, nc) > KERNEL_EXACT_CELLS
+    r_lo, r_hi = (-kr, kr) if analytic else (-nr, nr)
     block = 64
-    for r0 in range(-nr, nr + 1, block):
-        r_off = np.arange(r0, min(r0 + block, nr + 1))[:, None]
+    for r0 in range(r_lo, r_hi + 1, block):
+        r_off = np.arange(r0, min(r0 + block, r_hi + 1))[:, None]
         py_lo, py_hi = (-r_off[-1, 0] - 0.5) * h, (-r_off[0, 0] + 0.5) * h
         if abs(uy) > 1e-9:
             ends = [(py * ux + s * c_max) / uy for py in (py_lo, py_hi) for s in (-1.0, 1.0)]
@@ -524,12 +530,15 @@ def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_d
                 fy = np.exp(-c * c / (2 * sigma_y * sigma_y)) / (sigma_y * math.sqrt(2 * math.pi))
                 acc += fx * fy
         acc = acc * h * h / subsample ** 2  # same evaluation order as before the crop (bit-identical)
-        total += float(acc.sum())
+        if not analytic:
+            total += float(acc.sum())
         rows = r_off[:, 0]
         keep = np.abs(rows) <= kr
         k0, k1 = max(c0, -kc), min(c1, kc)
         if keep.any() and k0 <= k1:
             out[rows[keep] + kr, k0 + kc:k1 + kc + 1] = acc[keep][:, k0 - c0:k1 - c0 + 1]
+    if analytic:
+        total = float(ndtr((math.log(length) - mu) / sigma))
     if tail == "q99":
         out /= 0.99
         total /= 0.99

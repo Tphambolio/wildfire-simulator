@@ -117,6 +117,18 @@ def test_kernel_strip_matches_dense_evaluation(to_deg):
     assert total == pytest.approx(ref.sum(), rel=1e-12)
 
 
+def test_kernel_analytic_total_beyond_the_exact_extent(monkeypatch):
+    # above KERNEL_EXACT_CELLS a cropped 'cap' kernel keeps its cells and takes its sum from the
+    # lognormal mass Phi((ln cap - mu) / sigma); for a long kernel that equals the cell sum closely
+    args = (math.log(80_000.0), 0.66, 166.0, 615_000.0, 180.0, 37.0)
+    exact, t_exact = LR.kernel(*args, subsample=2, crop=(60, 50), return_total=True)
+    monkeypatch.setattr(LR, "KERNEL_EXACT_CELLS", 1000)
+    fast, t_fast = LR.kernel(*args, subsample=2, crop=(60, 50), return_total=True)
+    assert np.array_equal(exact, fast)
+    assert t_fast == pytest.approx(float(ndtr((math.log(615_000.0) - args[0]) / 0.66)))
+    assert t_fast == pytest.approx(t_exact, rel=1e-6)
+
+
 def test_kernel_points_downwind():
     k = LR.kernel(math.log(200.0), 0.8, 18.4, 1000.0, 20.0, 90.0)  # blowing toward the east
     rc, cc = k.shape[0] // 2, k.shape[1] // 2

@@ -175,10 +175,38 @@ PREREG_LR7 = {
 }
 
 
+# Dated block after the PREREG_LR7 commit (a5fa8ba, pushed 2026-10-17 12:01); PREREG_LR7 above is unchanged.
+PREREG_LR7_ADDENDUM_1 = {
+    "date": "2026-10-17",
+    "when": "after the first held-out runs had started (Dixie A0v6 x 7, Caldor A0v6 x 1 and A0c x 1 written; no V7 "
+            "held-out run finished, nothing scored); all held-out processes stopped at 12:58 before this change",
+    "why": "the Caldor V7 member-0 run built a Sardoy short-range kernel with a 5.9e8 m median and a 2.6e9 m cap "
+           "(extreme intensity); the exact full-kernel sum used for normalisation (a5fa8ba) takes many minutes per "
+           "kernel at ~1.4e7 rows, so the held-out V7 runs could not finish; 72b0a76 could not allocate it at all",
+    "change": "engine LR.kernel: for a cropped 'cap' kernel whose half-extent exceeds KERNEL_EXACT_CELLS = 100,000 cells "
+              "(an 18,000 km cap at 180 m), the normalising sum is the analytic lognormal mass Phi((ln cap - mu)/sigma) "
+              "and only the cropped rows are built; below that the exact cell sum is kept",
+    "evidence": "analytic vs exact cell sum within 1.2e-7 relative for medians >= 80 km (6 kernels x 5 directions); "
+                "the Caldor kernel's mass on the run grid is 9e-76 (nothing lands); 300 random kernels still "
+                "bit-identical to 72b0a76; 5 training stage-2 re-runs (2 Tubbs member 2, Tubbs m1, Palisades, Camp) "
+                "give bit-identical arrival / spots / emitted (landed <= 4.6e-13 vs 72b0a76; identical to the stored "
+                "final-form Tubbs m2 run); no training kernel exceeded the threshold (the fix's first form would have "
+                "taken ~9,700 s for one such kernel; no training setting took more than 1,473 s)",
+    "effect_on_prereg": "none intended: models, eta_final, metrics, pass criteria unchanged; every held-out V7 run uses "
+                        "this engine; held-out A0v6 / A0c runs do not use the ember kernel",
+}
+
+
 def sha256() -> str:
     return hashlib.sha256(json.dumps(PREREG_LR7, sort_keys=True, default=float).encode()).hexdigest()
+
+
+def sha256_addendum_1() -> str:
+    return hashlib.sha256(json.dumps(PREREG_LR7_ADDENDUM_1, sort_keys=True, default=float).encode()).hexdigest()
 
 
 if __name__ == "__main__":
     print(json.dumps(PREREG_LR7, indent=1, default=float))
     print("sha256", sha256())
+    print(json.dumps(PREREG_LR7_ADDENDUM_1, indent=1))
+    print("sha256 addendum 1", sha256_addendum_1())

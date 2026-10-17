@@ -762,6 +762,16 @@ def prereg_hash() -> str:
         return "unregistered"
 
 
+def addendum_hash() -> str:
+    """SHA-256 of PREREG_LR7_ADDENDUM_1 (dated block after the PREREG_LR7 commit), carried next to prereg_sha256."""
+    try:
+        import long_range_v7_prereg as P
+
+        return P.sha256_addendum_1()
+    except Exception:
+        return "none"
+
+
 def _model_runs(fire: str, model: str, args) -> list:
     """Arrival grids of a model: A0v6 = v6's own held-out A0 runs for the v6 fires (PREREG_LR6, 20
     members), the v6 rule re-run on the current engine for fresh fires; A0c / V7 = v7 runs."""
@@ -791,7 +801,8 @@ def cmd_score(args):
     Brier(V7) - Brier(A0c); pooled over the fire set's scored blocks, 2 km cluster bootstrap within
     fires, 2,000 draws, percentile 95 % CI (seed SEED)."""
     out = {"_about": {"purpose": f"PREREG_LR7 target A scores ({args.tag})", "units": "hours (MAE), Brier",
-                      "status": args.tag, "prereg_sha256": prereg_hash(), "eta_tag": args.eta_tag,
+                      "status": args.tag, "prereg_sha256": prereg_hash(),
+                      "prereg_addendum_1_sha256": addendum_hash(), "eta_tag": args.eta_tag,
                       "method": cmd_score.__doc__, "script": "scripts/long_range_v7_arrival.py score"},
            "fires": {}}
     pooled = {k: [] for k in ("A0v6", "A0c", "V7", "cl", "bA0c", "bV7", "bcl")}
