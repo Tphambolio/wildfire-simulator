@@ -461,8 +461,8 @@ export function buildICS209HTML(opts: ICS209Options): string {
     const reached = (criticalReach?.assets ?? []).filter((r) => Math.min(r.worst?.near ?? Infinity, r.single?.near ?? Infinity) <= hours + 1e-6);
     const roads = (criticalReach?.roads ?? []).filter((r) => r.first <= hours + 1e-6);
     const items = [
-      ...reached.map((r) => `${esc(assetLabel(r.asset))}: ${esc(assetReachPhrases(r, start, criticalReach!.hasEnsemble, criticalReach!.bufferM).join("; "))}`),
-      ...roads.map((r) => `${esc(r.name)}: ${esc(roadReachPhrase(r, start, criticalReach!.hasEnsemble))}`),
+      ...reached.map((r) => `${esc(assetLabel(r.asset))}: ${esc(assetReachPhrases(r, start, criticalReach!.hasEnsemble, criticalReach!.bufferM, criticalReach!.multiDay).join("; "))}`),
+      ...roads.map((r) => `${esc(r.name)}: ${esc(roadReachPhrase(r, start, criticalReach!.hasEnsemble, criticalReach!.multiDay))}`),
     ];
     return `<tr><td>${label}</td><td>${when}</td><td>${st ? `${st.within100} within 100 m (${st.inside} inside)` : "—"}</td><td>${items.length ? `<ul class="res">${items.map((i) => `<li>${i}</li>`).join("")}</ul>` : "None within the asset buffer"}</td></tr>`;
   };

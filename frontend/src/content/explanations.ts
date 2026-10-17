@@ -81,6 +81,9 @@ export const TIPS = {
     "model); DMC and DC stay fixed. The range of outcomes perturbs every step. A restart from " +
     "an observed perimeter uses the step in force at its time and the later ones.",
   multiDayWeather: "In multi-day mode the weather is entered per day under 4 Run options.",
+  // The station fill's wind and RH read as the run's weather in multi-day mode (72 h rerun, 2026-10-17)
+  multiDayReplaced:
+    "A multi-day run uses only these FWI start codes; each day's wind, RH and temperature are set under 4 Run options.",
   d2Bui: (bui: number) =>
     `BUI ${bui.toFixed(0)} is below 80: green aspen (D-2) does not carry fire in the FBP System ` +
     "(Alexander 2010). Raise DMC/DC for a drier scenario, or use D-1 (leafless) in spring.",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WeatherParams } from "../types/simulation";
 import {
-  newRow, rowTimeMs, scheduleErrors, scheduleForRestart, scheduleLines, scheduleRequest,
+  multiDaySummary, newRow, rowTimeMs, scheduleErrors, scheduleForRestart, scheduleLines, scheduleRequest,
   timedSteps, weatherAt, type ScheduleRow,
 } from "./weatherSchedule";
 import { zonedWallTimeToMs } from "./time";
@@ -85,5 +85,18 @@ describe("fuel-grid vintage (issue 6)", () => {
     expect(fuelVintageWarning(2025, 2011)).toContain("restores areas burned since then to estimated pre-fire fuel");
     expect(fuelVintageWarning(2025, 2025)).toBeNull();
     expect(fuelVintageWarning(null, 2011)).toBeNull();
+  });
+});
+
+describe("multi-day Setup summary (72 h rerun, 2026-10-17)", () => {
+  it("lists each day's wind the run uses, then the start codes", () => {
+    const day = { temperature: 25, relative_humidity: 30, precipitation_24h: 0 };
+    const days = [
+      { ...day, wind_speed: 20, wind_direction: 225 },
+      { ...day, wind_speed: 25, wind_direction: 270 },
+    ];
+    expect(multiDaySummary(days, { ffmc: 90, dmc: 45, dc: 300 })).toBe(
+      "Days: D1 SW 20 km/h · D2 W 25 km/h · start FFMC 90 DMC 45 DC 300",
+    );
   });
 });

@@ -71,12 +71,14 @@ export function runDay(start: Date, d: Date): number {
  * date, "D2 14:05" on a later calendar day (D2 = the day after the start date), and the date
  * for a time before the start date ("Mon, 12 Oct 22:00", e.g. an earlier run of a restart
  * chain). Without the day, a 3-day run's arrival at 16:25 on day 2 read as "16:25", and every
- * row looked like a same-day time (round-3 field test R7).
+ * row looked like a same-day time (round-3 field test R7). With `multiDay`, day 1 reads "D1 14:05".
  */
-export function formatClockAt(start: Date, hours: number): string {
+export function formatClockAt(start: Date, hours: number, multiDay = false): string {
   const t = clockAt(start, hours);
   const day = runDay(start, t);
-  if (day === 1) return formatClock(t);
+  // In a multi-day run day 1 is prefixed too, so "10:00" isn't read beside "D2 12:15" as a
+  // time without a day (72 h rerun, 2026-10-17)
+  if (day === 1) return multiDay ? `D1 ${formatClock(t)}` : formatClock(t);
   if (day > 1) return `D${day} ${formatClock(t)}`;
   return `${formatDate(t)} ${formatClock(t)}`;
 }
@@ -89,6 +91,20 @@ export function formatRunSpan(start: Date, hours: number): string {
   const end = clockAt(start, hours);
   const h = Math.round(hours * 10) / 10;
   return `${formatDate(start)} ${formatClock(start)} to ${formatDate(end)} ${formatClock(end)} ${zoneAbbrev(end)} (${h} h)`;
+}
+
+/** True when frames reach a second operational day (a multi-day run). */
+export function isMultiDayRun(frames: ReadonlyArray<{ day?: number | null }>): boolean {
+  return frames.some((f) => (f.day ?? 1) > 1);
+}
+
+/**
+ * Elapsed time for the timeline and the Situation panel: "T+5:30", and in a multi-day run the
+ * operational day with the run time, "D3 · T+72:00". The timeline used to show the time within
+ * the day ("D3 T+24:00") beside the panel's "T+72:00" (72 h rerun, 2026-10-17).
+ */
+export function formatRunElapsed(hours: number, day?: number | null): string {
+  return day ? `D${day} · ${formatElapsed(hours)}` : formatElapsed(hours);
 }
 
 /** Elapsed time as "T+1:05" (hours:minutes, rounded to the minute; hours may exceed 24). */

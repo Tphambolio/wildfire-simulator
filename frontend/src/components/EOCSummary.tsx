@@ -629,7 +629,7 @@ export default function EOCSummary({
               <ul className="eoc-resource-list">
                 {g.rows.map((r) => (
                   <li key={r.asset.id}>
-                    {assetLabel(r.asset)}: {assetReachPhrases(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.bufferM).join("; ")}
+                    {assetLabel(r.asset)}: {assetReachPhrases(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.bufferM, criticalReach.multiDay).join("; ")}
                   </li>
                 ))}
               </ul>
@@ -640,7 +640,7 @@ export default function EOCSummary({
               <div className="eoc-sublabel eoc-strong">Major roads</div>
               <ul className="eoc-resource-list">
                 {criticalReach.roads.map((r) => (
-                  <li key={r.name}>{r.name}: {roadReachPhrase(r, criticalReach.start, criticalReach.hasEnsemble)}</li>
+                  <li key={r.name}>{r.name}: {roadReachPhrase(r, criticalReach.start, criticalReach.hasEnsemble, criticalReach.multiDay)}</li>
                 ))}
               </ul>
             </>

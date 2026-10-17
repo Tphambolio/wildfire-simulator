@@ -913,7 +913,7 @@ function evacStatusItems(opts: ICSFormOptions): string[] {
 export function reachedItems(opts: Pick<ICSFormOptions, "criticalReach">): string[] {
   const r = opts.criticalReach;
   if (!r || r.assets.length + r.roads.length === 0) return [];
-  const t = (h: number | null | undefined) => (h == null ? "not reached" : clock(h, r.start));
+  const t = (h: number | null | undefined) => (h == null ? "not reached" : clock(h, r.start, r.multiDay));
   const when = (worst: number | null | undefined, single: number | null | undefined) =>
     r.hasEnsemble ? `${t(worst)} / ${t(single)}` : t(single);
   const items: string[] = [];
