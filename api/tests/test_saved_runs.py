@@ -9,6 +9,7 @@ DELETE removes a run. All need X-FireSim-Passphrase matching FIRESIM_RUNS_PASSPH
 from __future__ import annotations
 
 import json
+import threading
 import time
 
 import pytest
@@ -278,13 +279,27 @@ async def test_delete(client, archive, tmp_path):
     assert (await client.delete(f"{URL}/run0000", headers=H)).status_code == 404
 
 
-async def test_delete_refuses_running_run(client, archive):
+async def test_delete_refuses_running_run(client, archive, monkeypatch):
+    # Hold the run open: the runner calls on_finished before it sets ``done``, so blocking
+    # the hook keeps the run "running" until the 409 is checked (a short run could
+    # otherwise finish between the check and the DELETE).
+    release = threading.Event()
+    finish = sims.runner.on_finished
+
+    def held(run):
+        release.wait(60)
+        if finish is not None:
+            finish(run)
+
+    monkeypatch.setattr(sims.runner, "on_finished", held)
     body = {"ignition_lat": 53.0, "ignition_lng": -114.0,
             "weather": {"wind_speed": 10.0, "wind_direction": 270.0}, "duration_hours": 0.5}
     sim_id = (await client.post(URL, json=body)).json()["simulation_id"]
     run = sims.runner.get(sim_id)
-    if not run.done.is_set():
+    try:
         assert (await client.delete(f"{URL}/{sim_id}", headers=H)).status_code == 409
+    finally:
+        release.set()
     run.done.wait(60)
     archive.wait_idle()
     assert (await client.delete(f"{URL}/{sim_id}", headers=H)).status_code == 200
