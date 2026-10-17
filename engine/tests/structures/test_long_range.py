@@ -62,6 +62,61 @@ def test_kernel_mass(tail):
         assert k.sum() == pytest.approx(kept, abs=0.01) and k.sum() > cdf_cap
 
 
+@pytest.mark.parametrize("to_deg", [0.0, 45.0, 90.0, 200.0])
+def test_kernel_crop_is_exact_on_the_grid(to_deg):
+    # a kernel longer than the grid: cropping to ±(R-1, C-1) leaves a mode="same" convolution
+    # unchanged, and return_total gives the uncropped sum (2026-10-17 memory fix)
+    from scipy.signal import fftconvolve
+
+    mu, sg, cap, h, shape = math.log(400.0), 1.0, 3000.0, 30.0, (21, 15)
+    full = LR.kernel(mu, sg, 40.0, cap, h, to_deg, subsample=2)
+    crop, total = LR.kernel(mu, sg, 40.0, cap, h, to_deg, subsample=2, crop=(shape[0] - 1, shape[1] - 1),
+                            return_total=True)
+    assert crop.shape[0] < full.shape[0] or crop.shape[1] < full.shape[1]
+    assert crop.shape[0] % 2 == 1 and crop.shape[1] % 2 == 1
+    assert total == pytest.approx(full.sum(), rel=1e-12)
+    g = np.random.default_rng(1).random(shape)
+    a, b = fftconvolve(g, full, mode="same"), fftconvolve(g, crop, mode="same")
+    assert np.allclose(a, b, rtol=0, atol=1e-12 * max(abs(a).max(), 1.0))
+
+
+def _dense_kernel(mu, sigma, sigma_y, cap_m, h, to_deg, subsample):
+    # the pre-2026-10-17 algorithm ('cap' tail): every cell of the bounding box evaluated
+    to = math.radians(to_deg)
+    ux, uy = math.sin(to), math.cos(to)
+    hw = 4.0 * sigma_y + h
+    nc = int(math.ceil((abs(ux) * cap_m + abs(uy) * hw + h) / h))
+    nr = int(math.ceil((abs(uy) * cap_m + abs(ux) * hw + h) / h))
+    out = np.zeros((2 * nr + 1, 2 * nc + 1))
+    cols = np.arange(-nc, nc + 1)
+    q = (np.arange(subsample) + 0.5) / subsample - 0.5
+    for r_off in range(-nr, nr + 1):
+        acc = np.zeros(len(cols))
+        for qy in q:
+            py = (-r_off + qy) * h
+            for qx in q:
+                px = (cols + qx) * h
+                a, c = px * ux + py * uy - 0.0, -px * uy + py * ux
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    fx = np.exp(-((np.log(np.maximum(a, 1e-9)) - mu) ** 2) / (2 * sigma * sigma)) / (
+                        np.maximum(a, 1e-9) * sigma * math.sqrt(2 * math.pi))
+                fx = np.where((a > 0) & (a <= cap_m), fx * 1.0, 0.0)
+                fy = np.exp(-c * c / (2 * sigma_y * sigma_y)) / (sigma_y * math.sqrt(2 * math.pi))
+                acc += fx * fy
+        out[r_off + nr] = acc * h * h / subsample ** 2
+    return out
+
+
+@pytest.mark.parametrize("to_deg", [0.0, 37.0, 90.0, 180.0, 300.0])
+def test_kernel_strip_matches_dense_evaluation(to_deg):
+    # only the crosswind strip where exp(-c^2 / 2 sy^2) > 0 is evaluated: same cells bit for bit
+    args = (math.log(2000.0), 0.7, 25.0, 12000.0, 30.0, to_deg)
+    k, total = LR.kernel(*args, subsample=2, return_total=True)
+    ref = _dense_kernel(*args, subsample=2)
+    assert np.array_equal(k, ref)
+    assert total == pytest.approx(ref.sum(), rel=1e-12)
+
+
 def test_kernel_points_downwind():
     k = LR.kernel(math.log(200.0), 0.8, 18.4, 1000.0, 20.0, 90.0)  # blowing toward the east
     rc, cc = k.shape[0] // 2, k.shape[1] // 2

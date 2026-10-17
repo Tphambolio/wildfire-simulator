@@ -132,25 +132,27 @@ class LongRangeSpotter:
         return pe, min(k, 1.0)
 
     # ------------------------------------------------------------------ kernels
-    def _short_kernel(self, i_mw: float, u10_ms: float, to_deg: float) -> np.ndarray:
-        key = ("s", round(math.log(max(i_mw, 1e-3)), 1), round(u10_ms, 0), round(to_deg / 5.0))
+    def _short_kernel(self, i_mw: float, u10_ms: float, to_deg: float, shape) -> np.ndarray:
+        # kernels are cropped to the grid (exact for mode="same"; LR.kernel ``crop``), normalised by the
+        # full kernel's sum as before the crop
+        key = ("s", round(math.log(max(i_mw, 1e-3)), 1), round(u10_ms, 0), round(to_deg / 5.0), shape)
         if key not in self._kcache:
             mu, sg = (float(v) for v in sardoy_lognormal(i_mw, u10_ms))
             cap = math.exp(mu + sg * float(ndtri(LR.V5_SHORT_TAIL_Q)))
-            k = LR.kernel(mu, sg, 0.92 * self.cell_m, cap, self.cell_m, round(to_deg / 5.0) * 5.0,
-                          "cap", subsample=2)
-            self._kcache[key] = k / max(k.sum(), 1e-12) * LR.V5_SHORT_TAIL_Q
+            k, tot = LR.kernel(mu, sg, 0.92 * self.cell_m, cap, self.cell_m, round(to_deg / 5.0) * 5.0,
+                               "cap", subsample=2, crop=(shape[0] - 1, shape[1] - 1), return_total=True)
+            self._kcache[key] = k / max(tot, 1e-12) * LR.V5_SHORT_TAIL_Q
         return self._kcache[key]
 
-    def _long_kernel(self, to_deg: float) -> np.ndarray:
-        key = ("l", round(to_deg / 5.0))
+    def _long_kernel(self, to_deg: float, shape) -> np.ndarray:
+        key = ("l", round(to_deg / 5.0), shape)
         if key not in self._kcache:
             mu = math.log(self._long["long_median_m"])
             sg = float(self._long["long_sigma"])
             cap = math.exp(mu + sg * float(ndtri(0.999)))
             sy = max(math.tan(math.radians(LR.V5_LONG_SIGMA_Y_DEG)) * self._long["long_median_m"], self.cell_m)
             self._kcache[key] = LR.kernel(mu, sg, sy, cap, self.cell_m, round(to_deg / 5.0) * 5.0, "cap",
-                                          subsample=2)
+                                          subsample=2, crop=(shape[0] - 1, shape[1] - 1))
         return self._kcache[key]
 
     # ------------------------------------------------------------------ hook
@@ -187,14 +189,14 @@ class LongRangeSpotter:
         if e_short.sum() > 0:
             g = np.zeros(shape)
             np.add.at(g, (r, c), e_short)
-            ls = np.maximum(fftconvolve(g, self._short_kernel(i_mw, u10, to_deg), mode="same"), 0.0)
+            ls = np.maximum(fftconvolve(g, self._short_kernel(i_mw, u10, to_deg, shape), mode="same"), 0.0)
             lam += ls
             self.landed += ls / a
         pe, k_long = self._pe_and_klong(0.5 * (t0 + t1), shape)
         if e_long.sum() > 0:
             g = np.zeros(shape)
             np.add.at(g, (r, c), e_long)
-            ll = np.maximum(fftconvolve(g, self._long_kernel(to_deg), mode="same"), 0.0)
+            ll = np.maximum(fftconvolve(g, self._long_kernel(to_deg, shape), mode="same"), 0.0)
             lam += k_long * ll
             self.landed += ll / a
         lam = lam * self.eta * pe

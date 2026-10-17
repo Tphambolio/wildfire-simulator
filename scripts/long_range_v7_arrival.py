@@ -77,7 +77,7 @@ CALFIRE = A.CALFIRE
 V7DATA = Path.home() / "dev" / "wildfire" / "validation-data" / "embers-v7"
 TRAINING = A.TRAINING  # eaton, palisades, camp, tubbs, woolsey
 SECONDARY = A.HELDOUT  # glass, czu, northcomplex: seen in v4-v6 -> disclosed secondary held-out set
-FRESH: tuple = ()  # fixed in PREREG_LR7 (fresh held-out fires, never scored before)
+FRESH = ("dixie", "caldor")  # PREREG_LR7 primary held-out: fresh fires, never simulated or scored before
 SEED = 20261015
 COARSEN = 2
 TOWN_ROS = A.TOWN_ROS  # 0.5 [H], spec C40, as v6
@@ -659,8 +659,9 @@ def load_theta(args) -> dict:
     try:
         import long_range_v7_prereg as P
 
-        if P.PREREG_LR7.get("theta_final"):
-            return P.PREREG_LR7["theta_final"]
+        th = P.PREREG_LR7.get("stage1_front", {}).get("theta_final")
+        if th:
+            return th
     except Exception:
         pass
     return json.loads((args.out_fit / "fit_front.json").read_text())["theta_final"]

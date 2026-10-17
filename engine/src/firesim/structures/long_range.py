@@ -454,14 +454,22 @@ class Raster:
 
 
 def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_deg: float,
-           tail: str = "cap", subsample: int = 4, offset_m: float = 0.0) -> np.ndarray:
+           tail: str = "cap", subsample: int = 4, offset_m: float = 0.0, crop: tuple | None = None,
+           return_total: bool = False):
     """Share of one source cell's embers landing in each raster cell (odd-sized, centred on
     the source). Downwind lognormal (μ, σ of ln x) × crosswind normal (σ_Y); embers beyond the
     cap are dropped (``tail='cap'``); ``'q99'`` truncates at the 99th percentile and
     renormalises (Qin 2025 eq 4.9); ``'x2'`` stretches distances beyond the median ×2 (and
     the cap ×2) [H, Thurston 2017 [A]]. ``offset_m``: flight distances are measured from a
     point ``offset_m`` downwind of the source centre (a building's downwind edge, Qin 2025
-    §6.3.1; v2 urban source)."""
+    §6.3.1; v2 urban source).
+
+    ``crop = (max_rows, max_cols)``: keep only offsets within ±max_rows / ±max_cols of the source
+    (still odd-sized and centred). A ``mode="same"`` convolution on a grid of R x C cells only uses
+    offsets up to ±(R-1, C-1), so cropping to that is exact on the grid and stops a long-tailed
+    kernel (e.g. a short-range cap of tens of km at extreme intensity) from allocating gigabytes
+    (2026-10-17: a v7 stage-2 Tubbs run reached 14.6 GB on a 335 x 257 grid). ``return_total``
+    also returns the sum of the FULL (uncropped) kernel, for callers that normalise by it."""
     to = math.radians(to_deg)
     ux, uy = math.sin(to), math.cos(to)
     med = math.exp(mu)
@@ -475,11 +483,29 @@ def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_d
     ex = abs(ux) * (length + offset_m) + abs(uy) * hw + h
     ey = abs(uy) * (length + offset_m) + abs(ux) * hw + h
     nc, nr = int(math.ceil(ex / h)), int(math.ceil(ey / h))
-    out = np.zeros((2 * nr + 1, 2 * nc + 1))
-    cols = np.arange(-nc, nc + 1)
+    kr, kc = (min(nr, int(crop[0])), min(nc, int(crop[1]))) if crop is not None else (nr, nc)
+    out = np.zeros((2 * kr + 1, 2 * kc + 1))
+    total = 0.0
     q = (np.arange(subsample) + 0.5) / subsample - 0.5
-    for r_off in range(-nr, nr + 1):
-        acc = np.zeros(len(cols))
+    # The crosswind factor underflows to exactly 0.0 beyond |c| = sqrt(2 * 746) * sigma_y, so only a
+    # strip of columns per row block is evaluated (2026-10-17: a 2,400 km cap took 170 s per kernel).
+    # Skipped cells are exact zeros; cells kept are computed as before, only the sum order changes.
+    c_max = math.sqrt(2.0 * 746.0) * sigma_y + 2.0 * h
+    block = 64
+    for r0 in range(-nr, nr + 1, block):
+        r_off = np.arange(r0, min(r0 + block, nr + 1))[:, None]
+        py_lo, py_hi = (-r_off[-1, 0] - 0.5) * h, (-r_off[0, 0] + 0.5) * h
+        if abs(uy) > 1e-9:
+            ends = [(py * ux + s * c_max) / uy for py in (py_lo, py_hi) for s in (-1.0, 1.0)]
+            c0 = max(-nc, int(math.floor(min(ends) / h)) - 1)
+            c1 = min(nc, int(math.ceil(max(ends) / h)) + 1)
+        else:
+            c0, c1 = -nc, nc
+        reach = abs(uy) * (nc + 1) * h
+        if c0 > c1 or min(abs(py_lo * ux), abs(py_hi * ux)) - reach > c_max and py_lo * py_hi > 0:
+            continue
+        cols = np.arange(c0, c1 + 1)
+        acc = np.zeros((len(r_off), len(cols)))
         for qy in q:
             py = (-r_off + qy) * h  # north-up: row offset +1 = 1 cell south
             for qx in q:
@@ -497,10 +523,17 @@ def kernel(mu: float, sigma: float, sigma_y: float, cap_m: float, h: float, to_d
                 fx = np.where((a > 0) & (a <= length), fx * jac, 0.0)
                 fy = np.exp(-c * c / (2 * sigma_y * sigma_y)) / (sigma_y * math.sqrt(2 * math.pi))
                 acc += fx * fy
-        out[r_off + nr] = acc * h * h / subsample ** 2
+        acc = acc * h * h / subsample ** 2  # same evaluation order as before the crop (bit-identical)
+        total += float(acc.sum())
+        rows = r_off[:, 0]
+        keep = np.abs(rows) <= kr
+        k0, k1 = max(c0, -kc), min(c1, kc)
+        if keep.any() and k0 <= k1:
+            out[rows[keep] + kr, k0 + kc:k1 + kc + 1] = acc[keep][:, k0 - c0:k1 - c0 + 1]
     if tail == "q99":
         out /= 0.99
-    return out
+        total /= 0.99
+    return (out, total) if return_total else out
 
 
 @dataclass
