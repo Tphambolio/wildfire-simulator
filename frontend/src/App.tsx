@@ -20,7 +20,7 @@ import { useScenarios } from "./hooks/useScenarios";
 import { cancelEnsemble, computeBurnProbability, fetchAreaLayer, fetchFuelGridImage } from "./services/api";
 import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { useRecon } from "./hooks/useRecon";
-import { clockAt, formatClock, formatElapsed, formatRunSpan, zoneAbbrev, zonedWallTimeToMs } from "./utils/time";
+import { clockAt, formatClock, formatElapsed, formatRunSpan, isMultiDayRun, zoneAbbrev, zonedWallTimeToMs } from "./utils/time";
 import { loadSetup, saveSetup, type SetupSnapshot } from "./utils/setupStore";
 import { SETUP_RESTORE_PREFIX } from "./components/WeatherPanel";
 import { weatherAt } from "./utils/weatherSchedule";
@@ -802,14 +802,19 @@ export default function App() {
     },
     [scenarioStart],
   );
+  // A multi-day run (its parameters, or frames past day 1): times then carry the day, day 1 too
+  const multiDayRun = useMemo(
+    () => !!lastRunParams?.multi_day_days?.length || isMultiDayRun(frames),
+    [lastRunParams, frames],
+  );
   const worstArrivals = useMemo(
     () => (ensGrids ? neighbourhoodArrivalsFromPoints(arrivalPoints(ensGrids, "p10"), communities) : null),
     [ensGrids, communities],
   );
   const arrivalOutlines = useMemo(() => {
-    if (worstArrivals?.length) return arrivalsToGeoJSON(worstArrivals, scenarioStart, true);
-    return arrivals.length ? arrivalsToGeoJSON(arrivals, scenarioStart) : null;
-  }, [arrivals, worstArrivals, scenarioStart]);
+    if (worstArrivals?.length) return arrivalsToGeoJSON(worstArrivals, scenarioStart, true, multiDayRun);
+    return arrivals.length ? arrivalsToGeoJSON(arrivals, scenarioStart, false, multiDayRun) : null;
+  }, [arrivals, worstArrivals, scenarioStart, multiDayRun]);
   const neighbourhoodNames = useMemo(
     () => [...new Set((communities?.features ?? []).map(featureName))].sort((a, b) => a.localeCompare(b)),
     [communities],
@@ -884,12 +889,13 @@ export default function App() {
       hasEnsemble,
       start: scenarioStart,
       bufferM: ARRIVAL_BUFFER_M,
+      multiDay: multiDayRun,
     }),
-    [assets, singleAssetReach, worstAssetReach, singleRoadReach, worstRoadReach, hasEnsemble, scenarioStart],
+    [assets, singleAssetReach, worstAssetReach, singleRoadReach, worstRoadReach, hasEnsemble, scenarioStart, multiDayRun],
   );
   const assetPoints = useMemo(
-    () => (assets.length ? assetsToMapGeoJSON(assets, criticalReach.assets, shownCategories, scenarioStart, hasEnsemble) : null),
-    [assets, criticalReach, shownCategories, scenarioStart, hasEnsemble],
+    () => (assets.length ? assetsToMapGeoJSON(assets, criticalReach.assets, shownCategories, scenarioStart, hasEnsemble, multiDayRun) : null),
+    [assets, criticalReach, shownCategories, scenarioStart, hasEnsemble, multiDayRun],
   );
   const hasFrames = frames.length > 0;
   // The span the shown run models, beside the operational period (EOC console, forms; R11)
@@ -1472,6 +1478,7 @@ export default function App() {
           totalFrames={frames.length}
           status={status}
           scenarioStart={scenarioStart}
+          multiDay={multiDayRun}
           headline={
             <EnsemblePanel
               state={ensemble}
@@ -1570,6 +1577,7 @@ export default function App() {
             arrivals={arrivals}
             worstArrivals={worstArrivals}
             scenarioStart={scenarioStart}
+            multiDay={multiDayRun}
             hasRun={frames.length > 0}
             records={evacTierRecords}
             neighbourhoodNames={neighbourhoodNames}
@@ -1587,6 +1595,7 @@ export default function App() {
             roads={criticalReach.roads}
             hasEnsemble={hasEnsemble}
             scenarioStart={scenarioStart}
+            multiDay={multiDayRun}
             hasRun={frames.length > 0}
             shown={shownCategories}
             onToggleCategory={toggleCategory}

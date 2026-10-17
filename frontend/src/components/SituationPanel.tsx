@@ -5,7 +5,7 @@
 
 import { forwardRef, type ReactNode } from "react";
 import type { BurningPeriod, SimulationFrame } from "../types/simulation";
-import { clockAt, formatClock, formatElapsed, zoneAbbrev } from "../utils/time";
+import { clockAt, formatClock, formatElapsed, formatRunElapsed, zoneAbbrev } from "../utils/time";
 import { formatBurningPeriod, formatHour, inBurningPeriod } from "../utils/skillOptions";
 import HfiClassChip from "./HfiClassChip";
 import Badge from "./Badge";
@@ -18,6 +18,8 @@ interface SituationPanelProps {
   totalFrames: number;
   status: string | null;
   scenarioStart: Date | null;
+  /** A multi-day run: the elapsed time carries the operational day ("D3 · T+72:00") */
+  multiDay?: boolean;
   /** Shown above the single-run KPIs (the ensemble "Range of outcomes" card) */
   headline?: ReactNode;
   /** Caption over the KPIs, e.g. "Single run (P50-like)" when an ensemble is the headline */
@@ -73,7 +75,7 @@ function statusLine(status: string | null, totalFrames: number, last: Simulation
 }
 
 const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function SituationPanel(
-  { frame, frameIndex, totalFrames, status, scenarioStart, headline, kpiCaption, burningPeriod = null, progress = null, actions = null, children,
+  { frame, frameIndex, totalFrames, status, scenarioStart, multiDay = false, headline, kpiCaption, burningPeriod = null, progress = null, actions = null, children,
     collapsed = false, contentId, collapseButton = null, rail = null, drawer = false },
   ref,
 ) {
@@ -106,7 +108,7 @@ const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function Sit
         </div>
         {frame && (
           <div className="situation-sub">
-            {formatElapsed(frame.time_hours)} · frame {frameIndex + 1} of {totalFrames}
+            {formatRunElapsed(frame.time_hours, multiDay ? frame.day : null)} · frame {frameIndex + 1} of {totalFrames}
             {scenarioStart && ` · started ${formatClock(scenarioStart)} ${zoneAbbrev(scenarioStart)}`}
           </div>
         )}

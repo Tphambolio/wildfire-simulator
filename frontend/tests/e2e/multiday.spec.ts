@@ -44,6 +44,14 @@ test("3-day recorded run: 72 h timeline with day boundaries, carried-over FWI pe
   await expect(page.locator(".ts-day-tick-label")).toHaveText(["D2", "D3"]);
   await expect(page.locator(".ts-tick.last .ts-tick-elapsed")).toHaveText(/72/);
   await expect(page.locator(".ts-now-elapsed, .ts-now-clock").last()).toHaveText(/^D3/);
+  // One clock in both places: the day with the run time, not "D3 T+24:00" beside "T+72:00"
+  // (72 h rerun, 2026-10-17)
+  const lastT = (multidayFixture.frames[n - 1] as { time_hours: number }).time_hours;
+  const lastElapsed = `D3 · T+${Math.floor(lastT)}:${String(Math.round((lastT % 1) * 60)).padStart(2, "0")}`;
+  await expect(page.locator(".ts-now-elapsed, .ts-now-clock").last()).toHaveText(lastElapsed);
+  await expect(page.locator(".situation-sub")).toContainText(lastElapsed);
+  // Setup says which weather the run used: each day's wind, not the single-event values
+  await expect(page.getByText(/^Days: D1 \S+ \d+ km\/h · D2 /)).toBeVisible();
   const area = page.locator(".kpi", { hasText: "Area" }).locator(".kpi-value");
   await expect(area).toHaveText(`${lastOfDay(3).area_ha.toFixed(1)} ha`);
 

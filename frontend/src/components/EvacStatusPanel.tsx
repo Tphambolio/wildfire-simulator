@@ -30,6 +30,8 @@ interface EvacStatusPanelProps {
   /** Ensemble P10 (early, 1 in 10 members) arrivals; when present they lead and the single run is secondary */
   worstArrivals?: NeighbourhoodArrival[] | null;
   scenarioStart: Date | null;
+  /** A multi-day run: day-1 arrivals read "D1 10:00" like the later days */
+  multiDay?: boolean;
   hasRun: boolean;
   records: EvacTierRecord[];
   /** All neighbourhood names (for setting a status without the map) */
@@ -79,6 +81,7 @@ function EvacStatusPanel({
   arrivals,
   worstArrivals = null,
   scenarioStart,
+  multiDay = false,
   hasRun,
   records,
   neighbourhoodNames,
@@ -151,11 +154,11 @@ function EvacStatusPanel({
                 </th>
                 {worstArrivals && (
                   <td className="evac-arrival-time evac-arrival-worst">
-                    {a.worst !== null ? arrivalTime(a.worst, scenarioStart) : "not reached"}
+                    {a.worst !== null ? arrivalTime(a.worst, scenarioStart, multiDay) : "not reached"}
                   </td>
                 )}
                 <td className={`evac-arrival-time${worstArrivals ? " evac-arrival-single" : ""}`}>
-                  {a.single !== null ? arrivalTime(a.single, scenarioStart) : "not reached"}
+                  {a.single !== null ? arrivalTime(a.single, scenarioStart, multiDay) : "not reached"}
                 </td>
                 <td>
                   <TierSelect
