@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clockAt, formatClock, formatClockAt, formatElapsed, zoneAbbrev } from "./time";
+import { clockAt, formatClock, formatClockAt, formatDate, formatElapsed, formatRunSpan, runDay, zoneAbbrev } from "./time";
 
 describe("formatClock (America/Edmonton)", () => {
   it("formats 24 h HH:MM", () => {
@@ -76,5 +76,22 @@ describe("formatElapsed", () => {
   it("matches the timeline label pattern for clock labels", () => {
     const start = new Date("2026-04-28T19:40:00Z");
     for (const h of [0, 0.5, 1, 2.75, 4]) expect(formatClockAt(start, h)).toMatch(/^\d{2}:\d{2}$/);
+  });
+});
+
+describe("day of a later clock time (round-3 field test R7, R11)", () => {
+  const start = new Date("2026-10-13T04:57:00-06:00");
+  it("adds Dn for a later calendar day and the date for an earlier one", () => {
+    expect(runDay(start, clockAt(start, 0))).toBe(1);
+    expect(runDay(start, clockAt(start, 19))).toBe(1); // 23:57
+    expect(runDay(start, clockAt(start, 19.1))).toBe(2); // 00:03 next day
+    expect(formatClockAt(start, 5.05)).toBe("10:00");
+    expect(formatClockAt(start, 35.4667)).toBe("D2 16:25");
+    expect(formatClockAt(start, 67.5)).toBe("D4 00:27");
+    expect(formatClockAt(start, -6)).toBe(`${formatDate(clockAt(start, -6))} 22:57`);
+  });
+
+  it("formats the span a run models", () => {
+    expect(formatRunSpan(start, 72)).toBe(`${formatDate(start)} 04:57 to ${formatDate(clockAt(start, 72))} 04:57 MDT (72 h)`);
   });
 });

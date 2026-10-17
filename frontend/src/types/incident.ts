@@ -1,5 +1,6 @@
 /** Incident session types for multi-day operational period tracking. */
 
+import type { RunParams } from "../components/WeatherPanel";
 import type { WeatherParams, FWIOverrides } from "./simulation";
 import type { EvacTierRecord } from "../utils/evacZones";
 
@@ -147,6 +148,8 @@ export interface OperationalPeriod {
   situationNarrative: string;
   /** Clock start of this period's run (ISO), to restore its timeline after a reload */
   runStartIso?: string | null;
+  /** The run's inputs (weather, codes, days), for the forms after a reload (R5) */
+  runParams?: RunParams | null;
 }
 
 // ── Incident session ──────────────────────────────────────────────────────────

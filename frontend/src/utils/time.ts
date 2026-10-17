@@ -59,9 +59,36 @@ export function clockAt(start: Date, hours: number): Date {
   return new Date(start.getTime() + hours * 3_600_000);
 }
 
-/** "14:05" wall-clock time `hours` after the scenario start, in America/Edmonton. */
+/** Calendar day of `d` counted from `start`'s date in America/Edmonton (1 = the start date). */
+export function runDay(start: Date, d: Date): number {
+  const a = wallParts(start.getTime());
+  const b = wallParts(d.getTime());
+  return Math.round((Date.UTC(b.y, b.mo - 1, b.d) - Date.UTC(a.y, a.mo - 1, a.d)) / 86_400_000) + 1;
+}
+
+/**
+ * Wall-clock time `hours` after the scenario start, in America/Edmonton: "14:05" on the start
+ * date, "D2 14:05" on a later calendar day (D2 = the day after the start date), and the date
+ * for a time before the start date ("Mon, 12 Oct 22:00", e.g. an earlier run of a restart
+ * chain). Without the day, a 3-day run's arrival at 16:25 on day 2 read as "16:25", and every
+ * row looked like a same-day time (round-3 field test R7).
+ */
 export function formatClockAt(start: Date, hours: number): string {
-  return formatClock(clockAt(start, hours));
+  const t = clockAt(start, hours);
+  const day = runDay(start, t);
+  if (day === 1) return formatClock(t);
+  if (day > 1) return `D${day} ${formatClock(t)}`;
+  return `${formatDate(t)} ${formatClock(t)}`;
+}
+
+/**
+ * The span a run models, e.g. "Tue, 13 Oct 04:57 to Fri, 16 Oct 04:57 MDT (72 h)", for the
+ * EOC console and the ICS forms beside the operational period (round-3 field test R11).
+ */
+export function formatRunSpan(start: Date, hours: number): string {
+  const end = clockAt(start, hours);
+  const h = Math.round(hours * 10) / 10;
+  return `${formatDate(start)} ${formatClock(start)} to ${formatDate(end)} ${formatClock(end)} ${zoneAbbrev(end)} (${h} h)`;
 }
 
 /** Elapsed time as "T+1:05" (hours:minutes, rounded to the minute; hours may exceed 24). */

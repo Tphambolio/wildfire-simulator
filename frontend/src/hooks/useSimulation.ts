@@ -12,6 +12,9 @@ import type {
   WSEvent,
 } from "../types/simulation";
 
+/** Poll retries after transient errors before giving up (about 4 minutes in all). */
+const POLL_RETRIES = 30;
+
 /**
  * Synthetic T=0 frame, prepended only when a run's first frame is after the start, so the
  * scrubber always starts at ignition. The engine's own first frame is at T+0 (the ignition
@@ -43,6 +46,9 @@ interface SimulationState {
   /** Run progress for display (RunProgress): server phase, fraction 0-1, start time */
   phase: RunPhase | null;
   progress: number | null;
+  /** Multi-day runs: the day being computed (1-based) and the number of days */
+  day: number | null;
+  nDays: number | null;
   startedAt: number | null;
   durationHours: number | null;
   /** The run was read from the server's run archive (it finished before the API restarted) */
@@ -61,6 +67,8 @@ const IDLE: SimulationState = {
   isPaused: false,
   phase: null,
   progress: null,
+  day: null,
+  nDays: null,
   startedAt: null,
   durationHours: null,
   archived: false,
@@ -148,6 +156,8 @@ export function useSimulation() {
             ...prev,
             phase: data.phase!,
             progress: typeof data.progress === "number" ? Math.max(prev.progress ?? 0, data.progress) : prev.progress,
+            day: typeof data.day === "number" ? data.day : prev.day,
+            nDays: typeof data.n_days === "number" ? data.n_days : prev.nDays,
           }));
         } else if (data.type === "simulation.frame" && data.frame) {
           received += 1;
@@ -262,11 +272,13 @@ export function useSimulation() {
   }, []);
 
   const pollForResults = useCallback(async (simId: string, token: number, lostMessage?: string) => {
+    let failures = 0;
     const poll = async () => {
       if (token !== runTokenRef.current) return;
       try {
         const resp = await getSimulation(simId);
         if (token !== runTokenRef.current) return;
+        failures = 0;
         const full: SimulationFrame[] = [];
         for (const f of resp.frames) full.push(withAllCells(f, full[full.length - 1]));
         const framesWithT0 = withStartFrame(full);
@@ -281,9 +293,13 @@ export function useSimulation() {
           fuelVintageWarning: resp.fuel_vintage_warning ?? null,
           phase: resp.phase ?? prev.phase,
           progress: typeof resp.progress === "number" ? Math.max(prev.progress ?? 0, resp.progress) : prev.progress,
+          day: typeof resp.day === "number" ? resp.day : prev.day,
+          nDays: typeof resp.n_days === "number" ? resp.n_days : prev.nDays,
         }));
-        if (resp.status === "running") {
-          setTimeout(poll, 1000);
+        if (resp.status === "running" || resp.status === "paused" || resp.status === "pending") {
+          // Each poll returns every frame so far: long runs are polled less often, so the
+          // polls do not take the server's CPU from the run
+          setTimeout(poll, resp.frames.length > 60 ? 3000 : 1000);
         }
       } catch (err) {
         if (token !== runTokenRef.current) return;
@@ -296,8 +312,21 @@ export function useSimulation() {
             error: lostMessage ?? "Simulation lost — the server restarted. Please run the simulation again.",
             isRunning: false,
           }));
+          return;
         }
-        // Other transient network errors are ignored (retry next tick)
+        // A transient failure (timeout, 502 while the server is busy): try again. Polling used
+        // to stop here silently, leaving a run shown as running, or cut short (round-3 R6).
+        failures += 1;
+        if (failures <= POLL_RETRIES) {
+          setTimeout(poll, Math.min(10_000, 1000 * 2 ** Math.min(failures, 4)));
+        } else {
+          setState((prev) => ({
+            ...prev,
+            error: "Lost contact with the simulation server while reading this run. Reload the run to try again.",
+            isRunning: false,
+            status: "failed",
+          }));
+        }
       }
     };
     poll();
@@ -309,8 +338,8 @@ export function useSimulation() {
    * (`archived: true`). A run in neither (removed by the archive's retention, or finished before
    * the archive existed) ends "failed" with a message saying so.
    */
-  const restoreRun = useCallback((simId: string) => {
-    const token = beginRun(null);
+  const restoreRun = useCallback((simId: string, durationHours: number | null = null) => {
+    const token = beginRun(durationHours);
     setState((prev) => ({ ...prev, simulationId: simId }));
     pollForResults(
       simId,

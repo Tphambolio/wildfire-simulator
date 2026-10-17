@@ -670,10 +670,14 @@ class SimulationResponse(BaseModel):
     frames: list[SimulationFrame] = []
     error: str | None = None
     #: Progress for display while running: "loading", "buildings", "spread", "structures",
-    #: "finishing" (None before the run starts or for multi-day runs)
+    #: "finishing" (None before the run starts)
     phase: str | None = None
-    #: Fraction of the spread computed, 0-1 (None until the spread starts)
+    #: Fraction of the spread computed, 0-1 (None until the spread starts); multi-day runs:
+    #: over the whole run
     progress: float | None = None
+    #: Multi-day runs: the day being computed (1-based) and the number of days
+    day: int | None = None
+    n_days: int | None = None
     #: Fuel data the run used (None until the grids are loaded)
     fuel_source: FuelSourceInfo | None = None
     #: Buildings the run used (None until selected, or when the run has none)

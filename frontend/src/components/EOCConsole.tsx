@@ -92,6 +92,8 @@ interface EOCConsoleProps {
   run209?: ICS209RunContext | null;
   /** Active operational period, e.g. "Day 2 · 2026-10-11 08:00–20:00" (forms) */
   operationalPeriod?: string;
+  /** Span the shown run models (beside the operational period in the forms; R11) */
+  runSpan?: string | null;
   /** Active operational period's day (tag on new map annotations) */
   operationalDay?: number;
   /** The active period's saved run, when it is not the run shown (forms say it is not loaded) */
@@ -148,6 +150,7 @@ export default function EOCConsole({
   incidentName: incidentNameProp,
   run209 = null,
   operationalPeriod,
+  runSpan = null,
   operationalDay = 1,
   periodRunId = null,
   onIncidentNameChange,
@@ -424,10 +427,11 @@ export default function EOCConsole({
     mapSnapshotDataUrl: snapshot ?? mapSnapshot,
     annotations: incidentAnnotations,
     operationalPeriod,
+    runSpan: frames.length > 0 ? runSpan : null,
     runId: frames.length > 0
       ? (run209?.simulationId ?? null)
       : periodRunId ? `${periodRunId} (not loaded: use "Load run" above the console)` : null,
-  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, mapSnapshot, incidentAnnotations, operationalPeriod, run209, periodRunId]);
+  }), [incidentName, frames, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, mapSnapshot, incidentAnnotations, operationalPeriod, runSpan, run209, periodRunId]);
 
   // ── Suppression advisory for ICS-209 ─────────────────────────────────────
 

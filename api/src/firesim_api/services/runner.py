@@ -82,6 +82,10 @@ class SimulationRun:
         # Progress for display: phase (RUN_PHASES) and fraction of the spread done (0-1)
         self.phase: str | None = None
         self.progress: float | None = None
+        # Multi-day runs: the day being computed (1-based) and the number of days, sent with
+        # the status messages ("Day 2 of 3"; round-3 field test R12)
+        self.day: int | None = None
+        self.n_days: int | None = None
         self.on_status: Callable[[str, str, float | None], None] | None = None
         self._last_sent: tuple[str | None, float] = (None, -1.0)
         # Fuel data used (FuelSourceInfo fields), set when the grids are loaded
@@ -1212,6 +1216,7 @@ class SimulationRunner:
         self,
         params: MultiDaySimulationCreate,
         on_frame: Callable[[str, SimulationFrame, int], None] | None = None,
+        on_status: Callable[[str, str, float | None], None] | None = None,
     ) -> str:
         """Create and start a multi-day fire scenario.
 
@@ -1223,12 +1228,16 @@ class SimulationRunner:
         Args:
             params: Multi-day simulation parameters.
             on_frame: Callback (sim_id, frame, day_number) for each frame.
+            on_status: Optional callback (sim_id, phase, progress) for progress display;
+                progress is over the whole run, and ``run.day`` / ``run.n_days`` say which day.
 
         Returns:
             Simulation ID.
         """
         sim_id = new_run_id()
         run = SimulationRun(sim_id, params)
+        run.on_status = on_status
+        run.n_days = len(params.days)
 
         self._store(sim_id, run)
 
@@ -1249,8 +1258,12 @@ class SimulationRunner:
         from firesim.spread.huygens import FireVertex
 
         run.status = SimulationStatus.RUNNING
+        n_days = len(params.days)
+        run.n_days = n_days
 
         try:
+            run.day = 1
+            run.set_phase("loading")
             try:
                 fuel_type = FuelType(params.fuel_type)
             except ValueError:
@@ -1294,6 +1307,20 @@ class SimulationRunner:
 
             for day_idx, day_weather in enumerate(params.days):
                 day_num = day_idx + 1
+                run.day = day_num
+                # Progress over the whole run: day k's spread fills [k-1, k] / n_days. The
+                # grid model streams no frames until a day is computed, so without these
+                # messages a 3-day run showed "Starting…" for its whole 35 min (R12), and the
+                # socket carried nothing for minutes at a time.
+                run.set_phase("spread", day_idx / n_days)
+
+                def day_progress(phase: str, frac: float | None = None, _k: int = day_idx) -> None:
+                    # The day's own phases (spread fraction, finishing) report as the run's
+                    # spread; set_phase also stops the computation when the run is cancelled
+                    if phase == "spread" and frac is not None:
+                        run.set_phase("spread", (_k + frac) / n_days)
+                    else:
+                        run.set_phase("spread")
 
                 # Advance FWI state using today's weather (CFFDRS daily equations)
                 day_fwi = fwi_calc.calculate_daily(
@@ -1337,6 +1364,7 @@ class SimulationRunner:
                     spread_modifier_grid=spread_modifier_grid,
                     initial_front=initial_front,
                     initial_burned=initial_burned,
+                    progress=day_progress,
                 )
 
                 last_frame: SimulationFrame | None = None
@@ -1352,6 +1380,8 @@ class SimulationRunner:
                     )
 
                     run.add_frame(adjusted, day=day_num)
+                    run.progress = max(run.progress or 0.0,
+                                       min(1.0, adjusted.time_hours / (24.0 * n_days)))
                     if on_frame is not None:
                         on_frame(run.id, adjusted, day_num)
 
@@ -1394,6 +1424,9 @@ class SimulationRunner:
             else:
                 logger.info("Multi-day simulation %s cancelled", run.id)
 
+        except RunCancelled:
+            run.status = SimulationStatus.CANCELLED
+            logger.info("Multi-day simulation %s cancelled during computation", run.id)
         except Exception as e:
             run.status = SimulationStatus.FAILED
             run.error = str(e)

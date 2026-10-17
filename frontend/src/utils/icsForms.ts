@@ -33,6 +33,8 @@ import type { CriticalReach } from "./assets";
 import { assetLabel, clock } from "./assets";
 import type { IncidentAnnotation } from "../types/incident";
 import { RPAS_NOTE, buildSuppressionAdvisory } from "./suppressionAdvisory";
+import { runScheduleLines } from "./weatherSchedule";
+import { fmtCode } from "./fwiCalc";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -54,6 +56,8 @@ export interface ICSFormOptions {
   operationalPeriod?: string;
   /** FireSim run the model output comes from (null: no run for this period) */
   runId?: string | null;
+  /** Span the run models (formatRunSpan), shown beside the operational period (R11) */
+  runSpan?: string | null;
 }
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -120,9 +124,11 @@ function extractSpreadStats(frames: SimulationFrame[]): SpreadStats | null {
 
 // One source for intensity classes and their meaning (utils/fireClasses.ts).
 interface SuppressionSummary {
-  strategy: string;
-  strategyDetail: string;
-  resources: string[];
+  /** HFI class title, e.g. "Crown fire" (a fire-behaviour class, not a strategy) */
+  title: string;
+  meaning: string;
+  /** Equipment the source associates with the class (not a resource order) */
+  equipment: string[];
   intensityClass: string;
   feasible: boolean;
 }
@@ -130,9 +136,9 @@ interface SuppressionSummary {
 function buildSuppressionSummary(spread: SpreadStats): SuppressionSummary {
   const adv = buildSuppressionAdvisory(spread);
   return {
-    strategy: adv.strategy,
-    strategyDetail: adv.strategyDetail,
-    resources: adv.resources,
+    title: adv.strategy,
+    meaning: adv.strategyDetail,
+    equipment: adv.resources,
     intensityClass: String(adv.intensityClass),
     feasible: adv.suppressionFeasible,
   };
@@ -281,6 +287,7 @@ function incidentInfoBlock(opts: ICSFormOptions, extra?: Array<[string, string]>
   }
   if (opts.fuelTypeLabel) rows.push(["Primary Fuel Type", opts.fuelTypeLabel]);
   if (opts.operationalPeriod) rows.push(["Operational Period", opts.operationalPeriod]);
+  if (opts.runSpan) rows.push(["Modelled period (FireSim run)", opts.runSpan]);
   if (opts.runId !== undefined) {
     rows.push(["FireSim Run (model output)", opts.runId ?? "No run for this operational period"]);
   }
@@ -309,19 +316,18 @@ export function buildICS201HTML(opts: ICSFormOptions): string {
   }
   situationItems.push(...evacStatusItems(opts));
 
-  const weatherRows: Array<[string, string]> = rp ? [
-    ["Wind Speed", `${rp.weather.wind_speed} km/h ${windDirLabel(rp.weather.wind_direction)}`],
-    ["Temperature", `${rp.weather.temperature}°C`],
-    ["Relative Humidity", `${rp.weather.relative_humidity}%`],
-    ["FFMC / DMC / DC", `${rp.fwi.ffmc} / ${rp.fwi.dmc} / ${rp.fwi.dc}`],
-    ["FWI / Danger Rating", `${rp.fwi_value.toFixed(1)} — ${rp.danger_rating}`],
-  ] : [["Status", "Weather parameters not yet entered."]];
+  const weatherRows = weatherOutlookRows(rp);
 
   const objectiveItems = buildObjectives(opts, spread, suppression);
 
-  const resourceRows: Array<[string, string]> = suppression
-    ? suppression.resources.map((r) => ["Resource", r])
-    : [["Status", "Run simulation to generate resource advisory."]];
+  // Resources are Operations' and Logistics' to enter; the class's equipment is context only
+  const resourceRows: Array<[string, string]> = [["Resources assigned", "ENTER (Operations / Logistics)"]];
+  if (suppression) {
+    resourceRows.push([
+      "Model context (not a resource order)",
+      `HFI class ${suppression.intensityClass} equipment per Cole & Alexander (1995): ${suppression.equipment.join("; ")}`,
+    ]);
+  }
 
   return wrapForm("ICS 201 – Incident Briefing", [
     icsBlock("A", "Incident Information", incidentInfoBlock(opts)),
@@ -348,19 +354,19 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
 
   const objectiveItems = buildObjectives(opts, spread, suppression);
 
-  const commandItems = suppression ? [
-    `Strategy: ${suppression.strategy}`,
-    suppression.strategyDetail,
-    suppression.feasible
-      ? "Aggressive initial attack authorized where tactically safe."
-      : "No direct attack. Defensive posture — structure protection and life safety only.",
-  ] : ["Command emphasis not yet determined — run simulation to generate advisory."];
+  // Command emphasis is the IC's; the HFI class meaning follows as labelled model context
+  // (it used to read "Aggressive initial attack authorized" / "No direct attack. Defensive
+  // posture": instructions the model must not give; round-3 field test R4)
+  const commandItems = ["ENTER: command emphasis (IC)"];
+  if (suppression) {
+    commandItems.push(`Model context: HFI class ${suppression.intensityClass} (${suppression.title}). ${suppression.meaning} (Class interpretation, not a strategy.)`);
+  }
 
   const awarenessItems: string[] = [];
   if (spread) {
-    if (!suppression!.feasible) awarenessItems.push("EXTREME fire behaviour — withdraw all resources from danger zone immediately");
-    if (spread.spotCount > 0) awarenessItems.push(`Active spotting — ${spread.spotCount} events detected, max ${spread.maxSpotDistM.toFixed(0)} m throw`);
-    if (spread.fireType.toLowerCase().includes("crown")) awarenessItems.push("Crown fire conditions — unpredictable rate of spread, extreme ember cast");
+    if (!suppression!.feasible) awarenessItems.push(`Modelled head fire intensity class ${suppression!.intensityClass} (${suppression!.title}): direct attack at the head generally not possible per the class interpretation (model output)`);
+    if (spread.spotCount > 0) awarenessItems.push(`Modelled spotting: ${spread.spotCount} events, max ${spread.maxSpotDistM.toFixed(0)} m (model output, illustrative)`);
+    if (spread.fireType.toLowerCase().includes("crown")) awarenessItems.push("Crown fire modelled (model output)");
   }
   awarenessItems.push(...evacStatusItems(opts));
   awarenessItems.push(...reachedItems(opts));
@@ -374,11 +380,7 @@ export function buildICS202HTML(opts: ICSFormOptions): string {
   // No distance rule here: crew separation from a crown fire head is set by the IC / Operations
   if (spread?.fireType.toLowerCase().includes("crown")) safetyItems.push("Crown fire modelled: crew positioning near the head per IC / Operations");
 
-  const weatherRows: Array<[string, string]> = rp ? [
-    ["Wind", `${rp.weather.wind_speed} km/h ${windDirLabel(rp.weather.wind_direction)}`],
-    ["Temp / RH", `${rp.weather.temperature}°C / ${rp.weather.relative_humidity}%`],
-    ["FWI", `${rp.fwi_value.toFixed(1)} — ${rp.danger_rating}`],
-  ] : [["Status", "Weather not yet entered."]];
+  const weatherRows = weatherOutlookRows(rp);
 
   const controlItems = evacStatusItems(opts);
   if (controlItems.length === 0) controlItems.push("Evacuation status: none set by Planning.");
@@ -467,8 +469,8 @@ export function buildICS204HTML(opts: ICSFormOptions): string {
   if (divisions.length === 0) {
     divisions.push({
       name: "Division A — General Operations",
-      objectives: ["Division assignments are entered by Operations."],
-      resources: suppression?.resources ?? ["Resources to be determined"],
+      objectives: ["ENTER: division assignments (Operations)"],
+      resources: ["ENTER: resources assigned (Operations)"],
       safety: "LACES protocol mandatory. Verify escape routes and safety zones before deployment.",
     });
   }
@@ -537,7 +539,10 @@ export function buildICS204HTML(opts: ICSFormOptions): string {
     icsBlock("1", "Incident Information", incidentInfoBlock(opts)),
     icsBlock("2", "Operations Overview", kvTable([
       ["Operations Section Chief", "TBD — manual entry"],
-      ["Suppression Strategy", suppression?.strategy ?? "Pending simulation"],
+      ["Strategy", "ENTER (Operations)"],
+      ...(suppression
+        ? [["Model context (not a strategy)", `Peak head fire intensity class ${suppression.intensityClass}: ${suppression.title}`] as [string, string]]
+        : []),
       ["Active Divisions", divisions.map((d) => d.name).join("; ")],
     ])),
     ...divBlocks,
@@ -859,6 +864,42 @@ export function buildFullIAPHTML(opts: ICSFormOptions): string {
 </html>`;
 }
 
+// ── Weather outlook (run inputs, labelled) ────────────────────────────────────
+
+/**
+ * Weather outlook rows (ICS 201 block C, ICS 202 block 6): the run's inputs, labelled as such,
+ * then the forecast synopsis for Planning to enter. Multi-day runs list each day's weather.
+ * With no run for the period, the block asks for the forecast (round-3 field test R5: the
+ * block said "Weather not yet entered" although the run had weather).
+ */
+export function weatherOutlookRows(rp: RunParams | null): Array<[string, string]> {
+  if (!rp) return [["Forecast synopsis", "ENTER (no FireSim run for this operational period)"]];
+  const rows: Array<[string, string]> = [["Source", "FireSim run inputs (not a forecast)"]];
+  const codes = `${fmtCode(rp.fwi.ffmc)} / ${fmtCode(rp.fwi.dmc)} / ${fmtCode(rp.fwi.dc)}`;
+  if (rp.multi_day_days?.length) {
+    rp.multi_day_days.forEach((d, i) => {
+      rows.push([
+        `Day ${i + 1} (daily weather)`,
+        `${d.wind_speed} km/h ${windDirLabel(d.wind_direction)} · ${d.temperature}°C · RH ${d.relative_humidity}% · ${d.precipitation_24h} mm`,
+      ]);
+    });
+    rows.push(["Starting FFMC / DMC / DC", `${codes} (carried over day to day)`]);
+  } else {
+    rows.push(
+      ["Wind", `${rp.weather.wind_speed} km/h ${windDirLabel(rp.weather.wind_direction)}`],
+      ["Temperature / RH", `${rp.weather.temperature}°C / ${rp.weather.relative_humidity}%`],
+      ["Precipitation (24 h)", `${rp.weather.precipitation_24h ?? 0} mm`],
+      ["FFMC / DMC / DC", codes],
+      ["FWI", `${rp.fwi_value.toFixed(1)} — ${rp.danger_rating} (CWFIS FWI map class)`],
+    );
+    const sched = runScheduleLines(rp);
+    if (sched.length) rows.push(["Weather changes during the run", sched.join("; then ")]);
+    if (rp.hourly_forecast) rows.push(["Hourly weather", "Hourly forecast weather used by the run"]);
+  }
+  rows.push(["Forecast synopsis", "ENTER (from the forecast)"]);
+  return rows;
+}
+
 // ── Evacuation status (set by Planning) ───────────────────────────────────────
 
 /** "Evacuation Order (set by Planning): A, B" lines, as entered; nothing when none is set. */
@@ -893,22 +934,29 @@ export function reachedItems(opts: Pick<ICSFormOptions, "criticalReach">): strin
   return items;
 }
 
-// ── Shared objectives builder ─────────────────────────────────────────────────
+// ── Objectives: Planning's to write ───────────────────────────────────────────
 
+/** Placeholder for a block Planning, the IC or Operations fills in (never the model). */
+export const ENTER_OBJECTIVE = "ENTER: objective (set by Planning / IC)";
+
+/**
+ * ICS 201 block D and ICS 202 block 2. FireSim does not write objectives or tactics: an
+ * earlier version wrote "Contain fire within <final area x 1.2> ha by end of operational
+ * period" and "Execute <HFI class title> tactics per suppression advisory" (round-2 finding M9;
+ * round-3 field test R4, Claude in Chrome tester, 2026-10-13). The block is three ENTER lines,
+ * then model context lines, each labelled as model output and never phrased as an objective.
+ */
 function buildObjectives(
-  _opts: ICSFormOptions,
+  _opts: Pick<ICSFormOptions, "frames">,
   spread: SpreadStats | null,
   suppression: SuppressionSummary | null,
 ): string[] {
-  const objectives: string[] = [];
+  const items = [ENTER_OBJECTIVE, ENTER_OBJECTIVE, ENTER_OBJECTIVE];
   if (spread) {
-    objectives.push(`Contain fire within ${(spread.finalAreaHa * 1.2).toFixed(0)} ha by end of operational period`);
+    items.push(`Model context: modelled area at the end of the run ${spread.finalAreaHa.toFixed(1)} ha, no suppression (model output, not an objective).`);
   }
   if (suppression) {
-    objectives.push(`Execute ${suppression.strategy} tactics per suppression advisory (Intensity Class ${suppression.intensityClass})`);
+    items.push(`Model context: peak head fire intensity class ${suppression.intensityClass}, ${suppression.title} (Cole & Alexander 1995 class; model output, not a tactic).`);
   }
-  if (objectives.length === 0) {
-    objectives.push("Run simulation to generate specific measurable objectives.");
-  }
-  return objectives;
+  return items;
 }

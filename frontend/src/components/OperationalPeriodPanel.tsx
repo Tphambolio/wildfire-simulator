@@ -17,6 +17,11 @@ export interface PeriodRunInfo {
   onLoad?: () => void;
   /** The run shown was loaded from the server's run archive (not its memory) */
   fromArchive?: boolean;
+  /** Span the shown run models, e.g. "Tue, 13 Oct 04:57 to Fri, 16 Oct 04:57 MDT (72 h)";
+   * a 3-day run under a Day 1 08:00-20:00 period read as if it covered that period only (R11) */
+  span?: string | null;
+  /** The run models beyond this operational period's end */
+  beyondPeriod?: boolean;
 }
 
 interface OperationalPeriodPanelProps {
@@ -123,6 +128,11 @@ export default function OperationalPeriodPanel({
           <span>Day {activePeriod.day} · {activePeriod.date} · {activePeriod.opPeriodStart}–{activePeriod.opPeriodEnd}</span>
           {typeof lastArea === "number" && Number.isFinite(lastArea) && (
             <span className="op-period-stats">{lastArea.toFixed(1)} ha burned</span>
+          )}
+          {run?.liveRunShown && run.span && (
+            <span className="op-period-span" data-testid="period-run-span">
+              Modelled {run.span}{run.beyondPeriod ? " (beyond this operational period)" : ""}
+            </span>
           )}
           {run && (
             <span className="op-period-run" data-testid="period-run">

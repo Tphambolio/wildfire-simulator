@@ -23,6 +23,7 @@
  */
 
 import { runScheduleLines } from "./weatherSchedule";
+import { fmtCode } from "./fwiCalc";
 import type { SimulationFrame, BurnProbabilityResponse } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 import type { PlanningEvacZone } from "./evacZones";
@@ -413,8 +414,11 @@ export function buildICS209HTML(opts: ICS209Options): string {
   const evacNote = evacZones && evacZones.length > 0
     ? `<div class="note">Evacuation status set by Planning (reported as entered, never generated):</div><ul class="res">${evacZones.map((z) => `<li><strong>${esc(z.tier)}</strong>: ${esc(z.neighbourhoods.join(", "))}</li>`).join("")}</ul>`
     : "";
-  const weather = runParams
-    ? `Inputs used by the run (not a forecast): wind ${runParams.weather.wind_speed} km/h from ${runParams.weather.wind_direction}° (${esc(windDirLabel(runParams.weather.wind_direction))}), ${runParams.weather.temperature} °C, RH ${runParams.weather.relative_humidity} %, precipitation ${runParams.weather.precipitation_24h ?? 0} mm; FFMC ${runParams.fwi.ffmc ?? "—"}, DMC ${runParams.fwi.dmc ?? "—"}, DC ${runParams.fwi.dc ?? "—"}, ISI ${runParams.isi.toFixed(1)}, BUI ${runParams.bui.toFixed(0)}, FWI ${runParams.fwi_value.toFixed(1)} (${esc(runParams.danger_rating)}, CWFIS FWI map class).${runScheduleLines(runParams).length ? `<div>Weather changes during the run (manual schedule; FFMC and ISI recomputed hourly from the codes above): ${runScheduleLines(runParams).map(esc).join("; then ")}.</div>` : ""}<div class="note">Add the current and predicted weather synopsis from the forecast.</div>`
+  const mdDays = runParams?.multi_day_days ?? null;
+  const weather = runParams && mdDays?.length
+    ? `Inputs used by the run (not a forecast), daily weather per day: ${mdDays.map((d, i) => `Day ${i + 1} wind ${d.wind_speed} km/h from ${d.wind_direction}° (${esc(windDirLabel(d.wind_direction))}), ${d.temperature} °C, RH ${d.relative_humidity} %, ${d.precipitation_24h} mm`).join("; ")}. Starting FFMC ${fmtCode(runParams.fwi.ffmc)}, DMC ${fmtCode(runParams.fwi.dmc)}, DC ${fmtCode(runParams.fwi.dc)}, carried over day to day with the CFFDRS daily equations.<div class="note">Add the current and predicted weather synopsis from the forecast.</div>`
+    : runParams
+    ? `Inputs used by the run (not a forecast): wind ${runParams.weather.wind_speed} km/h from ${runParams.weather.wind_direction}° (${esc(windDirLabel(runParams.weather.wind_direction))}), ${runParams.weather.temperature} °C, RH ${runParams.weather.relative_humidity} %, precipitation ${runParams.weather.precipitation_24h ?? 0} mm; FFMC ${fmtCode(runParams.fwi.ffmc)}, DMC ${fmtCode(runParams.fwi.dmc)}, DC ${fmtCode(runParams.fwi.dc)}, ISI ${runParams.isi.toFixed(1)}, BUI ${runParams.bui.toFixed(0)}, FWI ${runParams.fwi_value.toFixed(1)} (${esc(runParams.danger_rating)}, CWFIS FWI map class).${runScheduleLines(runParams).length ? `<div>Weather changes during the run (manual schedule; FFMC and ISI recomputed hourly from the codes above): ${runScheduleLines(runParams).map(esc).join("; then ")}.</div>` : ""}<div class="note">Add the current and predicted weather synopsis from the forecast.</div>`
     : "";
 
   const projRows = projections.map((p) => {
@@ -527,7 +531,7 @@ export function buildICS209HTML(opts: ICS209Options): string {
       block("Peak HFI", "model", `${peakHfi.toFixed(0)} kW/m`, "w2"),
       block("Fire type (end of period)", "model", esc((final?.fire_type ?? "—").replace(/_/g, " ")), "w2"),
       block("Flame length", "model", final && final.flame_length_m > 0 ? `${final.flame_length_m.toFixed(1)} m` : "—", "w1"),
-      block("Ember spotting", "model", spotCount > 0 ? `${spotCount} events · max ${maxSpotDist.toFixed(0)} m (illustrative)` : "None modelled", "w2"),
+      block("Ember spotting", "model", spotCount > 0 ? `${spotCount} events · max ${maxSpotDist.toFixed(0)} m (illustrative)` : mdDays?.length ? "Not modelled (multi-day run)" : runParams?.spotting === false ? "Off (not modelled)" : "None modelled", "w2"),
     )}
     ${burnProbBlock}
     ${suppBlock}`;

@@ -204,12 +204,69 @@ describe("evacuation status set by Planning", () => {
     expect(zones[0].features.map(featureName)).toEqual(["A"]); // no polygon for "Unknown"
     const fc = planningZonesToGeoJSON(zones);
     expect(fc.features.map((f) => f.properties)).toEqual([
-      { neighbourhood: "A", evac_tier: "Order", map_label: "ORDER", set_by: "Planning", set_at: "x" },
-      { neighbourhood: "C", evac_tier: "Watch", map_label: "WATCH", set_by: "Planning", set_at: "x" },
+      { neighbourhood: "A", evac_tier: "Order", map_label: "ORDER", set_by: "Planning", set_at: "x", set_at_local: null },
+      { neighbourhood: "C", evac_tier: "Watch", map_label: "WATCH", set_by: "Planning", set_at: "x", set_at_local: null },
     ]);
   });
 
   it("nothing is generated: no records, no zones, whatever the fire does", () => {
     expect(planningZones([], edmonton)).toEqual([]);
+  });
+});
+
+// ── Round-3 field test (Claude in Chrome tester, 2026-10-13) ─────────────────
+
+import { evacStatusExport, firePoints } from "./evacZones";
+
+describe("multi-day arrival times (R7)", () => {
+  // Three 24 h days; each day's cell `t` counts from that day's start and the cells carried
+  // from earlier days start each day at t = 0 (the API's multi-day frames)
+  const cell = (lat: number, t: number) => ({ lat, lng: -113.5, intensity: 100, fuel: "O1a", t });
+  const days: SimulationFrame[] = [
+    frame(12, [], { day: 1, burned_cells: [cell(53.50, 0), cell(53.51, 300)] }),
+    frame(24, [], { day: 1, burned_cells: [cell(53.50, 0), cell(53.51, 300), cell(53.52, 900)] }),
+    frame(36, [], { day: 2, burned_cells: [cell(53.50, 0), cell(53.51, 0), cell(53.52, 0), cell(53.53, 685)] }),
+    frame(48, [], { day: 2, burned_cells: [cell(53.50, 0), cell(53.51, 0), cell(53.52, 0), cell(53.53, 685)] }),
+    frame(72, [], { day: 3, burned_cells: [cell(53.50, 0), cell(53.51, 0), cell(53.52, 0), cell(53.53, 0), cell(53.54, 60)] }),
+  ];
+
+  it("keeps each cell's true time across days (not the run start)", () => {
+    const h = new Map(firePoints(days).map((p) => [p.lat.toFixed(2), p.h]));
+    expect(h.get("53.50")).toBe(0);
+    expect(h.get("53.51")).toBe(5);
+    expect(h.get("53.52")).toBe(15);
+    expect(h.get("53.53")).toBeCloseTo(24 + 685 / 60, 6); // day 2, 11:25 after its start
+    expect(h.get("53.54")).toBe(49); // day 3, 1 h after its start
+  });
+
+  it("gives the same times from incremental frames", () => {
+    const incremental: SimulationFrame[] = [
+      days[0],
+      { ...days[1], burned_cells: [cell(53.52, 900)], cells_offset: 2 },
+      days[2], // a day boundary is sent whole
+      { ...days[3], burned_cells: [], cells_offset: 4 },
+      days[4],
+    ];
+    expect(firePoints(incremental).map((p) => p.h)).toEqual(firePoints(days).map((p) => p.h));
+  });
+
+  it("shows the day for a later calendar day: 'D2 16:25', not the start time", () => {
+    const start = new Date("2026-10-13T04:57:00-06:00");
+    expect(arrivalLabel(5, start)).toBe("Fire within 500 m by 09:57");
+    expect(arrivalLabel(24 + 685 / 60, start)).toBe("Fire within 500 m by D2 16:22");
+    expect(arrivalLabel(49, start)).toBe("Fire within 500 m by D3 05:57");
+  });
+});
+
+describe("evacuation-status export times (R2)", () => {
+  it("adds America/Edmonton local time with its offset beside UTC", () => {
+    const zones = planningZones([{ neighbourhood: "A", tier: "Order", setAt: "2026-10-13T15:12:00.000Z" }], collection([neighbourhood("A", 0.05)]));
+    const out = evacStatusExport(zones, "Test", Date.parse("2026-10-13T16:00:00Z"));
+    expect(out.features[0].properties).toMatchObject({ set_at: "2026-10-13T15:12:00.000Z", set_at_local: "2026-10-13T09:12:00-06:00" });
+    expect(out.metadata).toMatchObject({
+      exported_at: "2026-10-13T16:00:00.000Z",
+      exported_at_local: "2026-10-13T10:00:00-06:00",
+      time_zone: "America/Edmonton",
+    });
   });
 });

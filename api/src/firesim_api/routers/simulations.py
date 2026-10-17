@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
@@ -103,21 +104,35 @@ def _on_frame(sim_id: str, frame: SimulationFrame) -> None:
         ws_manager.frames_added_from_thread(sim_id)
 
 
-def _status_event(sim_id: str, phase: str, progress: float | None) -> dict:
-    """Small progress message (display only): phase in RUN_PHASES, progress 0-1 or None."""
-    return {
+def _status_event(sim_id: str, phase: str, progress: float | None,
+                  day: int | None = None, n_days: int | None = None) -> dict:
+    """Small progress message (display only): phase in RUN_PHASES, progress 0-1 or None;
+    multi-day runs add the day being computed and the number of days."""
+    event = {
         "type": "simulation.status",
         "simulation_id": sim_id,
         "phase": phase,
         "progress": None if progress is None else round(progress, 3),
     }
+    if n_days is not None:
+        event["day"] = day
+        event["n_days"] = n_days
+    return event
+
+
+def _run_status_event(run: SimulationRun) -> dict:
+    """The run's current status message (late join, heartbeat)."""
+    return _status_event(run.id, run.phase or "loading",
+                         run.progress if run.phase == "spread" else None, run.day, run.n_days)
 
 
 def _on_status(sim_id: str, phase: str, progress: float | None) -> None:
     """Callback from the simulation thread: broadcast the run's phase and progress."""
     if ws_manager is None:
         return
-    ws_manager.broadcast_from_thread(sim_id, _status_event(sim_id, phase, progress))
+    run = runner.get(sim_id) if runner is not None else None
+    day, n_days = (run.day, run.n_days) if run is not None else (None, None)
+    ws_manager.broadcast_from_thread(sim_id, _status_event(sim_id, phase, progress, day, n_days))
 
 
 def _on_multiday_frame(sim_id: str, frame: SimulationFrame, day: int) -> None:
@@ -264,6 +279,8 @@ def _response_for(run: SimulationRun) -> SimulationResponse:
         error=error,
         phase=phase,
         progress=progress,
+        day=run.day if run.n_days is not None else None,
+        n_days=run.n_days,
         fuel_source=run.fuel_source,
         buildings_source=getattr(run, "buildings_source", None),
         terrain_source=getattr(run, "terrain_source", None),
@@ -475,6 +492,10 @@ async def cancel_ensemble(sim_id: str) -> dict:
 
 _LIVE_STATUSES = (SimulationStatus.PENDING, SimulationStatus.RUNNING, SimulationStatus.PAUSED)
 
+#: Seconds of silence on a running run's socket before the handler re-sends the run's status
+#: (keeps the connection alive through proxies during long computations; round-3 field test R6)
+HEARTBEAT_S = 15.0
+
 
 def _frame_events(run: SimulationRun, sim_id: str, start: int) -> tuple[list[str], int]:
     """JSON texts of the run's frames from index ``start`` on, and the new frame count.
@@ -540,8 +561,8 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
     try:
         # A client joining a run still computing gets its current phase first
         if run.status == SimulationStatus.RUNNING and run.phase is not None:
-            await websocket.send_json(
-                _status_event(sim_id, run.phase, run.progress if run.phase == "spread" else None))
+            await websocket.send_json(_run_status_event(run))
+        last_sent = time.monotonic()
         while True:
             # Status before frames (see get_simulation): a terminal status read first means
             # every frame is already in the run
@@ -549,12 +570,21 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
             texts, sent = await run_in_threadpool(_frame_events, run, sim_id, sent)
             for text in texts:
                 await websocket.send_text(text)
+            if texts:
+                last_sent = time.monotonic()
             if status not in _LIVE_STATUSES:
                 break
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
+                # Heartbeat: a long computation (a multi-day run's day, a large grid run)
+                # can leave the socket silent for minutes, and proxies close idle sockets.
+                # The client keeps the last status; old clients ignore the repeat.
+                if time.monotonic() - last_sent >= HEARTBEAT_S and status == SimulationStatus.RUNNING:
+                    await websocket.send_json(_run_status_event(run))
+                    last_sent = time.monotonic()
                 continue
+            last_sent = time.monotonic()
             if event is None:
                 return  # client disconnected
             if event.get("type") != "_frames_added":
@@ -614,7 +644,7 @@ async def create_multiday_simulation(params: MultiDaySimulationCreate) -> Simula
     if runner is None:
         raise HTTPException(status_code=500, detail="Runner not initialized")
 
-    sim_id = runner.create_multiday(params, on_frame=_on_multiday_frame)
+    sim_id = runner.create_multiday(params, on_frame=_on_multiday_frame, on_status=_on_status)
 
     return SimulationResponse(
         simulation_id=sim_id,

@@ -59,6 +59,29 @@ export function spinupFromMs(startMs: number, offsetAt: OffsetFn = edmontonOffse
   return startMs - Math.round(back * 3600) * 1000;
 }
 
+/**
+ * A run starting outside the burning period: hours until it opens (no spread is modelled
+ * before then), else null. Round-3 field test R3: a 72 h run started at 04:57 with no word
+ * that its first 5 h model no spread.
+ */
+export function hoursUntilBurning(
+  startMs: number,
+  bp: BurningPeriod,
+  offsetAt: OffsetFn = edmontonOffsetMinutes,
+): number | null {
+  if (inBurningPeriod(startMs, 0, bp, offsetAt)) return null;
+  const clock = localHour(startMs, offsetAt);
+  return (((bp.start_hour - clock) % 24) + 24) % 24;
+}
+
+/** "5 h 03 min" / "45 min" for a wait in hours. */
+export function formatWait(hours: number): string {
+  const total = Math.round(hours * 60);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h > 0 ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min`;
+}
+
 /** True if `hoursFromStart` falls inside the burning period ([start, end) each day). */
 export function inBurningPeriod(
   startMs: number,

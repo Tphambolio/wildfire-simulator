@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import RunProgress, { PHASE_LABEL, formatElapsedSeconds } from "./RunProgress";
+import RunProgress, { PHASE_LABEL, etaText, formatElapsedSeconds } from "./RunProgress";
 import { frameProgress } from "../hooks/useSimulation";
 
 describe("RunProgress", () => {
@@ -46,5 +46,21 @@ describe("RunProgress", () => {
     expect(frameProgress(0.5, 1, 4)).toBe(0.5); // never goes back
     expect(frameProgress(null, 9, 4)).toBe(1);
     expect(frameProgress(0.3, 1, null)).toBe(0.3);
+  });
+});
+
+describe("RunProgress for multi-day runs (round-3 field test R12)", () => {
+  it("shows the day being computed and a rough time left", () => {
+    render(<RunProgress phase="spread" progress={0.5} startedAt={Date.now() - 600_000} day={2} nDays={3} />);
+    const box = screen.getByTestId("run-progress");
+    expect(box).toHaveTextContent("Day 2 of 3 · Running spread… 50 %");
+    expect(screen.getByTestId("run-progress-eta")).toHaveTextContent("about 10 min left");
+  });
+
+  it("estimates nothing too early", () => {
+    expect(etaText(10, 0.5)).toBeNull();
+    expect(etaText(100, 0.02)).toBeNull();
+    expect(etaText(100, 1)).toBeNull();
+    expect(etaText(600, 0.95)).toBe("under a minute left");
   });
 });

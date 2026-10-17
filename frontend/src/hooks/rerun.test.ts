@@ -203,3 +203,34 @@ describe("useEnsemble: the poll follows the current run only", () => {
     expect(api.getEnsemble).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── Round-3 field test (Claude in Chrome tester, 2026-10-13) ─────────────────
+
+describe("useSimulation: multi-day progress and lost connections (R6, R12)", () => {
+  it("keeps the day being computed from the status messages", async () => {
+    api.createMultiDaySimulation.mockResolvedValue({ simulation_id: "md" });
+    const { result } = renderHook(() => useSimulation());
+    await act(() => result.current.startMultiDaySimulation({ days: [{}, {}, {}] } as never));
+    act(() => FakeSocket.all[0].emit({ type: "simulation.status", simulation_id: "md", phase: "spread", progress: 0.45, day: 2, n_days: 3 }));
+    expect(result.current.phase).toBe("spread");
+    expect(result.current.progress).toBe(0.45);
+    expect(result.current.day).toBe(2);
+    expect(result.current.nDays).toBe(3);
+    expect(result.current.durationHours).toBe(72);
+  });
+
+  it("keeps polling after a transient error when the socket drops (it used to stop silently)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.createMultiDaySimulation.mockResolvedValue({ simulation_id: "md" });
+    api.getSimulation
+      .mockRejectedValueOnce(new Error("502 Bad Gateway"))
+      .mockResolvedValueOnce({ simulation_id: "md", status: "completed", frames: [frame(24, 10), frame(72, 30)], error: null });
+    const { result } = renderHook(() => useSimulation());
+    await act(() => result.current.startMultiDaySimulation({ days: [{}, {}, {}] } as never));
+    act(() => FakeSocket.all[0].onclose?.());
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    await waitFor(() => expect(result.current.status).toBe("completed"));
+    expect(api.getSimulation).toHaveBeenCalledTimes(2);
+    expect(result.current.frames.at(-1)!.time_hours).toBe(72);
+  });
+});
