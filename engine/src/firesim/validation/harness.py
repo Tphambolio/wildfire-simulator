@@ -56,6 +56,7 @@ from firesim.validation.metrics import (
     overlap_scores,
     within_cruz_alexander,
 )
+from firesim.validation.start_strata import StartPerimeterDiagnostic, growth_ratio, start_type
 
 EIGHT = np.ones((3, 3), dtype=bool)
 
@@ -428,15 +429,25 @@ def score_day(case: FireDayCase, arrival: np.ndarray, opts: RunOptions) -> dict:
     out: dict = {}
 
     obs_head = head_spread(excluded, obs_growth, dom.dx, dom.dy)
+    # Start-perimeter diagnostics (backlog A2; descriptive, no effect on any score): static
+    # share of the start perimeter, observed and modelled, against the same start area
+    diag = StartPerimeterDiagnostic(
+        excluded, obs_growth | (arrival <= max(opts.windows_h) * 60.0), dom.dx, dom.dy)
+    out["start_perimeter_obs"] = {"n_samples": diag.n_samples, **diag.summary(obs_growth)}
     for w in opts.windows_h:
         pred_growth = (arrival <= w * 60.0) & ~excluded
         s = overlap_scores(pred_growth, obs_growth, cell)
         c = overlap_scores(pred_growth | prior | start, obs_cum, cell)
         key = f"{w:g}h"
+        sp = diag.summary(pred_growth)
         out[key] = {
             **{k: v for k, v in s.as_dict().items()},
             "hausdorff_m": hausdorff_m(pred_growth, obs_growth, dom.dx, dom.dy),
             "cum_f1": c.f1, "cum_iou": c.iou,
+            "growth_ratio": growth_ratio(s.area_pred, s.area_obs),
+            "static_share_model": sp["static_share"],
+            "share_adv_gt_3km_model": sp["share_adv_gt_3km"],
+            "adv_median_km_model": sp["adv_median_km"],
         }
         ph = head_spread(excluded, pred_growth, dom.dx, dom.dy)
         if ph is not None and obs_head is not None:
@@ -498,6 +509,7 @@ def run_fire_day(case: FireDayCase, opts: RunOptions = RunOptions(),
         "res_m": round(min(case.domain.dx, case.domain.dy), 1),
         "grid": [case.domain.rows, case.domain.cols],
         "mean_ws_kmh": float(np.mean([h.wind_speed for h in case.hourly[:17]])),
+        **start_type(case.domain.dob, case.day, case.domain.cell_area_m2),
         "members": {},
     }
     burn_count = None
@@ -506,7 +518,8 @@ def run_fire_day(case: FireDayCase, opts: RunOptions = RunOptions(),
         scores = score_day(case, res["arrival"], opts)
         scores["run_s"] = res["run_s"]
         rec["fmc"] = res["fmc"]
-        for k in ("obs_growth_ha", "initial_ha", "obs_growth_fuel", "obs_head_bearing_deg"):
+        for k in ("obs_growth_ha", "initial_ha", "obs_growth_fuel", "obs_head_bearing_deg",
+                  "start_perimeter_obs"):
             rec[k] = scores.pop(k)
         rec["members"][m.name] = scores
         if len(members) > 1:
