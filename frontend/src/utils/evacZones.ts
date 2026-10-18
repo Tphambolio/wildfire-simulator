@@ -12,7 +12,7 @@
  */
 
 import type { SimulationFrame } from "../types/simulation";
-import { TIME_ZONE, formatClockAt, formatElapsed, toEdmontonIso } from "./time";
+import { TIME_ZONE, formatClockAt, formatElapsed, isMultiDayRun, toEdmontonIso } from "./time";
 
 // ── Evacuation status (set by Planning) ─────────────────────────────────────
 
@@ -413,7 +413,7 @@ export function firePoints(frames: SimulationFrame[]): { lat: number; lng: numbe
   const out: { lat: number; lng: number; h: number }[] = [];
   if (hasCells) {
     const incremental = frames.some((f) => (f.cells_offset ?? 0) > 0);
-    const multiDay = frames.some((f) => (f.day ?? 1) > 1);
+    const multiDay = isMultiDayRun(frames);
     const last = frames[frames.length - 1];
     const allTimed = !incremental && !multiDay && (last.burned_cells ?? []).every((c) => c.t !== undefined && c.t !== null);
     if (allTimed) {
@@ -601,13 +601,13 @@ function preferSpecific(
 }
 
 /** "Fire within 500 m by 15:32" (or "by T+1:05" without a start time). */
-export function arrivalLabel(arrivalHours: number, start: Date | null, bufferM: number = ARRIVAL_BUFFER_M): string {
-  return `Fire within ${bufferM} m by ${arrivalTime(arrivalHours, start)}`;
+export function arrivalLabel(arrivalHours: number, start: Date | null, bufferM: number = ARRIVAL_BUFFER_M, multiDay = false): string {
+  return `Fire within ${bufferM} m by ${arrivalTime(arrivalHours, start, multiDay)}`;
 }
 
-/** "15:32" (or "T+1:05" without a start time). */
-export function arrivalTime(arrivalHours: number, start: Date | null): string {
-  return start ? formatClockAt(start, arrivalHours) : formatElapsed(arrivalHours);
+/** "15:32" (or "T+1:05" without a start time); "D1 15:32" in a multi-day run. */
+export function arrivalTime(arrivalHours: number, start: Date | null, multiDay = false): string {
+  return start ? formatClockAt(start, arrivalHours, multiDay) : formatElapsed(arrivalHours);
 }
 
 /**
@@ -618,6 +618,7 @@ export function arrivalsToGeoJSON(
   arrivals: NeighbourhoodArrival[],
   start: Date | null,
   worstCredible = false,
+  multiDay = false,
 ): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
@@ -634,8 +635,8 @@ export function arrivalsToGeoJSON(
         neighbourhood: a.name,
         arrival_hours: +a.arrivalHours.toFixed(3),
         arrival_label: worstCredible
-          ? `P10 (early): fire within ${ARRIVAL_BUFFER_M} m by ${arrivalTime(a.arrivalHours, start)}`
-          : arrivalLabel(a.arrivalHours, start),
+          ? `P10 (early): fire within ${ARRIVAL_BUFFER_M} m by ${arrivalTime(a.arrivalHours, start, multiDay)}`
+          : arrivalLabel(a.arrivalHours, start, ARRIVAL_BUFFER_M, multiDay),
       },
     })),
   };

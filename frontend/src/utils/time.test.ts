@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { clockAt, formatClock, formatClockAt, formatDate, formatElapsed, formatRunSpan, runDay, zoneAbbrev } from "./time";
+import {
+  clockAt, formatClock, formatClockAt, formatDate, formatElapsed, formatRunElapsed, formatRunSpan, isMultiDayRun, runDay,
+  zoneAbbrev,
+} from "./time";
 
 describe("formatClock (America/Edmonton)", () => {
   it("formats 24 h HH:MM", () => {
@@ -93,5 +96,27 @@ describe("day of a later clock time (round-3 field test R7, R11)", () => {
 
   it("formats the span a run models", () => {
     expect(formatRunSpan(start, 72)).toBe(`${formatDate(start)} 04:57 to ${formatDate(clockAt(start, 72))} 04:57 MDT (72 h)`);
+  });
+});
+
+describe("multi-day labels (72 h rerun, 2026-10-17)", () => {
+  const start = new Date("2026-10-13T04:57:00-06:00");
+
+  it("prefixes day 1 only in a multi-day run", () => {
+    expect(formatClockAt(start, 5)).toBe("09:57");
+    expect(formatClockAt(start, 5, true)).toBe("D1 09:57");
+    expect(formatClockAt(start, 24 + 685 / 60, true)).toBe("D2 16:22");
+  });
+
+  it("shows the operational day with the run time, never the time within the day", () => {
+    expect(formatRunElapsed(72, 3)).toBe("D3 · T+72:00");
+    expect(formatRunElapsed(5.5, null)).toBe("T+5:30");
+    expect(formatRunElapsed(5.5)).toBe("T+5:30");
+  });
+
+  it("detects a multi-day run from its frames", () => {
+    expect(isMultiDayRun([{ day: 1 }, { day: 2 }])).toBe(true);
+    expect(isMultiDayRun([{ day: 1 }, { day: null }, {}])).toBe(false);
+    expect(isMultiDayRun([])).toBe(false);
   });
 });

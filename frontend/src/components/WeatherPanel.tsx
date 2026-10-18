@@ -31,7 +31,7 @@ import { SPRING_WINDOW_LABEL, curingFactor, defaultGrassCure } from "../utils/cu
 import WeatherSchedulePanel from "./WeatherSchedulePanel";
 import { computeBUI, computeFWI, computeISI, fmtCode, runParamsFor } from "../utils/fwiCalc";
 import { DEFAULT_FUEL_GRID_YEAR, edmontonYear, fuelVintageWarning } from "../utils/fuelVintage";
-import { scheduleErrors, scheduleRequest, timedSteps, type ScheduleRow, type TimedStep } from "../utils/weatherSchedule";
+import { multiDaySummary, scheduleErrors, scheduleRequest, timedSteps, type ScheduleRow, type TimedStep } from "../utils/weatherSchedule";
 
 /** Moving the ignition this far from where the weather was set shows a notice. */
 const FAR_KM = 25;
@@ -1063,6 +1063,9 @@ function WeatherPanel({
             Weather replaced
           </Badge>
           <span className="hint-sm"> by station values for this ignition: {replaced.from}. Was {weatherBrief(replaced.weather, replaced.fwi)}.</span>
+          {simMode === "multiday" && (
+            <span className="hint-sm" data-testid="weather-replaced-multiday"> {TIPS.multiDayReplaced}</span>
+          )}
           <span className="weather-replaced-actions">
             <button type="button" className="btn-secondary btn-inline" onClick={undoReplaced}>Undo</button>
             <button type="button" className="btn-secondary btn-inline" onClick={() => setReplaced(null)}>Keep</button>
@@ -1206,7 +1209,7 @@ function WeatherPanel({
           weatherErrors
             ? "Check the inputs"
             : simMode === "multiday"
-              ? `Multi-day weather · start FFMC ${fmtCode(fwi.ffmc)} DMC ${fmtCode(fwi.dmc)} DC ${fmtCode(fwi.dc)}`
+              ? multiDaySummary(multiDayDays, fwi)
               : `${windLabel(weather.wind_direction)} ${weather.wind_speed} km/h · RH ${weather.relative_humidity}% · FWI ${liveFWI.toFixed(1)} ${liveDanger}${useHourlyForecast ? " · hourly forecast" : scheduleOn ? ` · ${scheduleRows.length} weather change${scheduleRows.length === 1 ? "" : "s"}` : ""}`
         }
         attention={weatherErrors || schedErrors.length > 0}

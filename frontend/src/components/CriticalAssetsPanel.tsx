@@ -30,6 +30,8 @@ interface CriticalAssetsPanelProps {
   roads: RoadRow[];
   hasEnsemble: boolean;
   scenarioStart: Date | null;
+  /** A multi-day run: day-1 times read "D1 10:00" like the later days */
+  multiDay?: boolean;
   hasRun: boolean;
   /** Categories shown (card and map) */
   shown: ReadonlySet<AssetCategory>;
@@ -61,6 +63,7 @@ function CriticalAssetsPanel({
   roads,
   hasEnsemble,
   scenarioStart,
+  multiDay = false,
   hasRun,
   shown,
   onToggleCategory,
@@ -157,12 +160,12 @@ function CriticalAssetsPanel({
                         type="button"
                         className="asset-row"
                         onClick={() => onFocus(r.asset)}
-                        aria-label={`${assetLabel(r.asset)}: ${assetReachPhrases(r, scenarioStart, hasEnsemble).join("; ")}. Show on the map`}
+                        aria-label={`${assetLabel(r.asset)}: ${assetReachPhrases(r, scenarioStart, hasEnsemble, undefined, multiDay).join("; ")}. Show on the map`}
                       >
                         <span className="asset-row-name">{r.asset.name}</span>
                         {r.asset.verify && <span className="asset-row-verify">{r.asset.verify}</span>}
                         {sourceTag(r.asset) && <span className="asset-row-src">{sourceTag(r.asset)}</span>}
-                        {assetReachPhrases(r, scenarioStart, hasEnsemble).map((t) => (
+                        {assetReachPhrases(r, scenarioStart, hasEnsemble, undefined, multiDay).map((t) => (
                           <span key={t} className={`asset-row-time${t.startsWith("Inside") ? " asset-row-inside" : ""}`}>
                             {t}
                           </span>
@@ -189,7 +192,7 @@ function CriticalAssetsPanel({
           {roads.map((r) => (
             <li key={r.name} className="road-row">
               <span className="asset-row-name">{r.name}</span>
-              <span className="asset-row-time">{roadReachPhrase(r, scenarioStart, hasEnsemble)}</span>
+              <span className="asset-row-time">{roadReachPhrase(r, scenarioStart, hasEnsemble, multiDay)}</span>
             </li>
           ))}
         </ul>

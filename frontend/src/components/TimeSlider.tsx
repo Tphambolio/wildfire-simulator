@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { BurningPeriod, SimulationFrame } from "../types/simulation";
-import { clockAt, formatClock, formatElapsed, zoneAbbrev } from "../utils/time";
+import { clockAt, formatClock, formatElapsed, formatRunElapsed, zoneAbbrev } from "../utils/time";
 import { formatBurningPeriod, inBurningPeriod, offPeriods } from "../utils/skillOptions";
 import Badge from "./Badge";
 
@@ -140,9 +140,7 @@ export default function TimeSlider({
 
   const hours = currentFrame?.time_hours ?? 0;
   const now = scenarioStart ? clockAt(scenarioStart, hours) : null;
-  const elapsed = maxHours > 24 && currentFrame?.day
-    ? `D${currentFrame.day} ${formatElapsed(hours - (currentFrame.day - 1) * 24)}`
-    : formatElapsed(hours);
+  const elapsed = formatRunElapsed(hours, maxHours > 24 ? currentFrame?.day : null);
   const valueText = now ? `${formatClock(now)} ${zoneAbbrev(now)}, ${formatElapsed(hours)}` : formatElapsed(hours);
   const ticks = tickIndices(frames.length);
   // Hours outside the burning period (no spread modelled), shaded on the track

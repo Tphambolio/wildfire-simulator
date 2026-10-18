@@ -273,6 +273,11 @@ describe("ensemble P10 (early) arrival", () => {
     expect(timePair(null, null, start, false)).toBeNull();
     expect(timePair(1, null, start, true)).toBe("15:00 (P10) · not reached (single run)");
   });
+
+  it("multi-day run: day 1 reads 'D1 15:30' like the later days", () => {
+    expect(timePair(null, 1.5, start, false, true)).toBe("D1 15:30");
+    expect(timePair(1, 1.5, start, true, true)).toBe("D1 15:00 (P10) · D1 15:30 (single run)");
+  });
 });
 
 describe("major roads", () => {

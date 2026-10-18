@@ -558,35 +558,39 @@ export function groupRows(rows: AssetRow[]): Array<{ category: AssetCategory; ro
 
 // ── Wording (model output, never an instruction) ────────────────────────────
 
-/** "15:32", or "T+1:05" without a start time. */
-export function clock(hours: number, start: Date | null): string {
-  return start ? formatClockAt(start, hours) : formatElapsed(hours);
+/** "15:32", or "T+1:05" without a start time; "D1 15:32" in a multi-day run. */
+export function clock(hours: number, start: Date | null, multiDay = false): string {
+  return start ? formatClockAt(start, hours, multiDay) : formatElapsed(hours);
 }
 
 /**
  * "14:45 (P10) · 15:20 (single run)" with an ensemble, else "15:20".
  * Null when neither run reaches it.
  */
-export function timePair(worst: number | null, single: number | null, start: Date | null, hasEnsemble: boolean): string | null {
-  if (!hasEnsemble) return single !== null ? clock(single, start) : null;
+export function timePair(
+  worst: number | null, single: number | null, start: Date | null, hasEnsemble: boolean, multiDay = false,
+): string | null {
+  if (!hasEnsemble) return single !== null ? clock(single, start, multiDay) : null;
   if (worst === null && single === null) return null;
-  const w = worst !== null ? `${clock(worst, start)} (P10)` : "not reached (P10)";
-  const s = single !== null ? `${clock(single, start)} (single run)` : "not reached (single run)";
+  const w = worst !== null ? `${clock(worst, start, multiDay)} (P10)` : "not reached (P10)";
+  const s = single !== null ? `${clock(single, start, multiDay)} (single run)` : "not reached (single run)";
   return `${w} · ${s}`;
 }
 
 /** The one or two lines shown for an asset: within 500 m, then inside (when reached). */
-export function assetReachPhrases(row: AssetRow, start: Date | null, hasEnsemble: boolean, bufferM = ARRIVAL_BUFFER_M): string[] {
+export function assetReachPhrases(
+  row: AssetRow, start: Date | null, hasEnsemble: boolean, bufferM = ARRIVAL_BUFFER_M, multiDay = false,
+): string[] {
   const out: string[] = [];
-  const near = timePair(row.worst?.near ?? null, row.single?.near ?? null, start, hasEnsemble);
+  const near = timePair(row.worst?.near ?? null, row.single?.near ?? null, start, hasEnsemble, multiDay);
   if (near) out.push(`Fire within ${bufferM} m by ${near}`);
-  const inside = timePair(row.worst?.inside ?? null, row.single?.inside ?? null, start, hasEnsemble);
+  const inside = timePair(row.worst?.inside ?? null, row.single?.inside ?? null, start, hasEnsemble, multiDay);
   if (inside) out.push(`Inside the modelled fire by ${inside}`);
   return out;
 }
 
-export function roadReachPhrase(row: RoadRow, start: Date | null, hasEnsemble: boolean): string {
-  return `Fire on the road by ${timePair(row.worst, row.single, start, hasEnsemble) ?? "not reached"}`;
+export function roadReachPhrase(row: RoadRow, start: Date | null, hasEnsemble: boolean, multiDay = false): string {
+  return `Fire on the road by ${timePair(row.worst, row.single, start, hasEnsemble, multiDay) ?? "not reached"}`;
 }
 
 /** Everything the summaries and forms need about reached assets and roads. */
@@ -597,6 +601,8 @@ export interface CriticalReach {
   hasEnsemble: boolean;
   start: Date | null;
   bufferM: number;
+  /** A multi-day run: day-1 times read "D1 15:32" like the later days */
+  multiDay?: boolean;
 }
 
 /**
@@ -627,12 +633,12 @@ export function criticalReachLines(r: CriticalReach): string[] {
   for (const g of groupRows(r.assets)) {
     lines.push(`  ${ASSET_CATEGORIES[g.category].label}:`);
     for (const row of g.rows) {
-      lines.push(`    ${assetLabel(row.asset)}: ${assetReachPhrases(row, r.start, r.hasEnsemble, r.bufferM).join("; ")}`);
+      lines.push(`    ${assetLabel(row.asset)}: ${assetReachPhrases(row, r.start, r.hasEnsemble, r.bufferM, r.multiDay).join("; ")}`);
     }
   }
   if (r.roads.length > 0) {
     lines.push("  Major roads reached:");
-    for (const row of r.roads) lines.push(`    ${row.name}: ${roadReachPhrase(row, r.start, r.hasEnsemble)}`);
+    for (const row of r.roads) lines.push(`    ${row.name}: ${roadReachPhrase(row, r.start, r.hasEnsemble, r.multiDay)}`);
   }
   return lines;
 }
@@ -640,7 +646,7 @@ export function criticalReachLines(r: CriticalReach): string[] {
 /** Reached assets as GeoJSON points (export), with their times in hours and clock time. */
 export function criticalReachFeatures(r: CriticalReach): GeoJSON.Feature[] {
   const t = (h: number | null | undefined) => (h == null ? null : +h.toFixed(3));
-  const c = (h: number | null | undefined) => (h == null ? null : clock(h, r.start));
+  const c = (h: number | null | undefined) => (h == null ? null : clock(h, r.start, r.multiDay));
   return r.assets.map((row) => ({
     type: "Feature",
     geometry: { type: "Point", coordinates: row.asset.anchor },
@@ -678,6 +684,7 @@ export function assetsToMapGeoJSON(
   shown: ReadonlySet<AssetCategory>,
   start: Date | null,
   hasEnsemble: boolean,
+  multiDay = false,
 ): GeoJSON.FeatureCollection {
   const byId = new Map(rows.map((r) => [r.asset.id, r]));
   return {
@@ -699,7 +706,7 @@ export function assetsToMapGeoJSON(
             verify: a.verify,
             reached: row ? 1 : 0,
             icon: `asset-${a.category}${row ? "-reached" : ""}`,
-            label: row && first !== null ? `${a.name} · ${ARRIVAL_BUFFER_M} m by ${clock(first, start)}${hasEnsemble && row.worst ? " (P10)" : ""}` : null,
+            label: row && first !== null ? `${a.name} · ${ARRIVAL_BUFFER_M} m by ${clock(first, start, multiDay)}${hasEnsemble && row.worst ? " (P10)" : ""}` : null,
           },
         } as GeoJSON.Feature;
       }),
