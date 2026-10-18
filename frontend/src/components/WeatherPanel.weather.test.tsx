@@ -21,7 +21,7 @@ vi.mock("../services/api", () => ({
   fetchHourlyForecast: vi.fn(async () => []),
 }));
 
-import WeatherPanel from "./WeatherPanel";
+import WeatherPanel, { weatherChangeBrief } from "./WeatherPanel";
 
 const A = { lat: 53.5, lng: -113.5 };
 const B = { lat: 53.52, lng: -113.52 }; // ~2.6 km away
@@ -135,7 +135,10 @@ describe("WeatherPanel: replaced weather is announced; setup restores (R8, R9, R
     const notice = await screen.findByTestId("weather-replaced");
     expect(notice).toHaveTextContent("Weather replaced");
     expect(notice).toHaveTextContent("Edmonton Stony Plain, 12 km away, as of 2026-10-10");
-    expect(notice).toHaveTextContent("Was W 20 km/h · RH 30 % · 25 °C · FFMC 90 DMC 45 DC 300");
+    // Old → new for what changed (field test 2026-10-18: only the old values were shown)
+    expect(screen.getByTestId("weather-replaced-change")).toHaveTextContent(
+      /^W 20 → 8 km\/h · RH 30 → 63 % · 25 → 18 °C · FFMC 90 → 71\.8 DMC 45 → 30 DC 300 → 200$/,
+    );
     expect(windSlider().value).toBe("8");
     // R10: the code is rounded (the summary showed FFMC 71.7629123990164)
     expect(screen.getByLabelText(/^FFMC/).closest("label")).toHaveTextContent("FFMC: 71.8");
@@ -191,5 +194,14 @@ describe("WeatherPanel: replaced weather is announced; setup restores (R8, R9, R
     rerender(A, { scenarioToLoad: restored });
     await act(async () => {});
     expect(screen.getByTestId("start-outside-burning")).toHaveTextContent("No spread until 10:00 (5 h 03 min)");
+  });
+});
+
+describe("weatherChangeBrief (field test 2026-10-18)", () => {
+  it("shows old → new, and an unchanged value once", () => {
+    const w = { wind_speed: 16, wind_direction: 270, temperature: 18, relative_humidity: 39, precipitation_24h: 0 };
+    expect(
+      weatherChangeBrief(w, { ffmc: 88.4, dmc: 41, dc: 342.2 }, { ...w, wind_speed: 29, relative_humidity: 24 }, { ffmc: 90.06, dmc: 41, dc: null }),
+    ).toBe("W 16 → 29 km/h · RH 39 → 24 % · 18 °C · FFMC 88.4 → 90.1 DMC 41 DC 342.2 → —");
   });
 });

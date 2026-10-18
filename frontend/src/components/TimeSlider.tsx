@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { BurningPeriod, SimulationFrame } from "../types/simulation";
-import { clockAt, formatClock, formatElapsed, formatRunElapsed, zoneAbbrev } from "../utils/time";
+import { clockAt, formatClockAt, formatElapsed, formatRunElapsed, zoneAbbrev } from "../utils/time";
 import { formatBurningPeriod, inBurningPeriod, offPeriods } from "../utils/skillOptions";
 import Badge from "./Badge";
 
@@ -17,6 +17,8 @@ interface TimeSliderProps {
   scenarioStart?: Date | null;
   /** Burning period of the run: the hours outside it are shaded (no spread modelled) */
   burningPeriod?: BurningPeriod | null;
+  /** A multi-day run: day-1 clock times read "D1 10:00" like the map labels */
+  multiDay?: boolean;
 }
 
 const SPEEDS = [
@@ -59,6 +61,7 @@ export default function TimeSlider({
   onIndexChange,
   scenarioStart = null,
   burningPeriod = null,
+  multiDay = false,
 }: TimeSliderProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speedIdx, setSpeedIdx] = useState(DEFAULT_SPEED_IDX);
@@ -141,7 +144,10 @@ export default function TimeSlider({
   const hours = currentFrame?.time_hours ?? 0;
   const now = scenarioStart ? clockAt(scenarioStart, hours) : null;
   const elapsed = formatRunElapsed(hours, maxHours > 24 ? currentFrame?.day : null);
-  const valueText = now ? `${formatClock(now)} ${zoneAbbrev(now)}, ${formatElapsed(hours)}` : formatElapsed(hours);
+  // The clock carries the calendar day after the start date ("D2 03:32"), as the map labels
+  // do: a run past midnight read "03:32" beside labels "D2 03:25" (field test 2026-10-18)
+  const nowClock = scenarioStart ? formatClockAt(scenarioStart, hours, multiDay) : null;
+  const valueText = now ? `${nowClock} ${zoneAbbrev(now)}, ${formatElapsed(hours)}` : formatElapsed(hours);
   const ticks = tickIndices(frames.length);
   // Hours outside the burning period (no spread modelled), shaded on the track
   const bpLabel = burningPeriod ? formatBurningPeriod(burningPeriod) : "";
@@ -185,7 +191,7 @@ export default function TimeSlider({
       <div className="ts-now" title="Time of the frame shown on the map">
         {now ? (
           <span className="ts-now-clock">
-            {formatClock(now)}
+            {nowClock}
             <small>{zoneAbbrev(now)}</small>
           </span>
         ) : null}
@@ -254,7 +260,7 @@ export default function TimeSlider({
                 className={`ts-tick${edge}`}
                 style={{ left: `${(i / (frames.length - 1)) * 100}%` }}
               >
-                {scenarioStart && <span className="ts-tick-clock">{formatClock(clockAt(scenarioStart, h))}</span>}
+                {scenarioStart && <span className="ts-tick-clock">{formatClockAt(scenarioStart, h, multiDay)}</span>}
                 <span className="ts-tick-elapsed">{formatElapsed(h)}</span>
               </span>
             );

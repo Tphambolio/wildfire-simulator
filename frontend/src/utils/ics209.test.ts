@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SimulationFrame } from "../types/simulation";
 import type { EnsembleGrids } from "./ensemble";
-import { buildICS209HTML, frameAt, latLngToUtm, projectAreas, structuresBy } from "./ics209";
+import { buildICS209HTML, frameAt, latLngToUtm, modelVersionWithin, projectAreas, runFuelLabel, structuresBy } from "./ics209";
 
 function frame(h: number, area: number, extra: Partial<SimulationFrame> = {}): SimulationFrame {
   return {
@@ -151,5 +151,41 @@ describe("ICS Canada 209-WF report", () => {
     const h = buildICS209HTML({ frames: FRAMES, burnProbData: null, runParams: null, ignitionPoint: null, modelVersion: null });
     expect(h).toContain("unknown (version endpoint not reachable)");
     expect(h).toContain("single run (no ensemble)");
+  });
+});
+
+describe("Fuel line of the EOC summary and forms (field test 2026-10-18, Issue 6)", () => {
+  const names = { C2: "Boreal Spruce", O1a: "Matted Grass" };
+  it("a fuel-grid run reads its burned fuel mix, not the Setup fuel", () => {
+    const f = frame(72, 1830, { fuel_breakdown: { O1a: 0.58, O1b: 0.32, M2: 0.06, D1: 0.03, C2: 0.01 } });
+    expect(runFuelLabel("C2", f, names)).toBe("Fuel grid, burned: O1a 58 %, O1b 32 %, M2 6 %, …");
+    // One burned fuel that is not the Setup fuel, or grid information on the frame: still a grid run
+    expect(runFuelLabel("C2", frame(4, 10, { fuel_breakdown: { O1a: 1 } }), names)).toBe("Fuel grid, burned: O1a 100 %");
+    expect(runFuelLabel("C2", frame(4, 10, { fuel_breakdown: { C2: 1 }, grid: { cell_m: 50 } as SimulationFrame["grid"] }), names))
+      .toBe("Fuel grid, burned: C2 100 %");
+  });
+  it("a uniform-fuel run, or no burned area yet, reads the Setup fuel", () => {
+    expect(runFuelLabel("C2", frame(4, 10, { fuel_breakdown: { C2: 1 } }), names)).toBe("C2 — Boreal Spruce");
+    expect(runFuelLabel("C2", frame(0, 0, { fuel_breakdown: {} }), names)).toBe("C2 — Boreal Spruce");
+    expect(runFuelLabel(undefined, null, names)).toBeUndefined();
+  });
+});
+
+describe("ICS 209-WF does not print by itself (field test 2026-10-18, Issue 1)", () => {
+  it("has no automatic window.print(); a Print button shows only in its own window", () => {
+    const html = buildICS209HTML({
+      frames: FRAMES, burnProbData: null, runParams: null, ignitionPoint: { lat: 53.5, lng: -113.5 },
+      criticalReach: null, evacZones: [], suppAdvisory: null,
+    });
+    expect(html).not.toMatch(/addEventListener\('load'[^)]*print/);
+    expect(html).not.toMatch(/setTimeout\([^)]*print/);
+    expect(html).toContain('id="print-bar" class="no-print print-bar" hidden');
+    expect(html).toContain("if (window.top === window)");
+  });
+  it("stamps without the model version when the API does not answer in time", async () => {
+    const never = () => new Promise<{ version: string; git_sha: string }>(() => {});
+    await expect(modelVersionWithin(never, 20)).resolves.toBeNull();
+    await expect(modelVersionWithin(async () => ({ version: "3.0.0", git_sha: "abc" }), 20)).resolves.toEqual({ version: "3.0.0", git_sha: "abc" });
+    await expect(modelVersionWithin(async () => { throw new Error("down"); }, 20)).resolves.toBeNull();
   });
 });

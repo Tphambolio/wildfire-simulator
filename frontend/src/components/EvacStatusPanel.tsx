@@ -97,6 +97,9 @@ function EvacStatusPanel({
   const tierOf = new Map(records.map((r) => [r.neighbourhood, r.tier]));
   const [pickName, setPickName] = useState("");
   const [pickTier, setPickTier] = useState<EvacTier | "">("Watch");
+  // The typed name, matched to a known unit regardless of case and surrounding spaces
+  const typed = pickName.trim().toLowerCase();
+  const pickedName = typed ? (neighbourhoodNames.find((n) => n.toLowerCase() === typed) ?? null) : null;
   // Rows: P10 first when the ensemble is in, with the single-run time beside it
   const single = new Map(arrivals.map((a) => [a.name, a.arrivalHours]));
   // Census subdivisions (outside Edmonton) are tagged so the unit's source is visible
@@ -201,14 +204,25 @@ function EvacStatusPanel({
       )}
 
       <div className="field-row evac-pick">
+        {/* Type-ahead over every unit (Edmonton neighbourhoods and, outside Edmonton, census
+            subdivisions, hamlets and localities): a plain list could not be typed into
+            ("Riverbend") and was hundreds of entries long (round-3 field test R1) */}
         <label className="field">
           Neighbourhood
-          <select value={pickName} onChange={(e) => setPickName(e.target.value)}>
-            <option value="">Choose…</option>
+          <input
+            type="text"
+            list={`${id}-names`}
+            value={pickName}
+            onChange={(e) => setPickName(e.target.value)}
+            placeholder="Type a name…"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <datalist id={`${id}-names`}>
             {neighbourhoodNames.map((n) => (
-              <option key={n} value={n}>{n}</option>
+              <option key={n} value={n} />
             ))}
-          </select>
+          </datalist>
         </label>
         <label className="field evac-pick-tier">
           Status
@@ -222,8 +236,13 @@ function EvacStatusPanel({
         <button
           type="button"
           className="btn-secondary btn-inline"
-          disabled={!pickName}
-          onClick={() => onSetTier(pickName, pickTier || null)}
+          disabled={!pickedName}
+          title={pickName && !pickedName ? "Choose a name from the list" : undefined}
+          onClick={() => {
+            if (!pickedName) return;
+            onSetTier(pickedName, pickTier || null);
+            setPickName("");
+          }}
         >
           Set
         </button>

@@ -93,6 +93,16 @@ export interface MockOptions {
   /** Multi-day runs replay the recorded engine fixture (first N days of it) instead of the
    * synthetic multiDayFrames */
   multidayRecorded?: boolean;
+  /** Multi-day runs replay the recorded fixture at 30 min snapshots (145 frames for 3 days, as
+   * the live 72 h run): `denseMultiDayFrames` */
+  multidayDense?: boolean;
+  /** GET /simulations/{multi-day ID} answers "running" with the frames so far (a third, then
+   * two thirds, ...) for its first N calls, then "completed": a run still computing on the
+   * server when the page reads it (a reload during the run) */
+  multidayRunningPolls?: number;
+  /** WebSocket for the multi-day run: replay this many frames, then stay open and silent (the
+   * run still computing when the page is reloaded) */
+  multidayWsStopAfter?: number;
   /** Shift every coordinate of the replayed frames by [dLat, dLng] (runs outside Edmonton) */
   translate?: [number, number];
   /** Each POST /simulations gets its own ID (fixture ID, then `<fixture ID>-2`, `-3`, ...);
@@ -120,6 +130,30 @@ export function translateFrames(frames: Fixture["frames"], [dLat, dLng]: [number
 /** The recorded multi-day frames for a request of `days` days (the fixture has 3). */
 export function recordedMultiDayFrames(days: number): Fixture["frames"] {
   return multidayFixture.frames.filter((f) => ((f as { day?: number }).day ?? 1) <= days);
+}
+
+/**
+ * The recorded multi-day frames at 30 min snapshots, as a live 72 h run sends them (145 frames
+ * for 3 days): between two recorded 2 h frames come three frames at +30/+60/+90 min that repeat
+ * the earlier frame's state with no new cells (`cells_offset` = all earlier cells). Only the
+ * frame count and clock span differ from the recorded run.
+ */
+export function denseMultiDayFrames(days: number): Fixture["frames"] {
+  const rec = recordedMultiDayFrames(days);
+  const out: Fixture["frames"] = [rec[0]];
+  let cells = (rec[0].burned_cells as unknown[] | null)?.length ?? 0;
+  for (let k = 1; k < rec.length; k++) {
+    const prev = rec[k - 1];
+    const cur = rec[k];
+    for (let j = 1; j < 4; j++) {
+      const t = prev.time_hours + (j * (cur.time_hours - prev.time_hours)) / 4;
+      out.push({ ...prev, time_hours: t, day: Math.max(1, Math.ceil(t / 24 - 1e-9)), day_fwi: t > 24 * ((prev as { day?: number }).day ?? 1) ? cur.day_fwi : prev.day_fwi, burned_cells: [], cells_offset: cells });
+    }
+    out.push(cur);
+    const off = cur.cells_offset ?? 0;
+    cells = off + ((cur.burned_cells as unknown[] | null)?.length ?? 0);
+  }
+  return out;
 }
 
 /** Simulation ID the mocked POST /simulations/multiday returns */
@@ -184,7 +218,9 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     ensembleCancels: [], gone: new Set(), archived: new Set(), getIds: [],
   };
   const shift = (frames: Fixture["frames"]) => (opts.translate ? translateFrames(frames, opts.translate) : frames);
-  const mdFrames = (n: number) => shift(opts.multidayRecorded ? recordedMultiDayFrames(n) : multiDayFrames(n));
+  const mdFrames = (n: number) => shift(
+    opts.multidayDense ? denseMultiDayFrames(n) : opts.multidayRecorded ? recordedMultiDayFrames(n) : multiDayFrames(n),
+  );
   const fxFrames = shift(fx.frames);
   let multiDays = 3;
   const ensembleStep = opts.ensembleStep ?? 8;
@@ -242,7 +278,18 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         return json(route, { ...body, archived: true });
       }
       if (one[1] === MULTIDAY_ID) {
-        return json(route, { simulation_id: MULTIDAY_ID, status: "completed", config: null, frames: mdFrames(multiDays), error: null });
+        const all = mdFrames(multiDays);
+        const running = opts.multidayRunningPolls ?? 0;
+        const n = state.getIds.filter((x) => x === MULTIDAY_ID).length;
+        if (n <= running) {
+          const k = Math.max(1, Math.round((all.length * n) / (running + 1)));
+          const day = (all[k - 1] as { day?: number }).day ?? 1;
+          return json(route, {
+            simulation_id: MULTIDAY_ID, status: "running", config: null, frames: all.slice(0, k), error: null,
+            phase: "spread", progress: k / all.length, day, n_days: multiDays,
+          });
+        }
+        return json(route, { simulation_id: MULTIDAY_ID, status: "completed", config: null, frames: all, error: null });
       }
       if (opts.runIds?.includes(one[1])) {
         state.polls++;
@@ -304,6 +351,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         timer = setTimeout(next, opts.phaseDelayMs ?? 400);
         return;
       }
+      if (simId === MULTIDAY_ID && opts.multidayWsStopAfter !== undefined && i >= opts.multidayWsStopAfter) return;
       if (i < frames.length) {
         ws.send(JSON.stringify({ type: "simulation.frame", simulation_id: simId, frame: frames[i++] }));
         timer = setTimeout(next, frameDelayMs);

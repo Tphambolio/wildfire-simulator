@@ -137,6 +137,30 @@ export function burnedFuelShares(frame: SimulationFrame | null): string[] {
     .map(([k, v]) => `${k} ${Math.round(v * 100)} %`);
 }
 
+/**
+ * The fuel line of the EOC summary and the ICS forms. A fuel-grid run is described by the
+ * fuels it burned, largest share first ("Fuel grid, burned: O1a 58 %, O1b 32 %, M2 6 %"),
+ * not by the single fuel type set in Setup, which the grid overrides: the summary said
+ * "C2 — Boreal Spruce" for a grid run that burned 58 % O1a and 32 % O1b (field test
+ * 2026-10-18). A run is taken as a grid run when its frames carry grid information or burned
+ * fuels other than the Setup fuel. `names` maps codes to names for the single-fuel label.
+ */
+export function runFuelLabel(
+  fuelType: string | null | undefined,
+  final: SimulationFrame | null,
+  names: Record<string, string> = {},
+): string | undefined {
+  const shares = burnedFuelShares(final);
+  const codes = Object.entries(final?.fuel_breakdown ?? {}).filter(([, v]) => v > 0).map(([k]) => k);
+  const grid = !!final?.grid || codes.length > 1 || (codes.length === 1 && !!fuelType && codes[0] !== fuelType);
+  if (grid && shares.length) {
+    const shown = shares.slice(0, 3).join(", ");
+    return `Fuel grid, burned: ${shown}${shares.length > 3 ? ", …" : ""}`;
+  }
+  if (!fuelType) return undefined;
+  return names[fuelType] ? `${fuelType} — ${names[fuelType]}` : fuelType;
+}
+
 // ── Burn probability area (Monte Carlo) ───────────────────────────────────────
 
 interface BurnAreaStats {
@@ -198,6 +222,8 @@ const PRINT_CSS = `
   ul.res li { margin-bottom: 1px; }
   label.cb { margin-right: 8px; font-size: 8.5pt; }
   .form-footer { text-align: center; font-size: 7pt; color: #555; margin-top: 6px; border-top: 1px solid #ccc; padding-top: 3px; }
+  .print-bar { max-width: 800px; margin: 8px auto 0; text-align: right; }
+  .print-bar button { font: inherit; font-size: 10pt; padding: 4px 14px; cursor: pointer; }
   @media print {
     body { margin: 0; }
     .page { margin: 0; padding: 6mm 8mm; width: 100%; }
@@ -554,6 +580,7 @@ export function buildICS209HTML(opts: ICS209Options): string {
   <style>${PRINT_CSS}</style>
 </head>
 <body>
+  <div id="print-bar" class="no-print print-bar" hidden><button type="button" onclick="window.print()">Print</button></div>
   <div class="page">
     <div class="form-title">
       <h1>INCIDENT STATUS SUMMARY (ICS 209)</h1>
@@ -583,17 +610,20 @@ export function buildICS209HTML(opts: ICS209Options): string {
     ${footer}
   </div>
   <script>
-    if (window.opener || document.referrer) {
-      window.addEventListener('load', function() { setTimeout(function() { window.print(); }, 400); });
-    }
+    // In its own window the form has a Print button. It no longer prints by itself: a print
+    // dialog opened from script blocks the FireSim tab (same event loop) until it is answered,
+    // which froze the app for minutes (field test 2026-10-18). In the console's preview the
+    // viewer has Print.
+    if (window.top === window) document.getElementById('print-bar').hidden = false;
   </script>
 </body>
 </html>`;
 }
 
 /**
- * Open the 209-WF in a new window. The window opens synchronously (popup blockers), then the
- * model version is fetched (`getVersion`, 3 s budget) and stamped before the page is written.
+ * Open the 209-WF in a new window (Situation panel). The window opens synchronously (popup
+ * blockers), then the model version is fetched (`getVersion`, 3 s budget) and stamped before
+ * the page is written. The page does not print itself; it has a Print button.
  */
 export function openICS209Report(opts: ICS209Options, getVersion?: () => Promise<ModelVersion>): void {
   const win = window.open("", "_blank", "width=900,height=1100,menubar=yes,toolbar=yes");
@@ -613,6 +643,12 @@ export function openICS209Report(opts: ICS209Options, getVersion?: () => Promise
     win.document.close();
   };
   if (!getVersion) return write(opts.modelVersion ?? null);
-  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
-  Promise.race([getVersion().catch(() => null), timeout]).then((v) => write(v));
+  modelVersionWithin(getVersion).then(write);
+}
+
+/** The API's model version, or null if it does not answer within `ms` (the form is stamped
+ * "version not available" rather than waiting). */
+export function modelVersionWithin(getVersion: () => Promise<ModelVersion>, ms = 3000): Promise<ModelVersion | null> {
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), ms));
+  return Promise.race([getVersion().catch(() => null), timeout]);
 }

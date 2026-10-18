@@ -165,8 +165,9 @@ export const TIPS = {
   multiDay:
     "FWI codes (FFMC, DMC, DC) carry forward each day with the CFFDRS equations; the fire front " +
     "continues from the previous day's perimeter. Each day runs 24 h from the start time; with a " +
-    "burning period, no spread is modelled outside it. A 3-day run takes about half an hour on " +
-    "the server; progress shows the day being computed. No ember spotting, buildings or ensemble.",
+    "burning period, no spread is modelled outside it. A 3-day run takes from about 1 to 15 " +
+    "minutes on the server (longer for a large fire or a busy server); progress shows the day " +
+    "being computed. No ember spotting, buildings or ensemble.",
   burnProbability:
     "Monte Carlo burn probability: repeated runs with jittered ignition, wind speed and RH. More " +
     "iterations are slower and smoother.",
@@ -194,6 +195,10 @@ export const TIPS = {
   runShort: (shownTo: string, hours: number) =>
     `The run was asked for ${hours} h but its frames end at ${shownTo}. The model always runs to the end, ` +
     "so frames were lost on the way (e.g. a dropped connection). Reload run reads it again from the server.",
+  runReattached:
+    "The page was reloaded while this tab had a run on screen. The run is read again from the " +
+    "server by its ID (no passphrase needed for this tab's own run); a run still computing is " +
+    "followed to the end. Clear results removes it.",
   activeEdges:
     "Edges not marked active are treated as burned out and do not spread. This raised one-day " +
     "skill on held-out Alberta fires.",
