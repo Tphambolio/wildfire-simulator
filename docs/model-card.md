@@ -224,8 +224,11 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
 - Building exposure uses worst-case radiant assumptions and ignores embers, burning buildings
   and yard fuels (usually the main causes of loss).
 - WUI zone modifiers in the repository have no source and are off by default.
-- Time: America/Edmonton; Alberta moved to permanent UTC-6 on 2026-06-18 (IANA tzdata 2026c).
-  Systems with older time zone data show MST after 2026-11-01.
+- Time: America/Edmonton. Alberta's Official Time Act (in force 2026-06-18; IANA tzdata 2026c)
+  keeps UTC-6 all year from 2026-11-01 (no fall-back). The app and API apply that rule
+  themselves after the change, whatever the browser's or server's tz data says; labels are
+  MST/MDT before 2026-11-01 02:00 MDT and "MT" after. The daily fire-weather observation stays
+  at 19 UTC (CWFIS convention; configurable, `FIRESIM_AB_FWI_LST_OFFSET_H`).
 
 ## Responsible use
 

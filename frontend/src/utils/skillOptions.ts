@@ -3,7 +3,7 @@
  * the daily burning period and the evening FFMC spin-up.
  *
  * Clock hours follow the API: they are on the clock of the run's start_time, i.e. its
- * America/Edmonton offset at the start (Alberta is on UTC-6 year-round from November 2026).
+ * America/Edmonton offset at the start (Alberta is on UTC-6 all year from 2026-11-01; utils/time.ts).
  */
 import type { BurningPeriod, HourlyWeatherParams } from "../types/simulation";
 import { edmontonOffsetMinutes, type OffsetFn } from "./time";

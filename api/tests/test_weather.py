@@ -308,8 +308,8 @@ class TestWeatherPath:
 
     @respx.mock
     def test_codes_before_noon_lst_are_yesterdays(self, client, monkeypatch):
-        """M8: at 10:00 MST the newest codes are yesterday's, and the label says so."""
-        _fix_clock(monkeypatch, "2026-07-16T17:00:00Z")  # 10:00 MST
+        """M8: at 10:00 LST the newest codes are yesterday's, and the label says so."""
+        _fix_clock(monkeypatch, "2026-07-16T17:00:00Z")  # 10:00 fire-weather LST (UTC-7)
         respx.get(_WFS_URL).mock(return_value=_wfs_response([_station(rep_date="2026-07-15T12:00:00Z")]))
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
         assert data["codes_status"] == "yesterday"
@@ -320,7 +320,7 @@ class TestWeatherPath:
 
     @respx.mock
     def test_codes_after_noon_not_yet_published(self, client, monkeypatch):
-        _fix_clock(monkeypatch, "2026-07-16T20:30:00Z")  # 13:30 MST, layer not refreshed yet
+        _fix_clock(monkeypatch, "2026-07-16T20:30:00Z")  # 13:30 LST (UTC-7), layer not refreshed yet
         respx.get(_WFS_URL).mock(return_value=_wfs_response([_station(rep_date="2026-07-15T12:00:00Z")]))
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
         assert data["codes_status"] == "yesterday"
@@ -373,7 +373,7 @@ class TestWeatherPath:
     @respx.mock
     def test_no_cwfis_data_gives_labelled_gem_estimate(self, client, monkeypatch):
         """M6 + M3: no station at all -> GEM noon-LST weather + 24 h rain, cold start, labelled."""
-        _fix_clock(monkeypatch, "2026-07-16T21:00:00Z")  # 14:00 MST: today's noon (19 UTC) has passed
+        _fix_clock(monkeypatch, "2026-07-16T21:00:00Z")  # 14:00 LST (UTC-7): today's noon (19 UTC) has passed
         respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
         om = respx.get(_OM_URL).mock(return_value=httpx.Response(200, json=_open_meteo("2026-07-16T19:00:00Z")))
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
@@ -396,7 +396,7 @@ class TestWeatherPath:
 
     @respx.mock
     def test_estimate_before_noon_uses_yesterdays_noon(self, client, monkeypatch):
-        _fix_clock(monkeypatch, "2026-07-16T15:00:00Z")  # 08:00 MST
+        _fix_clock(monkeypatch, "2026-07-16T15:00:00Z")  # 08:00 LST (UTC-7)
         respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
         respx.get(_OM_URL).mock(return_value=httpx.Response(200, json=_open_meteo("2026-07-15T19:00:00Z")))
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()

@@ -9,6 +9,8 @@
  * (`fuel_source.backcast`, docs/fuel-grid-backcast.md).
  */
 
+import { toDateTimeInputs } from "./time";
+
 /** Year the default City + Alberta fuel grids represent (docs/PROJECT_RECORD.md §4.3) */
 export const DEFAULT_FUEL_GRID_YEAR = 2025;
 
@@ -23,5 +25,5 @@ export function fuelVintageWarning(gridYear: number | null, scenarioYear: number
 
 /** Year of an instant on the America/Edmonton calendar. */
 export function edmontonYear(ms: number): number {
-  return Number(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Edmonton", year: "numeric" }).format(new Date(ms)));
+  return Number(toDateTimeInputs(ms).date.slice(0, 4));
 }

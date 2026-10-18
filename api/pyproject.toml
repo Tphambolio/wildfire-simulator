@@ -13,6 +13,9 @@ dependencies = [
     "pydantic>=2.5.0",
     "httpx>=0.25.0",
     "Pillow>=10.0.0",
+    # IANA 2026c+: Alberta on UTC-6 all year from 2026-11-01 (services/alberta_time.py). The API
+    # image reads it instead of the OS zone files (api/Dockerfile PYTHONTZPATH).
+    "tzdata>=2026.3",
     "firesim",
 ]
 

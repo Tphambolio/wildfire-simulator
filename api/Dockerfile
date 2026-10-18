@@ -104,6 +104,11 @@ ENV FIRESIM_AB_TERRAIN_PATH=/app/data/ab_terrain_mrdem30_100m.tif \
     FIRESIM_AB_ASSETS_PATH=/app/data/ab_assets_2026.fgb \
     FIRESIM_AB_ROADS_PATH=/app/data/ab_major_roads_osm.fgb
 
+# Time-zone data: Python's zoneinfo reads the pip "tzdata" package (>= 2026.3, IANA 2026c: Alberta
+# on UTC-6 all year from 2026-11-01; api/pyproject.toml), not the base image's /usr/share/zoneinfo,
+# whose version follows Debian's updates. An empty PYTHONTZPATH empties zoneinfo.TZPATH.
+ENV PYTHONTZPATH=""
+
 # Commit of this build, reported by GET /api/v1/version
 ARG GIT_SHA=unknown
 ENV FIRESIM_GIT_SHA=$GIT_SHA
