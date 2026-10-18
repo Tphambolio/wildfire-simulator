@@ -94,7 +94,7 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
   // P10 lines labelled in clock time; at the end of the run every line is drawn (not projected)
   const labels = page.locator(".map-iso-label");
   await expect.poll(() => labels.count()).toBeGreaterThanOrEqual(4);
-  for (const t of await labels.allTextContents()) expect(t).toMatch(/^\d{2}:\d{2}$/);
+  for (const t of await labels.allTextContents()) expect(t).toMatch(/^(?:D\d+ )?\d{2}:\d{2}$/);
   const drawn = async () => JSON.parse((await page.locator(".map-view-canvas").getAttribute("data-ens-lines")) ?? "[]") as Array<[string, string, number]>;
   expect((await drawn()).length).toBe(8);
   expect((await drawn()).every(([, phase]) => phase === "past")).toBe(true);
@@ -103,7 +103,7 @@ test("range of outcomes: progress, P10 clock-time lines, burn probability, cavea
   // Neighbourhoods: P10 time first, single run beside it
   await expect(page.locator(".evac-arrival-table thead")).toContainText("P10 (early)");
   await expect(page.locator(".evac-arrival-table thead")).toContainText("Single run");
-  await expect(page.locator(".evac-arrival-worst").first()).toHaveText(/^\d{2}:\d{2}$/);
+  await expect(page.locator(".evac-arrival-worst").first()).toHaveText(/^(?:D\d+ )?\d{2}:\d{2}$/);
   await page.waitForTimeout(500);
   await shot(page, "complete");
 

@@ -34,8 +34,8 @@ test.describe("neighbourhoods and evacuation status", () => {
     // Modelled arrival only
     const card = page.locator(".evac-status");
     await expect(card.locator(".evac-arrival-table tbody tr").first()).toBeVisible();
-    await expect(card.locator(".evac-arrival-table tbody tr", { hasText: "The Uplands" })).toContainText(/\d{2}:\d{2}/);
-    await expect(page.locator(".map-nbhd-label-arrival").first()).toHaveText(/^Fire within 500 m by \d{2}:\d{2}$/);
+    await expect(card.locator(".evac-arrival-table tbody tr", { hasText: "The Uplands" })).toContainText(/(?:D\d+ )?\d{2}:\d{2}/);
+    await expect(page.locator(".map-nbhd-label-arrival").first()).toHaveText(/^Fire within 500 m by (?:D\d+ )?\d{2}:\d{2}$/);
     // ...and no evacuation tier anywhere until a person sets one
     await expect(card.getByTestId("evac-none")).toBeVisible();
     expect(await drawnTiers(page)).toEqual([]);
