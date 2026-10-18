@@ -244,6 +244,7 @@ def _run_task(task: dict) -> dict:
                           ffmc_spinup=task["ffmc_spinup"],
                           burning_period=tuple(task["burning_period"]) if task["burning_period"]
                           else None,
+                          ros_factor_by_fuel_group=task.get("ros_factors") or None,
                           **{k: task[t] for k, t in (("grass_cure_green", "cure_green"),
                                                      ("grass_cure_dormant", "cure_dormant"),
                                                      ("grass_cure_spring", "cure_spring"))
@@ -291,6 +292,23 @@ def run_name(args) -> str:
     return name
 
 
+def parse_ros_factors(text: str | None) -> dict[str, float] | None:
+    """``"C=0.55,M=0.55,O=0.5"`` -> {"C": 0.55, ...} (FBP fuel groups C, M, D, O, S); None if empty."""
+    if not text:
+        return None
+    out = {}
+    for part in text.split(","):
+        k, v = part.split("=")
+        k = k.strip().upper()
+        if k not in ("C", "M", "D", "O", "S"):
+            raise ValueError(f"unknown fuel group {k!r} in --ros-factors")
+        f = float(v)
+        if not f > 0:
+            raise ValueError(f"ROS factor must be > 0, got {f}")
+        out[k] = f
+    return out
+
+
 def cmd_run(args) -> None:
     manifest = json.loads(manifest_path().read_text())
     tasks = [{"fire_id": m["fire_id"], "day": d} for m in manifest for d in m["days"]]
@@ -325,6 +343,7 @@ def cmd_run(args) -> None:
                   windows=args.windows, margin_m=args.margin_m, wind_members=args.wind_members,
                   active_days=args.active_days, active_buffer_m=args.active_buffer_m,
                   ffmc_spinup=args.ffmc_spinup, burning_period=args.burning_period,
+                  ros_factors=parse_ros_factors(args.ros_factors),
                   ensemble=ensemble, cure_green=args.cure_green,
                   cure_dormant=args.cure_dormant, cure_spring=args.cure_spring)
              for t in tasks if (t["fire_id"], t["day"]) not in done]
@@ -814,6 +833,9 @@ def main() -> None:
                    help="start the hourly FFMC at 17:00 the previous day")
     r.add_argument("--burning-period", type=float, nargs=2, default=None,
                    metavar=("START_H", "END_H"), help="spread only between these local hours")
+    r.add_argument("--ros-factors", default=None,
+                   help="opt-in ROS factor by FBP fuel group, e.g. C=0.55,M=0.55,O=0.5 "
+                        "(PREREG_FRONT1 arm B; default none)")
     r.add_argument("--spotting", action="store_true")
     r.add_argument("--cure-green", type=float, default=None,
                    help="O-1 curing (%%) between green-up and leaf-off (default 60)")

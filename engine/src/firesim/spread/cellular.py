@@ -154,6 +154,7 @@ def run_cellular_simulation(
     seed: int | str | None = None,
     progress=None,
     spot_sample_spacing_m: float | None = None,
+    ros_factor_by_fuel_group: dict[str, float] | None = None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -206,6 +207,11 @@ def run_cellular_simulation(
             None = every 3rd newly burned cell (the original rule, 150 m on a 50 m grid);
             the 20 m WUI window passes 150 m so the number of sources per metre of front does
             not grow with resolution.
+        ros_factor_by_fuel_group: Opt-in rate-of-spread factor by FBP fuel group (the first
+            letter of the fuel code: "C", "M", "D", "O", "S"), e.g. ``{"C": 0.55, "M": 0.55}``.
+            It multiplies head, flank and back ROS of every cell of that group through the same
+            per-cell multiplier as the WUI modifiers (a model-discrepancy term per fuel group,
+            decision M3; PREREG_FRONT1 arm B). None (default) = no change.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -227,7 +233,8 @@ def run_cellular_simulation(
     schedule = sorted(weather_schedule, key=lambda e: e[0]) if weather_schedule else [(0.0, conditions)]
     conditions = schedule[0][1]
     rng = random.Random(seed if seed is not None else derive_seed(sorted(config.items()), conditions))
-    cell_keys = _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center)
+    cell_keys = _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center,
+                           ros_factor_by_fuel_group)
     params = _CellParams.evaluate(cell_keys, conditions)
     period = 0
     fuel = params.fuel
@@ -613,7 +620,8 @@ def _key_groups(keys) -> dict:
     return out
 
 
-def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
+def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center,
+               ros_factor_by_fuel_group: dict[str, float] | None = None):
     """(fuel mask, per-cell index into the distinct cell types, the distinct types, the types
     grouped by fuel and canopy for the vectorised FBP).
 
@@ -645,6 +653,8 @@ def _cell_keys(fuel_grid, spread_modifier_grid, terrain_grid, center):
                     cbh, cfl = fuel_grid.get_canopy_at(lat, lng)
                 if spread_modifier_grid is not None:
                     rm, im, _ = spread_modifier_grid.get_modifiers_at(lat, lng)
+            if ros_factor_by_fuel_group:
+                rm = rm * ros_factor_by_fuel_group.get(ft.value[0], 1.0)
             pc = pc_layer[r][c] if pc_layer is not None and ft in _MIXEDWOOD else None
             key = (ft, round(slope), round(aspect) % 360, cbh, cfl, rm, im, pc)
             index[r, c] = lookup.setdefault(key, len(lookup))

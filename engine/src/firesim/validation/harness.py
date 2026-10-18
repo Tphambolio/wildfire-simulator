@@ -114,6 +114,8 @@ class RunOptions:
     # None = use grass_cure_dormant there too (the harness's original rule)
     grass_cure_spring: float | None = None
     use_terrain: bool = True
+    # Opt-in ROS factor by FBP fuel group ({"C": 0.55, ...}; PREREG_FRONT1 arm B). None = off.
+    ros_factor_by_fuel_group: dict | None = None
 
 
 @dataclass
@@ -361,7 +363,7 @@ def _run(setup: dict, config: SimulationConfig, opts: RunOptions,
         snapshot_interval_minutes=duration_h * 60.0, enable_spotting=opts.enable_spotting,
         initial_perimeter=perimeter, initial_burned=setup["burned_pts"], compute_perimeter=False,
         active_edges=setup["active"], active_edge_buffer_m=opts.active_buffer_m,
-        seed=seed,
+        seed=seed, ros_factor_by_fuel_group=opts.ros_factor_by_fuel_group,
     )
     run_s = time.perf_counter() - t0
     arrival = frames[-1].arrival if frames and frames[-1].arrival is not None else \
@@ -503,7 +505,9 @@ def run_fire_day(case: FireDayCase, opts: RunOptions = RunOptions(),
         "date": case.start.date().isoformat(), "start_hour": case.start.hour,
         "ignition": opts.ignition, "spotting": opts.enable_spotting,
         "options": {"active_days": opts.active_days, "active_buffer_m": opts.active_buffer_m,
-                    "ffmc_spinup": opts.ffmc_spinup, "burning_period": opts.burning_period},
+                    "ffmc_spinup": opts.ffmc_spinup, "burning_period": opts.burning_period,
+                    **({"ros_factor_by_fuel_group": opts.ros_factor_by_fuel_group}
+                       if opts.ros_factor_by_fuel_group else {})},
         "ffmc": case.ffmc, "dmc": case.dmc, "dc": case.dc, "fwi": case.fwi, "bui": case.bui,
         "fwi_class": fwi_class(case.fwi) if not math.isnan(case.fwi) else None,
         "res_m": round(min(case.domain.dx, case.domain.dy), 1),
