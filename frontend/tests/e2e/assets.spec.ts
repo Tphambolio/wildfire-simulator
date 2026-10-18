@@ -73,11 +73,11 @@ test.describe("critical assets", () => {
     const rows = card.locator(".asset-row");
     await expect(rows.first()).toBeVisible();
     const sub = card.locator(".asset-row", { hasText: "Riverview Substation" });
-    await expect(sub).toContainText(/Fire within 500 m by \d{2}:\d{2}/);
-    await expect(sub).toContainText(/Inside the modelled fire by \d{2}:\d{2}/);
+    await expect(sub).toContainText(/Fire within 500 m by (?:D\d+ )?\d{2}:\d{2}/);
+    await expect(sub).toContainText(/Inside the modelled fire by (?:D\d+ )?\d{2}:\d{2}/);
     await expect(card.locator(".assets-group-h", { hasText: "Power plants and substations" })).toBeVisible();
     // Major roads reached, first reach per named road
-    await expect(card.locator(".road-row").filter({ has: page.locator(".asset-row-name", { hasText: /^Anthony Henday Drive NW$/ }) })).toContainText(/Fire on the road by \d{2}:\d{2}/);
+    await expect(card.locator(".road-row").filter({ has: page.locator(".asset-row-name", { hasText: /^Anthony Henday Drive NW$/ }) })).toContainText(/Fire on the road by (?:D\d+ )?\d{2}:\d{2}/);
     // "Model output" badge; the explanation and the sources are in its tooltip (and About & sources)
     const badge = card.getByRole("button", { name: "Model output" });
     await expect(badge).toBeVisible();
@@ -90,7 +90,7 @@ test.describe("critical assets", () => {
     await expect(tip).toBeHidden();
     // The map labels reached assets and draws reached roads
     await expect.poll(() => reachedOnMap(page)).toContain("Riverview Substation");
-    await expect(page.locator(".map-asset-label", { hasText: "Riverview Substation" })).toHaveText(/ · 500 m by \d{2}:\d{2}$/);
+    await expect(page.locator(".map-asset-label", { hasText: "Riverview Substation" })).toHaveText(/ · 500 m by (?:D\d+ )?\d{2}:\d{2}$/);
     await expect.poll(async () => Number(await page.locator(".map-view-canvas").first().getAttribute("data-roads-reached"))).toBeGreaterThan(0);
     await expect(page.locator(".maplibregl-ctrl-attrib")).toContainText("OpenStreetMap");
     // Model output only: no at-risk flag or burn-probability threshold wording anywhere
@@ -123,7 +123,7 @@ test.describe("critical assets", () => {
     await setIgnitionAtMapCentre(page);
     await runToCompletion(page);
     const card = page.getByTestId("critical-assets");
-    await expect(card.locator(".asset-row").first()).toContainText(/Fire within 500 m by (\d{2}:\d{2}|not reached) \(P10\) · (\d{2}:\d{2}|not reached) \(single run\)/, { timeout: 30_000 });
+    await expect(card.locator(".asset-row").first()).toContainText(/Fire within 500 m by ((?:D\d+ )?\d{2}:\d{2}|not reached) \(P10\) · ((?:D\d+ )?\d{2}:\d{2}|not reached) \(single run\)/, { timeout: 30_000 });
     const tip = await tipOf(page, card.getByRole("button", { name: "Model output" }));
     await expect(tip).toContainText("the ensemble's P10 (early end of the range, 1 in 10 members) first");
     await page.keyboard.press("Escape");
