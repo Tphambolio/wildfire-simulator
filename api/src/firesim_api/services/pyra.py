@@ -25,7 +25,7 @@ What Pyra shows for a station today (Alberta, default single-station mode, not t
 2. CWFIS ``firewx_stns_current`` is queried within ±2° of that station and the nearest station
    *with* FFMC/DC is chosen unless a weather-only station is more than 200 km nearer
    (``_selectCWFIS``). Its DC passes the spring cold-start floor (``applyDCFloor``).
-3. Before noon LST (MST, UTC-7): the CWFIS codes (normally yesterday's) become the carry-over
+3. Before noon LST (Alberta fire-weather LST, 19 UTC; ``services/alberta_time.py``): the CWFIS codes (normally yesterday's) become the carry-over
    (Pyra's browser "holding cache"); the carry-over is the newer of that and the station's entry in
    ``cwfis_prev.json`` (by name, else the nearest entry within 10 km), at most 2 days old. It is
    stepped one day with the GEM noon-LST forecast for today (Open-Meteo ``models=gem_seamless``,
@@ -35,7 +35,7 @@ What Pyra shows for a station today (Alberta, default single-station mode, not t
    station's observation; if it returns nothing, Pyra tries MSC SWOB and then the GEM noon-LST
    value. FireSim does not query SWOB (it goes straight to GEM; see ``docs/PROJECT_RECORD.md``).
 5. The ISI/BUI/FWI in the components strip are the daily values (noon wind). The "peak burn"
-   ISI/FWI use the 16:00 MDT wind with the same codes; they are returned separately.
+   ISI/FWI use the 16:00 local (UTC-6: MDT, MT from 2026-11-01) wind with the same codes; they are returned separately.
 
 If any step has no data (outside Alberta, no carry-over within 2 days, the GEM request fails),
 this tier returns a reason and the endpoint falls back to its CWFIS → archive → GEM chain.
@@ -50,12 +50,12 @@ import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
-from zoneinfo import ZoneInfo
 
 import httpx
 
 from firesim.fwi.calculator import FWICalculator
 
+from . import alberta_time
 from .pyra_stations import ALBERTA_STATIONS, PYRA_COMMIT
 
 logger = logging.getLogger(__name__)
@@ -78,9 +78,9 @@ PREV_TIMEOUT_S = 10.0
 PYRA_SITE = "https://tphambolio.github.io/FWI/"
 
 # ── Alberta constants (Pyra fwi.js PROVINCE) ───────────────────────────────────
-LST_OFFSET_H = 7          # noon LST = 19 UTC (MST)
-NOON_UTC = 19
-PEAK_UTC = 22             # 16:00 MDT, Pyra's peak-burn hour (wind only)
+# Time: the CFFDRS day and its noon-LST hour come from ``alberta_time`` (19 UTC before 2026-11-01;
+# after, FIRESIM_AB_FWI_LST_OFFSET_H, default 19 UTC as CWFIS). Pyra fwi.js PROVINCE.clockRules.
+PEAK_UTC = 22             # 16:00 on Alberta's UTC-6 clock (MDT; MT from 2026-11-01), Pyra's peak-burn hour (wind only)
 AB_BBOX = (48.8, 60.5, -120.5, -109.5)   # PROVINCE.cwfisBBox [latMin, latMax, lonMin, lonMax]
 CWFIS_URL = "https://cwfis.cfs.nrcan.gc.ca/geoserver/public/ows"
 CWFIS_BBOX_DEG = 2.0
@@ -94,7 +94,6 @@ DC_COLDSTART_CEILING = 60
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 GEM_MODEL = "gem_seamless"
 GEM_TIMEOUT_S = 12.0
-_LOCAL_TZ = ZoneInfo("America/Edmonton")
 
 
 # ── Cache of the carry-over file ───────────────────────────────────────────────
@@ -199,7 +198,7 @@ def regional_dc_floor(lat: float, lon: float, now: datetime) -> float:
     A Pyra heuristic ("calibrated against CWFIS April 2026"), not a published method; FireSim
     applies it only to reproduce Pyra's numbers.
     """
-    mo = (now - timedelta(hours=LST_OFFSET_H)).month
+    mo = alberta_time.fwi_lst(now).month
     if mo < 3 or mo > 6:
         return 0.0
     if lat < 48.8 or lat > 60.5 or lon < -120.5 or lon > -109.5:
@@ -341,11 +340,13 @@ def prev_for(section: dict, name: str, lat: float, lng: float) -> tuple[str, dic
 
 # ── GEM noon-LST weather (Pyra fetchWeather) ───────────────────────────────────
 def lst_date(now: datetime) -> date:
-    return (now - timedelta(hours=LST_OFFSET_H)).date()
+    """The CFFDRS day (Alberta fire-weather LST date) at ``now``."""
+    return alberta_time.fwi_lst_date(now)
 
 
 def is_pre_noon(now: datetime) -> bool:
-    return (now - timedelta(hours=LST_OFFSET_H)).hour < 12
+    """Before today's daily (noon LST) observation hour."""
+    return now < alberta_time.fwi_noon_utc(lst_date(now))
 
 
 def _js_num(x: float) -> str:
@@ -375,7 +376,7 @@ async def fetch_gem(lat: float, lng: float) -> dict | None:
 
 
 def gem_noon(data: dict, now: datetime) -> dict | str:
-    """Pyra ``fetchWeather``: today's noon-LST hour (19 UTC), its 24 h rain, and the 16:00 MDT wind."""
+    """Pyra ``fetchWeather``: today's noon-LST hour (19 UTC), its 24 h rain, and the 16:00 UTC-6 wind."""
     h = data.get("hourly") or {}
     times = list(h.get("time") or [])
     if not times:
@@ -386,7 +387,8 @@ def gem_noon(data: dict, now: datetime) -> dict | str:
         t = datetime(d.year, d.month, d.day, tzinfo=timezone.utc) + timedelta(hours=hour_utc)
         return t.strftime("%Y-%m-%dT%H:00")
 
-    i = times.index(iso(NOON_UTC)) if iso(NOON_UTC) in times else len(times) - 1
+    noon_utc = alberta_time.fwi_noon_utc_hour(d)
+    i = times.index(iso(noon_utc)) if iso(noon_utc) in times else len(times) - 1
     ip = times.index(iso(PEAK_UTC)) if iso(PEAK_UTC) in times else -1
 
     def col(name: str) -> list:
@@ -482,7 +484,7 @@ async def pyra_today(lat: float, lng: float, now: datetime) -> PyraResult | str:
     (s_name, s_lat, s_lng), s_dist = nearest_pyra_station(lat, lng)
     pre_noon = is_pre_noon(now)
     today = lst_date(now)
-    month = now.astimezone(_LOCAL_TZ).month   # Pyra: the browser's local month (Alberta viewer)
+    month = alberta_time.to_edmonton(now).month   # Pyra: the browser's local month (Alberta viewer)
 
     features, (prev, prev_reason) = await asyncio.gather(fetch_cwfis(s_lat, s_lng), load_prev(now))
     pick = select_cwfis(features, s_lat, s_lng, now) if features else None

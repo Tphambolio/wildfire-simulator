@@ -2,11 +2,11 @@
  * Scenario start entry (design spec §2.3): wall clock in America/Edmonton <-> instant, and the
  * ISO 8601 `start_time` sent to the API with the offset in force at that instant.
  *
- * Alberta's clocks: with IANA tzdata before 2026c, MDT (UTC-6) / MST (UTC-7) with the usual
- * North American DST dates; from tzdata 2026c Alberta stays on UTC-6 all year after the
- * 2026-11-01 change. The functions take the offset from the platform (Intl), so each rule is
- * tested here with an injected offset function, and the platform is checked against whichever
- * of the two rules its tz data follows.
+ * Alberta's clocks: MDT (UTC-6) / MST (UTC-7) with the usual North American DST dates until
+ * 2026-11-01 02:00 MDT, then UTC-6 all year (Official Time Act; IANA tzdata 2026c). The app's
+ * offset (`edmontonOffsetMinutes`) applies that rule itself after the change, whatever the
+ * platform's tz data says, and uses the platform's tz data before it. The conversion functions
+ * take an injectable offset, so the old (pre-2026c) rule is still exercised for comparison.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -39,14 +39,15 @@ const preRule: OffsetFn = (ms) => {
 const FIXED_FROM = Date.UTC(2026, 10, 1, 8);
 const rule2026c: OffsetFn = (ms) => (ms >= FIXED_FROM ? -360 : preRule(ms));
 
-const platformIs2026c = edmontonOffsetMinutes(Date.parse("2026-12-01T18:00:00Z")) === -360;
-const platformRule = platformIs2026c ? rule2026c : preRule;
-
-describe("the platform tz data follows one of the two Alberta rules", () => {
-  it(`matches ${platformIs2026c ? "tzdata 2026c (permanent UTC-6)" : "tzdata < 2026c (MST in winter)"} hour by hour, 2025-2028`, () => {
+describe("the app's Edmonton offset follows the Alberta rule (tzdata 2026c)", () => {
+  it("matches hour by hour, 2025-2028, whatever the platform's tz data", () => {
     for (let t = Date.UTC(2025, 0, 1); t < Date.UTC(2028, 0, 1); t += 7 * H) {
-      expect(edmontonOffsetMinutes(t), new Date(t).toISOString()).toBe(platformRule(t));
+      expect(edmontonOffsetMinutes(t), new Date(t).toISOString()).toBe(rule2026c(t));
     }
+  });
+  it("Slave Lake 2011 (historical): MDT, -06:00 in May; MST in January", () => {
+    expect(edmontonOffsetMinutes(Date.parse("2011-05-15T20:00:00Z"))).toBe(-360);
+    expect(edmontonOffsetMinutes(Date.parse("2011-01-15T20:00:00Z"))).toBe(-420);
   });
 });
 
@@ -91,15 +92,23 @@ describe.each([
   });
 });
 
-describe("platform tz data (what the app sends)", () => {
+describe("what the app sends (Alberta rule)", () => {
   it("summer start_time carries -06:00", () => {
     expect(toEdmontonIso(zonedWallTimeToMs("2026-07-15", "14:05")!)).toBe("2026-07-15T14:05:00-06:00");
   });
-  it("winter start_time carries the offset the platform's rule gives", () => {
+  it("winter start_time: -07:00 before the change, -06:00 after", () => {
     expect(toEdmontonIso(zonedWallTimeToMs("2026-01-15", "12:40")!)).toBe("2026-01-15T12:40:00-07:00");
-    expect(toEdmontonIso(zonedWallTimeToMs("2026-12-01", "12:00")!)).toBe(
-      platformIs2026c ? "2026-12-01T12:00:00-06:00" : "2026-12-01T12:00:00-07:00",
-    );
+    expect(toEdmontonIso(zonedWallTimeToMs("2026-12-01", "12:00")!)).toBe("2026-12-01T12:00:00-06:00");
+  });
+  it.each([
+    ["2011-05-15", "14:00", "2011-05-15T14:00:00-06:00"],
+    ["2026-10-31", "12:00", "2026-10-31T12:00:00-06:00"],
+    ["2026-11-01", "03:00", "2026-11-01T03:00:00-06:00"],
+    ["2026-11-02", "12:00", "2026-11-02T12:00:00-06:00"],
+    ["2027-03-15", "12:00", "2027-03-15T12:00:00-06:00"],
+  ])("%s %s -> %s", (date, time, iso) => {
+    expect(toEdmontonIso(zonedWallTimeToMs(date, time)!)).toBe(iso);
+    expect(toDateTimeInputs(Date.parse(iso))).toEqual({ date, time });
   });
 });
 
@@ -119,5 +128,13 @@ describe("helpers", () => {
     // 2026-07-16 03:00 UTC is still 15 July in Edmonton (day 196)
     expect(edmontonDayOfYear(Date.parse("2026-07-16T03:00:00Z"))).toBe(196);
     expect(edmontonDayOfYear(Date.parse("2026-01-01T12:00:00Z"))).toBe(1);
+  });
+});
+
+describe("Edmonton calendar after the change (stale browser tz data must not move the date)", () => {
+  it("2027-01-01 00:30 UTC-6 is in 2027 (23:30 on 31 Dec under the old rule)", async () => {
+    const { edmontonYear } = await import("./fuelVintage");
+    expect(edmontonYear(Date.parse("2027-01-01T06:30:00Z"))).toBe(2027);
+    expect(edmontonYear(Date.parse("2011-05-15T20:00:00Z"))).toBe(2011);
   });
 });

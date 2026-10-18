@@ -75,8 +75,8 @@ so that does not happen again.
 | R54 | v8 ember study design: draft for owner review | `docs/record-backlog-2026-10-18`, #90 | 2026-10-18 | master |
 | R55 | Slave Lake replay: arrival at the built-up town, not the census subdivision | `docs/record-backlog-2026-10-18`, #90 | 2026-10-18 | master |
 | R56 | Chrome tester multi-day labels #86 live | `fix/field-test-round4`, #91 | 2026-10-18 | master |
-| R57 | Alberta UTC−6 switch | another session (branch not yet recorded) | 2026-10-18 | claimed |
-| R58 | Harness start strata | another session (branch not yet recorded) | 2026-10-18 | claimed |
+| R57 | Alberta permanent UTC−6 switch | `fix/alberta-permanent-utc6`, #94 (Pyra FWI#7) | 2026-10-18 | master |
+| R58 | Harness start-type strata baseline (with §7 whole-perimeter rerun) | `feat/harness-start-strata`, #93 | 2026-10-18 | master |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.
