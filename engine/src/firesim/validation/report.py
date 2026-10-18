@@ -14,6 +14,8 @@ import numpy as np
 
 METRICS = ("f1", "precision", "recall", "iou", "area_diff_norm", "hausdorff_m")
 SPREAD_METRICS = ("spread_ratio", "bearing_err_deg")
+# Per-window start-perimeter diagnostics (firesim.validation.start_strata; backlog A2)
+START_DIAG_METRICS = ("growth_ratio", "static_share_model")
 
 # Bennett et al. (2026) Table 1, W.I.S.E., 2,210 fires / 19,848 burn days (fire-day means)
 BENNETT_WISE = {
@@ -55,6 +57,11 @@ def flatten(records: list[dict], member: str = "det") -> list[dict]:
                 "obs_growth_ha": rec["obs_growth_ha"], "edge_hit": m.get("edge_hit", False),
                 **{k: s.get(k, math.nan) for k in METRICS + SPREAD_METRICS},
                 "ros_within_35pct": s.get("ros_within_35pct"),
+                # backlog A2 (descriptive): start-type stratum and start-perimeter diagnostics
+                "start_type": rec.get("start_type", "n/a"),
+                "static_share_obs": (rec.get("start_perimeter_obs") or {}).get(
+                    "static_share", math.nan),
+                **{k: s.get(k, math.nan) for k in START_DIAG_METRICS},
             })
     return rows
 
@@ -143,3 +150,50 @@ def fmt(v: float, metric: str) -> str:
     if metric == "hausdorff_m":
         return f"{v:,.0f}"
     return f"{v:.3f}"
+
+
+STRATUM_ORDER = ("point", "fresh", "mature", "n/a")
+
+
+def start_strata_summary(rows: list[dict]) -> dict:
+    """Scores and start-perimeter diagnostics per start-type stratum and pooled ("all").
+
+    ``rows`` are :func:`flatten` rows of ONE window. Per group: fire-days, fires, mean and
+    median F1 (NaN F1 counted as 0, as ``validate.py compare``), mean precision / recall /
+    IoU / normalised area difference, the observed and modelled static share of the start
+    perimeter (median and mean over fire-days), and the growth ratio (modelled ÷ observed
+    growth beyond the start perimeter: median, geometric mean, share of days > 1).
+    Descriptive only: the pooled scores are the same rows ``summarize`` sees.
+    """
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        groups[str(r.get("start_type", "n/a"))].append(r)
+        groups["all"].append(r)
+    keys = [k for k in STRATUM_ORDER if k in groups] + ["all"]
+    out = {}
+    for k in keys:
+        rs = groups[k]
+        f1 = np.array([np.nan_to_num(_num(r.get("f1")), nan=0.0) for r in rs])
+        s = summarize(rs, ("precision", "recall", "iou", "area_diff_norm"))
+
+        def col(name, vals=rs):
+            v = np.array([_num(r.get(name)) for r in vals], dtype=float)
+            return v[np.isfinite(v)]
+        so, sm, gr = col("static_share_obs"), col("static_share_model"), col("growth_ratio")
+        grp = gr[gr > 0]
+        out[k] = {
+            "n_fire_days": len(rs), "n_fires": len({r["fire_id"] for r in rs}),
+            "f1_mean": float(f1.mean()), "f1_median": float(np.median(f1)),
+            **{f"{m}_mean": s[m]["mean"] for m in ("precision", "recall", "iou",
+                                                  "area_diff_norm")},
+            "static_share_obs_median": float(np.median(so)) if len(so) else math.nan,
+            "static_share_obs_mean": float(so.mean()) if len(so) else math.nan,
+            "static_share_model_median": float(np.median(sm)) if len(sm) else math.nan,
+            "static_share_model_mean": float(sm.mean()) if len(sm) else math.nan,
+            "n_static_diag": int(len(sm)),
+            "growth_ratio_median": float(np.median(gr)) if len(gr) else math.nan,
+            "growth_ratio_geomean": float(np.exp(np.mean(np.log(grp)))) if len(grp) else math.nan,
+            "growth_ratio_share_gt1": float(np.mean(gr > 1.0)) if len(gr) else math.nan,
+            "n_growth_ratio_zero": int(np.sum(gr == 0)),
+        }
+    return out
