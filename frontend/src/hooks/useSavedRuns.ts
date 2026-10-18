@@ -15,7 +15,7 @@ import {
   storePassphrase,
   type SavedRun,
 } from "../services/savedRuns";
-import { zonedWallTimeToMs } from "../utils/time";
+import { toDateTimeInputs, zonedWallTimeToMs } from "../utils/time";
 
 export const PAGE_SIZE = 20;
 
@@ -47,7 +47,7 @@ export function dayRange(from: string, to: string): { since: string | null; unti
     // the end day is included: until the next local midnight (≈ +24 h; DST-safe via a re-parse)
     if (end !== null) {
       const next = new Date(end + 36 * 3_600_000);
-      const ymd = next.toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
+      const ymd = toDateTimeInputs(next.getTime()).date;
       const nextMidnight = zonedWallTimeToMs(ymd, "00:00");
       until = nextMidnight !== null ? new Date(nextMidnight).toISOString() : null;
     }

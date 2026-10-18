@@ -647,7 +647,7 @@ with its own FWI calculator (same equations, FFMC coefficient 147.2):
   station's entry in Pyra's published `data/cwfis_prev.json` (by name, else nearest within
   10 km); the newer one, CWFIS first on a tie; at most 2 days old. Spring (March-June) DC ≤ 60 is
   raised to Pyra's regional floor.
-- **Before noon LST (MST, 19 UTC):** the carry-over is stepped one day with the GEM noon-LST
+- **Before noon LST (Alberta fire-weather LST, 19 UTC; 13:00 MT from 2026-11-01):** the carry-over is stepped one day with the GEM noon-LST
   forecast for today (Open-Meteo `models=gem_seamless`, the URL Pyra requests: noon temperature,
   RH, 10 m wind, 24 h rain to noon). `codes_status` = `forecast`.
 - **After noon LST:** a CWFIS station with codes → its codes as published (`today`, or
@@ -708,7 +708,11 @@ Fields added 2026-10-10 (all optional, `null` when not applicable):
 | `pyra` | Pyra tier details (above) |
 
 Noon LST uses the province's standard-time offset (AB UTC-7, BC UTC-8, …), else the zone's
-standard offset, else longitude / 15.
+standard offset, else longitude / 15. Alberta's is the fire-weather offset CWFIS uses
+(`tz_correct` -7, i.e. 19 UTC), not the legal clock: Alberta has been on UTC-6 all year since
+2026-11-01, and the daily observation stays at 19 UTC (13:00 MT) unless
+`FIRESIM_AB_FWI_LST_OFFSET_H=6` (18 UTC) is set; before 2026-11-01 it is always 19 UTC
+(`services/alberta_time.py`; report "Alberta permanent UTC-6 switch 2026-10-18").
 
 ### GET /api/v1/version
 

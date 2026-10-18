@@ -47,6 +47,7 @@ from pydantic import BaseModel
 from firesim.fwi.calculator import FWICalculator
 from firesim.fwi.classes import fwi_class
 
+from ..services import alberta_time
 from ..services import pyra as pyra_source
 from ..settings import settings
 
@@ -76,8 +77,10 @@ FORECAST_MODEL_LABEL = "Open-Meteo GEM (gem_seamless)"
 _START_UP = (85.0, 6.0, 15.0)
 
 # Standard (non-daylight) UTC offset in hours used for "noon LST", by province/territory code as
-# CWFIS reports it. Alberta stations report at noon MST (UTC-7). Nunavut spans three zones and
-# falls back to the zone or longitude.
+# CWFIS reports it. Alberta stations report at noon fire-weather LST = 19 UTC (CWFIS tz_correct -7,
+# not the legal clock, which is UTC-6 all year from 2026-11-01); the Alberta value is dated and
+# configurable in ``services/alberta_time.py``. Nunavut spans three zones and falls back to the
+# zone or longitude.
 _STD_OFFSET_H = {
     "BC": -8.0, "YT": -7.0, "AB": -7.0, "NT": -7.0, "SK": -6.0, "MB": -6.0, "ON": -5.0,
     "QC": -5.0, "NB": -4.0, "NS": -4.0, "PE": -4.0, "NL": -3.5,
@@ -109,7 +112,7 @@ class PyraDetails(BaseModel):
     step: str
     # 24 h rain (mm) to noon LST used for the step
     rain_24h: float | None = None
-    # Pyra's "peak burn" indices: the same codes with the 16:00 MDT GEM wind (display only)
+    # Pyra's "peak burn" indices: the same codes with the 16:00 UTC-6 (MDT / MT) GEM wind (display only)
     peak_wind_speed: float | None = None
     peak_isi: float | None = None
     peak_fwi: float | None = None
@@ -386,7 +389,7 @@ def _codes_age(
         d = date.fromisoformat(str(rep_date)[:10])
     except ValueError:
         return None, None, None
-    local = now + timedelta(hours=_std_offset_hours(prov, lng))
+    local = now + timedelta(hours=_std_offset_hours(prov, lng, at=now))
     age = (local.date() - d).days
     before_noon = local.hour < 12
     if age <= 0:
@@ -397,8 +400,16 @@ def _codes_age(
     return d.isoformat(), "older", f"Codes from noon LST {d.isoformat()} ({age} days old)"
 
 
-def _std_offset_hours(prov: str | None, lng: float, tz_name: str | None = None) -> float:
-    """Standard-time UTC offset (hours) for noon LST: province table, else the zone, else longitude."""
+def _std_offset_hours(
+    prov: str | None, lng: float, tz_name: str | None = None, at: datetime | None = None,
+) -> float:
+    """Standard-time UTC offset (hours) for noon LST: province table, else the zone, else longitude.
+
+    Alberta's fire-weather LST offset is dated (``alberta_time.fwi_lst_offset_at``; ``at`` = now
+    when not given); before 2026-11-01 it is the table's -7.
+    """
+    if prov and prov.upper() == "AB":
+        return -float(alberta_time.fwi_lst_offset_at(at or datetime.now(timezone.utc)))
     if prov and prov.upper() in _STD_OFFSET_H:
         return _STD_OFFSET_H[prov.upper()]
     if tz_name:
@@ -465,7 +476,7 @@ def _noon_weather(data: dict, now: datetime, prov: str | None, lng: float) -> di
     times = h.get("time") or []
     if not times:
         return f"{FORECAST_MODEL_LABEL} returned no hours"
-    off = _std_offset_hours(prov, lng, data.get("timezone"))
+    off = _std_offset_hours(prov, lng, data.get("timezone"), at=now)
     local = now + timedelta(hours=off)
     noon_date = local.date() if local.hour >= 12 else local.date() - timedelta(days=1)
     noon_utc = datetime(noon_date.year, noon_date.month, noon_date.day, 12, tzinfo=timezone.utc) - timedelta(hours=off)

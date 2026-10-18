@@ -1,57 +1,77 @@
 /**
  * Shared time model (design spec §2.3). All displayed times are wall-clock times in
- * America/Edmonton. Conversions go through Intl.DateTimeFormat with that time zone, never a
- * hard-coded UTC offset, so clock changes come from the platform's time-zone data: the
- * 2026-03-08 spring-forward, and on 2026-11-01 either the usual fall-back (tzdata before
- * 2026c) or no change, since Alberta stays on UTC-6 year-round from then (tzdata 2026c+).
+ * America/Edmonton.
+ *
+ * Alberta's clock rule (Official Time Act; in force 2026-06-18; IANA tzdata 2026c): MST (UTC-7)
+ * / MDT (UTC-6) with the usual North American DST dates until 2026-11-01 02:00 MDT, then UTC-6
+ * all year with no fall-back. Browsers ship their own tz data and many will still fall back to
+ * UTC-7 on 2026-11-01 for a while, so the offset is NOT taken from Intl after the change: from
+ * 2026-11-01 08:00 UTC it is the fixed UTC-6 of the law (dated rule), and before that it comes
+ * from Intl (every tz data version agrees on the historical dates). All formatting goes through
+ * that one offset, so labels, clock times and the `start_time` offset always agree.
+ *
+ * Labels: "MST"/"MDT" for instants before the change (historical replays, e.g. Slave Lake 2011,
+ * keep their historical labels); "MT" from 2026-11-01 02:00 MDT on (owner's choice, 2026-10-18:
+ * not the IANA abbreviation "CST", which reads as Central time to Albertans). Never the Intl
+ * abbreviation, which varies by browser ("MDT", "GMT-6", "CST").
  */
 
 export const TIME_ZONE = "America/Edmonton";
 
-/** 2026-11-01 02:00 MDT: Alberta's last clock change; UTC-6 all year after (tzdata 2026c). */
-const ALBERTA_FIXED_UTC6_FROM = Date.UTC(2026, 10, 1, 8, 0);
+/** 2026-11-01 02:00 MDT (08:00 UTC): Alberta's last clock change; UTC-6 all year after. */
+export const ALBERTA_FIXED_UTC6_FROM = Date.UTC(2026, 10, 1, 8, 0);
+/** Alberta's offset from ALBERTA_FIXED_UTC6_FROM on, in minutes east of UTC. */
+const ALBERTA_FIXED_OFFSET_MIN = -360;
+/** Label for Alberta time from ALBERTA_FIXED_UTC6_FROM on (owner's choice). */
+export const ALBERTA_TIME_LABEL = "MT";
 
+/** Formats the fields of an already-shifted instant (local wall clock encoded as UTC). */
 const clockFmt = new Intl.DateTimeFormat("en-CA", {
-  timeZone: TIME_ZONE,
+  timeZone: "UTC",
   hour: "2-digit",
   minute: "2-digit",
   hourCycle: "h23",
 });
 
-const zoneFmt = new Intl.DateTimeFormat("en-CA", {
-  timeZone: TIME_ZONE,
-  timeZoneName: "short",
-});
-
 const dateFmt = new Intl.DateTimeFormat("en-CA", {
-  timeZone: TIME_ZONE,
+  timeZone: "UTC",
   weekday: "short",
   day: "numeric",
   month: "short",
 });
 
+/** The instant shifted by its Edmonton offset: its UTC fields are the Edmonton wall clock. */
+function shifted(d: Date): Date {
+  const ms = d.getTime();
+  return new Date(ms + edmontonOffsetMinutes(ms) * 60_000);
+}
+
 /** "14:05" — 24 h wall-clock time in America/Edmonton. */
 export function formatClock(d: Date): string {
-  const parts = clockFmt.formatToParts(d);
+  const parts = clockFmt.formatToParts(shifted(d));
   const hh = parts.find((p) => p.type === "hour")?.value ?? "00";
   const mm = parts.find((p) => p.type === "minute")?.value ?? "00";
   return `${hh === "24" ? "00" : hh}:${mm}`;
 }
 
-/** Short zone name for the instant, e.g. "MDT", "MST" (or "CST" after Alberta's Nov 2026 change). */
+/**
+ * Zone label for the instant: "MST" or "MDT" before 2026-11-01 02:00 MDT, "MT" from then on.
+ * Derived from the offset (above), not from Intl's abbreviation.
+ */
 export function zoneAbbrev(d: Date): string {
-  const name = zoneFmt.formatToParts(d).find((p) => p.type === "timeZoneName")?.value ?? "";
-  // Some ICU builds give "GMT-7"/"GMT-6" instead of an abbreviation. Before November 2026
-  // GMT-6 is MDT; from 2026-11-01 Alberta stays on UTC-6 all year (IANA tzdata 2026c names
-  // it CST), so the offset is shown as-is there rather than guessed.
-  if (name === "GMT-7") return "MST";
-  if (name === "GMT-6" && d.getTime() < ALBERTA_FIXED_UTC6_FROM) return "MDT";
-  return name;
+  const ms = d.getTime();
+  if (ms >= ALBERTA_FIXED_UTC6_FROM) return ALBERTA_TIME_LABEL;
+  const off = edmontonOffsetMinutes(ms);
+  if (off === -420) return "MST";
+  if (off === -360) return "MDT";
+  const sign = off < 0 ? "-" : "+";
+  const a = Math.abs(off);
+  return `UTC${sign}${Math.floor(a / 60)}${a % 60 ? `:${String(a % 60).padStart(2, "0")}` : ""}`;
 }
 
 /** "Tue, 28 Apr" style date in America/Edmonton. */
 export function formatDate(d: Date): string {
-  return dateFmt.format(d);
+  return dateFmt.format(shifted(d));
 }
 
 /** The instant `hours` after the scenario start. */
@@ -131,8 +151,8 @@ const partsFmt = new Intl.DateTimeFormat("en-CA", {
   hourCycle: "h23",
 });
 
-/** Wall-clock fields in America/Edmonton for an instant. */
-function wallParts(ms: number): { y: number; mo: number; d: number; h: number; mi: number; s: number } {
+/** Wall-clock fields in America/Edmonton per the platform's tz data (Intl). */
+function intlWallParts(ms: number): { y: number; mo: number; d: number; h: number; mi: number; s: number } {
   const p: Record<string, number> = {};
   for (const x of partsFmt.formatToParts(new Date(ms))) {
     if (x.type !== "literal") p[x.type] = Number(x.value);
@@ -140,12 +160,28 @@ function wallParts(ms: number): { y: number; mo: number; d: number; h: number; m
   return { y: p.year, mo: p.month, d: p.day, h: p.hour === 24 ? 0 : p.hour, mi: p.minute, s: p.second };
 }
 
-/** UTC offset of America/Edmonton at `ms`, in minutes, from the platform's tz data (Intl). */
-export const edmontonOffsetMinutes: OffsetFn = (ms) => {
-  const w = wallParts(ms);
+/** Wall-clock fields in America/Edmonton for an instant (Alberta's rule, see the header). */
+function wallParts(ms: number): { y: number; mo: number; d: number; h: number; mi: number; s: number } {
+  const l = new Date(Math.floor(ms / 1000) * 1000 + edmontonOffsetMinutes(ms) * 60_000);
+  return {
+    y: l.getUTCFullYear(), mo: l.getUTCMonth() + 1, d: l.getUTCDate(),
+    h: l.getUTCHours(), mi: l.getUTCMinutes(), s: l.getUTCSeconds(),
+  };
+}
+
+/** Offset of America/Edmonton at `ms` per the platform's tz data (Intl), in minutes. */
+export const platformEdmontonOffsetMinutes: OffsetFn = (ms) => {
+  const w = intlWallParts(ms);
   const asUtc = Date.UTC(w.y, w.mo - 1, w.d, w.h, w.mi, w.s);
   return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / 60_000);
 };
+
+/**
+ * UTC offset of America/Edmonton at `ms`, in minutes: UTC-6 from 2026-11-01 08:00 UTC (the
+ * law, whatever the browser's tz data says), the platform's tz data before that.
+ */
+export const edmontonOffsetMinutes: OffsetFn = (ms) =>
+  ms >= ALBERTA_FIXED_UTC6_FROM ? ALBERTA_FIXED_OFFSET_MIN : platformEdmontonOffsetMinutes(ms);
 
 /**
  * The instant at wall-clock `date` ("YYYY-MM-DD") `time` ("HH:MM") in America/Edmonton, or
