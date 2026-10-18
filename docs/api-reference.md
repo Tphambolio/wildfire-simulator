@@ -707,8 +707,11 @@ Fields added 2026-10-10 (all optional, `null` when not applicable):
 | `source_tier` | `pyra`, `cwfis`, `cwfis_archive` or `gem_estimate` (`null` when unavailable); added with the Pyra tier |
 | `pyra` | Pyra tier details (above) |
 
-Noon LST uses the province's standard-time offset (AB UTC-7, BC UTC-8, …), else the zone's
-standard offset, else longitude / 15. Alberta's is the fire-weather offset CWFIS uses
+Noon LST uses the CWFIS per-station UTC-LST correction (`tz_correct`, cwfis_allstn2026.csv):
+in provinces where CWFIS uses more than one value (Saskatchewan -6/-7, BC -8/-7, Ontario,
+Quebec, Newfoundland and Labrador, Nunavut) the nearest CWFIS station's value
+(`services/cwfis_tz.py`, built by `scripts/build_cwfis_tz.py`), else the province's value
+(AB -7, BC -8, YT -8, SK -6, …), else the zone's standard offset, else longitude / 15. Alberta's is the fire-weather offset CWFIS uses
 (`tz_correct` -7, i.e. 19 UTC), not the legal clock: Alberta has been on UTC-6 all year since
 2026-11-01, and the daily observation stays at 19 UTC (13:00 MT) unless
 `FIRESIM_AB_FWI_LST_OFFSET_H=6` (18 UTC) is set; before 2026-11-01 it is always 19 UTC
