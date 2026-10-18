@@ -405,13 +405,16 @@ def _table(header: list[str], rows: list[list[str]]) -> str:
     return "\n".join(out)
 
 
-START_STRATA_ABOUT = (
-    "Per start-type stratum (point / fresh perimeter / mature perimeter, "
-    "firesim.validation.start_strata.start_type) and pooled ('all'): F1 etc. of the "
-    "deterministic member at each window, the static share of the start perimeter "
-    "(observed vs modelled; share of 500 m boundary samples that advanced <= 1 km) and the "
-    "growth ratio (modelled / observed growth beyond the start perimeter). Descriptive; the "
-    "pooled scores are the ones in report.md.")
+START_STRATA_ABOUT = {
+    "purpose": "per start-type stratum (point / fresh perimeter / mature perimeter, "
+               "firesim.validation.start_strata.start_type) and pooled ('all'): scores of the "
+               "deterministic member at each window, the static share of the start perimeter "
+               "(observed vs modelled; share of 500 m boundary samples that advanced <= 1 km) "
+               "and the growth ratio (modelled / observed growth beyond the start perimeter)",
+    "status": "descriptive; the pooled scores are the ones in report.md",
+    "units": "shares 0-1; F1 etc. as report.md; growth ratio dimensionless",
+    "created_by": "scripts/validate.py report",
+}
 
 
 def _strata_table(ss: dict) -> str:

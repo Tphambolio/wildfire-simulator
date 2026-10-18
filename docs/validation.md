@@ -593,6 +593,33 @@ For each fire-day (Bennett's day *n*):
    which needs the observation and therefore measures the model's potential, not its forecast
    skill). Cumulative (whole-fire) scores are also stored; they are higher simply because old
    burned area counts as agreement, and are not reported as skill.
+7. **Start type and start-perimeter diagnostics** (2026-10-18, backlog A2, [R58];
+   `engine/src/firesim/validation/start_strata.py`). Descriptive: they change no score.
+   - *Start type*, from CFSDS DOB before day *n* only: age = day *n* − the earliest DOB in the
+     start area. **Mature perimeter** if age ≥ 2 days; otherwise (the whole start area burned
+     on day *n*-1) **point start** if the start area is ≤ 100 ha, else **fresh perimeter**.
+     DOB is daily, so a "fresh" start area burned about 6-30 h before the 06:00 start: the
+     harness's nearest analogue of a "< 24 h" perimeter. The harness has no true point
+     ignitions (Bennett's filters need day *n*-1 burning), so "point" means a start area
+     small enough to act as one at the scale of a day's growth. The rule was fixed from the
+     start age and area of the 143 fire-days before any per-stratum score was computed.
+   - *Static share of the start perimeter* ([R53] Fig. 4 method on the raster): start-area
+     boundary cells thinned to one per 500 m block; each growth cell is assigned to its
+     nearest sample; a sample's advance is the farthest assigned cell's distance from the
+     start area; static = advance ≤ 1 km. Reported for the observed growth (record
+     `start_perimeter_obs`) and for the modelled growth at each window
+     (`static_share_model`).
+   - *Growth ratio* = modelled ÷ observed growth area beyond the start area, per window
+     (`growth_ratio`; > 1 over-spread).
+   - `validate.py report` adds "By start type" tables and `start_strata.json`; `compare`
+     appends a per-stratum table with paired ΔF1. Run files written before A2 are tagged
+     from their domains (the diagnostics need a rerun).
+   - Baseline ([R58], descriptive; C1 set-up, back-cast grid, 143 fire-days): point 8 /
+     fresh 9 / mature 126 fire-days; 17 h F1 0.353 / 0.296 / 0.250 (held-out 0.402 / 0.306 /
+     0.231, pooled 0.246 unchanged); static share observed vs modelled (median) 42 / 58 %,
+     95 / 81 %, 99 / 97 %; growth ratio (median) 0.97 / 1.32 / 2.22. With active edges the
+     model leaves mature perimeters about as static as observed; their excess is over-spread
+     at the active edges.
 
 Metrics (`engine/src/firesim/validation/metrics.py`, unit-tested on shapes with known
 answers): precision TP/(TP+FP); recall TP/(TP+FN); F1 = 2PR/(P+R) (Sørensen/Dice); IoU =
