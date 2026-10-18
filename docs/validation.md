@@ -23,7 +23,9 @@ improvements and held-out results".
 
 **Rescore (2026-10-15): pre-fire fuel grid.** On the back-cast fuel grid FireSim uses for
 historical Alberta replays, the operational set-up's held-out F1 is 0.246 (0.212 on CFS
-2014b); over-prediction is unchanged. See "Rescored on the pre-fire fuel grid".
+2014b); over-prediction is unchanged. The 20-member ensemble (E1, completed 2026-10-17) has a
+lower CRPS of burned area on the back-cast (0.407 vs 0.465, −0.057 [−0.113, −0.007]) and the
+same P10-P90 coverage (49 % vs 48 %). See "Rescored on the pre-fire fuel grid".
 
 **Third round (2026-10-08): ensemble.** The ensemble's perturbation sizes are now set from an
 Alberta forecast-error climatology and one inflation factor chosen on the calibration fires.
@@ -31,7 +33,11 @@ On held-out fires the observed one-day area falls inside the members' 10-90 % ra
 of days (was 20 %; ideal about 80 %) and the CRPS of burned area beats the single run by 24 %
 (was 11 %). The range is still too narrow, burn probability is over-confident, and the P10
 footprint is **not** a worst case (it held at least 90 % of the observed growth on 29 % of
-days). See "Ensemble calibration".
+days). On the pre-fire back-cast grid used for historical Alberta replays (pre-registered
+rescore, 2026-10-17 [R49]): coverage 49 %, CRPS 0.407 (2014b rerun 0.465; better, CI excludes
+0), CRPS skill vs the single run +0.24, spread / skill 1.34, P10 holding at least 90 % on 28 %
+of days: closer to the observed area, but still too narrow and over-confident. See "Ensemble
+calibration".
 
 ## Rescored on the pre-fire fuel grid (2026-10-15)
 
@@ -64,7 +70,16 @@ same code; only the fuel domain files differ (`scripts/validate.py --domains-dir
 - **By fuel group** (descriptive): days whose observed growth is mostly deciduous on 2014b gain
   most (all 18 days: 0.119 → 0.191), while their area bias rises (+0.08 → +0.47); conifer days
   +0.032.
-- **Ensemble:** E1 (20-member ensemble, 65 held-out fire-days) not completed: 18 / 65 (2014b) and 16 / 65 (back-cast) fire-days had run when the agent session ended; as pre-registered, no partial score is reported and the ensemble statement stays as measured on 2014b (resumable: `run_grid.sh <grid> 3 E1`).
+- **Ensemble (E1, completed 2026-10-17, [R49]):** the record's 20-member ensemble (A15 sizes,
+  seed 1) on the same 65 held-out fire-days, both grids rerun with identical member
+  perturbations. CRPS of log10 area 0.465 → **0.407** (−0.057 [−0.113, −0.007], back-cast
+  better; lower is better); observed area inside P10-P90 on 48 % → 49 % of days (+1.5 pp
+  [−7.1, +10.5], no detectable difference). The pre-registered rule (CI of coverage or CRPS
+  excludes 0) is met, so the ensemble statement is updated for historical replays (see
+  "Ensemble calibration"). Descriptive: CRPS skill vs the single run unchanged (+0.23 → +0.24),
+  so the gain follows the single run's better area (|Δlog10 area| 0.605 → 0.534); spread / skill
+  1.63 → 1.34; P10 holds ≥ 90 % of growth on 28 % of days on both grids. Not completed in the
+  2026-10-15 session (18 / 16 of 65 days); finished in two later sessions on identical code.
 - **W.I.S.E. on identical inputs:** on the record's 9 fire-days (whole perimeter, 06-23 h), mean 17 h F1 W.I.S.E. 0.186 vs FireSim 0.242 on 2014b, and 0.232 vs 0.252 on the back-cast (W.I.S.E. 1.0.6-beta.6 with exactly FireSim's back-cast fuel). Both models gain; W.I.S.E. gains more, almost all on one day (2022_433, 0.18 → 0.51). Nine days are too few to rank the models (descriptive, as pre-registered).
 - **Reproduction:** the 2014b rerun of the operational set-up matches the recorded diagonal-fix
   runs to 6e-5 per fire-day; the back-cast rerun matches #79 exactly. The first-round 2014b
@@ -332,6 +347,25 @@ cells that burned):
 |---|---|---|---|---|---|---|
 | Former placeholders | 0 → 0.002 | 0.06 → 0.06 | 0.27 → 0.13 | 0.47 → 0.20 | 0.67 → 0.22 | 0.97 → 0.29 |
 | New defaults | 0 → 0.001 | 0.05 → 0.01 | 0.26 → 0.11 | 0.47 → 0.19 | 0.67 → 0.27 | 0.94 → 0.33 |
+
+**On the pre-fire back-cast grid (2026-10-17, [R49]).** The same ensemble (same sizes, seed and
+member perturbations) on the same 65 held-out fire-days, current code, CFS 2014b rerun vs the
+back-cast grid FireSim uses for historical Alberta replays (pre-registered,
+`docs/PREREG_RESCORE_BACKCAST.md` §7.8; 95 % CIs from 2,000 whole-fire bootstrap draws):
+
+| Score (end of burn day) | 2014b rerun | **Back-cast** | Back-cast − 2014b [95 % CI] |
+|---|---|---|---|
+| Fire-days with observed area inside the members' P10-P90 | 48 % | **49 %** | +1.5 pp [−7.1, +10.5], no detectable difference |
+| CRPS of log10 burned area | 0.465 | **0.407** | **−0.057 [−0.113, −0.007], better** |
+| Fire-days the P10 footprint holds ≥ 90 % of observed growth | 28 % | 28 % | 0.0 pp [−9.6, +8.9] (descriptive) |
+| CRPS skill vs the deterministic run | +0.23 | +0.24 | descriptive |
+| Spread / skill | 1.63 | 1.34 | descriptive |
+| Cells at p ~ 0.94: share burned | 33 % | 43 % | descriptive |
+
+The 2014b rerun differs slightly from the table above (49 % / 0.471 / 1.58), which predates the
+grid diagonal fix; the record's own run rescored with today's code reproduces those values. The
+back-cast centres the members closer to the observed area but does not widen them relative to
+the error: the ensemble remains too narrow and over-confident, and P10 is still not a worst case.
 
 **What the numbers say.**
 
