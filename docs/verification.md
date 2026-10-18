@@ -312,8 +312,11 @@ could not catch the errors.
   Outside Edmonton only a uniform fuel type or a synthetic demo landscape is available.
 - Urban trees in the Edmonton grid are non-fuel; structure-to-structure spread is not modelled.
 - **Time zone**: times are America/Edmonton. Alberta moved to permanent UTC-6 on 2026-06-18
-  (IANA tzdata 2026c); software with older time zone data shows MST (UTC-7) after 2026-11-01.
-  `frontend/src/utils/time.ts` handles both.
+  (IANA tzdata 2026c; clocks stay on UTC-6 from 2026-11-01). Software with older time zone data
+  would show MST (UTC-7) after 2026-11-01, so `frontend/src/utils/time.ts` and
+  `api/src/firesim_api/services/alberta_time.py` apply the dated rule themselves after the
+  change (labels MST/MDT before, "MT" after); the API image reads the pinned pip `tzdata`
+  (>= 2026.3).
 - **Water mask**: the optional OpenStreetMap water layer (`data/edmonton_water_bodies.geojson.gz`,
   2,275 polygons, 429 invalid) covers about 13,900 ha of the city, including about 3,700 ha
   that the LiDAR fuel grid maps as vegetation, and masked 17-21 % of C-2, D-2 and M-2 cells.

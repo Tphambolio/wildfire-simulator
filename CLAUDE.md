@@ -166,6 +166,7 @@ FIRESIM_MAX_STORED_RUNS   runs kept in memory (40)
 FIRESIM_ARCHIVE(_DIR/_DB/_BACKEND/_S3_*/_MAX_AGE_DAYS/_MAX_BYTES/_RETENTION_HOURS)  run archive (docs/run-archive.md)
 FIRESIM_RUNS_PASSPHRASE   shared passphrase for the saved-runs list / rename / delete (header X-FireSim-Passphrase; unset = list disabled, 403; Fly secret, set by the owner only)
 FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)
+FIRESIM_AB_FWI_LST_OFFSET_H  Alberta fire-weather "noon LST" offset for CFFDRS days from 2026-11-01: 7 (default, 19 UTC = 13:00 MT, CWFIS tz_correct) or 6 (18 UTC = 12:00 MT); before 2026-11-01 always 7 (services/alberta_time.py)
 FIRESIM_AB_ASSETS_PATH / FIRESIM_AB_ROADS_PATH  Alberta assets / roads FlatGeobuf (set by api/Dockerfile); FIRESIM_LAYERS_MAX_BOX_DEG (1.0)
 ```
 Run archive (`services/archive.py`): finished runs go to a SQLite index + object store in the
