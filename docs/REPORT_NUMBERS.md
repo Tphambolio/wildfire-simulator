@@ -77,6 +77,7 @@ so that does not happen again.
 | R56 | Chrome tester multi-day labels #86 live | `fix/field-test-round4`, #91 | 2026-10-18 | master |
 | R57 | Alberta permanent UTC−6 switch | `fix/alberta-permanent-utc6`, #94 (Pyra FWI#7) | 2026-10-18 | master |
 | R58 | Harness start-type strata baseline (with §7 whole-perimeter rerun) | `feat/harness-start-strata`, #93 | 2026-10-18 | master |
+| R60 | Front over-spread at active edges: A4/A7/A8 diagnostics and PREREG_FRONT1 (R59 left free for the clock follow-up) | `feat/front-overspread` | 2026-10-18 | claimed |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.
