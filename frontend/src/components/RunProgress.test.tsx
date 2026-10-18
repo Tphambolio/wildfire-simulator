@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import RunProgress, { PHASE_LABEL, etaText, formatElapsedSeconds } from "./RunProgress";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import RunProgress, { PHASE_LABEL, etaFromSamples, etaText, formatElapsedSeconds } from "./RunProgress";
 import { frameProgress } from "../hooks/useSimulation";
 
 describe("RunProgress", () => {
@@ -51,16 +51,49 @@ describe("RunProgress", () => {
 
 describe("RunProgress for multi-day runs (round-3 field test R12)", () => {
   it("shows the day being computed and a rough time left", () => {
-    render(<RunProgress phase="spread" progress={0.5} startedAt={Date.now() - 600_000} day={2} nDays={3} />);
-    const box = screen.getByTestId("run-progress");
-    expect(box).toHaveTextContent("Day 2 of 3 · Running spread… 50 %");
-    expect(screen.getByTestId("run-progress-eta")).toHaveTextContent("about 10 min left");
+    vi.useFakeTimers();
+    try {
+      render(<RunProgress phase="spread" progress={0.5} startedAt={Date.now() - 600_000} day={2} nDays={3} />);
+      const box = screen.getByTestId("run-progress");
+      expect(box).toHaveTextContent("Day 2 of 3 · Running spread… 50 %");
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(screen.getByTestId("run-progress-eta")).toHaveTextContent("about 10 min left");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("estimates nothing too early", () => {
     expect(etaText(10, 0.5)).toBeNull();
     expect(etaText(100, 0.02)).toBeNull();
     expect(etaText(100, 1)).toBeNull();
-    expect(etaText(600, 0.95)).toBe("under a minute left");
+    expect(etaText(600, 0.95)).toBe("about a minute left");
+  });
+});
+
+describe("Time left from the recent rate (field test 2026-10-18, Issue 4)", () => {
+  // The live day-3 pattern: 74 % at 1:15, then about 1.4 % a minute; the run ended at 10-12 min
+  const s = (min: number, f: number) => ({ t: min * 60_000, f });
+  const live = [s(0, 0), s(0.25, 0.2), s(0.57, 0.46), s(1.25, 0.74), s(2.25, 0.76), s(3.25, 0.77), s(4.25, 0.78)];
+
+  it("uses the last two minutes, not the average since the start", () => {
+    // At 4:15 the start average would say "under a minute"; the recent rate is 1 % a minute
+    expect(etaFromSamples(live, 4.25 * 60_000)).toBe("roughly 20 min left");
+    // At 1:15, just after a fast stretch, the estimate is short
+    expect(etaFromSamples(live.slice(0, 4), 1.25 * 60_000)).toBe("about a minute left");
+  });
+
+  it("grows while progress stalls, and says nothing without progress in the window", () => {
+    const stalled = [s(0, 0), s(1, 0.5)];
+    expect(etaFromSamples(stalled, 1 * 60_000)).toBe("about a minute left");
+    expect(etaFromSamples(stalled, 2 * 60_000)).toBe("about 2 min left");
+    expect(etaFromSamples(stalled, 3.5 * 60_000)).toBeNull(); // no gain in the last 2 min
+  });
+
+  it("estimates nothing at the start, at the end, or from under 20 s", () => {
+    expect(etaFromSamples([], 0)).toBeNull();
+    expect(etaFromSamples([s(0, 0), s(0.1, 0.3)], 0.2 * 60_000)).toBeNull();
+    expect(etaFromSamples([s(0, 0), s(1, 1)], 60_000)).toBeNull();
+    expect(etaFromSamples([s(0, 0), s(1, 0.03)], 60_000)).toBeNull();
   });
 });

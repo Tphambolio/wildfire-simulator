@@ -91,19 +91,19 @@ test("attach → Day 2 has no run of its own → run Day 2 → switch periods �
   expect(t).toContain("Day 1 ·");
   expect(t).not.toContain("not loaded");
 
-  // ICS 209-WF for Day 1 is stamped with Day 1's run
-  const [popup] = await Promise.all([
-    page.waitForEvent("popup"),
-    page.locator(".eoc-form-btn", { hasText: "ICS 209-WF" }).click(),
-  ]);
-  await expect(popup.locator("h1")).toHaveText("INCIDENT STATUS SUMMARY (ICS 209)", { timeout: 10_000 });
-  const t209 = await popup.locator("body").innerText();
+  // ICS 209-WF for Day 1 is stamped with Day 1's run (previewed in the console, field test 2026-10-18)
+  await page.locator(".eoc-form-btn", { hasText: "ICS 209-WF" }).click();
+  const f209 = page.frameLocator("iframe.eoc-form-iframe");
+  await expect(f209.locator("h1")).toHaveText("INCIDENT STATUS SUMMARY (ICS 209)", { timeout: 10_000 });
+  const t209 = await f209.locator("body").innerText();
   expect(t209).toContain(A);
   expect(t209).toContain("MODEL OUTPUT");
-  if (process.env.SHOT_DIR) await popup.screenshot({ path: `${process.env.SHOT_DIR}/fig_ics209_day1.png`, fullPage: false });
-  await popup.close();
+  if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/fig_ics209_day1.png`, fullPage: false });
 
-  // Reload: the incident, both periods and their runs' IDs come back; the run is loaded on request
+  // Reload: the incident, both periods and their runs' IDs come back; the run is loaded on request.
+  // (A reload of this tab re-attaches the run on screen, field-test-r4.spec; forget it here
+  // to test the period's own "Load run", as in a new tab or after the browser restarts.)
+  await page.evaluate(() => sessionStorage.removeItem("firesim-v3-live-run"));
   await page.reload();
   await expect(page.locator("canvas.maplibregl-canvas").first()).toBeVisible();
   await tab(page, /EOC Console/).click();

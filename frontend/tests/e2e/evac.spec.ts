@@ -87,7 +87,11 @@ test.describe("neighbourhoods and evacuation status", () => {
     const card = page.locator(".evac-status");
 
     await card.getByLabel("Evacuation status for The Uplands", { exact: true }).selectOption("Alert");
-    await card.getByRole("combobox", { name: /^Neighbourhood/ }).selectOption("Edgemont");
+    // The picker is typed into (round-3 R1): a partial name does not enable Set; any case matches
+    const picker = card.getByRole("combobox", { name: /^Neighbourhood/ });
+    await picker.fill("Edgem");
+    await expect(card.getByRole("button", { name: "Set", exact: true })).toBeDisabled();
+    await picker.fill("edgemont");
     await card.getByRole("combobox", { name: /^Status/ }).selectOption("Watch");
     await card.getByRole("button", { name: "Set", exact: true }).click();
 

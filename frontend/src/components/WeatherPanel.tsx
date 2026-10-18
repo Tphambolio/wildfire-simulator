@@ -80,12 +80,31 @@ export function roundCode(v: number): number {
   return Math.round(v * 10) / 10;
 }
 
-/** Weather and codes an automatic station fill replaced, and where the new values came from. */
+/** Weather and codes an automatic station fill replaced, the values it set, and where from. */
 export interface ReplacedWeather {
   weather: WeatherParams;
   fwi: FWIOverrides;
+  /** The station values that replaced them */
+  next: { weather: WeatherParams; fwi: FWIOverrides };
   manual: boolean;
   from: string;
+}
+
+/**
+ * "W 16 → 29 km/h · RH 39 → 24 % · 18 → 21 °C · FFMC 88.4 → 90.1 DMC 41 DC 342.2 → 350": what a
+ * station fill changed, old → new (a value that did not change is shown once). The notice
+ * showed only the old values, so the new start codes could not be read from it (field test
+ * 2026-10-18).
+ */
+export function weatherChangeBrief(w0: WeatherParams, f0: FWIOverrides, w1: WeatherParams, f1: FWIOverrides): string {
+  const c = (v: number | null) => (v === null ? "—" : String(roundCode(v)));
+  const pair = (a: string, b: string) => (a === b ? a : `${a} → ${b}`);
+  return (
+    `W ${pair(String(w0.wind_speed), String(w1.wind_speed))} km/h · ` +
+    `RH ${pair(String(w0.relative_humidity), String(w1.relative_humidity))} % · ` +
+    `${pair(String(w0.temperature), String(w1.temperature))} °C · ` +
+    `FFMC ${pair(c(f0.ffmc), c(f1.ffmc))} DMC ${pair(c(f0.dmc), c(f1.dmc))} DC ${pair(c(f0.dc), c(f1.dc))}`
+  );
 }
 
 /** "W 20 km/h · RH 30 % · FFMC 90 DMC 45 DC 300": the values a notice says were replaced. */
@@ -651,7 +670,7 @@ function WeatherPanel({
             w.distance_km != null ? `${w.distance_km} km away` : null,
             w.data_timestamp ? `as of ${w.data_timestamp.slice(0, 10)}` : null,
           ].filter(Boolean).join(", ");
-          setReplaced({ weather: prevWeather, fwi: prevFwi, manual: weatherManualRef.current, from });
+          setReplaced({ weather: prevWeather, fwi: prevFwi, next: { weather: nextWeather, fwi: nextFwi }, manual: weatherManualRef.current, from });
         } else {
           setReplaced(null);
         }
@@ -1062,7 +1081,12 @@ function WeatherPanel({
           <Badge tone="warn" tip={`Was ${weatherBrief(replaced.weather, replaced.fwi)}. Undo puts those values back.`}>
             Weather replaced
           </Badge>
-          <span className="hint-sm"> by station values for this ignition: {replaced.from}. Was {weatherBrief(replaced.weather, replaced.fwi)}.</span>
+          <span className="hint-sm">
+            {" "}by station values for this ignition: {replaced.from}.{" "}
+            <span data-testid="weather-replaced-change">
+              {weatherChangeBrief(replaced.weather, replaced.fwi, replaced.next.weather, replaced.next.fwi)}
+            </span>.
+          </span>
           {simMode === "multiday" && (
             <span className="hint-sm" data-testid="weather-replaced-multiday"> {TIPS.multiDayReplaced}</span>
           )}

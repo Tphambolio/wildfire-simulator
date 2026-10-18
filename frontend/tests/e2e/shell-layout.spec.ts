@@ -98,21 +98,22 @@ test.describe("map-first layout", () => {
       .toBe(true);
 
     await expect(page.locator(".situation-panel")).toBeFocused();
-    await expect(page.locator(".situation-title")).toHaveText(/^At \d{2}:\d{2} (?:[A-Z]{2,4}|GMT[-+]\d+)$/);
+    await expect(page.locator(".situation-title")).toHaveText(/^At (?:D\d+ )?\d{2}:\d{2} (?:[A-Z]{2,4}|GMT[-+]\d+)$/);
     await expect(page.locator(".situation-status")).toContainText("Run complete");
 
     // Timeline: clock labels HH:MM, T+ secondary, slider value text has both
     const clocks = await page.locator(".ts-tick-clock").allTextContents();
     expect(clocks.length).toBeGreaterThanOrEqual(2);
-    for (const c of clocks) expect(c).toMatch(/^\d{2}:\d{2}$/);
+    // A run from "now" late in the evening crosses midnight: later clocks read "D2 00:32"
+    for (const c of clocks) expect(c).toMatch(/^(?:D\d+ )?\d{2}:\d{2}$/);
     const elapsed = await page.locator(".ts-tick-elapsed").allTextContents();
     expect(elapsed[0]).toBe("T+0:00");
     expect(elapsed[elapsed.length - 1]).toBe("T+4:00");
-    await expect(page.locator(".ts-now-clock")).toHaveText(/^\d{2}:\d{2}(?:[A-Z]{2,4}|GMT[-+]\d+)$/);
+    await expect(page.locator(".ts-now-clock")).toHaveText(/^(?:D\d+ )?\d{2}:\d{2}(?:[A-Z]{2,4}|GMT[-+]\d+)$/);
     await expect(page.getByRole("slider", { name: "Timeline" })).toHaveAttribute(
       "aria-valuetext",
       // runs start "now": outside the default 10:00-20:00 burning period the value says so
-      /^\d{2}:\d{2} (?:[A-Z]{2,4}|GMT[-+]\d+), T\+4:00(?:, no spread \(outside the burning period 10:00–20:00\))?$/,
+      /^(?:D\d+ )?\d{2}:\d{2} (?:[A-Z]{2,4}|GMT[-+]\d+), T\+4:00(?:, no spread \(outside the burning period 10:00–20:00\))?$/,
     );
   });
 
