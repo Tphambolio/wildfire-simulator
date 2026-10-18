@@ -5,8 +5,9 @@
  * turns it into an hourly stream, so FFMC (and ISI) are recomputed hourly from the starting
  * codes, as for forecast weather (docs/api-reference.md).
  */
-import type { WeatherChange, WeatherParams } from "../types/simulation";
+import type { FWIOverrides, MultiDayWeatherParams, WeatherChange, WeatherParams } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
+import { fmtCode } from "./fwiCalc";
 import { formatClock, toDateTimeInputs, zonedWallTimeToMs } from "./time";
 
 /** A row of the Setup table: this weather from `time` (local HH:MM) until the next row. */
@@ -173,4 +174,19 @@ export function runScheduleLines(p: RunParams | null | undefined): string[] {
   if (!p?.weather_schedule?.length) return [];
   const at = p.start_time ? Date.parse(p.start_time) : NaN;
   return scheduleLines(p.weather, p.weather_schedule, Number.isFinite(at) ? new Date(at) : null);
+}
+
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+/**
+ * Setup section 2 summary in multi-day mode: the wind each day of the run uses, then the start
+ * codes, e.g. "Days: D1 SW 20 km/h · D2 SW 25 km/h · start FFMC 90 DMC 45 DC 300". It showed
+ * only the codes, and the station-filled single-event wind read as the run's weather (72 h
+ * rerun, 2026-10-17).
+ */
+export function multiDaySummary(days: MultiDayWeatherParams[], fwi: FWIOverrides): string {
+  const perDay = days
+    .map((d, i) => `D${i + 1} ${COMPASS[Math.round(d.wind_direction / 45) % 8]} ${d.wind_speed} km/h`)
+    .join(" · ");
+  return `Days: ${perDay} · start FFMC ${fmtCode(fwi.ffmc)} DMC ${fmtCode(fwi.dmc)} DC ${fmtCode(fwi.dc)}`;
 }

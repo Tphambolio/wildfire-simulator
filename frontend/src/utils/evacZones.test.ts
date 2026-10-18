@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import neighbourhoodsRaw from "../../public/edmonton/neighbourhoods.geojson?raw";
 import {
   arrivalLabel,
+  arrivalTime,
   arrivalsToGeoJSON,
   featureName,
   labelPoint,
@@ -255,6 +256,14 @@ describe("multi-day arrival times (R7)", () => {
     expect(arrivalLabel(5, start)).toBe("Fire within 500 m by 09:57");
     expect(arrivalLabel(24 + 685 / 60, start)).toBe("Fire within 500 m by D2 16:22");
     expect(arrivalLabel(49, start)).toBe("Fire within 500 m by D3 05:57");
+  });
+
+  it("prefixes day 1 too in a multi-day run, so '10:00' isn't read without a day", () => {
+    const start = new Date("2026-10-13T04:57:00-06:00");
+    expect(arrivalLabel(5, start, 500, true)).toBe("Fire within 500 m by D1 09:57");
+    expect(arrivalTime(5, start, true)).toBe("D1 09:57");
+    expect(arrivalTime(5, start)).toBe("09:57");
+    expect(arrivalTime(5, null, true)).toBe("T+5:00");
   });
 });
 
