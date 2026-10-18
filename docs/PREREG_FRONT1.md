@@ -185,3 +185,21 @@ An arm **passes** only if all four conditions hold.
 5. Run the baseline diagnostic for the crown classification.
 6. Score with `prereg_front1_score.py`.
 7. Report in [R60] with pass or fail as computed. Nothing is re-run or re-tuned after scoring.
+
+---
+
+## Result (appended after scoring, 2026-10-18; the text above is unchanged since `16a516f`)
+
+- **Baseline check.** The C1 rerun reproduces the [R58] held-out records exactly: 0 differences in F1 and growth ratio at 17 h on all 79 fire-days.
+- **Arm A** (burning period 11–18 h): **FAIL** at Holm step 1 (α = 0.025; p = 0.113).
+
+  | Condition | Statistic | Result |
+  |---|---|---|
+  | (1) | mean Δ\|ln g\| −0.112; 97.5 % CI [−0.222, +0.005] | not met |
+  | (2) | median g 1.19 | met |
+  | (3) | ΔF1 +0.002 [−0.012, +0.016] | met |
+  | (4) | Δ share g < 0.5 +5.1 pts; 97.5 % upper bound 12.5 pts | not met |
+
+- **Arm B** (C, M × 0.55; O × 0.5): **FAIL**. It is not tested, because step 1 failed. On its own numbers it would also fail conditions 1 and 4: Δ\|ln g\| CI [−0.230, +0.038]; Δ share +10.1 pts [3.7, 17.7].
+- **Status.** No default changes. Arm B stays opt-in.
+- Full numbers: [R60] §9 and `reports/data/front-overspread-2026-10-18/prereg_front1_results.json`.
