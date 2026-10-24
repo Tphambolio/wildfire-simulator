@@ -572,6 +572,31 @@ fuel, so a restart burned through subdivisions where the continuous run stalls),
 no house-to-house. `duration_hours` (≤ 24) is run in full; the run archive stores
 `{"source_config", "perimeter_override", "restart_config", "weather_source"}`.
 
+Active-segment restart (added 2026-10-24, backlog A1, [R62]; `docs/active-segments.md`):
+optional `hold_hours` (0-72; omitted = held parts burned out for the run, the earlier behaviour;
+0 = whole perimeter active; H > 0 = held line plus a one-cell barrier ring for H hours, then
+released), `hold_band_m`, and classification from RPAS `hotspots_geojson` (points with a
+`time`) or a NASA FIRMS `firms_csv` (VIIRS nominal/high confidence), used when `active_edges` is
+not given: a 250 m boundary piece (`classification_segment_m`) is active when a detection lies
+within `classification_radius_m` (1,000) of it in the `classification_window_h` (12) hours up to
+the restart's `start_time`. Such restarts return `active_segments` (source, `n_active`,
+`n_held`, segments as GeoJSON, hold; after the run `static_share_model` and `growth_ha`);
+others return `active_segments: null`. Existing payloads run exactly as before.
+
+### POST /api/v1/simulations/observed-perimeter
+
+Standalone forecast from an observed perimeter at observation time T (owner items R13/R14;
+A1). Body: a POST /simulations request without `ignition_lat`/`ignition_lng` (default: the
+perimeter's centroid) plus `perimeter_geojson` and **`observation_time`** (required, ISO 8601
+with offset; the run starts at T, `start_time` must equal it if sent), with `active_edges`,
+`active_edge_buffer_m` and the active-segment fields above. No ensemble. Response as for a
+restart (`kind` `observed_perimeter` in the archive).
+
+### POST /api/v1/simulations/classify-perimeter
+
+Active / held segments of `perimeter_geojson` at `observation_time` from `hotspots_geojson` or
+`firms_csv` (same rule and parameters), without a run: `{summary, active_edges, segments}`.
+
 ### POST /api/v1/simulations/burn-probability
 
 Monte Carlo burn probability (synchronous). Varies the ignition point (`jitter_m`), wind speed

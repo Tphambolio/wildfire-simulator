@@ -621,6 +621,19 @@ For each fire-day (Bennett's day *n*):
      model leaves mature perimeters about as static as observed; their excess is over-spread
      at the active edges.
 
+8. **Held-line hold and start-type selection** (2026-10-24, backlog A1, [R62]).
+   `--hold-hours H` (with `--ignition active`): held start cells (outside the last
+   `--active-days` of growth) plus a one-cell barrier ring are non-fuel until H h after the
+   06:00 start, then released (`docs/active-segments.md`); omitted = the earlier behaviour
+   (held cells burned out for the run; bit-identical to [R58] C1), `0` = whole start active
+   (identical to `--ignition perimeter`). `--start-types mature` (point / fresh / mature)
+   runs only the fire-days of those [R58] strata. Descriptive calibration check ([R62];
+   56 calibration mature fire-days, 17 h vs C1): H 24 ΔF1 −0.001 [−0.003, +0.001]; H 12
+   −0.015 [−0.043, +0.001]; 1-day proxy +0.000 [−0.014, +0.014] with median growth ratio
+   1.59 vs 2.30; H 0 −0.026 [−0.054, −0.007]. Pre-registered held-out test
+   (`PREREG_ACTIVE_SEGMENT`, H = 24 h chosen on calibration): **fail**, ΔF1 17 h −0.002
+   [−0.005, +0.001] on 70 held-out mature fire-days; the barrier stays opt-in.
+
 Metrics (`engine/src/firesim/validation/metrics.py`, unit-tested on shapes with known
 answers): precision TP/(TP+FP); recall TP/(TP+FN); F1 = 2PR/(P+R) (Sørensen/Dice); IoU =
 TP/(TP+FP+FN) (Jaccard); normalised area difference (A_pred - A_obs)/(A_pred + A_obs), > 0 is
