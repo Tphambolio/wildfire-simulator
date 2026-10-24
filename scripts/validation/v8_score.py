@@ -13,12 +13,19 @@ Purpose
 Inputs (one directory, written by the v8 run scripts; read once, after every model has run)
     candidates/<fire>__<interval>.npz   cell_id (int64), score_M8, score_B1 [, score_ELMFIRE] (float64)
                                         for every candidate cell of the interval (PREREG section 6)
-    jumps.csv                           fire_key, region, interval, cell_id (the unsealed jump catalogue)
+    jumps.csv                           fire_key, region, interval, cell_id, out_final_m (the unsealed jump
+                                        catalogue; addendum A1: every otherwise-qualifying cluster, with the
+                                        distance of its member outside the final perimeter, 0 if inside)
     gate.json                           {"<fire_key>": {"G1_pass": bool, ...}} (computed from inputs only)
     counts.csv                          fire_key, region, K (the per-block counts used for the stopping rule)
 Outputs
     scores_PREREG_LR8.json  (decision, S3 with p-value and bootstrap CI, region AUCs, S1/S2, per-fire table,
                             ELMFIRE comparison if present -- never deciding)
+Addendum A1 (PREREG_LR8, 2026-10-24): never-reached guard (section 8a.2). A jumps.csv row whose member is
+    > 540 m outside the final perimeter is "never reached" and a row 375-540 m outside is neither positive nor
+    negative: neither is ever ranked. Rows within 375 m are the positives. Every row is accounted for, per fire
+    and in total: ranked, never reached, 375-540 m, interval excluded (no candidate file), cell not a candidate.
+    A jumps.csv without out_final_m is refused.
 Usage
     python3 scripts/validation/v8_score.py score --in DIR --out FILE
     python3 scripts/validation/v8_score.py selftest      # unit tests required before the freeze
@@ -39,6 +46,18 @@ K_MIN, K_REG = 150, 60
 FLOOR = 0.60
 ALPHA = 0.025
 G1_MAX_FAIL = 0.10
+FINAL_TOL, NEVER_M = 375.0, 540.0   # section 8a.2: positives within 375 m; > 540 m outside = never reached
+ACCOUNT_KEYS = ("rows", "ranked", "never_reached_gt540m", "outside_375_540m", "interval_excluded", "not_candidate")
+
+
+def final_class(out_final_m: float) -> str:
+    """Addendum A1 / section 8a.2 class of a jump by its member's distance outside the final perimeter (m)."""
+    x = float(out_final_m)
+    if not np.isfinite(x):
+        raise ValueError("out_final_m must be finite")
+    if x <= FINAL_TOL:
+        return "positive"
+    return "never_reached_gt540m" if x > NEVER_M else "outside_375_540m"
 
 
 def pct_rank(score_all: np.ndarray, score_at: np.ndarray) -> np.ndarray:
@@ -87,22 +106,49 @@ def boot_ci(a, w, region, B=N_BOOT, seed=S_BOOT):
     return float(np.percentile(est, 2.5)), float(np.percentile(est, 97.5))
 
 
-def per_fire(cands: dict, jumps: list[tuple], models: list[str]) -> dict:
-    """cands: {(fire, interval): {"cell_id": arr, "score_<m>": arr}}; jumps: [(fire, region, interval, cell)]."""
+def per_fire(cands: dict, jumps: list[tuple], models: list[str], accounting: dict | None = None) -> dict:
+    """cands: {(fire, interval): {"cell_id": arr, "score_<m>": arr}};
+    jumps: [(fire, region, interval, cell, out_final_m)] (addendum A1; 4-tuples without out_final_m are refused).
+    ``accounting`` (optional dict) receives, per fire, the count of rows in each ACCOUNT_KEYS class."""
     out = {}
-    for fire, region, interval, cell in jumps:
+    acc = accounting if accounting is not None else {}
+    for row in jumps:
+        if len(row) != 5:
+            raise ValueError("jump rows must carry out_final_m (PREREG_LR8 addendum A1, never-reached guard)")
+        fire, region, interval, cell, out_m = row
+        a = acc.setdefault(fire, dict({k: 0 for k in ACCOUNT_KEYS}, region=region))
+        a["rows"] += 1
+        cls = final_class(out_m)
+        if cls != "positive":
+            a[cls] += 1  # never ranked (section 8a.2); enters the count / Brier secondaries only
+            continue
         c = cands.get((fire, interval))
         if c is None:
-            continue  # interval excluded (counted by the caller)
+            a["interval_excluded"] += 1  # interval excluded (section 8): counted here
+            continue
         pos = np.where(c["cell_id"] == cell)[0]
         if len(pos) == 0:
-            continue  # jump cell not a candidate (non-fuel, burned, outside box): excluded, counted
+            a["not_candidate"] += 1  # jump cell not a candidate (non-fuel, burned, outside box): counted here
+            continue
+        a["ranked"] += 1
         rec = out.setdefault(fire, {"region": region, "r": {m: [] for m in models}})
         for m in models:
             sc = c.get(f"score_{m}")
             if sc is not None:
                 rec["r"][m].append(float(pct_rank(sc, sc[pos[:1]])[0]))
     return out
+
+
+def accounting_summary(acc: dict) -> dict:
+    """Totals and by-region totals of the per-fire jump accounting (addendum A1)."""
+    tot = {k: int(sum(v[k] for v in acc.values())) for k in ACCOUNT_KEYS}
+    regs = sorted({v["region"] for v in acc.values()})
+    by = {r: {k: int(sum(v[k] for v in acc.values() if v["region"] == r)) for k in ACCOUNT_KEYS} for r in regs}
+    # count secondary (section 8a.2): positives in scored or unscored intervals plus never-reached clusters
+    for d in [tot] + list(by.values()):
+        d["count_secondary"] = d["ranked"] + d["interval_excluded"] + d["not_candidate"] + d["never_reached_gt540m"]
+    return {"total": tot, "by_region": by,
+            "per_fire": {f: {k: int(v[k]) for k in ACCOUNT_KEYS} for f, v in sorted(acc.items())}}
 
 
 def decide(pf: dict, gate: dict | None = None, counts: dict | None = None) -> dict:
@@ -156,7 +202,10 @@ def load_dir(d: Path):
         fire, interval = p.stem.split("__")
         z = np.load(p)
         cands[(fire, interval)] = {k: z[k] for k in z.files}
-    jumps = [(r["fire_key"], r["region"], r["interval"], int(r["cell_id"])) for r in csv.DictReader(open(d / "jumps.csv"))]
+    rd = csv.DictReader(open(d / "jumps.csv"))
+    if "out_final_m" not in (rd.fieldnames or []):
+        raise ValueError("jumps.csv has no out_final_m column: refused (PREREG_LR8 addendum A1, never-reached guard)")
+    jumps = [(r["fire_key"], r["region"], r["interval"], int(r["cell_id"]), float(r["out_final_m"])) for r in rd]
     gate = json.load(open(d / "gate.json")) if (d / "gate.json").exists() else None
     counts = None
     if (d / "counts.csv").exists():
@@ -201,6 +250,23 @@ def selftest() -> None:
     for f in pf:
         pf[f]["r"]["M8"], pf[f]["r"]["B1"] = pf[f]["r"]["B1"], pf[f]["r"]["M8"]
     assert decide(pf, gate)["decision"].startswith("FAIL")
+    # 5. addendum A1 never-reached guard ([R61] fixture: cell 7 inside, cell 42 a 700 m 'never reached' member,
+    #    cell 9 450 m outside, cell 3 in an excluded interval, cell 999 not a candidate)
+    cells = np.arange(100, dtype=np.int64)
+    cands = {("SYN:1", "e1"): {"cell_id": cells, "score_M8": rng.uniform(size=100), "score_B1": rng.uniform(size=100)}}
+    acc = {}
+    rows = [("SYN:1", "CAN", "e1", 7, 0.0), ("SYN:1", "CAN", "e1", 42, 700.0), ("SYN:1", "CAN", "e1", 9, 450.0),
+            ("SYN:1", "CAN", "e2", 3, 0.0), ("SYN:1", "CAN", "e1", 999, 100.0)]
+    pf = per_fire(cands, rows, ["M8", "B1"], acc)
+    assert len(pf["SYN:1"]["r"]["M8"]) == 1
+    a = acc["SYN:1"]
+    assert (a["ranked"], a["never_reached_gt540m"], a["outside_375_540m"], a["interval_excluded"], a["not_candidate"]) == (1, 1, 1, 1, 1)
+    assert accounting_summary(acc)["total"]["count_secondary"] == 4
+    try:
+        per_fire(cands, [("SYN:1", "CAN", "e1", 7)], ["M8"])
+        raise AssertionError("4-tuple accepted")
+    except ValueError:
+        pass
     print("selftest passed")
 
 
@@ -217,8 +283,10 @@ def main(argv=None):
         return
     cands, jumps, gate, counts = load_dir(a.inp)
     models = ["M8", "B1"] + (["ELMFIRE"] if any("score_ELMFIRE" in c for c in cands.values()) else [])
-    pf = per_fire(cands, jumps, models)
+    acc = {}
+    pf = per_fire(cands, jumps, models, acc)
     res = decide(pf, gate, counts)
+    res["jump_accounting"] = accounting_summary(acc)  # addendum A1: every jumps.csv row, by class
     if "ELMFIRE" in models:  # reported only, never deciding (PREREG section 7)
         fe = [f for f in pf if len(pf[f]["r"]["ELMFIRE"]) == len(pf[f]["r"]["M8"]) and pf[f]["r"]["ELMFIRE"]]
         if fe:

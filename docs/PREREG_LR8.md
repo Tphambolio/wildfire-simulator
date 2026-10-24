@@ -278,3 +278,112 @@ Repo files (this commit): `scripts/validation/v8_score.py`
 
 Seeds: `S_SPLIT 2026101801`, `S_ORDER 2026101802`, `S_TEST 2026101803`, `S_BOOT 2026101804`,
 ELMFIRE subset `2026101805`.
+
+---
+
+## 12. Addendum A1 (2026-10-24): owner decisions on the [R61] rule check
+
+**Dated:** 2026-10-24. **Owner approval:** Travis Kennedy, 2026-10-24 ("go ahead as recommended" on the five
+points of [R61] §5). **Status of everything above:** §1-§11 are the text frozen at `6452c1d` (2026-10-18), byte for
+byte (sha256 of that file `b0f6662d84382a6c67dbc6a42e51b138d625d7e05b0de67c31c5be5257d04f43`); nothing above this
+line was edited. Where this addendum and the text above differ, this addendum governs.
+**Source:** [R61] *v7 held-out arrivals recoded with [R53] rules 2026-10-24* §5 and its fixtures
+(`reports/data/v7-arrivals-recoded-2026-10-24/scripts/v8_rule_fixtures.py`, `results/v8_rule_check.json`);
+[R53] *Dixie early-arrival diagnostic 2026-10-18* §6.4.
+
+### A1.1 Single-source rule restored to the [R53] wording (replaces the target-A sentence of §8a.3)
+
+For any arrival scoring, the sentence of §8a.3 "a GOFER `t_lo` is never paired with a later VIIRS-only `t_hi`" is
+replaced by [R53] §6.4 as written: **a GOFER (or other perimeter) `t_lo` is never paired with a later VIIRS-only
+`t_hi` when no perimeter contains the block; in that case `t_lo` is the previous VIIRS overpass with a
+detection-capable view (night passes preferred).** A perimeter `t_lo` stays valid when that perimeter source
+later contains the block. Reason: the broader wording dropped valid lower bounds and hollowed out scores
+(CZU V7 MAE 2.44 → 0.28 h; [R61] §4). The spot-jump target L is unaffected: its intervals are bounded by two
+VIIRS epochs and read no perimeter product (§4, §8a.3).
+
+### A1.2 Target A is not scored in v8
+
+The tertiary arrival target A (named only in §8a) **is not scored in v8**: no metric, unit, source or pass
+condition was registered for it and no scorer exists on this branch ([R61] §5). Arrival-time work moves to the
+front/restart programme (backlog A1, [R62]). **Target L (spot-jump locations, §1, §6, §7) is the only deciding
+target.** A1.1 is kept so that any later arrival scoring starts from the corrected rule.
+
+### A1.3 Never-reached guard in the deciding script (§8a.2 made executable)
+
+`scripts/validation/v8_score.py` now applies §8a.2 itself instead of relying on the step that writes `jumps.csv`:
+
+- `jumps.csv` carries `out_final_m` (distance of the cluster's nearest qualifying member outside the final
+  perimeter, 0 when within the 375 m tolerance), and holds every cluster that passes the §4 rule except the
+  final-perimeter condition. A `jumps.csv` without `out_final_m` is refused.
+- Members ≤ 375 m outside are the positives and are ranked; members **> 540 m outside are "never reached"** and
+  members **375-540 m outside are neither positive nor negative**: neither is ever ranked.
+- Every row is counted, per fire and in total, in the output `jump_accounting`: ranked; never reached; 375-540 m;
+  interval excluded (no candidate file, formerly skipped silently at `v8_score.py:96`); cell not a candidate
+  (formerly skipped silently at `:99`). Never-reached clusters enter the count secondary (`count_secondary` =
+  positives in scored or unscored intervals + never reached) and the Brier secondary (§6) as observed jumps;
+  375-540 m clusters enter neither.
+- The ranks, a_f, S3, the sign-flip test, the bootstrap, the region floor and the decision logic are unchanged.
+  The K_min stopping count (§3) remains the count of positives (members within 375 m).
+
+### A1.4 Perimeter-agreement flag struck (§6 and §8a.3)
+
+The "perimeter-agreement flag" breakdown in §6 (secondary, "… gap class and perimeter-agreement flag") and the
+L-sentence "The perimeter-agreement flag of the design (§9 implication 5) is reported" of §8a.3 are **struck**:
+no perimeter source applies equally to Canada and the US (CFSDS ends in 2024; FEDS is not available offline; GOFER
+covers California only), and §4 already reads no perimeter product. The gap-class breakdown stays.
+
+### A1.5 Code aligned to the registered text
+
+1. **Epoch merging (§4: "acquisitions merged when < 60 min apart").** The frozen `v8_viirs_jumps.py:234` started a
+   new epoch only when `diff > 60 min`, so it merged acquisitions exactly 60 min apart. The amended rule starts a
+   new epoch at `diff ≥ 60 min` (function `new_epoch`, shared by the runners). Every interval is still ≥ 1 h.
+2. **Rule-2 counts (§8a.2: never-reached clusters "enter the count").** The frozen `jump_rate_summary.py:59`
+   dropped both outside classes from every K. The amended script adds the rule `count_secondary` (primary rule
+   without the final-perimeter condition, keeping members ≤ 375 m and > 540 m outside) and the per-fire columns
+   `K_never_reached` and `K_out_375_540`; the primary (ranked) rule and every sensitivity are unchanged.
+
+The amended jump-rule scripts are committed in the repository (`scripts/validation/v8_rule/`); the frozen
+originals in the pre-freeze data folder are kept unchanged (sha256 in §11) and are no longer used by any run.
+
+### A1.6 Effect on the training split (training fires only; no decision fire processed)
+
+The amended catalogue was re-run on the 402 training fires (`validation-data/v8-pool/rule_A1/`):
+no training fire has two acquisitions exactly 60 min apart (S-NPP and NOAA-20 pass about 50 min apart), so the
+epoch change moves nothing: epochs, intervals and every catalogue row are identical (`jumps_training.csv` sha256
+`5da778ae194c09d3d6d05f03cd5c15b3e8334786c159f846453bfbc7b23ff54e`, the same as §11). The ranked rate is unchanged
+at **1.67 jumps per fire** (650 jumps, 389 open training fires; Canada 2.34, US 0.61; strict 1.12). The new count
+rule gives **1.77 per fire** (687: 650 positives + 37 never reached); 4 clusters lie 375-540 m outside (neither).
+§9's power and K_min are therefore unchanged.
+
+### A1.7 Tests ([R61] fixture cases)
+
+`engine/tests/validation/test_v8_addendum_a1.py` (never-reached guard: the [R61] R2-L case, where the frozen
+script ranked the 700 m member, now ranks only the inside member; class boundaries at 375 / 540 m; rows skipped
+for an excluded interval or a non-candidate cell are counted; a `jumps.csv` without `out_final_m` is refused) and
+`engine/tests/validation/test_v8_addendum_a1_rule.py` (the [R61] R3-L case: acquisitions 59 / 60 / 61 min apart
+give 2 / 3 / 3 epochs, the frozen script gave 2 / 2 / 3; the [R61] R2-L geometry gives primary K 1,
+`count_secondary` 2, one 375-540 m cluster). `python3 scripts/validation/v8_score.py selftest` adds the same
+guard case. All pass.
+
+### A1.8 Scripts (sha256 at this addendum)
+
+| File | sha256 | Replaces |
+|---|---|---|
+| `scripts/validation/v8_score.py` | `623233f687eb97d83a5cd3d81806accb28f78a6ef699f941249247c38ebad880` | `d0f61e31…55e6` (§11) |
+| `scripts/validation/v8_rule/v8_viirs_jumps.py` | `d480ca5abbda67a81cd86be5a41d9dfb3fbe55adbdad1e9a927678ab1fa433e6` | `d0333957…1581` (§11, data folder) |
+| `scripts/validation/v8_rule/jump_rate_summary.py` | `131f052e615277f7d0187de52e61998bca6e09b6d920ad1c12aea2c12dc874d7` | `a2aa23f0…815b` (§11, data folder) |
+| `scripts/validation/v8_gate.py` | `a9c251a76900b73adef3574e2accdfc2fd9f9f7f9e31352522e3e55c3e8cb3a5` | unchanged |
+
+Split, decision order, exclusions and seeds are unchanged (§3, §11).
+
+### A1.9 Blindness at the time of this addendum
+
+At the time of this addendum **no decision-fire jump, VIIRS hotspot attributed to a decision fire, DINS outcome or
+model score had been opened**. Checked on 2026-10-24 before committing: the v8 data directory
+(`validation-data/v8-pool/`) holds no `viirs_decision/`, `draw/` or `final/` directory; every per-fire directory
+under `fires/` and every row of `runs.csv` (2026-10-18 18:08-20:23 UTC: inputs, intervals, two ELMFIRE timing
+runs on a training fire) is a training or legacy-training fire of `split.csv` (three rows and three directories
+carry two training keys run together by a shell-quoting slip; both halves are training fires); the FIRMS yearly
+files show access times of 2026-10-18 00:10 MDT on a `relatime` mount, so none was read after 2026-10-19 00:10,
+and their only readers were the training extractions that discard non-training rows chunk by chunk (§10); [R61]
+read only the v8 scripts and synthetic fixtures. No model has been run on any decision fire.
