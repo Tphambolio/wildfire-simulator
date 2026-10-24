@@ -143,6 +143,22 @@ label.field-hour > input {
   border-top: 4px dashed var(--active-edge);
 }
 
+/* Segments not active: drawn as the observed perimeter line only (no extra map layer) */
+.recon-swatch-inactive {
+  border-top: 2px solid var(--observed-perimeter);
+}
+
+.recon-segments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.recon-observed input[type="datetime-local"] {
+  min-height: var(--target-min);
+}
+
 .recon-sides > legend {
   font-weight: 400 !important;
   color: var(--text-2) !important;

@@ -9,7 +9,10 @@ import {
   activeLines,
   perimeterRing,
   perimeterSides,
+  segmentLines,
+  type Classified,
   type Lnglat,
+  type ReconMode,
   type Side,
 } from "../utils/activeEdges";
 
@@ -17,7 +20,11 @@ export interface ReconState {
   perimeter: GeoJSON.Polygon | GeoJSON.MultiPolygon | null;
   /** Where the perimeter came from, e.g. the file name */
   source: string | null;
-  mode: "whole" | "marked";
+  mode: ReconMode;
+  /** Classification from RPAS hotspots or VIIRS (A1), null until one is made */
+  classified: Classified | null;
+  /** Observation time T of the perimeter (ms); null = the timeline's selected time */
+  observedMs: number | null;
   drawn: Lnglat[][];
   sides: Side[];
   draft: Lnglat[];
@@ -27,7 +34,8 @@ export interface ReconState {
 }
 
 const EMPTY: ReconState = {
-  perimeter: null, source: null, mode: "whole", drawn: [], sides: [], draft: [], drawing: false, bufferM: null,
+  perimeter: null, source: null, mode: "whole", classified: null, observedMs: null,
+  drawn: [], sides: [], draft: [], drawing: false, bufferM: null,
 };
 
 /** Consecutive duplicate points removed (a double-click adds the same point twice). */
@@ -43,17 +51,29 @@ export function useRecon() {
     return ring ? perimeterSides(ring) : null;
   }, [state.perimeter]);
 
+  const classifiedLines = useMemo(() => segmentLines(state.classified?.segments), [state.classified]);
   const lines = useMemo(
-    () => (state.mode === "marked" ? activeLines(state.drawn, state.sides, sideLines) : []),
-    [state.mode, state.drawn, state.sides, sideLines],
+    () => (state.mode === "marked" ? activeLines(state.drawn, state.sides, sideLines)
+      : state.mode === "classified" ? classifiedLines : []),
+    [state.mode, state.drawn, state.sides, sideLines, classifiedLines],
   );
 
   const setPerimeter = useCallback((perimeter: ReconState["perimeter"], source: string | null) => {
-    setState((s) => ({ ...EMPTY, mode: s.mode, bufferM: s.bufferM, perimeter, source }));
+    setState((s) => ({
+      ...EMPTY, mode: s.mode === "classified" ? "whole" : s.mode, bufferM: s.bufferM,
+      observedMs: s.observedMs, perimeter, source,
+    }));
   }, []);
   const clear = useCallback(() => setState(EMPTY), []);
   const setMode = useCallback((mode: ReconState["mode"]) => setState((s) => ({ ...s, mode, drawing: false, draft: [] })), []);
   const setBuffer = useCallback((bufferM: number | null) => setState((s) => ({ ...s, bufferM })), []);
+  const setObserved = useCallback((observedMs: number | null) => setState((s) => ({ ...s, observedMs })), []);
+  const setClassified = useCallback(
+    (classified: Classified | null) => setState((s) => ({
+      ...s, classified, mode: classified ? "classified" : s.mode === "classified" ? "whole" : s.mode, drawing: false, draft: [],
+    })),
+    [],
+  );
   const toggleSide = useCallback(
     (side: Side) => setState((s) => ({
       ...s, sides: s.sides.includes(side) ? s.sides.filter((x) => x !== side) : [...s.sides, side],
@@ -82,10 +102,10 @@ export function useRecon() {
   // One object per state change (the panel is memoised; streamed frames do not re-render it)
   return useMemo(() => ({
     state, lines, sideLines, mapLayers,
-    setPerimeter, clear, setMode, setBuffer, toggleSide,
+    setPerimeter, clear, setMode, setBuffer, setObserved, setClassified, toggleSide,
     startDrawing, addPoint, finishDrawing, cancelDrawing, removeLine,
-  }), [state, lines, sideLines, mapLayers, setPerimeter, clear, setMode, setBuffer, toggleSide,
-    startDrawing, addPoint, finishDrawing, cancelDrawing, removeLine]);
+  }), [state, lines, sideLines, mapLayers, setPerimeter, clear, setMode, setBuffer, setObserved,
+    setClassified, toggleSide, startDrawing, addPoint, finishDrawing, cancelDrawing, removeLine]);
 }
 
 export type Recon = ReturnType<typeof useRecon>;
