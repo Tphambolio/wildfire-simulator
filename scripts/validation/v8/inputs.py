@@ -147,7 +147,7 @@ def grid_transform(g):
     return from_origin(g["x0"], g["y1"], g["cell"], g["cell"])
 
 
-def warp_to_grid(src_path: str, g: dict, resampling=Resampling.nearest, band: int = 1, dtype="float32", tries: int = 6):
+def warp_to_grid(src_path: str, g: dict, resampling=Resampling.nearest, band: int = 1, dtype="float32", tries: int = 12):
     """Warp a raster (local or /vsicurl/) to the run grid; remote read failures are retried with back-off."""
     for k in range(tries):
         try:
@@ -155,11 +155,11 @@ def warp_to_grid(src_path: str, g: dict, resampling=Resampling.nearest, band: in
         except rasterio.errors.RasterioIOError:
             if k == tries - 1 or not str(src_path).startswith("/vsicurl/"):
                 raise
-            time.sleep(30 * (k + 1))
+            time.sleep(min(600, 60 * (k + 1)))
 
 
 def _warp_once(src_path, g, resampling, band, dtype):
-    with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", GDAL_HTTP_MAX_RETRY="8", GDAL_HTTP_RETRY_DELAY="3",
+    with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", GDAL_HTTP_MAX_RETRY="8", GDAL_HTTP_RETRY_DELAY="3", GDAL_HTTP_TIMEOUT="180", GDAL_HTTP_CONNECTTIMEOUT="30",
                       CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif", GDAL_CACHEMAX=256):
         with rasterio.open(src_path) as src:
             with WarpedVRT(src, crs=g["crs"], transform=grid_transform(g), width=g["nx"], height=g["ny"],
@@ -201,16 +201,23 @@ def canada_fuel(rec: dict, g: dict, meta: dict) -> np.ndarray:
     if restored.any():
         from scripts.fuelgrid import backcast as B
         e = scanfi_epoch(rec["year"])
+        # read SCANFI only over the window of restored cells (the typing is per cell, so the result is identical
+        # to reading the whole run grid; it cuts the remote reads several-fold)
+        rr, cc_ = np.where(restored.any(axis=1))[0], np.where(restored.any(axis=0))[0]
+        r0, r1, c0, c1 = int(rr[0]), int(rr[-1]) + 1, int(cc_[0]), int(cc_[-1]) + 1
+        gw = dict(g, x0=g["x0"] + c0 * g["cell"], y1=g["y1"] - r0 * g["cell"], nx=c1 - c0, ny=r1 - r0)
         att = {}
         for layer in B.LAYERS:
             url = "/vsicurl/" + B.SCANFI.format(layer=layer, epoch=e)
             rs = Resampling.mode if layer == "att_nfiLandcover" else Resampling.average
-            att[layer] = warp_to_grid(url, g, rs)
-        typed, _ = B.type_scanfi(att["att_nfiLandcover"].astype(np.uint8), att["att_closure"], att["att_height"],
-                                 {s: att[f"spsCC_{s}"] for s in B.SPECIES})
-        typed = ab_to_national(typed)
+            att[layer] = warp_to_grid(url, gw, rs)
+        typed_w, _ = B.type_scanfi(att["att_nfiLandcover"].astype(np.uint8), att["att_closure"], att["att_height"],
+                                   {s: att[f"spsCC_{s}"] for s in B.SPECIES})
+        typed = np.zeros(code.shape, np.int16)
+        typed[r0:r1, c0:c1] = ab_to_national(typed_w)
         ok = restored & (typed > 0)
         code[ok] = typed[ok]
+        meta["scanfi_window"] = [r0, r1, c0, c1]
         meta["scanfi_epoch"] = e
         meta["scanfi_url"] = B.SCANFI.format(layer="<layer>", epoch=e)
     meta["fuel_source"] = "CFS FBP fuel types 2024 100 m (OGL-C) + SCANFI v2 back-cast of NBAC burns on/after the fire start"
