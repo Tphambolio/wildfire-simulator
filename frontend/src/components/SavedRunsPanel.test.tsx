@@ -6,6 +6,7 @@ import { dayRange } from "../hooks/useSavedRuns";
 import { withRunLabel, type SavedRun } from "../services/savedRuns";
 
 const TEST_PASS = "test-only-passphrase"; // not a real secret
+const NET_DELAY_MS = 5;
 
 function run(over: Partial<SavedRun> = {}): SavedRun {
   return {
@@ -33,6 +34,10 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const c = { url: String(url), init };
     calls.push(c);
+    // A real network answer lands a macrotask (or several) later. Without this the mock answered
+    // within React Testing Library's post-findBy flush on a fast machine, so tests that read rows
+    // right after unlock() passed locally and failed on a loaded CI runner (G8, run 40080189720).
+    await new Promise((r) => setTimeout(r, NET_DELAY_MS));
     return responder(c);
   }));
 });
@@ -46,7 +51,11 @@ const header = (c: Call) => (c.init.headers as Record<string, string>)["X-FireSi
 async function unlock() {
   fireEvent.change(screen.getByLabelText("Passphrase"), { target: { value: TEST_PASS } });
   fireEvent.click(screen.getByRole("button", { name: "Show saved runs" }));
-  await screen.findByRole("list", { name: "Saved runs" });
+  // The empty <ul> renders as soon as the panel unlocks, while the list request is still in
+  // flight ("Loading…"); wait for the rows themselves, not just the list.
+  const list = await screen.findByRole("list", { name: "Saved runs" });
+  await within(list).findAllByRole("listitem");
+  return list;
 }
 
 describe("SavedRunsPanel", () => {

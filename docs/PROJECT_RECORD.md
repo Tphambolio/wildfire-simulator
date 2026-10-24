@@ -824,6 +824,33 @@ frontend returned HTTP 200 the same day; no browser check of the live site was m
 docs-only change. The E2E suite runs against a local production build with a mocked API, not
 against the live site.
 
+**Flaky-test fixes (G8, 2026-10-24, branch `test/g8-flaky`).** Two tests that failed
+intermittently on CI were traced to their causes and fixed in the tests (no retries or longer
+timeouts added; the components behave as intended):
+- `SavedRunsPanel.test.tsx` "opens a run on click" (master run 40080189720): the test helper
+  `unlock()` waited for the `Saved runs` list, but the empty `<ul>` renders as soon as the
+  panel unlocks, while the list request is in flight ("Loading…" in the CI DOM dump). The
+  following synchronous `getByRole` passed only when the mocked `fetch` + `Response.json()`
+  finished inside React Testing Library's post-`findBy` flush. Shown deterministically by
+  delaying the mock 1-20 ms: 2-3 of 11 tests failed. Fix: `unlock()` waits for the rows, and
+  the mock answers after 5 ms so a regression fails every time instead of on a loaded runner.
+  Repeats (single file): before 0/50 plain, 0/50 with three CPU burners on one core (did not
+  reproduce locally); with the 5 ms mock and the old helper 3/11 tests fail every run; after
+  0/50 and 0/50.
+- `e2e/evac.spec.ts:28` (first attempts failed in 5 of the last 30 CI runs, rescued by the
+  retry: 40070660669, 40080755618, 40082109928, 40098166832, 39152486584): the test clicked
+  the map centre right after "completed", while the one-time ease to the fire (MapView
+  `fitFrame`, 600 ms, slower on software GL) could still be in flight; the click then landed
+  on another place, sometimes a critical-asset symbol (assets are shown after a run and take
+  the click: "Boyle McCauley Health Centre" / "E.L. Smith Water Treatment Plant" popups in the
+  failure screenshots) or another neighbourhood. A camera timeline showed the click's
+  mousedown stopping the ease. Fix: `runToCompletion(page, { waitForFit: true })` waits for
+  the map's `data-bounds` (rewritten on `moveend`) to change after the run, so the click hits
+  the fitted view. `--repeat-each` (1 worker, retries 0): before 0/20 unthrottled, 3/60 on 2
+  CPUs (`taskset -c 0-1`), 0/10 on 1 CPU; after 0/20, 0/40 and 0/10.
+Full suites once afterwards (under `firesim-tests.lock`): `tsc` app + node exit 0, Vitest
+**505 passed** (46 files), Playwright + axe **82 passed**, first attempt (9.9 min).
+
 ## 6. Open items
 
 - [ ] **Rescore follow-ups (2026-10-15, [R45]):** (a) a live run's fuel (the 2025 grid without a back-cast) cannot be scored fairly on past fires, so quote 0.246 only for historical replays; (b) the deciduous-day gain on the back-cast comes with area bias +0.08 → +0.47 (18 days, 8 fires): check the back-cast's conifer/mixedwood typing of 2014b's aspen stands against AVI; (c) owner review of the suppression classes, then decide whether to pre-register a free-burning headline (excluding suppression-dominated / burnout days; exploratory value 0.256 held-out); (d) `eoc-bridge.spec.ts:36` Playwright failure (`page.reload: net::ERR_ABORTED`) reproduces locally (3 of 3 runs) with frontend code unchanged from `master` `f4cdd17` but passes in CI: investigate the local environment; (e) ~~finish E1, the ensemble rescore~~ done 2026-10-17 ([R49]: CRPS better, coverage no detectable difference); (f) new, from [R49]: the ensemble sizes (A15) were calibrated on 2014b; on the back-cast the spread/skill fell to 1.34 while coverage stayed 49 %, so re-check the inflation factor on the back-cast calibration fires before quoting a re-calibrated ensemble (not pre-registered yet).
@@ -933,6 +960,7 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into �
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-24 | (this PR) | test(frontend): fix two flaky tests - saved-runs rows awaited after unlock; evac map click waits for the post-run fit (G8) |
 | 2026-10-24 | (this PR) | fix(frontend): reload re-attach - a run the server no longer has says so once; reattach spec for single, ensemble, multi-day day 2, restart, finished and Reload run (E1) |
 | 2026-10-18 | (this PR) | fix(api): noon LST per CWFIS station tz_correct where a province has more than one (NW Saskatchewan -7, eastern BC -7, ...); YT -8; SA/NF codes |
 | 2026-10-18 | (this PR) | fix(time): Alberta permanent UTC-6 from 2026-11-01 (MT labels, dated rule, noon LST stays 19 UTC, tzdata>=2026.3) [R57] |
