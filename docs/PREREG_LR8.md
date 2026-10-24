@@ -473,3 +473,29 @@ Smoke test on two training fires: 2-4 s per interval, so the 150-fire subset is 
 | `fit/gate_ranges.json` | `3dd02d3a9c86b9fa28accbfae239160e5351eb0d72b0d7b5aa381e54e92c5a22` |
 | `fit/active_segment_test.json` | `31aabb2d76b564f47cabcbd8d2de65ebd9261fb598af5462817d867bb5e189d8` |
 | `fit/training_diagnostic.json` | `c517299878cd5f362d5c34a5d17879ee650dcb92547e2669d85f7078b389b926` |
+
+---
+
+## 14. Addendum A3 (2026-10-24): data-access changes during the draw (no rule, model or value change)
+
+**Dated:** 2026-10-24, during the decision draw (CAN block 2), before any model score or sealed jump location was
+opened. Owner decisions: Travis Kennedy, 2026-10-24 (cache SCANFI locally; keep the Alberta mirror, disclose it).
+
+1. **SCANFI read locally.** The NRCan SCANFI server ran at 5-45 KB/s with outages on 2026-10-24. The Canadian
+   back-cast (A2, §2) now reads SCANFI v2 (release 20260119) from local copies (`inputs.scanfi_local`): a per-fire
+   pixel clip of the national file (restored-cell window + 8 pixels, read once; no resampling), or the sparse
+   Alberta mirror built from the same release by `scripts/fuelgrid/backcast.py mirror` (2026-10-13) when every
+   mirror pixel the warp reads under the restored cells is filled. Each fire's `meta.json` records the source of
+   each layer (`scanfi_cache`). Reading only the restored-cell window gives the same grid (NBAC:2018_2184: 0 cells
+   differ). **The Alberta-mirror path is not bit-identical:** on NBAC:2024_118 (training) 8 of about 4,700
+   restored cells (0.17 %; 0.006 % of the grid) get a different fuel code than from the national file; the
+   clipped-versus-full warp of the mirror differs nowhere, so the cause lies in the source pixels and could not be
+   traced while the server was down. Kept by owner decision, as disclosed here.
+2. **Sensitivity check (reported, never re-scoring).** When the NRCan server is reachable again, every Alberta
+   decision fire built from the mirror is re-read from the national file; per-fire differing-cell counts, and
+   whether any differing cell is a scored jump cell or affects its interval's candidates, are reported in the
+   result report and the project record. Scored results are not changed.
+3. **Retries and restarts.** Remote reads retry with back-off and abort below 1 kB/s for 120 s. The draw process
+   was restarted three times (one read failure; two code reloads); each restart resumed from `draw/state.json` in
+   the same sealed order and is logged in `draw/draw_log.txt`. Input builds of upcoming decision fires were run
+   ahead in decision order by parallel workers (inputs only, blind to hotspots; cached per fire).
