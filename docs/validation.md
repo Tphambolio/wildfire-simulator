@@ -633,6 +633,10 @@ For each fire-day (Bennett's day *n*):
    1.59 vs 2.30; H 0 −0.026 [−0.054, −0.007]. Pre-registered held-out test
    (`PREREG_ACTIVE_SEGMENT`, H = 24 h chosen on calibration): **fail**, ΔF1 17 h −0.002
    [−0.005, +0.001] on 70 held-out mature fire-days; the barrier stays opt-in.
+   Active proxy 1 vs 2 burn days, both H 24 h (`PREREG_ACTIVE_RULE_1V2`, [R63]; same 70
+   held-out fire-days, reuse disclosed): **pass, fragile**, mean |ln g| (clip 0.05–20) −0.110
+   [−0.198, −0.022], ΔF1 17 h +0.011 [+0.001, +0.023]; the zero-handling sensitivities include
+   0. The harness reference stays `--active-days 2` unless the owner changes it.
 
 Metrics (`engine/src/firesim/validation/metrics.py`, unit-tested on shapes with known
 answers): precision TP/(TP+FP); recall TP/(TP+FN); F1 = 2PR/(P+R) (Sørensen/Dice); IoU =

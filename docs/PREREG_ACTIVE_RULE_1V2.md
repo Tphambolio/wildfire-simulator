@@ -143,3 +143,42 @@ folder; descriptive, decides nothing):
   CFSDS DOB is daily.
 
 ## Result
+
+**Appended 2026-10-24, after the held-out run.** The text above is unchanged from the registered
+file: commit `12cf3085dd698a146a12fb4e1a2d2099235c2d43` (pushed to `origin/feat/active-rule-1v2`
+before any held-out 1-day run), sha256
+`00851c1fff10a5e5abf39f19528d4c63c167faf89facc913fe44e16e4c3830da`. Scoring script unchanged
+(sha256 `32bf05ff…1128e127`, as registered).
+
+- **Runs:** B (2 d, H 24 h) then A (1 d, H 24 h) on the held-out mature fire-days, once each:
+  70 fire-days, 15 fires, 0 errors, 6.7 min each, under `capjob` (5 G, 3 workers), started with
+  21 GB available. No interruption, no rerun.
+- **Integrity (§7.3):** B reproduces [R62] `runs_heldout/N_hold24.jsonl` on all 70 fire-days with
+  **0 mismatches in 13,160 window values**. The test is valid.
+- **Primary (17 h):** D = mean |ln gc_A| − |ln gc_B| = **−0.110 [−0.198, −0.022]** (1.228 vs 1.338).
+  The CI lies entirely below 0: **condition 1 met.**
+- **Guard 1:** ΔF1 (A − B) at 17 h = **+0.011 [+0.001, +0.023]** (F1 0.240 vs 0.229). Lower bound
+  +0.001 ≥ −0.01: **met.**
+- **Guard 2:** Δ share of fire-days with g < 0.5 = **+1.4 pts** [0.0, +4.5] (17.1 % vs 15.7 %);
+  ≤ +10 pts: **met.**
+- **Verdict: PASS.** Against the stated expectation (§6, a fail on calibration numbers).
+- **Secondary (17 h):** median g 1.27 vs 2.17; mean Δlog10 g −0.142 [−0.200, −0.090]; share g > 2
+  44.3 % vs 51.4 %; g = 0 on 3 fire-days in each arm; F1 differs on 52 of 70 fire-days; static
+  share modelled median 0.985 vs 0.979 (observed 0.993). The per-fire mean of D is negative on 9 of
+  15 fires.
+- **Sensitivity of the primary to zero handling (cannot change the verdict):** [R62] convention
+  (pairs with g = 0 dropped, n = 67) −0.074 [−0.200, +0.088]; clip (0.01, 100) −0.090
+  [−0.192, +0.029]. Both CIs include 0: **the pass depends on the registered clip (0.05, 20)**,
+  i.e. on how days with zero modelled growth are penalised.
+- **8 h (secondary):** D = +0.083 [−0.018, +0.182]; ΔF1 −0.003 [−0.015, +0.008]; Δ share
+  g < 0.5 +12.9 pts [+6.1, +19.4]. Early in the burning period the 1-day rule under-predicts more.
+- **What this means (§8):** the registered PASS lets the owner choose to make 1 burn day the
+  harness active-edge proxy for mature restarts. Nothing changes automatically. Reading
+  (opinion): the evidence is modest and fragile — the held-out set was used before (§0), the
+  calibration fires pointed the other way, the result does not survive the two zero-handling
+  sensitivities, and at 8 h the 1-day rule is worse on under-prediction. A confirmation on new
+  fire-days (e.g. the 2026 CFSDS season when released) would be needed before treating it as
+  settled.
+- **Files:** [R63] data folder `~/dev/wildfire/reports/data/active-rule-1v2-2026-10-24/`:
+  `result_prereg_active_rule_1v2.json`, `integrity_B_vs_R62_N.json`, `runs/`,
+  `heldout_fire_days.csv`, `fig1_heldout_abs_ln_g.png`.
