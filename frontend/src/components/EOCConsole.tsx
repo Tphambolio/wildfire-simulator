@@ -47,6 +47,7 @@ import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
 import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
 import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation } from "../types/incident";
 import { SYMBOL_DEFS } from "../types/incident";
+import { normaliseIncidentName, UNTITLED_INCIDENT } from "../utils/storage";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -212,13 +213,18 @@ export default function EOCConsole({
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("situation");
   // Use incident name from prop if provided (incident store), else local state
-  const [localIncidentName, setLocalIncidentName] = useState("Untitled Incident");
+  const [localIncidentName, setLocalIncidentName] = useState(UNTITLED_INCIDENT);
   const incidentName = incidentNameProp ?? localIncidentName;
-  const setIncidentName = (name: string) => {
+  // Name being edited (null = not editing): may be empty while typing; blur/Enter stores an
+  // empty name as "Untitled incident" (E9), Esc cancels
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const commitName = () => {
+    if (nameDraft === null) return;
+    const name = normaliseIncidentName(nameDraft);
     setLocalIncidentName(name);
     onIncidentNameChange?.(name);
+    setNameDraft(null);
   };
-  const [editingName, setEditingName] = useState(false);
   const [activeLayer, setActiveLayer] = useState<AnnotationLayer>("situation");
   const [activeSymbolKey, setActiveSymbolKey] = useState<ICSSymbolKey | null>(null);
   const [activeColor, setActiveColor] = useState<string | null>(null);
@@ -541,17 +547,22 @@ export default function EOCConsole({
       <div className="eoc-console-header">
         <div className="eoc-header-left">
           {/* With an incident open, its name and ACTIVE status are in the period strip above */}
-          {incidentNameProp !== undefined ? null : editingName ? (
+          {incidentNameProp !== undefined ? null : nameDraft !== null ? (
             <input
               className="eoc-incident-name-input"
-              value={incidentName}
+              value={nameDraft}
+              placeholder="Incident name"
+              aria-label="Incident name"
               autoFocus
-              onChange={(e) => setIncidentName(e.target.value)}
-              onBlur={() => setEditingName(false)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingName(false); }}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitName();
+                else if (e.key === "Escape") setNameDraft(null);
+              }}
             />
           ) : (
-            <button className="eoc-incident-name-btn" onClick={() => setEditingName(true)} title="Click to edit incident name">
+            <button className="eoc-incident-name-btn" onClick={() => setNameDraft(incidentName)} title="Click to edit incident name">
               {incidentName}
               <span className="eoc-edit-icon">✎</span>
             </button>

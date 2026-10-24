@@ -2,6 +2,9 @@
 
 import { memo, useRef, useState } from "react";
 import type { IncidentSession } from "../types/incident";
+import InfoTip from "./InfoTip";
+import { TIPS } from "../content/explanations";
+import { RESET_BUTTON_LABEL } from "../utils/browserData";
 
 interface IncidentPanelProps {
   incidents: IncidentSession[];
@@ -12,6 +15,8 @@ interface IncidentPanelProps {
   onDelete: (id: string) => void;
   onExport: (incident: IncidentSession) => void;
   onImport: (file: File) => Promise<IncidentSession>;
+  /** Open About ▸ Data kept in this browser (the reset control) */
+  onOpenBrowserData?: () => void;
 }
 
 function formatDate(iso: string): string {
@@ -32,6 +37,7 @@ function IncidentPanel({
   onDelete,
   onExport,
   onImport,
+  onOpenBrowserData,
 }: IncidentPanelProps) {
   const [open, setOpen] = useState(true);
   const [newName, setNewName] = useState("");
@@ -186,6 +192,17 @@ function IncidentPanel({
               })}
             </div>
           )}
+
+          {/* Where incidents live, and the way to clear them (E9, owner report 2026-10-24) */}
+          <div className="incident-storage-note" data-testid="incident-storage-note">
+            <span>Stored in this browser only.</span>
+            <InfoTip label="Where incidents are stored" text={TIPS.incidentStorage} />
+            {onOpenBrowserData && (
+              <button type="button" className="toggle-advanced" onClick={onOpenBrowserData}>
+                {RESET_BUTTON_LABEL}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

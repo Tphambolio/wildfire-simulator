@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { IncidentSession, OperationalPeriod } from "../types/incident";
 import { nextPeriodDate } from "../utils/time";
+import { normaliseIncidentName } from "../utils/storage";
 
 /** How the current run relates to the active period (App decides; this panel shows it) */
 export interface PeriodRunInfo {
@@ -45,7 +46,16 @@ export default function OperationalPeriodPanel({
   run,
 }: OperationalPeriodPanelProps) {
   const [showAdvance, setShowAdvance] = useState(false);
-  const [editingName, setEditingName] = useState(false);
+  // The name being edited (null = not editing). It may be empty while typing; on blur or Enter
+  // an empty name is stored as "Untitled incident" (E9), never snapped back to the old name.
+  // Esc cancels the edit.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const commitName = () => {
+    if (nameDraft === null) return;
+    const next = normaliseIncidentName(nameDraft);
+    if (next !== incident.name) onUpdateName(next);
+    setNameDraft(null);
+  };
   const [nextDate, setNextDate] = useState(() => nextPeriodDate(activePeriod?.date));
   const [nextStart, setNextStart] = useState("08:00");
   const [nextEnd, setNextEnd] = useState("20:00");
@@ -63,17 +73,22 @@ export default function OperationalPeriodPanel({
     <div className="op-period-panel">
       {/* Incident name */}
       <div className="op-period-header">
-        {editingName ? (
+        {nameDraft !== null ? (
           <input
             className="op-period-name-input"
-            value={incident.name}
+            value={nameDraft}
+            placeholder="Incident name"
+            aria-label="Incident name"
             autoFocus
-            onChange={(e) => onUpdateName(e.target.value)}
-            onBlur={() => setEditingName(false)}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingName(false); }}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitName();
+              else if (e.key === "Escape") setNameDraft(null);
+            }}
           />
         ) : (
-          <button className="op-period-name-btn" onClick={() => setEditingName(true)}>
+          <button className="op-period-name-btn" onClick={() => setNameDraft(incident.name)}>
             {incident.name} <span className="eoc-edit-icon">✎</span>
           </button>
         )}

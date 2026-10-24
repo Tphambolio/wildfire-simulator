@@ -170,3 +170,39 @@ test("the incident's setup (ignition, start, curing) survives a reload", async (
   await expect(page.getByLabel(/^Grass curing/)).toHaveValue("80");
   expect(errors).toEqual([]);
 });
+
+test("Reset this browser's FireSim data: inventory, export, clear and reload (E9, 2026-10-24)", async ({ page }) => {
+  const errors = pageErrors(page);
+  await mockApi(page);
+  await openApp(page);
+  await openStorageSection(page);
+  await page.getByLabel("New incident name").fill("Old reappearing name");
+  await page.getByRole("button", { name: "Start Incident" }).click();
+  await page.evaluate(() => localStorage.setItem("not-firesim", "keep"));
+
+  // The link in the Incidents section opens About at the reset section
+  await page.locator(".incident-storage-note").getByRole("button", { name: "Reset this browser's FireSim data" }).click();
+  await expect(page.locator("#about-browser-data")).toBeVisible();
+  await page.getByTestId("browser-data-reset").click();
+  const dialog = page.getByRole("dialog", { name: "Reset this browser's FireSim data" });
+  await expect(dialog.getByTestId("bdr-inventory")).toContainText("1 incident: Old reappearing name (active)");
+  await expect(dialog).toContainText("Runs kept on the server");
+  const download = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Export incident Old reappearing name as JSON" }).click();
+  expect((await download).suggestedFilename()).toBe("firesim-incident-old-reappearing-name.json");
+
+  await dialog.getByRole("button", { name: "Clear and reload" }).click();
+  await page.waitForLoadState("load");
+  await expect(page.locator("canvas.maplibregl-canvas").first()).toBeVisible();
+  await expect(page.locator(".setup-section-toggle", { hasText: "Incidents & saved scenarios" })).toContainText("0 incidents");
+  // A hard reload keeps it gone; unrelated keys survive
+  await page.reload();
+  await expect(page.locator(".setup-section-toggle", { hasText: "Incidents & saved scenarios" })).toContainText("0 incidents");
+  const left = await page.evaluate(() => ({
+    incidents: localStorage.getItem("firesim-v3-incidents"),
+    other: localStorage.getItem("not-firesim"),
+  }));
+  expect(left.other).toBe("keep");
+  expect(left.incidents === null || left.incidents === "[]").toBe(true);
+  expect(errors).toEqual([]);
+});
