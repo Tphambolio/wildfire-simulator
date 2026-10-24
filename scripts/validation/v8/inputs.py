@@ -52,6 +52,7 @@ import pandas as pd
 import geopandas as gpd
 import pyogrio
 import rasterio
+import rasterio.errors
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from rasterio.vrt import WarpedVRT
@@ -146,7 +147,18 @@ def grid_transform(g):
     return from_origin(g["x0"], g["y1"], g["cell"], g["cell"])
 
 
-def warp_to_grid(src_path: str, g: dict, resampling=Resampling.nearest, band: int = 1, dtype="float32"):
+def warp_to_grid(src_path: str, g: dict, resampling=Resampling.nearest, band: int = 1, dtype="float32", tries: int = 6):
+    """Warp a raster (local or /vsicurl/) to the run grid; remote read failures are retried with back-off."""
+    for k in range(tries):
+        try:
+            return _warp_once(src_path, g, resampling, band, dtype)
+        except rasterio.errors.RasterioIOError:
+            if k == tries - 1 or not str(src_path).startswith("/vsicurl/"):
+                raise
+            time.sleep(30 * (k + 1))
+
+
+def _warp_once(src_path, g, resampling, band, dtype):
     with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", GDAL_HTTP_MAX_RETRY="8", GDAL_HTTP_RETRY_DELAY="3",
                       CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif", GDAL_CACHEMAX=256):
         with rasterio.open(src_path) as src:
