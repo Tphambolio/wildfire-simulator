@@ -126,3 +126,10 @@ edges are marked or classified, although the barrier failed its pre-registered t
 held-out evidence it is harmless (ΔF1 −0.002, about 6 % less growth) and it matches the intent of a
 held line in an EOC restart. The API default is unchanged (an unset `hold_hours` means no barrier),
 and the barrier stays labelled "not validated".
+
+Pre-registered test `docs/PREREG_ACTIVE_RULE_1V2.md` (2026-10-24; harness active proxy 1 vs 2 burn
+days, both with H = 24 h, on the same 70 held-out mature fire-days, reuse disclosed): **pass, but
+fragile** ([R63]). Mean |ln g| fell by 0.110 [0.022, 0.198] with the 1-day rule and F1 rose by
++0.011 [+0.001, +0.023]; with other zero-growth handling the CI includes 0, and at 8 h the 1-day
+rule under-predicts more. The harness reference stays 2 days until the owner decides; the product's
+hotspot / VIIRS rule (12 h window) is not tested by this.
