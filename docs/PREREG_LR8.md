@@ -387,3 +387,89 @@ carry two training keys run together by a shell-quoting slip; both halves are tr
 files show access times of 2026-10-18 00:10 MDT on a `relatime` mount, so none was read after 2026-10-19 00:10,
 and their only readers were the training extractions that discard non-training rows chunk by chunk (§10); [R61]
 read only the v8 scripts and synthetic fixtures. No model has been run on any decision fire.
+
+---
+
+## 13. Addendum A2 (2026-10-24): training-split items of §9 and runner implementation, before any decision run
+
+**Dated:** 2026-10-24, after addendum A1 (`e0df434`) and the runner commit (`aa8da30`), **before any decision fire
+was drawn**. §9 ("Not yet done … as dated addenda") lists the items done here; all were computed on training and
+legacy-training fires only. None changes §3, §4, §6 or §7. Blindness as A1.9 (re-checked at this addendum: no
+`viirs_decision/`, `draw/` or `final/` directory exists).
+
+**A2.1 Stations and eligibility (§2, §3).** Hourly station weather is the IEM ASOS/METAR archive (keyless open
+archive of NWS and ECCC observations: temperature, RH, 10 m wind) with hourly precipitation from ERA5 at the
+station (Open-Meteo archive; Canadian METARs carry none), both countries alike. RAWS and provincial networks are
+not used (no keyless hourly archive was found). Eligible = a station within 50 km of the final perimeter with
+≥ 50 % hourly coverage over the window; decision fires use the **record window** (NBAC start-end; MTBS ignition
++ 30 d; WFIGS discovery-out, ≤ 60 d), blind to hotspots; training fires used the VIIRS detection window. Measured
+on training fires: Canada 62 of 244 eligible (25 %), US 112 of 158 (71 %). Disclosed limit: eligible Canadian fires
+are the ones near airports; the deciding statistic is unchanged but its Canadian population is narrower.
+
+**A2.2 FWI start-up.** Hourly FFMC (Van Wagner 1977) and daily DMC/DC/BUI at local standard noon from 1 April (or
+30 days before a record start earlier than 1 May), start values FFMC 85, DMC 6, DC 15.
+
+**A2.3 Curing and κ_g.** Grass receptivity × curing, curing = clip((0.75 − NDVI)/0.40, 0, 1) [H] from the median of
+MODIS MOD13Q1 v6.1 NDVI composites of 1 July-31 August of the year before the fire (Planetary Computer, open);
+κ_g = 0 for every burnable group. M8 is implemented as the log-linear (rare-ignition) form of the §5 logistic,
+λ = exp(β₀ + β_m (m_ff − 21)) Σ_w exp(β_w ln(1 + U10·WAF_w)) (A_short,w + e^{β_L} A_long,w), exact as P → 0; bed-wind
+classes WAF 0.4 (unsheltered grass, US shrub), 0.2 (D, M), 0.15 (C, US timber) [H]; spread-rate floor 0.5 m/min [H];
+long-mode share 0.2762 × a plume factor 1-2 rising with log10 Byram N_c from 2 to 10 [H]; emission 540 embers/kg
+(27 g/kg ÷ 0.05 g). Fixed here, before any decision run.
+
+**A2.4 Wind zones.** Fires spanning > 30 km: HydroBASINS level-6 basins; each zone takes the nearest eligible
+station inside the basin, else the nearest eligible station. 57 of 174 eligible training fires have > 1 zone.
+
+**A2.5 Active-segment rule test (training).** Over 4,796 valid training intervals of 167 fires, 14.2 % of
+start-perimeter edge cells were active (OD12 rule). The fire advanced (any detection outside the start perimeter
+within 1 km in the next 24 h) from **27.7 % of active cells and 2.5 % of held cells**; 65 % of advancing edge was
+active. The rule separates active from static edge; it is kept as registered.
+
+**A2.6 β fit and G1 ranges (training only; §5, §7.2).** 650 primary training jumps (A1 catalogue): 239 matched to a
+candidate cell of a valid interval on the run grid, 19 not candidates, 400 on fires without an eligible station.
+239 ≥ 100, so the full fit ran (penalised Poisson; priors β_w ~ N(1, 1), β_L ~ N(ln 0.5, 1) [H]; β_m = −0.2441 per %
+fixed): **β₀ = −22.670, β_w = 0.000 (at its bound), β_L = −4.675, β_m = −0.2441.** The fit puts the long mode at
+e^{−4.67} ≈ 0.009 of the short mode and no bed-wind effect: this is the M8 that is tested, unchanged. G1a: ceiling
+100 per 12 h interval in ≥ 95 % of intervals (no training fire fails). G1b: per-active-hour predicted spots within
+[7.67e-06, 0.183] (training 5th-95th percentile 7.67e-05-0.0183, widened ×/÷ 10). Training-only diagnostic (in
+sample for β, never deciding): S3(M8 − B1) +0.076, region AUC M8 0.61 (CAN) / 0.67 (US), B1 0.54 / 0.58, 239 jumps.
+
+**A2.7 Interval exclusion "> 50 % of the band under cloud" (§8) not applied.** FIRMS hotspot files carry no cloud
+mask; the VIIRS granule cloud masks need an Earthdata login (not keyless). The exclusion is not applied to any
+interval, for any model. Disclosed deviation.
+
+**A2.8 Separate-start mask on decision fires** uses the start points of every other recorded fire (NBAC, MTBS,
+WFIGS), as §4 says; the training catalogue excluded decision fires from the mask so as not to open them (4
+clusters were removed by it in training).
+
+**A2.9 Compute guard (§8a.4).** The runners are `scripts/validation/v8/{inputs,intervals,fit,draw,assemble,elmfire}.py`
+(not `v8_run_*.py`). The binding 5 GB limit is the resident-memory cgroup cap of `capjob` (`CAPJOB_MEM=5G`); an
+address-space limit of 5 GB (`RLIMIT_AS`) fails on virtual size (GEOS, FFT, BLAS reserve far more than they use), so
+`RLIMIT_AS` is a 16 GB backstop. Peak RSS is logged for every run in `runs.csv` (training intervals: ≤ 0.8 GB;
+largest grid 2.4 M cells), so no tiling was needed. ELMFIRE: `docker run --memory 5g`, run-log crash-string check.
+
+**A2.10 Draw and seal.** The draw is resumable (position and counts saved after every fire; a fire is never drawn
+twice); each fire's jump table is sealed in its own file with its sha256 in a manifest whose sha256 is recorded at
+the end of the draw; `unseal` refuses any changed file.
+
+**A2.11 ELMFIRE inputs (never deciding).** US: LANDFIRE FBFM40, CC, CH, CBH, CBD of the fire's vintage and LF2020
+elevation at 90 m. Canada: the FireSim pre-fire FBP codes with `SURFACE_SPREAD_MODEL = 'CFFDRS'`, `START_DMC`,
+`START_DC` and a daily noon weather file; canopy cover 60 % / height 20 m on conifer and mixedwood cells [H];
+NRCan MRDEM-30 terrain. Hourly wind and M1 = FF-scale moisture of the hourly FFMC (M10 = M1 + 1, M100 = M1 + 2) [H].
+Smoke test on two training fires: 2-4 s per interval, so the 150-fire subset is far below the §9 estimate.
+
+**A2.12 Runner and fit files (sha256 at this addendum).**
+
+| File | sha256 |
+|---|---|
+| `scripts/validation/v8/common.py` | `8eef29c54a294136fda7aec231e4c3dd32a7082ce86f4361087c805c33608d92` |
+| `scripts/validation/v8/inputs.py` | `811b3a9d98183e8ea5d76bbe6bd7e1fec570acc28e47faae061a07c781513d6e` |
+| `scripts/validation/v8/intervals.py` | `4303e544736968f29f28dd827f662b0f6dfed9178109154ed309d7a5b4724dbe` |
+| `scripts/validation/v8/fit.py` | `d58105af3a845d5b1f55b10247b44835b03eda1080b1cd097b6d622d8d54e562` |
+| `scripts/validation/v8/draw.py` | `7602c8c602ff9db9dcd2a079c81d18a67a9efe9fa4adcc4d752e8c1567531f33` |
+| `scripts/validation/v8/assemble.py` | `e52f28ab9f1bc29a20a5b888a7feca7993d7695ee7bec5277d3aa7134c5fc655` |
+| `scripts/validation/v8/elmfire.py` | `fe395dc6b481986021bed16ceff4932b8a0ac87623a2c4ab1e1462b849e0609d` |
+| `fit/fit_beta.json` (outside the repo, `validation-data/v8-pool/`) | `fda5706c400cd74b07b7243c110031d09aa9160445cdcd2996a63ac8d18ec425` |
+| `fit/gate_ranges.json` | `3dd02d3a9c86b9fa28accbfae239160e5351eb0d72b0d7b5aa381e54e92c5a22` |
+| `fit/active_segment_test.json` | `31aabb2d76b564f47cabcbd8d2de65ebd9261fb598af5462817d867bb5e189d8` |
+| `fit/training_diagnostic.json` | `c517299878cd5f362d5c34a5d17879ee650dcb92547e2669d85f7078b389b926` |
