@@ -10,7 +10,7 @@ step with `docs/PROJECT_RECORD.md` §4.2, which holds the full entry (path, cont
 Parallel sessions gave [R39] to three reports on 2026-10-12 (see the [R39] lines). This file exists
 so that does not happen again.
 
-- **Next free number: [R59].**
+- **Next free number: [R63].** ([R59] is held for the clock follow-up named by PR #96; [R60] is on #96, [R61] on #97.)
 - **Status values:** `master` = in the record on `master`; `open PR` = the report's PR is not merged;
   `claimed` = number taken before the report is written or recorded; `withdrawn` = not used, never reuse.
 - Dates are the report dates. "—" in Branch / PR = research report with no code PR of its own
@@ -77,6 +77,9 @@ so that does not happen again.
 | R56 | Chrome tester multi-day labels #86 live | `fix/field-test-round4`, #91 | 2026-10-18 | master |
 | R57 | Alberta permanent UTC−6 switch | `fix/alberta-permanent-utc6`, #94 (Pyra FWI#7) | 2026-10-18 | master |
 | R58 | Harness start-type strata baseline (with §7 whole-perimeter rerun) | `feat/harness-start-strata`, #93 | 2026-10-18 | master |
+| R60 | Front over-spread at active edges: A4/A7/A8 diagnostics and PREREG_FRONT1 result | `feat/front-overspread`, #96 | 2026-10-18 | open PR (claimed on that branch) |
+| R61 | v7 held-out arrivals recoded with [R53] rules (A3 descriptive addendum) | `docs/a3-v7-arrivals-recoded`, #97 | 2026-10-24 | open PR (claimed on that branch) |
+| R62 | Active-segment restart (A1): held-line barrier, classification from hotspots/VIIRS, standalone forecast from an observed perimeter, PREREG_ACTIVE_SEGMENT | `feat/active-segment-restart` | 2026-10-24 | claimed |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.
