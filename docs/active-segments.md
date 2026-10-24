@@ -23,7 +23,7 @@ segment is **active** or **held**:
 |---|---|
 | omitted (default in the API) | As before 2026-10-24: held parts are burned out for the whole run, with no barrier ring and no release. Every existing request runs exactly as before. |
 | `0` | The explicit **all active** option: the classification is not applied and the whole perimeter spreads. |
-| `1`–`72` | Held line plus barrier ring for H hours, then released. **The app sends 24 h by default.** |
+| `1`–`72` | Held line plus barrier ring for H hours, then released. **The app sends 24 h by default** (owner decision, 2026-10-24; see §5). |
 
 The hold acts only in the grid model (a fuel grid, or the synthetic demo grid). A request with
 active segments or a hold and no fuel grid gets a 422.
@@ -120,3 +120,9 @@ burning in the last N burn days within one cell. Results are in [R62].
 Pre-registered test `docs/PREREG_ACTIVE_SEGMENT.md` (2026-10-24; active rule 2 burn days,
 H = 24 h chosen on calibration fire-days): **fail**. ΔF1 at 17 h was −0.002 [−0.005, +0.001]
 on 70 held-out mature fire-days. The barrier stays opt-in and not validated.
+
+**Owner decision (Travis Kennedy, 2026-10-24): the app keeps H = 24 h as its default hold** when
+edges are marked or classified, although the barrier failed its pre-registered test. On the
+held-out evidence it is harmless (ΔF1 −0.002, about 6 % less growth) and it matches the intent of a
+held line in an EOC restart. The API default is unchanged (an unset `hold_hours` means no barrier),
+and the barrier stays labelled "not validated".
