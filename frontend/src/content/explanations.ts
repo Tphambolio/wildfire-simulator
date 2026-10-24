@@ -203,6 +203,20 @@ export const TIPS = {
     "Edges not marked active are treated as burned out and do not spread. This raised one-day " +
     "skill on held-out Alberta fires.",
   bufferBlank: "Blank: one fuel-grid cell (the validated default).",
+  observationTime:
+    "When the perimeter was observed (T). The forecast starts at T, and hotspots or VIIRS " +
+    "detections count only in the 12 h up to T.",
+  segmentClassification:
+    "Each 250 m piece of the perimeter is active if a hotspot or a VIIRS 375 m detection " +
+    "(nominal or high confidence) lies within 1 km of it in the 12 h before T; otherwise it is " +
+    "held. Hotspots take priority over VIIRS; marked edges over both. Not yet validated on " +
+    "observed fires.",
+  holdHours:
+    "Held segments do not spread, and the fuel next to them cannot burn, for this many hours " +
+    "after T; then they may spread. 0 = the whole perimeter is active. Default 24 h.",
+  staticShare:
+    "Modelled share of the start perimeter that advanced 1 km or less (500 m samples). The " +
+    "observed share is not known during an incident; compare it after the fact.",
 
   // ── Situation panel ──
   outsideBurning: (period: string, from: string) =>

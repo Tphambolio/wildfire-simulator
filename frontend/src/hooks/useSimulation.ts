@@ -1,8 +1,10 @@
 /** Hook for managing simulation state and WebSocket streaming. */
 
 import { useCallback, useRef, useState } from "react";
-import { createSimulation, createMultiDaySimulation, createPerimeterOverride, getSimulation, getWebSocketUrl } from "../services/api";
+import { createSimulation, createMultiDaySimulation, createObservedPerimeter, createPerimeterOverride, getSimulation, getWebSocketUrl } from "../services/api";
 import type {
+  ActiveSegmentsInfo,
+  ObservedPerimeterRequest,
   SimulationCreate,
   MultiDaySimulationCreate,
   PerimeterOverrideRequest,
@@ -55,6 +57,8 @@ interface SimulationState {
   archived: boolean;
   /** Server flag: the scenario is dated before the run's fuel grid year (null = none) */
   fuelVintageWarning: string | null;
+  /** Active-segment restarts (A1): segments held / active and the modelled static share */
+  activeSegments: ActiveSegmentsInfo | null;
 }
 
 const IDLE: SimulationState = {
@@ -73,6 +77,7 @@ const IDLE: SimulationState = {
   durationHours: null,
   archived: false,
   fuelVintageWarning: null,
+  activeSegments: null,
 };
 
 /** Progress from a frame's time (Huygens runs stream frames as they compute). */
@@ -184,6 +189,7 @@ export function useSimulation() {
             setState((prev) => ({
               ...prev, status: "completed", isRunning: false, isPaused: false,
               fuelVintageWarning: data.fuel_vintage_warning ?? null,
+              activeSegments: data.active_segments ?? prev.activeSegments,
             }));
           }
         } else if (data.type === "simulation.error") {
@@ -264,6 +270,12 @@ export function useSimulation() {
     [_startWithCreateFn]
   );
 
+  const startObservedPerimeter = useCallback(
+    (req: ObservedPerimeterRequest) =>
+      _startWithCreateFn(() => createObservedPerimeter({ ...req, cells_mode: "incremental" }), req.duration_hours ?? null),
+    [_startWithCreateFn]
+  );
+
   /** Clear the current results (frames, status) and stop listening to the run. */
   const clearResults = useCallback(() => {
     detachSocket();
@@ -291,6 +303,7 @@ export function useSimulation() {
           error: resp.error,
           archived: resp.archived === true,
           fuelVintageWarning: resp.fuel_vintage_warning ?? null,
+          activeSegments: resp.active_segments ?? null,
           phase: resp.phase ?? prev.phase,
           progress: typeof resp.progress === "number" ? Math.max(prev.progress ?? 0, resp.progress) : prev.progress,
           day: typeof resp.day === "number" ? resp.day : prev.day,
@@ -386,6 +399,7 @@ export function useSimulation() {
     startSimulation,
     startMultiDaySimulation,
     startPerimeterOverride,
+    startObservedPerimeter,
     prepareRun,
     clearResults,
     restoreRun,

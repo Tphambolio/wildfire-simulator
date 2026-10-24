@@ -11,19 +11,30 @@
  *   3. Restart: the request also carries the observation time, Setup's current weather, FWI
  *      codes and weather changes (the step in force then, and the later ones), burning period
  *      and FFMC spin-up. Predict N h runs N h.
+ *
+ * Active-segment restart (backlog A1, docs/active-segments.md): the observation time T is an
+ * editable field; active edges can also be classified from RPAS thermal hotspots (GeoJSON
+ * points with a time) or a NASA FIRMS VIIRS CSV (POST /simulations/classify-perimeter), shown
+ * on the map as active (orange-red) / held (blue) segments; held segments hold for H hours
+ * (default 24). Without a run, the same panel starts a standalone forecast from the observed
+ * perimeter at T (POST /simulations/observed-perimeter) with Setup's weather and fuel.
  */
 
 import { memo, useCallback, useId, useRef, useState } from "react";
-import type { BurningPeriod, PerimeterOverrideRequest } from "../types/simulation";
+import type { ActiveSegmentsInfo, BurningPeriod, PerimeterOverrideRequest } from "../types/simulation";
 import type { Recon } from "../hooks/useRecon";
 import {
+  MAX_HOLD_HOURS,
   SIDES,
   SIDE_NAMES,
   buildOverrideRequest,
   framePerimeterToPolygon,
   perimeterFromGeoJSON,
+  segmentReadout,
+  type OverrideInputs,
 } from "../utils/activeEdges";
-import { formatClock, toEdmontonIso, zoneAbbrev } from "../utils/time";
+import { classifyPerimeter } from "../services/api";
+import { formatClock, formatDate, toDateTimeInputs, toEdmontonIso, zonedWallTimeToMs, zoneAbbrev } from "../utils/time";
 import { VALIDATION_DOC_URL, formatBurningPeriod } from "../utils/skillOptions";
 import { scheduleForRestart } from "../utils/weatherSchedule";
 import type { SetupWeather } from "./WeatherPanel";
@@ -50,6 +61,11 @@ interface PerimeterOverridePanelProps {
   spinUp?: boolean;
   /** Setup's current weather, FWI codes and weather changes (the restart uses them) */
   setupWeather?: SetupWeather | null;
+  /** Standalone forecast from the observed perimeter (no source run; A1, R13/R14). Absent =
+   * not offered. */
+  onObservedStart?: (inputs: Omit<OverrideInputs, "simulationId">, observationIso: string) => void;
+  /** The shown run's active-segment readout (API `active_segments`), if it was a restart */
+  runActiveSegments?: ActiveSegmentsInfo | null;
 }
 
 function PerimeterOverridePanel({
@@ -62,6 +78,8 @@ function PerimeterOverridePanel({
   burningPeriod = null,
   spinUp = false,
   setupWeather = null,
+  onObservedStart,
+  runActiveSegments = null,
 }: PerimeterOverridePanelProps) {
   const id = useId();
   const [parseError, setParseError] = useState<string | null>(null);
@@ -69,6 +87,9 @@ function PerimeterOverridePanel({
   const [snapshotMinutes, setSnapshotMinutes] = useState(30);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const hotspotRef = useRef<HTMLInputElement>(null);
+  const firmsRef = useRef<HTMLInputElement>(null);
+  const [classifying, setClassifying] = useState(false);
   const { state } = recon;
 
   const processFile = useCallback(
@@ -78,7 +99,7 @@ function PerimeterOverridePanel({
       reader.onload = () => {
         try {
           const gj = JSON.parse(reader.result as string) as Record<string, unknown>;
-          recon.setPerimeter(perimeterFromGeoJSON(gj), `${file.name} (loaded on run ${simulationId})`);
+          recon.setPerimeter(perimeterFromGeoJSON(gj), simulationId ? `${file.name} (loaded on run ${simulationId})` : file.name);
         } catch (err) {
           setParseError(err instanceof SyntaxError
             ? "Failed to parse GeoJSON. Ensure the file is valid JSON."
@@ -92,10 +113,41 @@ function PerimeterOverridePanel({
     [recon, simulationId],
   );
 
-  const disabled = !simulationId || isRunning;
-  const at = observedAtMs !== null ? new Date(observedAtMs) : new Date();
+  const standalone = !simulationId && !!onObservedStart;
+  const disabled = (!simulationId && !standalone) || isRunning;
+  // Observation time T: the field when set, else the timeline's selected time (or now)
+  const at = new Date(state.observedMs ?? observedAtMs ?? Date.now());
   const atLabel = `${formatClock(at)} ${zoneAbbrev(at)}`;
+  const atInputs = toDateTimeInputs(at.getTime());
   const marked = state.mode === "marked";
+  const classified = state.mode === "classified";
+
+  const classifyFile = (file: File, kind: "hotspots" | "firms") => {
+    if (!state.perimeter) return;
+    setParseError(null);
+    setClassifying(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const text = reader.result as string;
+        const body = kind === "hotspots"
+          ? { hotspots_geojson: JSON.parse(text) as GeoJSON.FeatureCollection }
+          : { firms_csv: text };
+        const res = await classifyPerimeter({
+          perimeter_geojson: state.perimeter!, observation_time: toEdmontonIso(at.getTime()), ...body,
+        });
+        recon.setClassified({
+          source: res.summary.source, segments: res.segments, activeEdges: res.active_edges, summary: res.summary,
+        });
+      } catch (err) {
+        setParseError(err instanceof SyntaxError ? "Failed to parse the hotspot GeoJSON." : (err as Error).message);
+      } finally {
+        setClassifying(false);
+        for (const r of [hotspotRef, firmsRef]) if (r.current) r.current.value = "";
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // Weather for a restart at the selected time: Setup's, with the weather change in force
   // then (and the later ones) when Setup has a schedule
@@ -106,28 +158,43 @@ function PerimeterOverridePanel({
   const nLater = restartWeather?.schedule?.length ?? 0;
 
   const restart = () => {
-    if (!simulationId || !state.perimeter) return;
+    if (!state.perimeter || (!simulationId && !standalone)) return;
     setParseError(null);
+    const inputs: Omit<OverrideInputs, "simulationId"> = {
+      perimeter: state.perimeter,
+      durationHours,
+      snapshotMinutes,
+      mode: state.mode,
+      lines: recon.lines,
+      classifiedEdges: state.classified?.activeEdges ?? null,
+      holdHours: state.mode === "whole" ? null : state.holdHours,
+      bufferM: state.bufferM,
+      startTime: toEdmontonIso(at.getTime()),
+      burningPeriod,
+      ffmcSpinUp: spinUp,
+      weather: restartWeather?.weather ?? null,
+      fwi: setupWeather?.fwi ?? null,
+      schedule: restartWeather?.schedule ?? null,
+    };
     try {
-      onOverrideStart(buildOverrideRequest({
-        simulationId,
-        perimeter: state.perimeter,
-        durationHours,
-        snapshotMinutes,
-        mode: state.mode,
-        lines: recon.lines,
-        bufferM: state.bufferM,
-        startTime: toEdmontonIso(at.getTime()),
-        burningPeriod,
-        ffmcSpinUp: spinUp,
-        weather: restartWeather?.weather ?? null,
-        fwi: setupWeather?.fwi ?? null,
-        schedule: restartWeather?.schedule ?? null,
-      }));
+      if (simulationId) onOverrideStart(buildOverrideRequest({ ...inputs, simulationId }));
+      else {
+        buildOverrideRequest({ ...inputs, simulationId: "" }); // same checks (e.g. nothing marked)
+        onObservedStart!(inputs, toEdmontonIso(at.getTime()));
+      }
     } catch (err) {
       setParseError((err as Error).message);
     }
   };
+  const segReadout = classified ? segmentReadout(state.classified?.summary) : null;
+  const runReadout = runActiveSegments && runActiveSegments.static_share_model !== undefined
+    ? [
+      runActiveSegments.static_share_model !== null && runActiveSegments.static_share_model !== undefined
+        ? `modelled static share ${Math.round(runActiveSegments.static_share_model * 100)} %` : null,
+      segmentReadout(runActiveSegments),
+      runActiveSegments.hold_hours !== null && runActiveSegments.hold_hours !== undefined ? `hold ${runActiveSegments.hold_hours} h` : null,
+    ].filter(Boolean).join(" · ")
+    : null;
 
   const sideAvailable = (s: (typeof SIDES)[number]) => (recon.sideLines?.[s].length ?? 0) > 0;
 
@@ -135,8 +202,9 @@ function PerimeterOverridePanel({
     <div className="panel recon-panel">
       <h3 className="recon-title">RPAS Recon Override</h3>
 
-      {/* Before a run the section summary says "Available after a run" */}
-      {!simulationId ? null : (
+      {/* Before a run the section summary says "Available after a run" (or offers the
+          standalone forecast from an observed perimeter when Setup can build a request) */}
+      {!simulationId && !standalone ? null : (
         <>
 
           <fieldset className="field-group">
@@ -179,7 +247,7 @@ function PerimeterOverridePanel({
             <button
               type="button"
               className="btn-secondary recon-btn"
-              disabled={disabled || !modelledPerimeter || modelledPerimeter.length < 3}
+              disabled={disabled || !simulationId || !modelledPerimeter || modelledPerimeter.length < 3}
               onClick={() => {
                 const poly = modelledPerimeter ? framePerimeterToPolygon(modelledPerimeter) : null;
                 if (poly) recon.setPerimeter(poly, `modelled perimeter at ${atLabel} of run ${simulationId}`);
@@ -187,6 +255,31 @@ function PerimeterOverridePanel({
             >
               Use the modelled perimeter at {atLabel}
             </button>
+            <div className="with-tip recon-observed">
+              <label className="field">
+                Observed at (T, {zoneAbbrev(at)})
+                <input
+                  type="datetime-local"
+                  value={`${atInputs.date}T${atInputs.time}`}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const [d, t] = e.target.value.split("T");
+                    const ms = d && t ? zonedWallTimeToMs(d, t.slice(0, 5)) : null;
+                    recon.setObserved(ms);
+                  }}
+                  aria-describedby={`${id}-t-hint`}
+                />
+              </label>
+              <InfoTip label="About the observation time" text={TIPS.observationTime} />
+            </div>
+            <p className="status-line" id={`${id}-t-hint`}>
+              {state.observedMs === null ? "Timeline's selected time" : `${formatDate(at)} ${atLabel}`}
+              {state.observedMs !== null && (
+                <button type="button" className="btn-secondary btn-inline" onClick={() => recon.setObserved(null)}>
+                  Use timeline time
+                </button>
+              )}
+            </p>
             {state.perimeter && (
               <div className="recon-loaded" role="status">
                 <span>Loaded: {state.source ?? "perimeter"}</span>
@@ -227,7 +320,55 @@ function PerimeterOverridePanel({
                     </a>
                   </InfoTip>
                 </div>
+                <div className="with-tip">
+                  <label>
+                    <input
+                      type="radio"
+                      name={`${id}-mode`}
+                      checked={classified}
+                      disabled={!state.classified}
+                      onChange={() => recon.setMode("classified")}
+                    />
+                    Classified from detections
+                  </label>
+                  <InfoTip label="About the classification" text={TIPS.segmentClassification} />
+                </div>
               </div>
+                <div className="recon-draw-row">
+                  <button
+                    type="button"
+                    className="btn-secondary btn-inline"
+                    disabled={disabled || classifying}
+                    onClick={() => hotspotRef.current?.click()}
+                  >
+                    Classify from RPAS hotspots
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-inline"
+                    disabled={disabled || classifying}
+                    onClick={() => firmsRef.current?.click()}
+                  >
+                    Classify from VIIRS file
+                  </button>
+                  <input ref={hotspotRef} type="file" accept=".geojson,.json" style={{ display: "none" }}
+                    data-testid="recon-hotspots-file"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) classifyFile(f, "hotspots"); }} />
+                  <input ref={firmsRef} type="file" accept=".csv,.txt" style={{ display: "none" }}
+                    data-testid="recon-firms-file"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) classifyFile(f, "firms"); }} />
+                </div>
+                {classifying && <p className="hint-sm" role="status">Classifying…</p>}
+                {classified && segReadout && (
+                  <p className="status-line recon-segments" role="status" data-testid="recon-segments">
+                    <span className="recon-swatch" aria-hidden="true" /> active
+                    {" "}<span className="recon-swatch recon-swatch-held" aria-hidden="true" /> held
+                    {" · "}{segReadout}
+                    {state.classified?.summary.n_detections_used !== undefined
+                      ? ` · ${state.classified.summary.n_detections_used} detection${state.classified.summary.n_detections_used === 1 ? "" : "s"} used`
+                      : ""}
+                  </p>
+                )}
 
               {marked && (
                 <>
@@ -318,6 +459,23 @@ function PerimeterOverridePanel({
             </fieldset>
           )}
 
+          {state.perimeter && state.mode !== "whole" && (
+            <div className="with-tip">
+              <label className="field recon-buffer">
+                Hold held segments (h)
+                <input
+                  type="number"
+                  min={0}
+                  max={MAX_HOLD_HOURS}
+                  step={1}
+                  value={state.holdHours}
+                  disabled={disabled}
+                  onChange={(e) => recon.setHold(e.target.valueAsNumber)}
+                />
+              </label>
+              <InfoTip label="About the hold" text={TIPS.holdHours} />
+            </div>
+          )}
           <div className="recon-controls">
             <label className="recon-label">
               Predict
@@ -371,11 +529,17 @@ function PerimeterOverridePanel({
               disabled={disabled || !state.perimeter || state.drawing || (marked && recon.lines.length === 0)}
               onClick={restart}
             >
-              Restart at {atLabel} from observed
+              {simulationId ? `Restart at ${atLabel} from observed` : `Forecast from observed at ${atLabel}`}
             </button>
             <InfoTip label="About the restart" text={`${TIPS.reconRestart(atLabel)} Run options from Setup apply.`} />
           </div>
 
+          {runReadout && (
+            <div className="status-line with-tip">
+              <Badge tone="neutral" testId="recon-run-readout">{`This run: ${runReadout}`}</Badge>
+              <InfoTip label="About the static share" text={TIPS.staticShare} />
+            </div>
+          )}
           {parseError && <div className="recon-error" role="alert">{parseError}</div>}
         </>
       )}

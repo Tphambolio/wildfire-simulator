@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_HOLD_HOURS,
+  buildObservedRequest,
+  clampHold,
+  segmentLines,
+  segmentReadout,
   activeEdgesGeometry,
   activeLines,
   buildOverrideRequest,
@@ -96,5 +101,61 @@ describe("override request", () => {
 
   it("marked with nothing marked is an error", () => {
     expect(() => buildOverrideRequest({ ...base, mode: "marked", lines: [] })).toThrow(/at least one/);
+  });
+});
+
+describe("active segments (A1)", () => {
+  const perimeter: GeoJSON.Polygon = { type: "Polygon", coordinates: [square()] };
+  const base = {
+    perimeter, durationHours: 6, snapshotMinutes: 30, lines: [] as Lnglat[][], bufferM: null,
+    startTime: "2026-07-15T15:00:00-06:00", burningPeriod: null, ffmcSpinUp: false,
+  };
+
+  it("classified with no active segment sends an empty geometry (all held) and the hold", () => {
+    const req = buildOverrideRequest({ ...base, simulationId: "a", mode: "classified", classifiedEdges: null, holdHours: 24 });
+    expect(req.active_edges).toEqual({ type: "MultiLineString", coordinates: [] });
+    expect(req.hold_hours).toBe(24);
+  });
+
+  it("hold is clamped to 0-72 h and not sent for the whole perimeter", () => {
+    expect(clampHold(100)).toBe(72);
+    expect(clampHold(-3)).toBe(0);
+    expect(clampHold(NaN)).toBe(DEFAULT_HOLD_HOURS);
+    const whole = buildOverrideRequest({ ...base, simulationId: "a", mode: "whole", holdHours: 24 });
+    expect(whole.hold_hours).toBeUndefined();
+  });
+
+  it("segment lines and readout from a classification", () => {
+    const fc: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [
+      { type: "Feature", properties: { status: "active" }, geometry: { type: "LineString", coordinates: [[0, 0], [1, 0]] } },
+      { type: "Feature", properties: { status: "held" }, geometry: { type: "LineString", coordinates: [[1, 0], [1, 1]] } },
+      { type: "Feature", properties: { status: "held" }, geometry: { type: "LineString", coordinates: [[1, 1], [0, 0]] } },
+    ] };
+    const { active, held } = segmentLines(fc);
+    expect(active).toHaveLength(1);
+    expect(held).toHaveLength(2);
+    expect(segmentReadout({ n_held: 2, n_active: 1 })).toBe("Segments held 2 / active 1");
+    expect(segmentReadout(null)).toBeNull();
+  });
+
+  it("standalone request: Setup's run without ignition, start or ensemble; perimeter at T", () => {
+    const setupReq = {
+      ignition_lat: 53.5, ignition_lng: -113.5, start_time: "2026-07-15T10:00:00-06:00",
+      weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
+      fwi_overrides: { ffmc: 90, dmc: 40, dc: 300 }, duration_hours: 4, fuel_grid_path: "/app/data/x.tif",
+      ensemble: { n_members: 20 }, ffmc_spin_up: true, snapshot_interval_minutes: 30, fuel_type: "C2",
+    };
+    const req = buildObservedRequest(setupReq, { ...base, mode: "marked", lines: [[[-113.49, 53.495], [-113.49, 53.505]]], holdHours: 24 },
+      "2026-07-15T15:00:00-06:00");
+    expect(req).not.toHaveProperty("ignition_lat");
+    expect(req).not.toHaveProperty("start_time");
+    expect(req).not.toHaveProperty("ensemble");
+    expect(req.observation_time).toBe("2026-07-15T15:00:00-06:00");
+    expect(req.duration_hours).toBe(6);
+    expect(req.perimeter_geojson).toEqual(perimeter);
+    expect(req.hold_hours).toBe(24);
+    expect((req.active_edges as GeoJSON.MultiLineString).coordinates).toHaveLength(1);
+    expect(req.ffmc_spin_up).toBe(false);
+    expect(req.fuel_grid_path).toBe("/app/data/x.tif");
   });
 });

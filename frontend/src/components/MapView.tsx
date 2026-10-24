@@ -49,11 +49,13 @@ const ENS_INK = "#1f2937";
 /** Observed (RPAS) perimeter and active edges: orange-red, distinct from the modelled fire */
 const RECON_PERIMETER = "#6d28d9";
 const RECON_ACTIVE = "#ff4500";
+/** Held segments of a classified perimeter (A1): blue, distinct from the orange-red active edges */
+const RECON_HELD = "#1e88e5";
 /** Major roads reached by the modelled fire (tokens.css --watched-line) */
 const ROAD_REACHED = "#0e7490";
 const RECON_LAYERS = [
   "recon-perimeter-casing", "recon-perimeter-line", "recon-active-casing", "recon-active-line",
-  "recon-draft-line", "recon-draft-points",
+  "recon-draft-line", "recon-draft-points", "recon-held-line",
 ];
 /** Ensemble layers (bottom to top); the burn-probability raster goes below the first */
 const ENS_LINE_LAYERS = [
@@ -289,8 +291,10 @@ interface MapViewProps {
 /** What the RPAS perimeter panel shows on the map (GeoJSON [lng, lat]). */
 export interface ReconMapLayers {
   perimeter: GeoJSON.Geometry | null;
-  /** Active edges: drawn lines and selected perimeter sides */
+  /** Active edges: drawn lines and selected perimeter sides (or classified active segments) */
   lines: Array<Array<[number, number]>>;
+  /** Classified held segments (A1), drawn blue */
+  held?: Array<Array<[number, number]>>;
   /** The line being drawn */
   draft: Array<[number, number]>;
   drawing: boolean;
@@ -1103,8 +1107,9 @@ export default function MapView({
 
     // ── Observed (RPAS) perimeter and its active edges (thick orange-red dashes) ──
     for (const id of RECON_LAYERS) if (m.getLayer(id)) m.removeLayer(id);
-    for (const src of ["recon-perimeter", "recon-active", "recon-draft"]) if (m.getSource(src)) m.removeSource(src);
+    for (const src of ["recon-perimeter", "recon-active", "recon-draft", "recon-held"]) if (m.getSource(src)) m.removeSource(src);
     m.addSource("recon-perimeter", { type: "geojson", data: emptyFc });
+    m.addSource("recon-held", { type: "geojson", data: emptyFc });
     m.addSource("recon-active", { type: "geojson", data: emptyFc });
     m.addSource("recon-draft", { type: "geojson", data: emptyFc });
     m.addLayer({
@@ -1116,6 +1121,11 @@ export default function MapView({
       id: "recon-perimeter-line", type: "line", source: "recon-perimeter",
       layout: { "line-join": "round" },
       paint: { "line-color": RECON_PERIMETER, "line-width": 2 },
+    });
+    m.addLayer({
+      id: "recon-held-line", type: "line", source: "recon-held",
+      layout: { "line-join": "round" },
+      paint: { "line-color": RECON_HELD, "line-width": 5 },
     });
     m.addLayer({
       id: "recon-active-casing", type: "line", source: "recon-active",
@@ -1399,6 +1409,10 @@ export default function MapView({
     const perimeter = recon?.perimeter ?? null;
     const lines = recon?.lines ?? [];
     const draft = recon?.draft ?? [];
+    const held = recon?.held ?? [];
+    set("recon-held", fc(held.map((coordinates) => ({
+      type: "Feature", properties: {}, geometry: { type: "LineString", coordinates },
+    }))));
     set("recon-perimeter", fc(perimeter ? [{ type: "Feature", properties: {}, geometry: perimeter }] : []));
     set("recon-active", fc(lines.map((coordinates) => ({
       type: "Feature", properties: {}, geometry: { type: "LineString", coordinates },
@@ -1426,6 +1440,7 @@ export default function MapView({
       el.setAttribute("data-recon-perimeter", perimeter ? "1" : "0");
       el.setAttribute("data-recon-active", String(lines.length));
       el.setAttribute("data-recon-draft", String(draft.length));
+      el.setAttribute("data-recon-held", String(held.length));
     }
   }, [recon, mapReady, fireLayersVersion]);
 

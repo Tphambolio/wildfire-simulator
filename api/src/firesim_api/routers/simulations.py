@@ -614,6 +614,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                 "fuel_source": run.fuel_source,
                 "buildings_source": getattr(run, "buildings_source", None),
                 "terrain_source": getattr(run, "terrain_source", None),
+                "active_segments": getattr(run, "active_segments", None),
             })
         elif status == SimulationStatus.FAILED:
             await websocket.send_json({

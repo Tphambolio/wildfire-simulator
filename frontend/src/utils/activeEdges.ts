@@ -6,9 +6,51 @@
  * lines drawn on the map and/or whole perimeter sides picked from a list (keyboard).
  * Coordinates are GeoJSON [lng, lat].
  */
-import type { BurningPeriod, FWIOverrides, PerimeterOverrideRequest, WeatherChange, WeatherParams } from "../types/simulation";
+import type {
+  ActiveSegmentsInfo, BurningPeriod, FWIOverrides, ObservedPerimeterRequest, PerimeterOverrideRequest,
+  SimulationCreate, WeatherChange, WeatherParams,
+} from "../types/simulation";
 
 export type Lnglat = [number, number];
+
+/** Which edges are active: the whole perimeter, edges marked by hand, or classified from
+ * RPAS hotspots / VIIRS detections (A1; docs/active-segments.md) */
+export type ReconMode = "whole" | "marked" | "classified";
+
+/** Default held-line hold (h) the app sends (A1); 0 = whole perimeter active */
+export const DEFAULT_HOLD_HOURS = 24;
+export const MAX_HOLD_HOURS = 72;
+
+/** A classification from POST /simulations/classify-perimeter */
+export interface Classified {
+  source: string;
+  segments: GeoJSON.FeatureCollection;
+  activeEdges: GeoJSON.MultiLineString | null;
+  summary: ActiveSegmentsInfo & { n_detections_read?: number; n_detections_used?: number };
+}
+
+/** Active and held lines of classified segments (feature property `status`). */
+export function segmentLines(fc: GeoJSON.FeatureCollection | null | undefined): { active: Lnglat[][]; held: Lnglat[][] } {
+  const out = { active: [] as Lnglat[][], held: [] as Lnglat[][] };
+  for (const f of fc?.features ?? []) {
+    if (f.geometry?.type !== "LineString") continue;
+    const line = f.geometry.coordinates as Lnglat[];
+    (f.properties?.status === "active" ? out.active : out.held).push(line);
+  }
+  return out;
+}
+
+/** "Segments held N / active M" readout, or null without a classification. */
+export function segmentReadout(s: { n_held?: number; n_active?: number } | null | undefined): string | null {
+  if (!s || s.n_held === undefined || s.n_active === undefined) return null;
+  return `Segments held ${s.n_held} / active ${s.n_active}`;
+}
+
+/** Clamp a hold to 0-72 h (NaN = the default). */
+export function clampHold(h: number): number {
+  if (!Number.isFinite(h)) return DEFAULT_HOLD_HOURS;
+  return Math.max(0, Math.min(MAX_HOLD_HOURS, h));
+}
 
 export const SIDES = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
 export type Side = (typeof SIDES)[number];
@@ -125,8 +167,13 @@ export interface OverrideInputs {
   perimeter: GeoJSON.Polygon | GeoJSON.MultiPolygon;
   durationHours: number;
   snapshotMinutes: number;
-  /** "whole": the whole perimeter is active (no active_edges sent); "marked": only the lines */
-  mode: "whole" | "marked";
+  /** "whole": the whole perimeter is active (no active_edges sent); "marked": only the lines;
+   * "classified": the active segments of a hotspot / VIIRS classification */
+  mode: ReconMode;
+  /** "classified": the classification's active edges (null = none active: all held) */
+  classifiedEdges?: GeoJSON.MultiLineString | null;
+  /** Held-line hold (h) sent with "marked" and "classified"; null/undefined = not sent */
+  holdHours?: number | null;
   lines: Lnglat[][];
   /** Buffer (m); null = the API default (one fuel-grid cell) */
   bufferM: number | null;
@@ -153,12 +200,50 @@ export function buildOverrideRequest(i: OverrideInputs): PerimeterOverrideReques
     if (!geom) throw new Error("Mark at least one active edge, or choose “Whole perimeter active”.");
     req.active_edges = geom;
     if (i.bufferM !== null) req.active_edge_buffer_m = i.bufferM;
+  } else if (i.mode === "classified") {
+    // No active segment = every segment held: an empty geometry, so nothing spreads until H
+    req.active_edges = i.classifiedEdges ?? { type: "MultiLineString", coordinates: [] };
+    if (i.bufferM !== null) req.active_edge_buffer_m = i.bufferM;
   }
+  if (i.mode !== "whole" && i.holdHours !== null && i.holdHours !== undefined) req.hold_hours = clampHold(i.holdHours);
   if (i.startTime) req.start_time = i.startTime;
   if (i.burningPeriod) req.burning_period = i.burningPeriod;
   if (i.ffmcSpinUp) req.ffmc_spin_up = true;
   if (i.weather) req.weather = i.weather;
   if (i.fwi) req.fwi_overrides = i.fwi;
   if (i.schedule?.length) req.weather_schedule = i.schedule;
+  return req;
+}
+
+/**
+ * Standalone forecast from an observed perimeter (POST /simulations/observed-perimeter): Setup's
+ * run request (`base`) with the perimeter, its observation time and the active edges / hold of
+ * `i`. The ignition is left out (the API uses the perimeter's centroid) and the run starts at T.
+ */
+export function buildObservedRequest(base: SimulationCreate, i: Omit<OverrideInputs, "simulationId">, observationIso: string): ObservedPerimeterRequest {
+  const override = buildOverrideRequest({ ...i, simulationId: "" });
+  const rest: Partial<SimulationCreate> = { ...base };
+  delete rest.ignition_lat;
+  delete rest.ignition_lng;
+  delete rest.start_time;
+  delete rest.ensemble;
+  const req: ObservedPerimeterRequest = {
+    ...(rest as Omit<SimulationCreate, "ignition_lat" | "ignition_lng" | "start_time" | "ensemble">),
+    perimeter_geojson: i.perimeter,
+    observation_time: observationIso,
+    duration_hours: i.durationHours,
+    snapshot_interval_minutes: i.snapshotMinutes,
+  };
+  for (const k of ["active_edges", "active_edge_buffer_m", "hold_hours"] as const) {
+    if (override[k] !== undefined) (req as Record<string, unknown>)[k] = override[k];
+  }
+  if (i.burningPeriod) req.burning_period = i.burningPeriod;
+  else delete req.burning_period;
+  if (i.weather) req.weather = i.weather;
+  if (i.fwi) req.fwi_overrides = i.fwi;
+  if (i.schedule?.length) req.weather_schedule = i.schedule;
+  // The run starts at T with constant weather (no forecast stream): no spin-up
+  req.ffmc_spin_up = false;
+  req.hourly_weather = null;
   return req;
 }
