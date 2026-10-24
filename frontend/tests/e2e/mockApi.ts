@@ -111,6 +111,14 @@ export interface MockOptions {
   /** POST /simulations number n gets runIds[n - 1] (then the default ID); GET, /arrival and
    * /ensemble (404, none requested) answer for these IDs, replaying the same frames */
   runIds?: string[];
+  /** Single runs and restarts (not multi-day): GET /simulations/{id} answers "running" with a
+   * share of the frames for its first N calls, then the completed run (a reload mid-run) */
+  singleRunningPolls?: number;
+  /** WebSocket for single runs and restarts: replay this many frames, then stay open and silent */
+  wsStopAfter?: number;
+  /** WebSocket for single runs and restarts: replay this many frames, then send
+   * `simulation.completed` without `n_frames` (frames lost on the way: "Reload run") */
+  wsCompleteAfter?: number;
 }
 
 /** Frames with every coordinate shifted by [dLat, dLng] (perimeter, cells, head, spot fires). */
@@ -222,6 +230,17 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     opts.multidayDense ? denseMultiDayFrames(n) : opts.multidayRecorded ? recordedMultiDayFrames(n) : multiDayFrames(n),
   );
   const fxFrames = shift(fx.frames);
+  /** GET body of a single run or restart: "running" with a share of the frames for the first
+   * `singleRunningPolls` calls for that ID, then the completed fixture */
+  const singleBody = (id: string): Record<string, unknown> => {
+    const running = opts.singleRunningPolls ?? 0;
+    const n = state.getIds.filter((x) => x === id).length;
+    if (n <= running) {
+      const k = Math.max(1, Math.round((fxFrames.length * n) / (running + 1)));
+      return { ...fx, simulation_id: id, status: "running", frames: fxFrames.slice(0, k), phase: "spread", progress: k / fxFrames.length };
+    }
+    return { ...fx, simulation_id: id, frames: fxFrames };
+  };
   let multiDays = 3;
   const ensembleStep = opts.ensembleStep ?? 8;
 
@@ -293,7 +312,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       }
       if (opts.runIds?.includes(one[1])) {
         state.polls++;
-        return json(route, { ...fx, simulation_id: one[1], frames: fxFrames });
+        return json(route, singleBody(one[1]));
       }
       if (opts.distinctRunIds && one[1].startsWith(`${fx.simulation_id}-`)) {
         state.polls++;
@@ -323,7 +342,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     }
     if (path === `/api/v1/simulations/${fx.simulation_id}` && req.method() === "GET") {
       state.polls++;
-      return json(route, opts.translate ? { ...fx, frames: fxFrames } : fx);
+      return json(route, opts.translate || opts.singleRunningPolls ? singleBody(fx.simulation_id) : fx);
     }
     if (path === "/api/v1/health") return json(route, { status: "ok" });
     if (path === "/api/v1/version") return json(route, { version: "3.0.0", git_sha: "e2e0sha" });
@@ -352,6 +371,11 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         return;
       }
       if (simId === MULTIDAY_ID && opts.multidayWsStopAfter !== undefined && i >= opts.multidayWsStopAfter) return;
+      if (simId !== MULTIDAY_ID && opts.wsStopAfter !== undefined && i >= opts.wsStopAfter) return;
+      if (simId !== MULTIDAY_ID && opts.wsCompleteAfter !== undefined && i >= opts.wsCompleteAfter) {
+        ws.send(JSON.stringify({ type: "simulation.completed", simulation_id: simId }));
+        return;
+      }
       if (i < frames.length) {
         ws.send(JSON.stringify({ type: "simulation.frame", simulation_id: simId, frame: frames[i++] }));
         timer = setTimeout(next, frameDelayMs);

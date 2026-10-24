@@ -14,6 +14,13 @@ import type { BurningPeriod } from "../types/simulation";
 import type { RunParams } from "../components/WeatherPanel";
 
 export const LIVE_RUN_KEY = "firesim-v3-live-run";
+/**
+ * Said once, in the Situation panel, when the run kept for this tab is not on the server any
+ * more after a reload (the API restarted while it computed, or the run was deleted): the
+ * record is forgotten and the panel starts clean.
+ */
+export const LIVE_RUN_LOST =
+  "The run that was on screen before the reload is no longer on the server (it restarted or the run was removed). Run it again.";
 /** A run started more than this long ago is not re-attached after a reload. */
 export const LIVE_RUN_MAX_AGE_MS = 12 * 3_600_000;
 

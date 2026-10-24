@@ -337,18 +337,25 @@ export function useSimulation() {
    * reload). The server answers from memory or, after a restart or deploy, from its run archive
    * (`archived: true`). A run in neither (removed by the archive's retention, or finished before
    * the archive existed) ends "failed" with a message saying so. A run still computing is
-   * polled until it completes (a reload during a run, field test 2026-10-18).
+   * polled until it completes (a reload during a run, field test 2026-10-18). `lostMessage`
+   * replaces the "not found" error (a re-attach after a reload says it its own way).
    */
-  const restoreRun = useCallback((simId: string, durationHours: number | null = null, startedAt: number | null = null) => {
+  const restoreRun = useCallback((
+    simId: string,
+    durationHours: number | null = null,
+    startedAt: number | null = null,
+    lostMessage?: string,
+  ) => {
     const token = beginRun(durationHours);
     // A run re-attached after a page reload keeps its own start for the elapsed timer
     setState((prev) => ({ ...prev, simulationId: simId, startedAt: startedAt ?? prev.startedAt }));
     pollForResults(
       simId,
       token,
-      "This run is no longer on the server or in its run archive (removed after the retention " +
-        "period, or run before the archive existed). The period keeps its summary and final " +
-        "perimeter; run it again to see the full run.",
+      lostMessage ??
+        "This run is no longer on the server or in its run archive (removed after the retention " +
+          "period, or run before the archive existed). The period keeps its summary and final " +
+          "perimeter; run it again to see the full run.",
     );
   }, [beginRun, pollForResults]);
 

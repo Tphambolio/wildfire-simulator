@@ -113,6 +113,7 @@ The suite:
 | `assets.spec.ts` | Critical assets: automatic layers, reached assets and roads in clock time, "Model output" badge with sources and data notes in its tooltip, EOC Console summary badge; axe clean. |
 | `structure.spec.ts` | House-to-house spread: opt-in (badge tooltip), counts, chart, map layer, caveat tooltips. |
 | `declutter.spec.ts` | About & sources tab (8 sections, GitHub references, version; the low-skill badge opens Limits; hover persistence); keyboard tooltip access (Tab, focus, Esc) and axe with a tooltip open; wording fixes; main-run progress bar (phases, advancing, gone on completion); re-run at a new ignition without reload (New ignition and Move ignition, weather kept, view kept, Clear results). |
+| `reattach.spec.ts` | Reload re-attach (E1): single run with ensemble reloaded mid-run, multi-day run reloaded on day 2 ("Day 2 of 3"), perimeter restart, reload after completion, a run the server no longer has (one sentence, record forgotten), and the "Reload run" flag of a run that ended short. |
 
 ### Regenerating the fixture
 

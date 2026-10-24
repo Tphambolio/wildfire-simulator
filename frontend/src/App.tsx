@@ -22,7 +22,7 @@ import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityR
 import { useRecon } from "./hooks/useRecon";
 import { clockAt, formatClock, formatElapsed, formatRunSpan, isMultiDayRun, zoneAbbrev, zonedWallTimeToMs } from "./utils/time";
 import { loadSetup, saveSetup, type SetupSnapshot } from "./utils/setupStore";
-import { clearLiveRun, readLiveRun, saveLiveRun } from "./utils/liveRun";
+import { clearLiveRun, LIVE_RUN_LOST, readLiveRun, saveLiveRun } from "./utils/liveRun";
 import { SETUP_RESTORE_PREFIX } from "./components/WeatherPanel";
 import { weatherAt } from "./utils/weatherSchedule";
 import StructureSpreadPanel from "./components/StructureSpreadPanel";
@@ -772,12 +772,28 @@ export default function App() {
     runTargetRef.current = rec.runTarget;
     fittedOnceRef.current = false;
     setReattachedRun({ id: rec.id, startedAt: rec.startedAt });
-    restoreRun(rec.id, rec.durationHours, rec.startedAt);
+    restoreRun(rec.id, rec.durationHours, rec.startedAt, LIVE_RUN_LOST);
   }, [restoreRun]);
   // The notice goes with the run: another run, Clear results or a failed reload removes it
   useEffect(() => {
     if (reattachedRun && simulationId !== reattachedRun.id) setReattachedRun(null);
   }, [simulationId, reattachedRun]);
+  // The server no longer has the run (it restarted, or the run was deleted): say so once in
+  // the Situation panel and start clean (not "Run restored" over a failed run, E1 2026-10-24).
+  // The record was already forgotten when the run read as failed (above).
+  const [reattachLost, setReattachLost] = useState(false);
+  useEffect(() => {
+    if (!reattachedRun || simulationId !== reattachedRun.id || status !== "failed" || error !== LIVE_RUN_LOST) return;
+    setReattachedRun(null);
+    setReattachLost(true);
+    clearResults();
+    setLastRunParams(null);
+    setRunBurningPeriod(null);
+    setEnsembleMembers(null);
+  }, [reattachedRun, simulationId, status, error, clearResults]);
+  useEffect(() => {
+    if (simulationId) setReattachLost(false);
+  }, [simulationId]);
 
   // ── Ensemble (range of outcomes): polled after the single run, the headline once in ──
   const ensemble = useEnsemble(simulationId, ensembleMembers, status);
@@ -1595,6 +1611,14 @@ export default function App() {
             </SideRail>
           }
         >
+          {reattachLost && !simulationId && (
+            <div className="status-line run-reattach-lost" role="status">
+              <span data-testid="run-reattach-lost">{LIVE_RUN_LOST}</span>{" "}
+              <button type="button" className="btn-secondary btn-inline" onClick={() => setReattachLost(false)}>
+                OK
+              </button>
+            </div>
+          )}
           {reattachedRun && reattachedRun.id === simulationId && (
             <div className="status-line run-reattached" role="status" data-testid="run-reattached">
               <Badge tone="info" tip={TIPS.runReattached}>

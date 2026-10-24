@@ -234,3 +234,33 @@ describe("useSimulation: multi-day progress and lost connections (R6, R12)", () 
     expect(result.current.frames.at(-1)!.time_hours).toBe(72);
   });
 });
+
+// ── Reload re-attach (E1, 2026-10-24): restoreRun after a reload ─────────────
+
+describe("useSimulation: restoreRun of the run kept for this tab (E1)", () => {
+  it("follows a run still computing, with its day, until it completes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.getSimulation
+      .mockResolvedValueOnce({ simulation_id: "md", status: "running", frames: [frame(24, 10)], error: null, phase: "spread", progress: 0.4, day: 2, n_days: 3 })
+      .mockResolvedValueOnce({ simulation_id: "md", status: "completed", frames: [frame(24, 10), frame(72, 30)], error: null });
+    const { result } = renderHook(() => useSimulation());
+    act(() => result.current.restoreRun("md", 72, 1_000));
+    await waitFor(() => expect(result.current.day).toBe(2));
+    expect(result.current.isRunning).toBe(true);
+    expect(result.current.nDays).toBe(3);
+    expect(result.current.startedAt).toBe(1_000); // the run's own start, not the reload's
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    await waitFor(() => expect(result.current.status).toBe("completed"));
+    expect(result.current.frames.at(-1)!.time_hours).toBe(72);
+  });
+
+  it("a run the server no longer has fails with the caller's message (default otherwise)", async () => {
+    api.getSimulation.mockRejectedValue(new Error("Simulation x not found"));
+    const { result } = renderHook(() => useSimulation());
+    act(() => result.current.restoreRun("x", 4, null, "Gone after the reload."));
+    await waitFor(() => expect(result.current.status).toBe("failed"));
+    expect(result.current.error).toBe("Gone after the reload.");
+    act(() => result.current.restoreRun("x"));
+    await waitFor(() => expect(result.current.error).toMatch(/no longer on the server or in its run archive/));
+  });
+});
