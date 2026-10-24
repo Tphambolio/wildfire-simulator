@@ -56,10 +56,26 @@ export function runButton(page: Page) {
   return page.locator("button.btn-primary", { hasText: "Run Simulation" });
 }
 
-/** Run, and wait for the mocked frames to replay to "completed". */
-export async function runToCompletion(page: Page): Promise<void> {
+/** The map's current view as MapView publishes it on moveend ("[[w, s], [e, n]]"). */
+export async function mapBounds(page: Page): Promise<string | null> {
+  return page.locator(".map-view-canvas").first().getAttribute("data-bounds");
+}
+
+/**
+ * Run, and wait for the mocked frames to replay to "completed". `waitForFit`: also wait for the
+ * map's one-time ease to the fire after the first completed run (MapView fitFrame, 600 ms, far
+ * longer on a slow software-GL CI runner) to end, so a following map click lands on the fitted
+ * view, not on wherever the camera is mid-flight (G8: evac.spec.ts clicked the map centre during
+ * the ease and sometimes hit a critical-asset symbol or another neighbourhood).
+ */
+export async function runToCompletion(page: Page, opts: { waitForFit?: boolean } = {}): Promise<void> {
+  const before = opts.waitForFit ? await mapBounds(page) : null;
   await runButton(page).click();
   await expect(page.locator(".status-badge.status-completed")).toHaveText("completed", { timeout: 30_000 });
+  if (opts.waitForFit) {
+    // data-bounds is rewritten on moveend: a new value means the fit has come to rest
+    await expect.poll(() => mapBounds(page), { timeout: 15_000 }).not.toBe(before);
+  }
 }
 
 export const finalFrame = fixture.frames[fixture.frames.length - 1];
