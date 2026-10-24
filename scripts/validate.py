@@ -241,6 +241,8 @@ def _run_task(task: dict) -> dict:
         opts = RunOptions(ignition=task["ignition"], enable_spotting=task["spotting"],
                           windows_h=tuple(task["windows"]), active_days=task["active_days"],
                           active_buffer_m=task["active_buffer_m"],
+                          hold_hours=task.get("hold_hours"),
+                          hold_band_m=task.get("hold_band_m"),
                           ffmc_spinup=task["ffmc_spinup"],
                           burning_period=tuple(task["burning_period"]) if task["burning_period"]
                           else None,
@@ -299,6 +301,11 @@ def cmd_run(args) -> None:
 
         split = split_fires({m["fire_id"] for m in manifest})
         tasks = [t for t in tasks if split[t["fire_id"]] == args.split]
+    if args.start_types:
+        # Start-type stratum ([R58]); the tag uses CFSDS DOB before the burn day only
+        keep = set(args.start_types)
+        tasks = [t for t in tasks
+                 if _start_type_of(t["fire_id"], t["day"]).get("start_type") in keep]
     if args.max_det_run_s:
         # Fire-days whose deterministic run (in --det-run) took at most this long: an
         # outcome-blind way to keep N-member ensembles affordable
@@ -324,6 +331,7 @@ def cmd_run(args) -> None:
     tasks = [dict(t, ignition=args.ignition, spotting=args.spotting, start_hour=args.start_hour,
                   windows=args.windows, margin_m=args.margin_m, wind_members=args.wind_members,
                   active_days=args.active_days, active_buffer_m=args.active_buffer_m,
+                  hold_hours=args.hold_hours, hold_band_m=args.hold_band_m,
                   ffmc_spinup=args.ffmc_spinup, burning_period=args.burning_period,
                   ensemble=ensemble, cure_green=args.cure_green,
                   cure_dormant=args.cure_dormant, cure_spring=args.cure_spring)
@@ -810,6 +818,16 @@ def main() -> None:
                    help="active: only the last --active-days days' growth is active")
     r.add_argument("--active-days", type=int, default=1)
     r.add_argument("--active-buffer-m", type=float, default=None)
+    r.add_argument("--hold-hours", type=float, default=None,
+                   help="--ignition active: held-line hold H (A1): barrier ring around held "
+                        "start cells for H h, then released; 0 = whole start active; "
+                        "omit = held cells burned out for the run (earlier behaviour)")
+    r.add_argument("--hold-band-m", type=float, default=None,
+                   help="width of the held-line barrier ring (default one cell)")
+    r.add_argument("--start-types", nargs="+", default=None,
+                   choices=("point", "fresh", "mature"),
+                   help="only fire-days of these start types (start_strata; uses DOB "
+                        "before the burn day only)")
     r.add_argument("--ffmc-spinup", action="store_true",
                    help="start the hourly FFMC at 17:00 the previous day")
     r.add_argument("--burning-period", type=float, nargs=2, default=None,

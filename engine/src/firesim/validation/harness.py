@@ -97,6 +97,10 @@ class RunOptions:
     ignition: str = "perimeter"  # "perimeter" (operational), "active" or "bennett"
     active_days: int = 1  # "active": growth of the last N days before the burn day is active
     active_buffer_m: float | None = None  # "active": distance from that growth (None = 1 cell)
+    # "active": held-line hold (A1, docs/active-segments.md): None = held cells burned out for
+    # the run (earlier behaviour), 0 = whole start active, H > 0 = barrier ring for H hours
+    hold_hours: float | None = None
+    hold_band_m: float | None = None  # barrier ring width (None = one cell)
     ffmc_spinup: bool = False  # start the hourly FFMC the previous afternoon (case.spinup)
     burning_period: tuple[float, float] | None = None  # local clock hours; None = always
     enable_spotting: bool = False
@@ -361,6 +365,7 @@ def _run(setup: dict, config: SimulationConfig, opts: RunOptions,
         snapshot_interval_minutes=duration_h * 60.0, enable_spotting=opts.enable_spotting,
         initial_perimeter=perimeter, initial_burned=setup["burned_pts"], compute_perimeter=False,
         active_edges=setup["active"], active_edge_buffer_m=opts.active_buffer_m,
+        hold_hours=opts.hold_hours, hold_band_m=opts.hold_band_m,
         seed=seed,
     )
     run_s = time.perf_counter() - t0
@@ -503,7 +508,9 @@ def run_fire_day(case: FireDayCase, opts: RunOptions = RunOptions(),
         "date": case.start.date().isoformat(), "start_hour": case.start.hour,
         "ignition": opts.ignition, "spotting": opts.enable_spotting,
         "options": {"active_days": opts.active_days, "active_buffer_m": opts.active_buffer_m,
-                    "ffmc_spinup": opts.ffmc_spinup, "burning_period": opts.burning_period},
+                    "ffmc_spinup": opts.ffmc_spinup, "burning_period": opts.burning_period,
+                    **({"hold_hours": opts.hold_hours, "hold_band_m": opts.hold_band_m}
+                       if opts.hold_hours is not None else {})},
         "ffmc": case.ffmc, "dmc": case.dmc, "dc": case.dc, "fwi": case.fwi, "bui": case.bui,
         "fwi_class": fwi_class(case.fwi) if not math.isnan(case.fwi) else None,
         "res_m": round(min(case.domain.dx, case.domain.dy), 1),

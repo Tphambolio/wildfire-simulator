@@ -133,6 +133,9 @@ def ellipse_arrival_time(u, v, a, b, c):
     return (big_b + np.sqrt(big_b * big_b + 4.0 * k * big_a)) / (2.0 * k)
 
 
+_EIGHT = ndimage.generate_binary_structure(2, 2)  # 8-connected (held-line barrier)
+
+
 def run_cellular_simulation(
     config: dict,
     fuel_grid: FuelGrid,
@@ -154,6 +157,8 @@ def run_cellular_simulation(
     seed: int | str | None = None,
     progress=None,
     spot_sample_spacing_m: float | None = None,
+    hold_hours: float | None = None,
+    hold_band_m: float | None = None,
 ) -> list[CellularFrame]:
     """Run grid fire spread with a level-set front.
 
@@ -206,6 +211,18 @@ def run_cellular_simulation(
             None = every 3rd newly burned cell (the original rule, 150 m on a 50 m grid);
             the 20 m WUI window passes 150 m so the number of sources per metre of front does
             not grow with resolution.
+        hold_hours: Held-line hold for the starting cells that are not active (needs
+            ``active_edges``; backlog A1, docs/active-segments.md). None (default) keeps the
+            earlier behaviour exactly: held cells are burned out for the whole run and nothing
+            else changes. ``0`` = the explicit "all active" option: ``active_edges`` is ignored
+            and the whole starting fire spreads. ``H > 0``: for the first H hours the held cells
+            are burned out *and* the ring of unburned fuel within ``hold_band_m`` of them (not
+            next to an active cell) is a no-spread barrier, so fire from an active edge cannot
+            run along the outside of a held line; at t = H the barrier is lifted and the front
+            is rebuilt at the edge of everything burned so far, so held segments may spread
+            normally after H.
+        hold_band_m: Width (m) of the held-line barrier ring, rounded to whole cells
+            (minimum one cell). Default: one cell.
 
     Returns:
         List of CellularFrame snapshots at t = 0, every snapshot interval, and the end.
@@ -243,26 +260,50 @@ def run_cellular_simulation(
     snapped_m = 0.0
     phi = None
     t_ign = 0.0  # minute the point ignition starts to spread (acceleration counts from it)
+    hold_end = math.inf  # minute the held-line hold is released (A1); inf = never
+    held_cells = None  # cells made non-fuel by the hold (held start cells + barrier ring)
+    held_index = None  # their cell-type indices, restored at hold_end
     if start is not None:
         acceleration = False  # an existing fire is already at equilibrium spread
         arrival[start] = 0.0
         t = 0.0
         ign_row = ign_col = 0
         burning = start
+        if active_edges is not None and hold_hours is not None and hold_hours <= 0.0:
+            active_edges = None  # the explicit "all active" option
         if active_edges is not None:
             buffer_m = max(dx, dy) if active_edge_buffer_m is None else active_edge_buffer_m
             burning = start & active_mask(active_edges, buffer_m, rows, cols, lat_max, lng_min,
                                           cell_lat, cell_lng, dx, dy)
             burned_out = start & ~burning
-            if burned_out.any():  # burned-out cells become non-fuel for the rest of the run
-                cell_keys[0][burned_out] = False
-                cell_keys[1][burned_out] = -1
+            blocked = burned_out
+            if hold_hours is not None and burned_out.any():
+                # Held-line barrier (A1): unburned fuel next to held cells, except next to an
+                # active cell, cannot burn until the hold is released
+                band = max(1, int(round((hold_band_m or h_min) / h_min)))
+                ring = ndimage.binary_dilation(burned_out, structure=_EIGHT, iterations=band)
+                ring &= ~start & cell_keys[0]
+                ring &= ~ndimage.binary_dilation(burning, structure=_EIGHT, iterations=band)
+                blocked = burned_out | ring
+                hold_end = hold_hours * 60.0
+            if blocked.any():  # burned-out (and barrier) cells become non-fuel
+                if hold_end < math.inf:
+                    held_cells = blocked
+                    held_index = cell_keys[1][blocked].copy()
+                cell_keys[0][blocked] = False
+                cell_keys[1][blocked] = -1
                 params = _CellParams.evaluate(cell_keys, conditions)
                 fuel = params.fuel
             if not burning.any():
                 logger.warning("No starting-fire cell within %.0f m of the active edges: "
-                               "nothing spreads", buffer_m)
-        phi = _signed_distance(burning, dx, dy) if burning.any() else None
+                               "nothing spreads%s", buffer_m,
+                               " until the hold ends" if hold_end < duration else "")
+        if burning.any():
+            phi = _signed_distance(burning, dx, dy)
+        elif hold_end < duration:
+            phi = np.full((rows, cols), 0.5 * h_min)  # nothing active: wait for the release
+        else:
+            phi = None
     else:
         ign_row, ign_col, snapped_m = _snap_ignition(
             fuel_grid, config["ignition_lat"], config["ignition_lng"], cell_lat, cell_lng, dy
@@ -305,6 +346,9 @@ def run_cellular_simulation(
         def next_change() -> float:
             return schedule[period + 1][0] if period + 1 < len(schedule) else math.inf
 
+        def next_event() -> float:  # the next weather change or the hold release
+            return min(next_change(), hold_end)
+
         reported = -1.0
         while t < duration - 1e-9:
             if progress is not None and duration > 0 and t / duration - reported >= 0.01:
@@ -315,6 +359,18 @@ def run_cellular_simulation(
                     period += 1
                 conditions = schedule[period][1]
                 params = _CellParams.evaluate(cell_keys, conditions)
+            if t >= hold_end - 1e-9:
+                # Hold released (A1): held and barrier cells are fuel again and the front is
+                # rebuilt at the edge of everything burned so far
+                cell_keys[0][held_cells] = True
+                cell_keys[1][held_cells] = held_index
+                params = _CellParams.evaluate(cell_keys, conditions)
+                fuel = params.fuel
+                near_nonfuel = ndimage.binary_dilation(~fuel, iterations=2)
+                phi = _signed_distance(arrival < np.inf, dx, dy)
+                in_band[:] = False
+                in_band[_window(arrival < np.inf, BAND_CELLS)] = True
+                hold_end = math.inf
             win = _window(arrival < np.inf, BAND_CELLS)
             entering = ~in_band[win]
             if entering.any():
@@ -329,15 +385,15 @@ def run_cellular_simulation(
             speed = (params.head[win] + params.b[win]).max()
             if speed <= 1e-9:
                 # Nothing can spread in this period (e.g. outside a burning period): wait for
-                # the next weather change rather than ending the run.
-                if next_change() >= duration - 1e-9:
+                # the next weather change (or the hold release) rather than ending the run.
+                if next_event() >= duration - 1e-9:
                     break
-                t = next_change()
+                t = next_event()
                 if t >= next_slice - 1e-9:
                     slice_start = t
                     next_slice = min(t + slice_len, duration)
                 continue
-            step = min(CFL * h_min / speed, next_slice - t, next_change() - t)
+            step = min(CFL * h_min / speed, next_slice - t, next_event() - t)
             _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros,
                      acceleration, t_ign)
             t += step

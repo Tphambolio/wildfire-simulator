@@ -74,6 +74,8 @@ class Simulator:
         building_footprints: list | None = None,
         active_edges: dict | None = None,
         active_edge_buffer_m: float | None = None,
+        hold_hours: float | None = None,
+        hold_band_m: float | None = None,
         structure_spread: bool = False,
         structure_footprints=None,
         structure_embers: bool = False,
@@ -119,6 +121,10 @@ class Simulator:
                 ``active_edge_buffer_m`` (default one cell) are burning; the rest of the
                 starting fire is burned out and does not spread. See
                 ``run_cellular_simulation``. Ignored by the Huygens model.
+            hold_hours, hold_band_m: held-line hold for the starting cells outside the
+                active edges (A1; ``run_cellular_simulation``). None = burned out for the run
+                (earlier behaviour); 0 = all active; H > 0 = held line plus a barrier ring for
+                H hours, then released.
             structure_spread: Grid model only, opt-in: Hamada building-to-building spread
                 from the units reached by the front (``firesim.structures``; illustrative, not
                 validated in Canada; docs/structure-spread-spec.md). Frames then carry
@@ -188,6 +194,8 @@ class Simulator:
         self.acceleration = acceleration
         self.active_edges = active_edges
         self.active_edge_buffer_m = active_edge_buffer_m
+        self.hold_hours = hold_hours
+        self.hold_band_m = hold_band_m
         self.structure_spread = structure_spread
         self.structure_footprints = structure_footprints
         self.structure_embers = structure_embers
@@ -434,6 +442,8 @@ class Simulator:
             active_edges=self.active_edges,
             seed=self.seed,
             active_edge_buffer_m=self.active_edge_buffer_m,
+            hold_hours=self.hold_hours,
+            hold_band_m=self.hold_band_m,
             progress=progress,
             spot_sample_spacing_m=spot_spacing,
         )
