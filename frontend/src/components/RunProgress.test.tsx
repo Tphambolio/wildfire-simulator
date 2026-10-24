@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import RunProgress, { PHASE_LABEL, etaFromSamples, etaText, formatElapsedSeconds } from "./RunProgress";
+import RunProgress, { PHASE_LABEL, etaFromSamples, etaText, formatElapsedSeconds, multiDayEta } from "./RunProgress";
 import { frameProgress } from "../hooks/useSimulation";
 
 describe("RunProgress", () => {
@@ -57,7 +57,9 @@ describe("RunProgress for multi-day runs (round-3 field test R12)", () => {
       const box = screen.getByTestId("run-progress");
       expect(box).toHaveTextContent("Day 2 of 3 · Running spread… 50 %");
       act(() => { vi.advanceTimersByTime(1000); });
-      expect(screen.getByTestId("run-progress-eta")).toHaveTextContent("about 10 min left");
+      // Halfway after 10 min: day 2 ends at 2/3, about 3.3 min away at this rate; day 3 is slower
+      expect(screen.getByTestId("run-progress-eta")).toHaveTextContent(
+        "about 3 min left in day 2; later days take longer");
     } finally {
       vi.useRealTimers();
     }
@@ -95,5 +97,33 @@ describe("Time left from the recent rate (field test 2026-10-18, Issue 4)", () =
     expect(etaFromSamples([s(0, 0), s(0.1, 0.3)], 0.2 * 60_000)).toBeNull();
     expect(etaFromSamples([s(0, 0), s(1, 1)], 60_000)).toBeNull();
     expect(etaFromSamples([s(0, 0), s(1, 0.03)], 60_000)).toBeNull();
+  });
+});
+
+describe("Multi-day time left is for the day being computed (E10, 2026-10-24)", () => {
+  const s = (min: number, f: number) => ({ t: min * 60_000, f });
+
+  it("before the last day: time to the end of this day, and later days take longer", () => {
+    // Day 1 of 3 at 20 % of the run after 2 min (10 % a minute): day 1 ends at 33 %
+    const samples = [s(0, 0), s(2, 0.2)];
+    expect(multiDayEta(samples, 2 * 60_000, 1, 3)).toBe("about a minute left in day 1; later days take longer");
+    expect(etaFromSamples(samples, 2 * 60_000, 1 / 3)).toBe("about a minute left");
+    // The whole-run estimate at the day-1 rate would say 8 min; the run took far longer live
+    expect(etaFromSamples(samples, 2 * 60_000)).toBe("about 8 min left");
+  });
+
+  it("on the last day: time to the end of the run, no note", () => {
+    const samples = [s(0, 0), s(10, 0.7), s(12, 0.72)];
+    expect(multiDayEta(samples, 12 * 60_000, 3, 3)).toBe("roughly 30 min left");
+  });
+
+  it("single-day runs and unknown days use the whole run", () => {
+    const samples = [s(0, 0), s(2, 0.2)];
+    expect(multiDayEta(samples, 2 * 60_000, null, null)).toBe("about 8 min left");
+    expect(multiDayEta(samples, 2 * 60_000, 1, 1)).toBe("about 8 min left");
+  });
+
+  it("says nothing past the target", () => {
+    expect(etaFromSamples([s(0, 0), s(2, 0.4)], 2 * 60_000, 1 / 3)).toBeNull();
   });
 });
