@@ -80,7 +80,7 @@ so that does not happen again.
 | R60 | Front over-spread at active edges: A4/A7/A8 diagnostics and PREREG_FRONT1 result | `feat/front-overspread`, #96 | 2026-10-18 | open PR (claimed on that branch) |
 | R61 | v7 held-out arrivals recoded with [R53] rules (A3 descriptive addendum) | `docs/a3-v7-arrivals-recoded`, #97 | 2026-10-24 | open PR (claimed on that branch) |
 | R62 | Active-segment restart (A1): held-line barrier, classification from hotspots/VIIRS, standalone forecast from an observed perimeter, PREREG_ACTIVE_SEGMENT | `feat/active-segment-restart`, #100 | 2026-10-24 | open PR (draft) |
-| R63 | Active-edge rule 1 vs 2 burn days on mature perimeters (PREREG_ACTIVE_RULE_1V2) | `feat/active-rule-1v2` (stacked on #100), PR pending | 2026-10-24 | open PR (draft) |
+| R63 | Active-edge rule 1 vs 2 burn days on mature perimeters (PREREG_ACTIVE_RULE_1V2) | `feat/active-rule-1v2`, #101 (stacked on #100) | 2026-10-24 | open PR (draft) |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.
