@@ -121,6 +121,29 @@ on any 401 or 403.
   period; "Attach" in the EOC console does that on purpose.
 - **Deleting:** asks for confirmation first and removes the run for everyone.
 
+## Reload re-attach (2026-10-18, PR #91; verified 2026-10-24, E1)
+
+The run on screen is kept in this tab's `sessionStorage` under `firesim-v3-live-run`
+(`frontend/src/utils/liveRun.ts`): its ID, scenario start, hours, wall-clock start, ensemble
+size, burning period, inputs and the operational period it is filed under. Nothing is in
+`localStorage` and nothing is sent anywhere.
+
+- **Written** as soon as the server answers the POST with the run's ID (before the first
+  frame), for single runs, multi-day runs and perimeter restarts alike, and again on each
+  status change; a run opened from Saved runs or an operational period replaces it.
+- **Forgotten** on Clear results, when the run fails or is cancelled, when a reload finds it
+  gone, and after 12 hours. A finished run is kept, so a further reload shows it again.
+- **After a reload** the app reads it with `GET /simulations/{id}` (memory first, then the
+  archive; no passphrase): still computing → polled to the end, with per-day progress for
+  multi-day runs ("Run continued after reload"); finished → shown again ("Run restored after
+  reload"); 404 (the API restarted while the run computed, or the run was deleted) → one
+  sentence in the Situation panel and an empty panel. The ensemble, if one was requested, is
+  polled again by the same ID.
+- **Not covered:** a closed tab or a new tab (sessionStorage is per tab); the earlier fire
+  points of a perimeter-restart chain (community arrivals then count from the restart).
+- **Tests:** `tests/e2e/reattach.spec.ts`, `tests/e2e/field-test-r4.spec.ts` (the tester's
+  72 h case), `src/utils/liveRun.test.ts`, `src/hooks/rerun.test.ts`.
+
 ## Run IDs (2026-10-13)
 
 Owner decision 2026-10-13 (Travis Kennedy, EOC Chief of Plans): new run IDs are long enough
