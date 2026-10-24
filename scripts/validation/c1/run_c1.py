@@ -196,6 +196,10 @@ def run_ensemble(case, opts, setup, fs, start, burning, burned_out, comms, base,
             a, s, _ = _run(setup, cfg, opts, k_ros, seed=f"{case.fire_id}:{case.day}:ens{seed}:{i}")
             fs_stack[i] = a
             fs_s += s
+            if not w_ok:  # a failed member already makes this day-seed a WISE failure
+                wise_runs.append({"ok": False, "rc": None, "run_s": 0.0, "peak_mb": 0.0,
+                                  "err": "skipped: an earlier member failed"})
+                continue
             wait_for_memory(log)
             d = Path(args.jobs_dir) / f"{key}_s{seed}_m{i:02d}"
             hff = WJ.hourly_ffmc_of(case, cfg, setup["fuel_grid"])
