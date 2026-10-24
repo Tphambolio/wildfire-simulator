@@ -171,9 +171,12 @@ export const TIPS = {
   multiDay:
     "FWI codes (FFMC, DMC, DC) carry forward each day with the CFFDRS equations; the fire front " +
     "continues from the previous day's perimeter. Each day runs 24 h from the start time; with a " +
-    "burning period, no spread is modelled outside it. A 3-day run takes from about 1 to 15 " +
-    "minutes on the server (longer for a large fire or a busy server); progress shows the day " +
-    "being computed. No ember spotting, buildings or ensemble.",
+    "burning period, no spread is modelled outside it. Each day takes longer to compute than the " +
+    "one before, as the fire grows. On the shared server a 3-day run with the burning period " +
+    "takes a few minutes when the server has been idle and up to about 45 minutes after other " +
+    "heavy runs (its CPU is throttled once a burst allowance is used up); without the burning " +
+    "period a large fire can take several hours. The time left shown is for the day being " +
+    "computed. No ember spotting, buildings or ensemble.",
   burnProbability:
     "Monte Carlo burn probability: repeated runs with jittered ignition, wind speed and RH. More " +
     "iterations are slower and smoother.",
