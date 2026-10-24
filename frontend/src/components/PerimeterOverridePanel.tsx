@@ -361,8 +361,8 @@ function PerimeterOverridePanel({
                 {classifying && <p className="hint-sm" role="status">Classifying…</p>}
                 {classified && segReadout && (
                   <p className="status-line recon-segments" role="status" data-testid="recon-segments">
-                    <span className="recon-swatch" aria-hidden="true" /> active
-                    {" "}<span className="recon-swatch recon-swatch-held" aria-hidden="true" /> held
+                    <span className="recon-swatch" aria-hidden="true" /> Active edge
+                    {" · "}<span className="recon-swatch recon-swatch-held" aria-hidden="true" /> {`Held edge (no spread for ${state.holdHours} h)`}
                     {" · "}{segReadout}
                     {state.classified?.summary.n_detections_used !== undefined
                       ? ` · ${state.classified.summary.n_detections_used} detection${state.classified.summary.n_detections_used === 1 ? "" : "s"} used`

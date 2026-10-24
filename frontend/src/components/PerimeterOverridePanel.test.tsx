@@ -67,6 +67,7 @@ describe("PerimeterOverridePanel active segments", () => {
     expect(posts[0].body.hotspots_geojson).toEqual({ type: "FeatureCollection", features: [] });
     refresh();
     expect(screen.getByTestId("recon-segments")).toHaveTextContent("Segments held 3 / active 1");
+    expect(screen.getByTestId("recon-segments")).toHaveTextContent("Active edge · Held edge (no spread for 24 h)");
     expect(recon.current.lines).toHaveLength(1);
     expect(recon.current.heldLines).toHaveLength(1);
     const hold = screen.getByLabelText("Hold held segments (h)") as HTMLInputElement;
