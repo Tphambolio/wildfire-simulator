@@ -160,6 +160,7 @@ def warp_to_grid(src_path: str, g: dict, resampling=Resampling.nearest, band: in
 
 def _warp_once(src_path, g, resampling, band, dtype):
     with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", GDAL_HTTP_MAX_RETRY="8", GDAL_HTTP_RETRY_DELAY="3", GDAL_HTTP_TIMEOUT="180", GDAL_HTTP_CONNECTTIMEOUT="30",
+                      GDAL_HTTP_LOW_SPEED_LIMIT="1000", GDAL_HTTP_LOW_SPEED_TIME="120",
                       CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif", GDAL_CACHEMAX=256):
         with rasterio.open(src_path) as src:
             with WarpedVRT(src, crs=g["crs"], transform=grid_transform(g), width=g["nx"], height=g["ny"],
