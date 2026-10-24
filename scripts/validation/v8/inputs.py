@@ -209,9 +209,9 @@ def canada_fuel(rec: dict, g: dict, meta: dict) -> np.ndarray:
         gw = dict(g, x0=g["x0"] + c0 * g["cell"], y1=g["y1"] - r0 * g["cell"], nx=c1 - c0, ny=r1 - r0)
         att = {}
         for layer in B.LAYERS:
-            url = "/vsicurl/" + B.SCANFI.format(layer=layer, epoch=e)
+            src = scanfi_local(layer, e, gw, rec["fire_key"], meta, restored[r0:r1, c0:c1])
             rs = Resampling.mode if layer == "att_nfiLandcover" else Resampling.average
-            att[layer] = warp_to_grid(url, gw, rs)
+            att[layer] = warp_to_grid(src, gw, rs)
         typed_w, _ = B.type_scanfi(att["att_nfiLandcover"].astype(np.uint8), att["att_closure"], att["att_height"],
                                    {s: att[f"spsCC_{s}"] for s in B.SPECIES})
         typed = np.zeros(code.shape, np.int16)
@@ -223,6 +223,93 @@ def canada_fuel(rec: dict, g: dict, meta: dict) -> np.ndarray:
         meta["scanfi_url"] = B.SCANFI.format(layer="<layer>", epoch=e)
     meta["fuel_source"] = "CFS FBP fuel types 2024 100 m (OGL-C) + SCANFI v2 back-cast of NBAC burns on/after the fire start"
     return code
+
+
+# ── SCANFI local cache (addendum A2, data access only; values identical) ─────────────────────
+
+SCANFI_MIRROR = W / "prefire-data/raw/scanfi"       # sparse Alberta mirror of the same release (backcast.py)
+SCANFI_CACHE = C.DATA / "raw" / "scanfi_v8"          # per-fire clips of the national files
+SCANFI_MARGIN_PX = 8                                 # SCANFI pixels (30 m) beyond the run-grid window
+
+
+def _scanfi_window(ds, gw: dict):
+    """Pixel window of a SCANFI dataset covering the run-grid window ``gw`` plus a margin."""
+    from rasterio.warp import transform_bounds
+    from rasterio.windows import from_bounds
+    b = (gw["x0"], gw["y1"] - gw["ny"] * gw["cell"], gw["x0"] + gw["nx"] * gw["cell"], gw["y1"])
+    l, bt, r, t = transform_bounds(gw["crs"], ds.crs, *b, densify_pts=51)
+    w = from_bounds(l, bt, r, t, ds.transform).round_offsets(op="floor").round_lengths(op="ceil")
+    m = SCANFI_MARGIN_PX
+    from rasterio.windows import Window
+    return Window(w.col_off - m, w.row_off - m, w.width + 2 * m + 1, w.height + 2 * m + 1)
+
+
+def _mirror_covers(mp: Path, gw: dict, need: np.ndarray) -> bool:
+    """True when every source pixel the warp reads for the needed run-grid cells (dilated by one cell) is filled
+    in the sparse mirror: the mirror's nodata mask is warped to the run grid with the max kernel."""
+    from scipy import ndimage as _nd
+    from rasterio.windows import transform as wtr
+    from rasterio.warp import reproject
+    with rasterio.open(mp) as ds:
+        win = _scanfi_window(ds, gw)
+        if win.col_off < 0 or win.row_off < 0 or win.col_off + win.width > ds.width or win.row_off + win.height > ds.height:
+            return False
+        miss = (ds.read(1, window=win) == ds.nodata).astype(np.uint8)
+        dst = np.zeros((gw["ny"], gw["nx"]), np.uint8)
+        reproject(miss, dst, src_transform=wtr(win, ds.transform), src_crs=ds.crs, dst_transform=grid_transform(gw),
+                  dst_crs=gw["crs"], resampling=Resampling.max)
+    nd = _nd.binary_dilation(need, iterations=1)
+    return not bool((dst[nd] > 0).any())
+
+
+def scanfi_local(layer: str, epoch: int, gw: dict, fire_key: str, meta: dict, need: np.ndarray) -> str:
+    """Local GeoTIFF holding the SCANFI v2 (release 20260119) pixels that the warp to ``gw`` reads at the needed
+    (restored) cells.
+
+    Order: an existing per-fire clip; else the sparse Alberta mirror (``prefire-data/raw/scanfi``, built by
+    ``scripts/fuelgrid/backcast.py mirror`` from the same files) when every source pixel under the needed cells is
+    filled there; else a clip of the national file read once from the NRCan server. Pixels are copied, never
+    resampled, so the values at the needed cells are those of the national file."""
+    from rasterio.windows import transform as wtr
+    out = SCANFI_CACHE / str(epoch) / f"{fire_key.replace(':', '_')}__{layer}.tif"
+    src_log = meta.setdefault("scanfi_cache", {})
+    if out.exists():
+        src_log.setdefault(layer, "cache")
+        return str(out)
+    mp = SCANFI_MIRROR / str(epoch) / f"{layer}.tif"
+    if (SCANFI_MIRROR / str(epoch) / "complete").exists() and mp.exists() and _mirror_covers(mp, gw, need):
+        src_log[layer] = "alberta_mirror"
+        return str(mp)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    from scripts.fuelgrid.backcast import SCANFI
+    url = "/vsicurl/" + SCANFI.format(layer=layer, epoch=epoch)
+    for k in range(12):
+        try:
+            with rasterio.Env(**GDAL_REMOTE):
+                with rasterio.open(url) as ds:
+                    win = _scanfi_window(ds, gw)
+                    data = ds.read(1, window=win, boundless=True, fill_value=ds.nodata if ds.nodata is not None else 0)
+                    tr, crs, nod = wtr(win, ds.transform), ds.crs, ds.nodata
+            break
+        except rasterio.errors.RasterioIOError:
+            if k == 11:
+                raise
+            time.sleep(min(600, 60 * (k + 1)))
+    tmp = out.with_suffix(".part.tif")
+    with rasterio.open(tmp, "w", driver="GTiff", width=data.shape[1], height=data.shape[0], count=1, dtype=data.dtype,
+                       crs=crs, transform=tr, nodata=nod, tiled=True, compress="deflate") as d:
+        d.write(data, 1)
+        d.update_tags(source="NRCan " + url[9:], release="SCANFI v2 20260119", layer=layer, epoch=str(epoch))
+    tmp.rename(out)
+    src_log[layer] = "nrcan_server_clip"
+    return str(out)
+
+
+GDAL_REMOTE = dict(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", GDAL_HTTP_MAX_RETRY="8", GDAL_HTTP_RETRY_DELAY="3",
+                   GDAL_HTTP_TIMEOUT="180", GDAL_HTTP_CONNECTTIMEOUT="30", GDAL_HTTP_LOW_SPEED_LIMIT="1000",
+                   GDAL_HTTP_LOW_SPEED_TIME="120", GDAL_HTTP_MULTIRANGE="YES",
+                   GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES", CPL_VSIL_CURL_CHUNK_SIZE="1048576",
+                   CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif", GDAL_CACHEMAX=256)
 
 
 GROUP_OF_FBFM = {}
