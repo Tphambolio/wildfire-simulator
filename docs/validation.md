@@ -367,6 +367,17 @@ grid diagonal fix; the record's own run rescored with today's code reproduces th
 back-cast centres the members closer to the observed area but does not widen them relative to
 the error: the ensemble remains too narrow and over-confident, and P10 is still not a worst case.
 
+**Log-area post-processing (B2, 2026-10-24, [R65], opt-in).** A member-by-member shift and
+stretch of the members' log10 area (Van Schaeybroeck & Vannitsem 2015), fitted on the 61
+calibration fire-days on the back-cast grid (shift −0.25 log10, i.e. areas x 0.56; stretch 2.25,
+the smallest reaching 80 % calibration coverage) and scored on the same 65 held-out fire-days
+(pre-registered, `docs/PREREG_ENSEMBLE_B2.md`): coverage 49 % → **85 %** [74, 94], CRPS
+0.407 → 0.376 (Δ −0.031 [−0.092, +0.032], non-inferior), ensemble-mean bias +0.22 → +0.02:
+**pass**. It over-corrects the spread (spread / skill 0.55; the median P10-P90 area range is a
+factor of ~60), does worse on the largest-growth third of days, and does not move any footprint
+(P10 still holds ≥ 90 % of growth on 29 % of days). It is not applied anywhere by default
+(`firesim.validation.ensemble_calibration`).
+
 **What the numbers say.**
 
 - **The ensemble was far too narrow, not too wide.** With the placeholders the observed area

@@ -175,3 +175,45 @@ corrected 90th-percentile area (FireSim's "P10" end), with the share of days tha
 ## Result
 
 *(appended after the held-out scoring; the text above is unchanged)*
+
+**Registration:** commit `b6662c82e05ddb19c8a9aec4fd40a7f71cf56628` (tag `prereg-ensemble-b2-2026-10-24`),
+pushed 2026-10-24 13:13 MDT; sha256 of this file as registered (everything above this section)
+`683713daf4934236cf8320277e9394cd5e967d8607dfe6c766b6a88cce839f7b`. Code at scoring time identical
+to the registered commit (`git diff b6662c8 -- engine/src scripts` empty). Report: [R65].
+
+**Calibration run** (`phys_a1.5_cal.jsonl`, sha256 `8c4f020c…bfc75b`): 61 of 61 fire-days, 0
+errors, 20 members each, A15 config in every row; member perturbations identical to the record's
+2014b calibration run (61 of 61); deterministic 17 h scores bit-identical to the back-cast C1 run
+at `a5da766` (61 of 61), so the E10 engine change did not alter results.
+
+**Fit (calibration only, `fit.json` sha256 `a7c393ea…35fdd3`, frozen 14:00 MDT before scoring):**
+
+| Arm | Shift (log10) | Scale | Cal. coverage | Cal. CRPS | LOFO coverage / CRPS |
+|---|---|---|---|---|---|
+| B | 0 | 1 | 0.574 | 0.422 | 0.574 / 0.422 |
+| **P1** | **−0.25** (areas × 0.56) | **2.25** | 0.803 | 0.377 | 0.803 / 0.386 |
+| P2 | −0.26 | 1.55 | 0.754 | 0.370 | 0.738 / 0.380 |
+| P0 | −0.25 | 1 | 0.574 | 0.381 | 0.574 / 0.392 |
+
+**Held-out (65 fire-days, 16 fires; 2,000 whole-fire draws, seed 1):**
+
+| Arm | Coverage [95 % CI] | CRPS [CI] | ΔCRPS vs B [CI] | Δcoverage vs B [CI] | Spread/skill |
+|---|---|---|---|---|---|
+| B | 0.492 [0.380, 0.597] | 0.407 [0.329, 0.506] | – | – | 1.34 [1.13, 1.59] |
+| **P1** | **0.846 [0.741, 0.937]** | 0.376 [0.310, 0.448] | **−0.031 [−0.092, +0.032]** | **+0.354 [+0.231, +0.483]** | 0.55 [0.46, 0.66] |
+| P2 | 0.662 [0.556, 0.769] | 0.368 [0.294, 0.445] | −0.039 [−0.092, +0.017] | +0.169 [+0.085, +0.270] | 0.80 |
+| P0 | 0.508 [0.388, 0.623] | 0.379 [0.298, 0.464] | −0.029 [−0.070, +0.020] | +0.015 [−0.079, +0.117] | 1.23 |
+
+B reproduces [R49] exactly (0.492, 0.407, 1.34).
+
+**Decision (§6): PASS.** (1) P1 coverage 0.846 ≥ 0.70; (2) Δcoverage lower bound +0.231 > 0;
+(3) mean ΔCRPS −0.031 ≤ 0 and upper bound +0.032 ≤ +0.050.
+
+**Reading (descriptive, decides nothing):** the bias term removes the shared over-prediction
+(ensemble-mean bias +0.22 → +0.02 log10; rank-0 days 18 → 1), but P1 is now **over-dispersed**
+(spread/skill 0.55; held-out coverage 85 % above the 80 % target; median P10-P90 range a factor
+of ~60 in area vs ~6.5 today). The CRPS gain is not significant on its own (CI includes 0); P1 is
+worse than B on 38 of 65 days and on the largest-growth tercile (+0.10). The P10 footprint does
+not improve: mapped to the corrected area it holds ≥ 90 % of growth on 29 % of days (B 25 %,
+native 28 %). Outcome per §7: the correction stays **opt-in**; wiring and any default are owner
+decisions ([R65] §6).
