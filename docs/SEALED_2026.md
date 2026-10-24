@@ -120,3 +120,54 @@ fire-day under that pre-registration contributes nothing and is listed.
 - **Seed:** `S_SEAL_CA = 2026102402`, same order and the same confirm/scorecard split (ceil(n/2)).
 - **Output:** `validation-data/sealed2026/ca/sealed_ca_2026.csv` and perimeters, sha256 appended to §6 and
   to PROJECT_RECORD; committed and pushed before any model is run.
+
+---
+
+## 6. Draw result (appended after the run; nothing above was edited)
+
+- **Rules commit:** `5b43907a5c1a7d5c67a2a13b585cb318cfb61647` (this file, §1-§5; sha256 at that commit
+  `34dcce1399709537fb7dad728f00f7c26f813de8a47faf062411b6a1935b3c4d`), pushed before the script existed.
+- **Script commit:** `0c31f17cad28ebc827ac4d5d3177ab27a039d9e7`, `draw.py` sha256
+  `dab74ee6143a162037518b638e36bc30ddb7327a7a21e214c509bb2d71bc630d`, pushed before it was run; run once,
+  under `capjob`, with no error.
+- **Downloaded:** 2026-10-24T19:04:51Z (layer last edited 2026-10-24 18:52 UTC). 110 records matched the query.
+- **Removed:** outside the 11 states 25; no containment/control/out time 24; not complete 17; initial point
+  more than 2 km from the final perimeter 12 (2.3-59 km; miscoded or approximate starts); prescribed, under
+  5,000 ha, not 2026, duplicate IRWIN, complex, overlapping duplicate and **used in the record: 0**
+  (5,379 text files scanned under `reports/`, `validation-data/` and `docs/`).
+- **Sealed: 32 fires** (CA 2, CO 2, ID 2, NM 1, NV 8, OR 6, UT 4, WA 6, WY 1); **confirm 16** (orders 1-16),
+  **scorecard 16** (orders 17-32). Seed `S_SEAL_US = 2026102401`.
+
+| Sealed file (`~/dev/wildfire/validation-data/sealed2026/`) | sha256 |
+|---|---|
+| **`us/sealed_us_2026.csv` (the seal)** | **`b9c7a303c71e63ebc63e9fdf25cda18e8ebcaf61a5af36a3ac69cdd297748e80`** |
+| `us/sealed_us_2026_perimeters.geojson` | `7f0c62a2c482a116f130fb30b3104ad455e41f736e30d736c5fd24c300f7ab74` |
+| `raw/wfigs_ytd_2026_ge5000ha.geojson` | `9d04ba84696b5af48efac2794c8eb1f741f22e603b9e780a89962b1149140c19` |
+| `us/eligibility_log.csv` | `4ae2a663808b599e918f9fffcdfae3f489f12b995ee07f2480b542064229c22b` |
+
+**Disclosed reading of rule 5.** Rule 5 accepts "complete" by a recorded time *or* `PercentContained` ≥ 100,
+but its 7-day clause needs a recorded time. The script (committed before the run) read a record with
+100 % containment and no containment/control/out time as failing the 7-day clause (end time unknown), so
+it removed it. **24 records were removed this way, all at 100 % contained.** This is the conservative
+reading; the other reading would have admitted them. They were not checked against rules 6-8 and are
+**left unopened**: the owner may choose to seal them as a supplementary US block (same rules 6-8, seed
+`2026102403`, appended here as §6a before any use). Until then the sealed set is the 32 above.
+
+Nothing was run on any of these fires. No hotspot, weather or growth record of a sealed fire was opened.
+The 12 rule-6 removals were checked after the draw (initial-point distances, removed records only) to rule
+out a coding error.
+
+## 7. How to use the set
+
+1. A pre-registration (committed and pushed before any run) names the subset (`confirm`, or a contiguous
+   prefix of it in `order`; or `scorecard` for a release re-score), the fire-day rules (VIIRS progression
+   source, minimum growth, weather source, run-time caps) and whether perimeters come from the sealed
+   snapshot or a re-download. It checks the list's sha256 against §6 before reading it.
+2. It appends one row to the ledger in §8 when it opens the subset.
+3. `confirm` fires used by a deciding test are spent for deciding afterwards; `scorecard` fires never decide.
+
+## 8. Use ledger (append only)
+
+| Date | Pre-registration | Subset / orders | Purpose |
+|---|---|---|---|
+| — | — | — | (none yet; sealed 2026-10-24) |
