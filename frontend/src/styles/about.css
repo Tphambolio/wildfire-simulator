@@ -107,3 +107,119 @@
 .about-docs {
   font-size: var(--fs-sm);
 }
+
+/* "Reset this browser's FireSim data" (components/BrowserDataReset.tsx): the About section's
+   controls and the confirm dialog (in-app, top layer; the only modal in the app) */
+.about-browser-data .bdr-open-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+}
+
+.bdr-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.bdr-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 2 * var(--sp-4));
+  overflow-y: auto;
+  padding: var(--sp-4);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  font-size: var(--fs-md);
+  line-height: var(--lh);
+}
+
+.bdr-title {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.bdr-subtitle {
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.bdr-text {
+  margin: 0 0 var(--sp-2);
+  color: var(--text-2);
+}
+
+.bdr-note {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.bdr-list,
+.bdr-export-list {
+  margin: 0 0 var(--sp-2);
+  padding-left: 20px;
+  color: var(--text-2);
+}
+
+.bdr-export-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.bdr-export-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+  border-top: 1px solid var(--border);
+}
+
+.bdr-incident-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.bdr-incident-status {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bdr-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+/* Incidents section (components/IncidentPanel.tsx): where the data lives and the way to it */
+.incident-storage-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.incident-storage-note .toggle-advanced {
+  font-size: var(--fs-xs);
+}

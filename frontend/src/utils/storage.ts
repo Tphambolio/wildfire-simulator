@@ -82,6 +82,20 @@ function normalisePeriod(raw: unknown, index: number): OperationalPeriod | null 
   };
 }
 
+/** The name an incident gets when its name is erased (E9, 2026-10-24). */
+export const UNTITLED_INCIDENT = "Untitled incident";
+
+/**
+ * The name to store for what was typed: trimmed, and an empty or blank name becomes
+ * "Untitled incident" explicitly. One rule for stored incidents (`normaliseIncident`), the
+ * incident store (`updateIncidentField("name", …)`) and the EOC name editors, so erasing the
+ * name in the EOC panel never snaps back to the old one.
+ */
+export function normaliseIncidentName(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  return s || UNTITLED_INCIDENT;
+}
+
 /** A usable incident from a stored value, or null (no id). Missing fields get defaults. */
 export function normaliseIncident(raw: unknown): IncidentSession | null {
   if (!isObj(raw) || typeof raw.id !== "string" || !raw.id) return null;
@@ -94,7 +108,7 @@ export function normaliseIncident(raw: unknown): IncidentSession | null {
   return {
     ...(raw as unknown as IncidentSession),
     id: raw.id,
-    name: str(raw.name, "Untitled incident") || "Untitled incident",
+    name: normaliseIncidentName(raw.name),
     incidentNumber: str(raw.incidentNumber, ""),
     incidentCommanderName: str(raw.incidentCommanderName, ""),
     status: raw.status === "closed" ? "closed" : "active",

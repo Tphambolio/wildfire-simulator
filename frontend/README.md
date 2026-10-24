@@ -36,6 +36,18 @@ Since 2026-10-11 (owner request: "the actual viewable map is tiny"; `hooks/useLa
 E2E specs other than `layout-focus.spec.ts` open the app with a saved "both open" preference
 (`openApp`'s `pinLayout`, default on), so the one-time auto-collapse does not move their Run bar.
 
+## Browser storage and the reset control
+
+Incidents, the restored Setup panel, saved scenarios, evacuation statuses set without an
+incident, legend and layout preferences, and the last grass-curing value live in this browser's
+localStorage; the run on screen and the saved-runs passphrase live in sessionStorage (this tab).
+None of it is cleared by a reload, including a hard reload. `src/utils/browserData.ts` is the one
+list of these keys (add any new key there); About ▸ "Data kept in this browser" has
+**Reset this browser's FireSim data** (`components/BrowserDataReset.tsx`): it lists what is
+stored (incident names and statuses), offers each incident's JSON export, and after a confirm
+removes exactly those keys and reloads the page. The server's run archive is not affected.
+The Incidents section links to it (E9, owner report 2026-10-24).
+
 ## UI text: badges, tooltips, About & sources
 
 Since 2026-10-10 (owner request: a decluttered interface) the panels carry labels, values and

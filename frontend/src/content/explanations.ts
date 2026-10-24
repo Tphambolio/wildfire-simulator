@@ -50,7 +50,13 @@ export const TIPS = {
     "limits and validation in About & sources.",
   notSaved:
     "This scenario is not saved. Open or create an incident in the EOC Console, or save the " +
-    "scenario under Incidents & saved scenarios in Setup.",
+    "scenario under Incidents & saved scenarios in Setup. Incidents and the Setup panel are " +
+    "stored in this browser only; they survive reloads, including hard reloads, and are cleared " +
+    "with \"Reset this browser's FireSim data\" in About & sources.",
+  incidentStorage:
+    "Incidents and the Setup panel are stored in this browser only, not on the server, and " +
+    "survive reloads, including hard reloads. Export an incident as JSON to keep or move it; " +
+    "\"Reset this browser's FireSim data\" (About & sources) clears them.",
   fwiClass:
     "CWFIS national FWI map class (Low 0–5, Moderate 6–15, High 16–22, Very High 23–29, " +
     "Extreme 30+). Not an official fire danger rating.",

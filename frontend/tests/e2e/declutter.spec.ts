@@ -31,7 +31,7 @@ const popOf = async (page: Page, trigger: Locator) =>
 
 const bounds = async (page: Page) => page.locator(".map-view-canvas").first().getAttribute("data-bounds");
 
-test("About & sources tab: eight sections, references on GitHub, version; the low-skill badge opens Limits", async ({ page }) => {
+test("About & sources tab: nine sections, references on GitHub, version; the low-skill badge opens Limits", async ({ page }) => {
   await mockApi(page);
   await openApp(page);
   const badge = page.getByTestId("limits-badge");
@@ -52,7 +52,7 @@ test("About & sources tab: eight sections, references on GitHub, version; the lo
   await expect(about).toBeVisible();
   await expect(page.getByRole("button", { name: /About & sources/ })).toHaveAttribute("aria-current", "page");
   await expect(page.locator("#about-limits")).toBeFocused();
-  await expect(about.getByRole("heading", { level: 3 })).toHaveCount(8);
+  await expect(about.getByRole("heading", { level: 3 })).toHaveCount(9);
   await expect(about).toContainText("143 Alberta fire-days");
   await expect(about).toContainText("Van Wagner & Pickett (1985)");
   await expect(about).toContainText("FireSim never recommends Order, Alert or Watch");

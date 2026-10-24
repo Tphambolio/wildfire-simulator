@@ -314,6 +314,11 @@ export default function App() {
     setAboutSection("about-limits");
     setActiveTab("about");
   }, []);
+  // "Reset this browser's FireSim data" (About ▸ Data kept in this browser; E9, 2026-10-24)
+  const openBrowserData = useCallback(() => {
+    setAboutSection("about-browser-data");
+    setActiveTab("about");
+  }, []);
   const [isochronesVisible, setIsochronesVisible] = useState(false);
   // House-to-house spread map layer: on by default when the run has it (opt-in run option)
   const [structureVisible, setStructureVisible] = useState(true);
@@ -1062,6 +1067,18 @@ export default function App() {
     window.addEventListener("pagehide", flushSetup);
     return () => window.removeEventListener("pagehide", flushSetup);
   }, [flushSetup]);
+  // After the browser-data reset: drop the pending Setup write (pagehide would otherwise write
+  // it back) and reload, so every module (incidents, Setup, evacuation statuses, layout,
+  // legends, the run on screen) starts from its defaults. A controlled reload is simpler and
+  // safer than resetting each store in place.
+  const handleBrowserDataCleared = useCallback(() => {
+    if (setupTimerRef.current !== null) window.clearTimeout(setupTimerRef.current);
+    setupTimerRef.current = null;
+    pendingSetupRef.current = null;
+    window.removeEventListener("pagehide", flushSetup);
+    setupKeyRef.current = undefined;
+    window.location.reload();
+  }, [flushSetup]);
   // On load, and when another incident is opened: restore that incident's setup (ignition,
   // start, weather and its source, curing, options). A new incident takes the current setup;
   // closing one keeps what is on screen.
@@ -1332,6 +1349,7 @@ export default function App() {
               onDelete={deleteIncident}
               onExport={exportIncident}
               onImport={importIncident}
+              onOpenBrowserData={openBrowserData}
             />
             <ScenarioPanel
               scenarios={scenarios}
@@ -1429,7 +1447,11 @@ export default function App() {
       {/* ── About & sources tab: intended use, limits, methods and references, data, help ── */}
       {activeTab === "about" && (
         <Suspense fallback={<div className="hint eoc-loading">Loading…</div>}>
-          <AboutPanel section={aboutSection} />
+          <AboutPanel
+            section={aboutSection}
+            onExportIncident={exportIncident}
+            onBrowserDataCleared={handleBrowserDataCleared}
+          />
         </Suspense>
       )}
 

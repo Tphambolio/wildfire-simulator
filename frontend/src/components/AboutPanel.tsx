@@ -9,6 +9,9 @@ import { getVersion } from "../services/api";
 import { BADGES, TIPS, doc, REPO_URL } from "../content/explanations";
 import { HFI_CLASS_CAVEAT, HFI_CLASS_SOURCE } from "../utils/fireClasses";
 import { RPAS_NOTE } from "../utils/suppressionAdvisory";
+import BrowserDataReset from "./BrowserDataReset";
+import type { IncidentSession } from "../types/incident";
+import type { ClearResult } from "../utils/browserData";
 
 export const ABOUT_SECTIONS = [
   ["about-use", "What FireSim is for"],
@@ -18,6 +21,7 @@ export const ABOUT_SECTIONS = [
   ["about-responsible", "Responsible use"],
   ["about-forms", "ICS Canada forms"],
   ["about-help", "Using the app"],
+  ["about-browser-data", "Data kept in this browser"],
   ["about-version", "Version"],
 ] as const;
 
@@ -62,7 +66,15 @@ const REFERENCES: Array<[string, string]> = [
   ["Validation protocol", "Bennett, Jain, Moore & Boisvert (2026), International Journal of Wildland Fire; Canadian Fire Spread Dataset (Barber et al. 2024)."],
 ];
 
-export default function AboutPanel({ section = null }: { section?: AboutSectionId | null }) {
+interface AboutPanelProps {
+  section?: AboutSectionId | null;
+  /** Incident export (the incident store's JSON download), offered before a reset */
+  onExportIncident?: (incident: IncidentSession) => void;
+  /** After "Reset this browser's FireSim data" cleared the keys (App reloads the page) */
+  onBrowserDataCleared?: (result: ClearResult) => void;
+}
+
+export default function AboutPanel({ section = null, onExportIncident, onBrowserDataCleared }: AboutPanelProps) {
   const [version, setVersion] = useState<string>("loading…");
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -198,7 +210,7 @@ export default function AboutPanel({ section = null }: { section?: AboutSectionI
             <li><strong>Explanations.</strong> Hover, focus or tap a badge or an "i" button to read it; Esc closes it.</li>
             <li><strong>Your own asset layer.</strong> {TIPS.ownLayer}</li>
             <li><strong>Multi-day runs.</strong> {TIPS.multiDay}</li>
-            <li><strong>Setup after a reload.</strong> The ignition, start time, weather (and where it came from), grass curing and run options are kept in this browser for the open incident (or without one) and come back after a reload. When FireSim fills the weather from a station for a new ignition, it says what it replaced; Undo puts the earlier values back. The run on screen comes back too, in the same browser tab: a run still computing is followed to the end, and a run the server no longer has is said so.</li>
+            <li><strong>Setup after a reload.</strong> The ignition, start time, weather (and where it came from), grass curing and run options are kept in this browser for the open incident (or without one) and come back after a reload. When FireSim fills the weather from a station for a new ignition, it says what it replaced; Undo puts the earlier values back. The run on screen comes back too, in the same browser tab: a run still computing is followed to the end, and a run the server no longer has is said so. A hard reload does not clear it; see 8, Data kept in this browser.</li>
             <li><strong>ICS forms.</strong> Objectives, command emphasis, strategy and resources are left for Planning, the IC and Operations to enter. FireSim adds model context only (modelled area, head fire intensity class), labelled as model output.</li>
             <li><strong>RPAS perimeter restart.</strong> After a run, open Setup → Observed perimeter (RPAS): load an observed perimeter (or use the modelled one), mark the active edges on the map or by side, and restart at the timeline's selected time. The restart uses Setup's current weather, FWI codes and weather changes, runs the full Predict time and keeps earlier arrival times. {TIPS.bufferBlank}</li>
             <li><strong>Weather changes during a run.</strong> Setup → Weather & FWI → Add a weather change: step changes of wind, temperature, RH and rain at set times (e.g. 47 km/h, then 20 km/h from 20:00). FFMC and ISI are recomputed hourly from the starting codes.</li>
@@ -208,7 +220,28 @@ export default function AboutPanel({ section = null }: { section?: AboutSectionI
           <Docs links={[["Frontend README", `${REPO_URL}/blob/master/frontend/README.md`]]} />
         </Section>
 
-        <Section id="about-version" title="8. Version">
+        <Section id="about-browser-data" title="8. Data kept in this browser">
+          <div className="about-browser-data">
+            <p>
+              Incidents (with their periods, annotations and evacuation statuses), the Setup panel, saved
+              scenarios and a few display preferences are stored in this browser only, not on the server.
+              They survive reloads, including hard reloads (Ctrl+Shift+R), and another computer does not
+              see them. Export an incident as JSON to keep or move it.
+            </p>
+            <p>
+              The reset lists what is stored, offers an export of each incident, and clears it after you
+              confirm. Runs kept on the server (Saved runs) are not affected.
+            </p>
+            <div className="bdr-open-row">
+              <BrowserDataReset
+                onExportIncident={onExportIncident}
+                onCleared={onBrowserDataCleared ?? (() => window.location.reload())}
+              />
+            </div>
+          </div>
+        </Section>
+
+        <Section id="about-version" title="9. Version">
           <p data-testid="about-version">Model version: {version}</p>
           <Docs links={[["Decisions log", doc("PROJECT_RECORD.md", "3-decisions-log")], ["Work log", doc("PROJECT_RECORD.md", "7-work-log")], ["Repository", REPO_URL]]} />
         </Section>
