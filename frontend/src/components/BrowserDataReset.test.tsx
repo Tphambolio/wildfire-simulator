@@ -64,4 +64,22 @@ describe("BrowserDataReset dialog (E9)", () => {
     expect(within(dialog).getByTestId("bdr-empty")).toHaveTextContent("Nothing is stored");
     expect(within(dialog).getByRole("button", { name: "Clear and reload" })).toBeDisabled();
   });
+
+  it("offers 'Export saved scenarios (JSON)' only when saved scenarios exist", () => {
+    const first = open();
+    expect(within(first.dialog).queryByRole("button", { name: "Export saved scenarios (JSON)" })).not.toBeInTheDocument();
+    fireEvent.click(within(first.dialog).getByRole("button", { name: "Cancel" }));
+
+    localStorage.setItem("firesim-v3-scenarios", JSON.stringify([{ id: "s1", name: "A" }, { id: "s2", name: "B" }]));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:x");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByRole("button", { name: `${RESET_BUTTON_LABEL}…` }));
+    const dialog = screen.getByRole("dialog", { name: RESET_BUTTON_LABEL });
+    expect(dialog).toHaveTextContent("2 saved scenarios (one file)");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Export saved scenarios (JSON)" }));
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem("firesim-v3-scenarios")).not.toBeNull();
+    click.mockRestore();
+  });
 });

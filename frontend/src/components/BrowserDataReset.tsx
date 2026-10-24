@@ -12,6 +12,7 @@ import type { IncidentSession } from "../types/incident";
 import {
   clearAll,
   describeInventory,
+  exportStoredScenarios,
   inventory,
   RESET_BUTTON_LABEL,
   type BrowserDataInventory,
@@ -127,13 +128,27 @@ export function BrowserDataResetDialog({ onClose, onExportIncident, onCleared }:
           </>
         )}
 
-        {inv.incidents.length > 0 && (
+        {(inv.incidents.length > 0 || inv.scenarioCount > 0) && (
           <>
             <h4 className="bdr-subtitle">Export incident JSON first</h4>
             <p className="bdr-text">
-              Each export is a file you can import again under Incidents &amp; saved scenarios.
+              Each incident export is a file you can import again under Incidents &amp; saved scenarios.
             </p>
             <ul className="bdr-export-list">
+              {inv.scenarioCount > 0 && (
+                <li>
+                  <span className="bdr-incident-name">
+                    {inv.scenarioCount} saved scenario{inv.scenarioCount === 1 ? "" : "s"} (one file)
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-inline btn-small"
+                    onClick={() => exportStoredScenarios()}
+                  >
+                    Export saved scenarios (JSON)
+                  </button>
+                </li>
+              )}
               {inv.incidents.map((inc) => (
                 <li key={inc.id}>
                   <span className="bdr-incident-name">{inc.name}</span>

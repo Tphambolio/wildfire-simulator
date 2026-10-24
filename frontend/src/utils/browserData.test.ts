@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BROWSER_DATA_ENTRIES, clearAll, describeInventory, inventory } from "./browserData";
+import { BROWSER_DATA_ENTRIES, clearAll, describeInventory, exportStoredScenarios, inventory } from "./browserData";
 import { makeIncident } from "../types/incident";
 
 function seed() {
@@ -98,5 +98,29 @@ describe("browserData (E9, owner report 2026-10-24)", () => {
     const r = clearAll();
     expect(r.failed).toContain("local:firesim-v3-layout");
     expect(r.removed).toEqual([]);
+  });
+
+  it("exportStoredScenarios downloads the stored firesim-v3-scenarios array as one file", async () => {
+    const stored = [{ id: "s1", name: "Dry west wind" }, { id: "s2", name: "Calm" }];
+    localStorage.setItem("firesim-v3-scenarios", JSON.stringify(stored));
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+      blobs.push(b as Blob);
+      return "blob:x";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const downloads: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
+    expect(inventory().scenarioCount).toBe(2);
+    expect(exportStoredScenarios()).toBe(2);
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]).toMatch(/^firesim-saved-scenarios-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(JSON.parse(await blobs[0].text())).toEqual(stored);
+    // Nothing stored (or unreadable): no download
+    localStorage.setItem("firesim-v3-scenarios", "{broken");
+    expect(exportStoredScenarios()).toBe(0);
+    expect(downloads).toHaveLength(1);
   });
 });

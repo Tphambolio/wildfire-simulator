@@ -77,6 +77,8 @@ export interface BrowserDataInventory {
   incidents: IncidentSession[];
   /** Setup restored for incidents, and whether a no-incident ("scratch") Setup is stored */
   setup: { incidentIds: string[]; scratch: boolean };
+  /** Entries in the stored saved-scenarios array (0 when none or unreadable) */
+  scenarioCount: number;
   totalBytes: number;
   /** localStorage or sessionStorage threw when read (blocked, private window) */
   blocked: boolean;
@@ -136,6 +138,37 @@ function summariseIncidents(storage: Storage | null): IncidentSession[] {
   }
 }
 
+const SCENARIOS_KEY = "firesim-v3-scenarios";
+
+/** The stored saved-scenarios array as written by useScenarios ([] when none or unreadable). */
+function storedScenarios(storage: Storage | null): unknown[] {
+  if (!storage) return [];
+  try {
+    const parsed: unknown = JSON.parse(storage.getItem(SCENARIOS_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Download the whole saved-scenarios array (`firesim-v3-scenarios`, as stored) as one JSON file,
+ * offered before a reset. useScenarios' own export is one scenario per file. Returns how many
+ * scenarios were in the file (0 = nothing downloaded).
+ */
+export function exportStoredScenarios(): number {
+  const list = storedScenarios(storageFor("local"));
+  if (list.length === 0) return 0;
+  const blob = new Blob([JSON.stringify(list, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `firesim-saved-scenarios-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  return list.length;
+}
+
 /** What FireSim has stored in this browser right now. Never throws. */
 export function inventory(): BrowserDataInventory {
   const stores: Record<StoreName, Storage | null> = { local: storageFor("local"), session: storageFor("session") };
@@ -164,6 +197,7 @@ export function inventory(): BrowserDataInventory {
     items,
     incidents: summariseIncidents(stores.local),
     setup: { incidentIds: setupIds.filter((id) => id !== "scratch"), scratch: setupIds.includes("scratch") },
+    scenarioCount: storedScenarios(stores.local).length,
     totalBytes,
     blocked,
     empty: items.length === 0,
@@ -212,13 +246,7 @@ export function describeInventory(inv: BrowserDataInventory): string[] {
         break;
       }
       case "scenarios": {
-        let n = 0;
-        try {
-          const parsed: unknown = JSON.parse(localStorage.getItem(item.keys[0]) ?? "[]");
-          n = Array.isArray(parsed) ? parsed.length : 0;
-        } catch {
-          n = 0;
-        }
+        const n = inv.scenarioCount;
         lines.push(n > 0 ? plural(n, "saved scenario") : item.label);
         break;
       }
