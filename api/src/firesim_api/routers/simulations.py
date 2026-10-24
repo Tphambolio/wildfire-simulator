@@ -13,7 +13,9 @@ from starlette.concurrency import run_in_threadpool
 from firesim_api.schemas.simulation import (
     BurnProbabilityRequest,
     BurnProbabilityResponse,
+    ClassifyPerimeterRequest,
     MultiDaySimulationCreate,
+    ObservedPerimeterRequest,
     PerimeterOverrideRequest,
     SimulationCreate,
     SimulationFrame as FrameSchema,
@@ -286,6 +288,7 @@ def _response_for(run: SimulationRun) -> SimulationResponse:
         terrain_source=getattr(run, "terrain_source", None),
         weather_used=_weather_used(run),
         fuel_vintage_warning=_vintage_warning(run),
+        active_segments=getattr(run, "active_segments", None),
     )
 
 
@@ -685,6 +688,46 @@ async def create_perimeter_override(req: PerimeterOverrideRequest) -> Simulation
         status=SimulationStatus.RUNNING,
         config=None,
     )
+
+
+@router.post("/observed-perimeter", response_model=SimulationResponse)
+async def create_observed_perimeter(req: ObservedPerimeterRequest) -> SimulationResponse:
+    """Standalone forecast from an observed perimeter at observation time T (A1, R13/R14).
+
+    No source run: the body is a normal run request plus ``perimeter_geojson`` and
+    ``observation_time`` (required), with the optional active-segment classification
+    (manual ``active_edges``, RPAS ``hotspots_geojson`` or a FIRMS ``firms_csv``) and the
+    held-line hold ``hold_hours``. Returns the new simulation_id at once (status running).
+    """
+    if runner is None:
+        raise HTTPException(status_code=500, detail="Runner not initialized")
+    try:
+        sim_id = runner.create_observed_perimeter(req, on_frame=_on_frame, on_status=_on_status)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    run = runner.get(sim_id)
+    return SimulationResponse(simulation_id=sim_id, status=SimulationStatus.RUNNING, config=None,
+                              active_segments=run.active_segments if run else None)
+
+
+@router.post("/classify-perimeter")
+async def classify_perimeter(req: ClassifyPerimeterRequest) -> dict:
+    """Active / held segments of an observed perimeter from RPAS hotspots or a FIRMS VIIRS CSV
+    (no run). Returns ``summary``, ``active_edges`` (MultiLineString or null) and ``segments``
+    (GeoJSON FeatureCollection, property ``status``). Rule: docs/active-segments.md."""
+    from firesim.active_segments import classify_request
+
+    try:
+        c = await run_in_threadpool(
+            classify_request, req.perimeter_geojson, req.observation_time, req.hotspots_geojson,
+            req.firms_csv, req.classification_radius_m, req.classification_window_h,
+            req.classification_segment_m)
+    except (ValueError, KeyError, TypeError, IndexError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"summary": {**c.summary(), "radius_m": req.classification_radius_m,
+                        "window_h": req.classification_window_h,
+                        "segment_m": req.classification_segment_m},
+            "active_edges": c.active_edges(), "segments": c.feature_collection()}
 
 
 # ---------------------------------------------------------------------------

@@ -553,6 +553,8 @@ def active_mask(geometry: dict, buffer_m: float, rows: int, cols: int, lat_max: 
     from rasterio.features import rasterize
     from rasterio.transform import Affine
 
+    if not geometry.get("coordinates") and not geometry.get("geometries"):
+        return np.zeros((rows, cols), dtype=bool)  # empty geometry: nothing is active
     transform = Affine(cell_lng, 0.0, lng_min, 0.0, -cell_lat, lat_max)
     touched = rasterize([(geometry, 1)], out_shape=(rows, cols), transform=transform, fill=0,
                         all_touched=True, dtype="uint8").astype(bool)
