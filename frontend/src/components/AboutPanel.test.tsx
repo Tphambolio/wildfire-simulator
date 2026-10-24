@@ -9,7 +9,7 @@ import AboutPanel, { ABOUT_SECTIONS } from "./AboutPanel";
 import { TIPS } from "../content/explanations";
 
 describe("AboutPanel (About & sources tab)", () => {
-  it("has the eight sections, in order, with a table of contents", () => {
+  it("has the nine sections, in order, with a table of contents", () => {
     render(<AboutPanel />);
     const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
     expect(headings).toEqual([
@@ -20,7 +20,8 @@ describe("AboutPanel (About & sources tab)", () => {
       "5. Responsible use",
       "6. ICS Canada forms",
       "7. Using the app",
-      "8. Version",
+      "8. Data kept in this browser",
+      "9. Version",
     ]);
     const toc = screen.getByRole("navigation", { name: "About sections" });
     expect(within(toc).getAllByRole("link")).toHaveLength(ABOUT_SECTIONS.length);

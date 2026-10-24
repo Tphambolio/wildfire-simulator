@@ -13,7 +13,7 @@ import type {
 } from "../types/incident";
 import { makeIncident, makeOperationalPeriod } from "../types/incident";
 import { upsertTier, type EvacTier } from "../utils/evacZones";
-import { loadIncidents, normaliseIncident, writeStored } from "../utils/storage";
+import { loadIncidents, normaliseIncident, normaliseIncidentName, writeStored } from "../utils/storage";
 
 const STORAGE_KEY = "firesim-v3-incidents";
 const MAX_INCIDENTS = 20;
@@ -144,9 +144,12 @@ export function useIncident() {
     if (activeIncidentId === id) setActiveIncidentId(null);
   }, [activeIncidentId]);
 
+  // The name follows the stored-incident rule (utils/storage.ts): trimmed, empty → "Untitled
+  // incident", so what is kept agrees with what a reload reads back (E9, 2026-10-24)
   const updateIncidentField = useCallback(
     <K extends keyof IncidentSession>(key: K, value: IncidentSession[K]) => {
-      updateActiveIncident((i) => ({ ...i, [key]: value }));
+      const v = key === "name" ? (normaliseIncidentName(value) as IncidentSession[K]) : value;
+      updateActiveIncident((i) => ({ ...i, [key]: v }));
     },
     [updateActiveIncident]
   );
