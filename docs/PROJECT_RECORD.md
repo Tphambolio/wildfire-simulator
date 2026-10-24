@@ -221,6 +221,7 @@ them. Future sessions must respect them; ask the owner before reversing any.
 | standing | Ask the owner before each merge (auto-merge is enabled but still ask) | `CLAUDE.md` (CI/CD); owner notes |
 | standing | Run the full verification stack, including browser E2E, before calling work done | Owner feedback note (2026-06-16) |
 | standing | No Claude/Anthropic references in code committed to City of Edmonton systems (`git.edmonton.ca`); this GitHub repo is separate | `CLAUDE.md` |
+| 2026-10-24 | **Sealed 2026 held-out set (C4):** seal a US 2026 block now from NIFC WFIGS 2026 interagency perimeters; add a Canadian block from NBAC 2026 when it publishes, sealed the same way. Sealed 2026-10-24: **32 western-US fires** (≥ 5,000 ha, contained ≥ 7 d before download), seed 2026102401, `confirm` 16 (one-shot deciding tests; first: 1-burn-day active-edge rule [R63]) / `scorecard` 16 (per-release re-score, never decides). List sha256 **`b9c7a303c71e63ebc63e9fdf25cda18e8ebcaf61a5af36a3ac69cdd297748e80`**; the list itself is kept outside the repo, unopened. Rules, hashes, Canadian-block rules (seed 2026102402) and use ledger: `docs/SEALED_2026.md` | Owner, 2026-10-24 (backlog C4 pool choice). Camp, Eaton, Palisades, Tubbs, Woolsey, Dixie, Caldor are spent for deciding; no model has run on the sealed fires |
 
 ## 4. Methods and references
 
@@ -477,6 +478,7 @@ Only what the code or docs cite. "Unverified" = cited second-hand and not checke
 | OpenStreetMap via the Overpass API (read-only) | Locating the named first-impact areas; only centres rounded to 0.001° are kept in the script | ODbL 1.0 |
 | ECCC MSC GeoMet `climate-hourly` (14 Alberta stations, May-Sep 2024-25) | Ensemble input-error climatology (station truth) | Open Government Licence – Canada |
 | GEM forecasts via Open-Meteo previous-runs API (day-1 values); ERA5 via Open-Meteo archive | Ensemble input-error climatology (forecast / reanalysis) | CC BY 4.0 (Open-Meteo); ECCC / Copernicus source licences |
+| NIFC WFIGS 2026 Interagency Fire Perimeters to Date (ArcGIS item `7c81ab78d8464e5c9771e49b64e834e9`, `WFIGS_Interagency_Perimeters_YearToDate/FeatureServer/0`, retrieved 2026-10-24T19:04:51Z) | Sealed 2026 US held-out block (`docs/SEALED_2026.md`) | No explicit licence; NIFC disclaimer; US federal interagency open data (public domain); live, uncertified, may be revised |
 
 **Open-data fuel grid inputs** (`scripts/fuelgrid`, 2026-10-10; downloads and outputs in `$FUELGRID_DATA`, default `~/dev/wildfire/fuelgrid-data`, 4.0 GB, never committed; retrieval dates and scene IDs in its `provenance.json`):
 
@@ -545,6 +547,7 @@ Every validation and pre-registered test to date, aggregate only (plain-language
 | 2026-10-18 | Start-type strata, descriptive baseline (backlog A2, not pre-registered) | 143 fire-days (79 held-out), C1 set-up, back-cast grid; point 8 / fresh 9 / mature 126 | 17 h F1 point 0.353 (0.252 to 0.465), fresh 0.296 (0.209 to 0.387), mature 0.250 (0.211 to 0.290); held-out 0.402 (5) / 0.306 (4) / 0.231 (70), pooled 0.246 unchanged; static share of the start perimeter observed / modelled (median) 42 / 58 %, 95 / 81 %, 99 / 97 %; growth ratio (median) 0.97 / 1.32 / 2.22 (pooled 1.82, > 1 on 73 % of days) | n/a (descriptive) | [R58] |
 | 2026-10-24 | v7 arrivals recoded with [R53] §6.4 rules (backlog A3, post-hoc descriptive; PREREG_LR7 verdict unchanged) | stored PREREG_LR7 runs, 20 members per model; decision set Dixie + Caldor 72 → 46 blocks after all rules; secondary 279 → 209; training 870 → 825 | decision set MAE A0v6 / A0c / V7: registered 7.38 / 6.94 / 7.24 h → all rules 9.36 / 8.98 / 9.23 h (bias −6.4 / −8.7 / −9.2 h); A1 −0.39 h (−2.08 to +0.94), A2 MAE +0.25 h (+0.07 to +0.59), A2 Brier +0.19: same signs as registered; secondary 9.77 / 6.98 / 5.94 h; order unchanged on both sets | n/a (descriptive) | [R61] |
 | 2026-10-10 | Pyra starting codes parity | 15 recorded cases; 4 live stations | identical to ≤ 1e-14 | pass (parity) | §5; [R15] |
+| 2026-10-24 | Sealed 2026 held-out set (C4) | NIFC WFIGS 2026 perimeters to date, 110 records ≥ 5,000 ha → 32 western-US fires sealed | list sha256 `b9c7a303c71e63ebc63e9fdf25cda18e8ebcaf61a5af36a3ac69cdd297748e80`; no model run | n/a (data seal) | `docs/SEALED_2026.md` |
 
 **Headline (2026-10-15, [R45]):** held-out one-day F1 of the operational set-up is **0.246** on the pre-fire back-cast grid (the fuel FireSim uses for dated historical Alberta runs) and 0.212 on CFS 2014b (former headline, kept as comparator). Growth is still over-predicted on most days (73 % held-out, chosen set-up; 94 % whole perimeter). **Ensemble (2026-10-17, [R49]):** on the back-cast grid, P10-P90 coverage 49 % (2014b 48 %, no detectable difference), CRPS of log10 area 0.407 (2014b 0.465; −0.057, −0.113 to −0.007, better), spread/skill 1.34, P10 holds ≥ 90 % of growth on 28 % of days: still too narrow and over-confident. Earlier rows keep the grid they were measured on. **By start type (2026-10-18, [R58], descriptive):** of the 79 held-out fire-days, 5 are point starts (F1 0.402), 4 fresh perimeters (0.306) and 70 mature perimeters (0.231); over-spread grows with start age (median growth ratio 0.97 / 1.32 / 2.22, all 143 fire-days), while the static share of mature start perimeters is close to observed (97 % vs 99 %) under the active-edge set-up.
 
@@ -965,6 +968,7 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into �
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-24 | (this PR) | docs+feat(validation): sealed 2026 held-out set, US block of 32 fires from NIFC WFIGS (C4); rules pushed before the draw; list sha256 `b9c7a303…48e80` |
 | 2026-10-24 | (this PR) | perf(engine)+fix(frontend): grid step on fuel cells only (2.9-4.5x, bit-identical), progress over spread-able minutes, multi-day time left per day, About run time (E10) [R64] |
 | 2026-10-24 | #102 | test(frontend): fix two flaky tests - saved-runs rows awaited after unlock; evac map click waits for the post-run fit (G8) |
 | 2026-10-24 | (this PR) | fix(frontend): reload re-attach - a run the server no longer has says so once; reattach spec for single, ensemble, multi-day day 2, restart, finished and Reload run (E1) |
