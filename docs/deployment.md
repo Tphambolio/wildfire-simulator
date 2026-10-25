@@ -1,5 +1,8 @@
 # Deployment
 
+Operations (what to do when something breaks, rollback, release checklist): `docs/runbook.md`.
+Uptime monitoring for the API and front end runs from the Pyra repository (Tphambolio/FWI `uptime.yml`).
+
 ## Production
 
 | Part | Where | How it deploys |
