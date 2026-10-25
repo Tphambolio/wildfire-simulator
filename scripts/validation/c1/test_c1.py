@@ -51,3 +51,11 @@ def test_inside_and_bootstrap():
     assert abs(b["mean"] - 0.1) < 1e-12 and abs(b["lo"] - 0.1) < 1e-12
     v = {("f1", 1): {1: 1.0, 2: 0.0}}
     assert A.boot_fire_seed(v)["mean"] == 0.5
+
+
+def test_c1b_interval_error_and_passes():
+    import communities_c1b as CB
+    assert CB.interval_error(5.0, 4.0, 8.0) == 0.0
+    assert CB.interval_error(2.0, 4.0, 8.0) == 2.0
+    assert CB.interval_error(24.0, 4.0, 8.0) == 16.0
+    assert CB._passes(np.array([10.0, 12.0, 100.0, 101.0, 500.0])) == [10.0, 100.0, 500.0]
