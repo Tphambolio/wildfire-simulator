@@ -171,3 +171,4 @@ out a coding error.
 | Date | Pre-registration | Subset / orders | Purpose |
 |---|---|---|---|
 | — | — | — | (none yet; sealed 2026-10-24) |
+| 2026-10-25 | `PREREG_SEALED_CONFIRM_H1H2` (branch `feat/sealed-confirm-h1h2`; registered before the list was opened) | `confirm`, orders 1-16 (all) | **Deciding**, one shot: H1 1-burn-day active-edge rule ([R63], PR #101) and H2 B2 setting P2 ([R65], PR #106), [R67]. Orders 1-16 are spent for deciding from this date; `scorecard` (17-32) untouched |
