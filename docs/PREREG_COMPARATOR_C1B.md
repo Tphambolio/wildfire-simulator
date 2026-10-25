@@ -118,5 +118,5 @@ file's Result section.
 
 ### Run note (appended 2026-10-25)
 
-- A first launch at about 11:31-11:52 MDT broke the owner's resource rule: the runner's own gate let it start while the sealed-confirm ensemble and the v8 draw were still running. The coordinator stopped the C1 rerun, and I killed the chained C1b runner. That runner had started the primary fire-day 2019_133:148: FireSim computed it in memory and a WISE container had started. **No C1b row was written and no C1b output was seen.**
+- A first launch at 11:31-11:39 MDT (workstation clock) broke the owner's resource rule: the runner's own gate let it start while the sealed-confirm ensemble and the v8 draw were still running. The coordinator stopped the C1 rerun, and I killed the chained C1b runner. That runner had started the primary fire-day 2019_133:148: FireSim computed it in memory and a WISE container had started. **No C1b row was written and no C1b output was seen.**
 - All runs now wait until `pgrep -f run_confirm.sh` and `pgrep -f "v8.draw|elmfire"` find nothing and ≥ 14 GB is available, in an outer loop and before every WISE run (commit `81e9950`).
