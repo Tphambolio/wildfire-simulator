@@ -725,3 +725,12 @@ spin-up and the burning period are opt-in.
   diurnal cycle.* Inf. Rep. PS-X-69.
 - Van Wagner, C.E. (1987). *Development and structure of the Canadian Forest Fire Weather Index
   System.* Forestry Tech. Rep. 35.
+
+## Sealed 2026 held-out set (C4, 2026-10-24)
+
+32 western-US wildfires of 2026 (NIFC WFIGS 2026 perimeters, ≥ 5,000 ha, contained) are **sealed** for
+future pre-registered tests: `confirm` 16 for one-shot deciding tests (first planned: the 1-burn-day
+active-edge rule, [R63]), `scorecard` 16 for the per-release re-score. No model has run on them. List sha256
+`b9c7a303c71e63ebc63e9fdf25cda18e8ebcaf61a5af36a3ac69cdd297748e80`. Rules, hashes, the Canadian block
+(NBAC 2026, rules fixed, drawn when it publishes) and the use ledger: `docs/SEALED_2026.md`. Do not run
+anything on these fires without a committed pre-registration.
