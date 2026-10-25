@@ -10,9 +10,10 @@ step with `docs/PROJECT_RECORD.md` §4.2, which holds the full entry (path, cont
 Parallel sessions gave [R39] to three reports on 2026-10-12 (see the [R39] lines). This file exists
 so that does not happen again.
 
-- **Next free number: [R67].** ([R59] is held for the clock follow-up; [R60] is claimed on
-  `feat/front-overspread` (#96), [R62] on #100 and [R63] on #101; those lines are not on `master` yet,
-  so they stay out of this table until their PRs merge. [R66] is this branch's, PR #109.)
+- **Next free number: [R69].** ([R59] is held for the clock follow-up; [R60] is claimed on
+  `feat/front-overspread` (#96), [R62] on #100 and [R63] on #101, [R67] on `feat/sealed-confirm-h1h2`
+  (sealed H1/H2 confirmation) and [R68] on `research/ml-ember-cast` (ML ember-cast); those lines are not
+  on `master` yet, so they stay out of this table until their PRs merge. [R66] merged in #109.)
 - **Status values:** `master` = in the record on `master`; `open PR` = the report's PR is not merged;
   `claimed` = number taken before the report is written or recorded; `withdrawn` = not used, never reuse.
 - Dates are the report dates. "—" in Branch / PR = research report with no code PR of its own
@@ -82,7 +83,7 @@ so that does not happen again.
 | R61 | v7 held-out arrivals recoded with [R53] rules (A3 descriptive addendum; v8 rule check) | `docs/a3-v7-arrivals-recoded` (record only; report and data in `~/dev/wildfire/reports/`) | 2026-10-24 | open PR |
 | R64 | E10 live multi-day run time: throttled shared CPU, a 3-4x faster grid step, honest time left | `perf/e10-live-runtime` | 2026-10-24 | open PR |
 | R65 | Ensemble re-calibration with a bias term (B2, PREREG_ENSEMBLE_B2) | `feat/b2-ensemble-calibration`, #106 | 2026-10-24 | master |
-| R66 | W.I.S.E. black-box comparator on held-out Alberta fire-days (C1, PREREG_COMPARATOR_C1) | `feat/c1-comparator`, #109 | 2026-10-24 | open PR |
+| R66 | W.I.S.E. black-box comparator on held-out Alberta fire-days (C1, PREREG_COMPARATOR_C1) | `feat/c1-comparator`, #109 | 2026-10-24 | master |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.
