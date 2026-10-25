@@ -106,6 +106,9 @@ class SimulationRun:
         # ("request": the restart's own; "source_run": the source's, none was sent)
         self.source_config: SimulationCreate | None = None
         self.weather_source: str = "request"
+        # Active-segment restarts (A1): summary for the response, and the engine options
+        self.active_segments: dict | None = None
+        self.restart_kw: dict = {}
 
     def set_phase(self, phase: str, progress: float | None = None) -> None:
         """Record the run's phase and progress; notify ``on_status`` when the phase changes
@@ -301,6 +304,81 @@ def restart_config(req: PerimeterOverrideRequest,
         "ensemble": None,
     })
     return params, from_source
+
+
+#: Request fields added for the A1 classification (left out of the archived record when no
+#: hotspots / CSV were sent, so an earlier payload archives exactly as before)
+CLASSIFICATION_FIELDS = {"hotspots_geojson", "firms_csv", "classification_radius_m",
+                         "classification_window_h", "classification_segment_m"}
+
+
+def _request_record(req) -> dict:
+    """The restart request as archived: the FIRMS CSV text is replaced by its row count."""
+    classified = req.hotspots_geojson is not None or bool(req.firms_csv)
+    d = req.model_dump(mode="json",
+                       exclude={"firms_csv"} if classified else CLASSIFICATION_FIELDS)
+    if getattr(req, "firms_csv", None):
+        d["firms_csv_rows"] = max(0, req.firms_csv.count("\n") - 1)
+    return d
+
+
+def resolve_active_segments(req, observed_at, has_grid: bool) -> tuple[dict, dict | None]:
+    """Engine options (``active_edges``, buffer) and the response summary of a restart.
+
+    Priority: manual ``active_edges``, then RPAS hotspots, then a FIRMS VIIRS CSV
+    (``firesim.active_segments``). A classification only sets ``active_edges`` (the restart's
+    existing active-edge marking: the rest of the starting fire is burned out). Without
+    hotspots or a CSV the request runs exactly as before (summary None).
+    """
+    from firesim.active_segments import choose_source, classify_request
+
+    src = choose_source(req.active_edges, req.hotspots_geojson, req.firms_csv)
+    kw = {"active_edges": req.active_edges, "active_edge_buffer_m": req.active_edge_buffer_m}
+    if src in (None, "manual"):
+        return kw, None  # no classification field: exactly the earlier request
+    if not has_grid:
+        raise ValueError("active segments need the grid model: the run has no fuel grid")
+    if observed_at is None:
+        raise ValueError("classification from hotspots / VIIRS needs the observation time "
+                         "(start_time)")
+    try:
+        c = classify_request(req.perimeter_geojson, observed_at, req.hotspots_geojson,
+                             req.firms_csv, req.classification_radius_m,
+                             req.classification_window_h, req.classification_segment_m)
+    except (KeyError, TypeError, IndexError) as exc:
+        raise ValueError(f"Invalid classification input: {exc}") from exc
+    edges = c.active_edges()
+    if edges is None:
+        raise ValueError(
+            "No perimeter segment is active (no detection within "
+            f"{req.classification_radius_m:g} m in the {req.classification_window_h:g} h up to "
+            "the observation time): nothing would spread. Run with the whole perimeter active "
+            "or mark active edges by hand.")
+    kw["active_edges"] = edges
+    summary = {"observation_time": observed_at.isoformat(), **c.summary(),
+               "segments": c.feature_collection(), "radius_m": req.classification_radius_m,
+               "window_h": req.classification_window_h,
+               "segment_m": req.classification_segment_m}
+    return kw, summary
+
+
+def _add_run_diagnostics(run) -> None:
+    """Modelled static share of the start perimeter and growth, from the final arrival raster
+    (A1 per-run readout; the observed share cannot be known live)."""
+    if run.active_segments is None:
+        return
+    raster = next((f.arrival_raster for f in reversed(run.frames)
+                   if getattr(f, "arrival_raster", None)), None)
+    if raster is None:
+        return
+    from firesim.active_segments import static_share_from_arrival
+
+    try:
+        run.active_segments.update(static_share_from_arrival(
+            raster["minutes"], raster["lat_min"], raster["lat_max"], raster["lng_min"],
+            raster["lng_max"]))
+    except Exception:  # noqa: BLE001 - a diagnostic must never fail the run
+        logger.warning("Static-share diagnostic failed for %s", run.id, exc_info=True)
 
 
 #: Year each fuel source represents (docs/PROJECT_RECORD.md §4.3 data sources)
@@ -1476,6 +1554,9 @@ class SimulationRunner:
             raise ValueError(f"Invalid perimeter GeoJSON: {exc}") from exc
 
         params, weather_source = restart_config(req, original.config)
+        restart_kw, segments = resolve_active_segments(req, params.start_time,
+                                                       bool(original.config.fuel_grid_path)
+                                                       or original.config.use_ca_mode)
         if params.start_time is None and (req.burning_period is not None or req.ffmc_spin_up):
             raise ValueError("burning_period / ffmc_spin_up need start_time (on the request or "
                              "the source simulation)")
@@ -1492,15 +1573,52 @@ class SimulationRunner:
         run = SimulationRun(sim_id, params)
         run.on_status = on_status
         run.kind = "perimeter_override"
-        run.override_request = req.model_dump(mode="json")
         run.source_config = original.config
         run.weather_source = weather_source
+        run.override_request = _request_record(req)
+        run.restart_kw, run.active_segments = restart_kw, segments
 
         self._store(sim_id, run)
 
         self._start(self._execute_perimeter_override, run, params, initial_front, req,
                     on_frame, clock)
 
+        return sim_id
+
+    def create_observed_perimeter(
+        self,
+        req,
+        on_frame: Callable[[str, SimulationFrame], None] | None = None,
+        on_status: Callable[[str, str, float | None], None] | None = None,
+    ) -> str:
+        """Standalone forecast from an observed perimeter at its observation time (R13/R14).
+
+        ``req`` is an ``ObservedPerimeterRequest``: a normal run request plus the perimeter,
+        its observation time T (the run's start) and the optional A1 classification. Runs
+        through the same path as a perimeter restart (grids, building mask, exposure).
+        """
+        from firesim.spread.geojson_utils import geojson_to_fire_vertices
+
+        try:
+            initial_front = geojson_to_fire_vertices(req.perimeter_geojson)
+        except (ValueError, KeyError, TypeError, IndexError) as exc:
+            raise ValueError(f"Invalid perimeter GeoJSON: {exc}") from exc
+        params = req.run_params()
+        has_grid = bool(params.fuel_grid_path) or params.use_ca_mode
+        if req.active_edges is not None and not has_grid:
+            raise ValueError("active_edges needs the grid model: the request has no fuel grid")
+        restart_kw, segments = resolve_active_segments(req, req.observation_time, has_grid)
+        clock = (params.start_hour(), params.engine_hourly_weather())
+        sim_id = new_run_id()
+        run = SimulationRun(sim_id, params)
+        run.on_status = on_status
+        run.kind = "observed_perimeter"
+        run.override_request = _request_record(req)
+        run.weather_source = "request"
+        run.restart_kw, run.active_segments = restart_kw, segments
+        self._store(sim_id, run)
+        self._start(self._execute_perimeter_override, run, params, initial_front, req,
+                    on_frame, clock)
         return sim_id
 
     def _execute_perimeter_override(
@@ -1523,7 +1641,8 @@ class SimulationRunner:
             prep = self._prepare_inputs(run, params, config)
             simulator = self._simulator(
                 run, config, params, prep, initial_front=initial_front,
-                active_edges=req.active_edges, active_edge_buffer_m=req.active_edge_buffer_m)
+                **(run.restart_kw or {"active_edges": req.active_edges,
+                                      "active_edge_buffer_m": req.active_edge_buffer_m}))
 
             run.set_phase("spread", 0.0)
             for frame in simulator.run():
@@ -1536,6 +1655,7 @@ class SimulationRunner:
                     break
 
             if not run._cancel_event.is_set():
+                _add_run_diagnostics(run)
                 run.status = SimulationStatus.COMPLETED
                 logger.info(
                     "Perimeter override sim %s completed: %d frames",

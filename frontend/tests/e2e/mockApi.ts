@@ -194,6 +194,10 @@ export interface MockState {
   posts: Array<Record<string, unknown>>;
   /** POST /simulations/perimeter-override bodies */
   overridePosts: Array<Record<string, unknown>>;
+  /** POST /simulations/observed-perimeter bodies (A1 standalone forecast) */
+  observedPosts: Array<Record<string, unknown>>;
+  /** POST /simulations/classify-perimeter bodies */
+  classifyPosts: Array<Record<string, unknown>>;
   wsConnections: number;
   polls: number;
   ensemblePolls: number;
@@ -222,7 +226,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
   const fx = opts.structure ? structureFixture : fixture;
   const frameDelayMs = opts.frameDelayMs ?? 40;
   const state: MockState = {
-    posts: [], overridePosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0, multidayPosts: [], ensemblePollIds: [],
+    posts: [], overridePosts: [], observedPosts: [], classifyPosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0, multidayPosts: [], ensemblePollIds: [],
     ensembleCancels: [], gone: new Set(), archived: new Set(), getIds: [],
   };
   const shift = (frames: Fixture["frames"]) => (opts.translate ? translateFrames(frames, opts.translate) : frames);
@@ -273,6 +277,29 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       // The restart replays the same fixture frames
       state.overridePosts.push(req.postDataJSON() as Record<string, unknown>);
       return json(route, { simulation_id: fx.simulation_id, status: "running", config: fx.config, frames: [], error: null });
+    }
+    if (path === "/api/v1/simulations/observed-perimeter" && req.method() === "POST") {
+      // The standalone forecast replays the same fixture frames
+      state.observedPosts.push(req.postDataJSON() as Record<string, unknown>);
+      return json(route, { simulation_id: fx.simulation_id, status: "running", config: fx.config, frames: [], error: null });
+    }
+    if (path === "/api/v1/simulations/classify-perimeter" && req.method() === "POST") {
+      // A fixed answer: the first quarter of the perimeter ring active, the rest not
+      const body = req.postDataJSON() as { perimeter_geojson: { type: string; coordinates: number[][][] } };
+      state.classifyPosts.push(body as unknown as Record<string, unknown>);
+      const ring = body.perimeter_geojson.coordinates[0];
+      const k = Math.max(2, Math.floor(ring.length / 4));
+      const active = ring.slice(0, k);
+      const inactive = ring.slice(k - 1);
+      return json(route, {
+        summary: { source: "rpas_hotspots", n_segments: 4, n_active: 1, n_inactive: 3, n_detections_read: 3,
+          n_detections_used: 2, radius_m: 1000, window_h: 12 },
+        active_edges: { type: "MultiLineString", coordinates: [active] },
+        segments: { type: "FeatureCollection", features: [
+          { type: "Feature", properties: { status: "active" }, geometry: { type: "LineString", coordinates: active } },
+          { type: "Feature", properties: { status: "inactive" }, geometry: { type: "LineString", coordinates: inactive } },
+        ] },
+      });
     }
     if (path === "/api/v1/simulations/multiday" && req.method() === "POST") {
       const body = req.postDataJSON() as Record<string, unknown>;

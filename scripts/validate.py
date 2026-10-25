@@ -299,6 +299,11 @@ def cmd_run(args) -> None:
 
         split = split_fires({m["fire_id"] for m in manifest})
         tasks = [t for t in tasks if split[t["fire_id"]] == args.split]
+    if args.start_types:
+        # Start-type stratum ([R58]); the tag uses CFSDS DOB before the burn day only
+        keep = set(args.start_types)
+        tasks = [t for t in tasks
+                 if _start_type_of(t["fire_id"], t["day"]).get("start_type") in keep]
     if args.max_det_run_s:
         # Fire-days whose deterministic run (in --det-run) took at most this long: an
         # outcome-blind way to keep N-member ensembles affordable
@@ -810,6 +815,10 @@ def main() -> None:
                    help="active: only the last --active-days days' growth is active")
     r.add_argument("--active-days", type=int, default=1)
     r.add_argument("--active-buffer-m", type=float, default=None)
+    r.add_argument("--start-types", nargs="+", default=None,
+                   choices=("point", "fresh", "mature"),
+                   help="only fire-days of these start types (start_strata; uses DOB "
+                        "before the burn day only)")
     r.add_argument("--ffmc-spinup", action="store_true",
                    help="start the hourly FFMC at 17:00 the previous day")
     r.add_argument("--burning-period", type=float, nargs=2, default=None,

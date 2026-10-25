@@ -692,6 +692,10 @@ class SimulationResponse(BaseModel):
     #: Set when the scenario start is before the year the fuel grid represents
     #: (fuel_source.vintage_year): areas burned since may be mapped as grass or non-fuel
     fuel_vintage_warning: str | None = None
+    #: Restarts classified from RPAS hotspots / VIIRS (A1): classification source, segments
+    #: active / inactive, the segments as GeoJSON, and after the run the modelled static share
+    #: of the start perimeter and growth (docs/active-segments.md); None for other runs
+    active_segments: dict | None = None
 
 
 class DayWeatherParams(BaseModel):
@@ -776,7 +780,55 @@ class MultiDaySimulationCreate(BaseModel):
         return self
 
 
-class PerimeterOverrideRequest(BaseModel):
+def _check_geometry(v: dict | None) -> dict | None:
+    allowed = {"Point", "MultiPoint", "LineString", "MultiLineString", "Polygon",
+               "MultiPolygon", "GeometryCollection"}
+    if v is not None and v.get("type") not in allowed:
+        raise ValueError("active_edges must be a GeoJSON geometry: " + ", ".join(sorted(allowed)))
+    return v
+
+
+class ActiveSegmentFields(BaseModel):
+    """Active-edge classification of an observed perimeter (A1; all optional, additive).
+
+    Source priority: ``active_edges`` (manual) if given, else ``hotspots_geojson`` (RPAS
+    thermal), else ``firms_csv`` (VIIRS 375 m). Hotspots and VIIRS are classified by the rule
+    in ``firesim.active_segments`` (a 250 m boundary segment is active when a detection lies
+    within ``classification_radius_m`` of it in the ``classification_window_h`` hours up to the
+    observation time) and the active segments are used as ``active_edges``: the rest of the
+    starting fire is treated as burned out, exactly as for hand-marked edges. The rule is not
+    validated against real RPAS thermal flights.
+    """
+
+    hotspots_geojson: dict | None = Field(
+        default=None,
+        description=(
+            "RPAS thermal hotspots: GeoJSON FeatureCollection of Point / MultiPoint features, "
+            "each with a time property (`time`, ISO 8601; also `datetime`, `observed_at`, "
+            "`timestamp`). Used when active_edges is not given."),
+    )
+    firms_csv: str | None = Field(
+        default=None, max_length=8_000_000,
+        description=(
+            "NASA FIRMS CSV text (VIIRS 375 m; columns latitude, longitude, acq_date, acq_time "
+            "UTC, confidence): nominal and high confidence rows are used. Used when neither "
+            "active_edges nor hotspots_geojson is given."),
+    )
+    classification_radius_m: float = Field(default=1000.0, gt=0, le=5000)
+    classification_window_h: float = Field(default=12.0, gt=0, le=72)
+    classification_segment_m: float = Field(default=250.0, ge=10, le=2000)
+
+    @field_validator("active_edges", check_fields=False)
+    @classmethod
+    def _active_edges_is_geometry(cls, v: dict | None) -> dict | None:
+        return _check_geometry(v)
+
+    def classification_wanted(self) -> bool:
+        return getattr(self, "active_edges", None) is None and (
+            self.hotspots_geojson is not None or bool(self.firms_csv))
+
+
+class PerimeterOverrideRequest(ActiveSegmentFields):
     """Request to restart a simulation from an observed (e.g. drone) fire perimeter.
 
     The observed perimeter (GeoJSON geometry) replaces the model-predicted front and starts
@@ -880,14 +932,90 @@ class PerimeterOverrideRequest(BaseModel):
                                  "(hours_from_start < duration_hours)")
         return self
 
-    @field_validator("active_edges")
+
+
+class ObservedPerimeterRequest(ActiveSegmentFields, SimulationCreate):
+    """Standalone forecast from an observed perimeter at observation time T (owner items
+    R13/R14; backlog A1). No source run is needed: the body is a normal run request (weather,
+    FWI codes, fuel, buildings, options) plus the perimeter and its observation time, and the
+    run starts from the perimeter at T (frame times are hours after T)."""
+
+    perimeter_geojson: dict = Field(
+        ..., description="Observed perimeter: GeoJSON Polygon or MultiPolygon geometry, [lng, lat]")
+    observation_time: datetime = Field(
+        ..., description="Time of the observed perimeter T, ISO 8601 with a UTC offset (required). "
+                         "The run starts at T; start_time, when sent, must equal it.")
+    ignition_lat: float | None = Field(  # type: ignore[assignment]
+        default=None, ge=-90, le=90, description="Default: the perimeter's centroid")
+    ignition_lng: float | None = Field(  # type: ignore[assignment]
+        default=None, ge=-180, le=180, description="Default: the perimeter's centroid")
+    active_edges: dict | None = Field(
+        default=None, description="Manual active edges, as for perimeter-override")
+    active_edge_buffer_m: float | None = Field(default=None, ge=0, le=5000)
+
+    @model_validator(mode="before")
     @classmethod
-    def _active_edges_is_geometry(cls, v: dict | None) -> dict | None:
-        allowed = {"Point", "MultiPoint", "LineString", "MultiLineString", "Polygon",
-                   "MultiPolygon", "GeometryCollection"}
-        if v is not None and v.get("type") not in allowed:
-            raise ValueError("active_edges must be a GeoJSON geometry: "
-                             + ", ".join(sorted(allowed)))
+    def _clock_and_centroid(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        t = data.get("observation_time")
+        if t is None:
+            raise ValueError("observation_time is required (the time of the observed perimeter)")
+        st = data.get("start_time")
+        if st is not None and str(st) != str(t):
+            ts = datetime.fromisoformat(str(st).replace("Z", "+00:00"))
+            to = datetime.fromisoformat(str(t).replace("Z", "+00:00"))
+            if ts != to:
+                raise ValueError("start_time must equal observation_time (the run starts at T)")
+        data["start_time"] = t
+        if data.get("ensemble"):
+            raise ValueError("ensembles are not offered for observed-perimeter runs")
+        per = data.get("perimeter_geojson") or {}
+        if data.get("ignition_lat") is None or data.get("ignition_lng") is None:
+            try:
+                ring = (per["coordinates"][0] if per.get("type") == "Polygon"
+                        else per["coordinates"][0][0])
+                if len(ring) > 1 and list(ring[0]) == list(ring[-1]):
+                    ring = ring[:-1]  # closed ring: count the first vertex once
+                data["ignition_lng"] = sum(c[0] for c in ring) / len(ring)
+                data["ignition_lat"] = sum(c[1] for c in ring) / len(ring)
+            except (KeyError, IndexError, TypeError, ZeroDivisionError) as exc:
+                raise ValueError("perimeter_geojson must be a Polygon or MultiPolygon "
+                                 "geometry") from exc
+        return data
+
+    @field_validator("observation_time")
+    @classmethod
+    def _t_has_offset(cls, v: datetime) -> datetime:
+        if v.tzinfo is None:
+            raise ValueError("observation_time needs a UTC offset (e.g. -06:00 or Z)")
+        return v
+
+    def run_params(self) -> SimulationCreate:
+        """The run request (SimulationCreate) without the perimeter fields."""
+        extra = set(ObservedPerimeterRequest.model_fields) - set(SimulationCreate.model_fields)
+        return SimulationCreate.model_validate(
+            self.model_dump(exclude=extra | {"active_edges", "active_edge_buffer_m"}))
+
+
+class ClassifyPerimeterRequest(BaseModel):
+    """Classify an observed perimeter's boundary into active / inactive segments (no run;
+    the rule is not validated against real RPAS thermal flights)."""
+
+    perimeter_geojson: dict
+    observation_time: datetime
+    hotspots_geojson: dict | None = None
+    firms_csv: str | None = Field(default=None, max_length=8_000_000)
+    classification_radius_m: float = Field(default=1000.0, gt=0, le=5000)
+    classification_window_h: float = Field(default=12.0, gt=0, le=72)
+    classification_segment_m: float = Field(default=250.0, ge=10, le=2000)
+
+    @field_validator("observation_time")
+    @classmethod
+    def _t_has_offset(cls, v: datetime) -> datetime:
+        if v.tzinfo is None:
+            raise ValueError("observation_time needs a UTC offset (e.g. -06:00 or Z)")
         return v
 
 

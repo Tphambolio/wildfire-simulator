@@ -66,6 +66,7 @@ import SetupSection from "./components/SetupSection";
 import SavedRunsPanel from "./components/SavedRunsPanel";
 import RunLabelField from "./components/RunLabelField";
 import { withRunLabel, type SavedRun } from "./services/savedRuns";
+import { buildObservedRequest, type OverrideInputs } from "./utils/activeEdges";
 import SituationPanel from "./components/SituationPanel";
 import { CollapseButton, SideRail } from "./components/SideRail";
 import { isTypingTarget, useLayout } from "./hooks/useLayout";
@@ -475,6 +476,8 @@ export default function App() {
     startSimulation,
     startMultiDaySimulation,
     startPerimeterOverride,
+    startObservedPerimeter,
+    activeSegments: runActiveSegments,
     prepareRun,
     restoreRun,
     setFrameIndex,
@@ -561,6 +564,31 @@ export default function App() {
       startPerimeterOverride(req);
     },
     [startPerimeterOverride, cancelReconDrawing, leaveCurrentRun, scenarioStart, frames]
+  );
+
+  // Standalone forecast from an observed perimeter at T (A1, owner items R13/R14): Setup's
+  // run request (WeatherPanel's builder) with the perimeter instead of the ignition
+  const observedBuilderRef = useRef<((atMs: number) => SimulationCreate) | null>(null);
+  const [canForecastObserved, setCanForecastObserved] = useState(false);
+  const handleRequestBuilder = useCallback((b: ((atMs: number) => SimulationCreate) | null) => {
+    observedBuilderRef.current = b;
+    setCanForecastObserved(!!b);
+  }, []);
+  const handleObservedStart = useCallback(
+    (inputs: Omit<OverrideInputs, "simulationId">, observationIso: string) => {
+      const build = observedBuilderRef.current;
+      const t = Date.parse(observationIso);
+      if (!build || !Number.isFinite(t)) return;
+      const req = buildObservedRequest(build(t), inputs, observationIso);
+      leaveCurrentRun();
+      setCarriedFire([]);
+      setScenarioStart(new Date(t));
+      setRunBurningPeriod(req.burning_period ?? null);
+      setLastRunSpinUp(false);
+      cancelReconDrawing();
+      startObservedPerimeter(withRunLabel(req, runLabel));
+    },
+    [startObservedPerimeter, cancelReconDrawing, leaveCurrentRun, runLabel]
   );
 
   const handleStartMultiDay = useCallback(
@@ -1288,6 +1316,7 @@ export default function App() {
             runBarTarget={runBarEl}
             onSkillOptions={setSkillOptions}
             onSetupWeather={setSetupWeather}
+            onRequestBuilder={handleRequestBuilder}
             onNewIgnition={!isRunning && frames.length > 0 ? armNewIgnition : undefined}
             onRunRequested={handleRunRequested}
             runRequest={runRequest}
@@ -1318,7 +1347,7 @@ export default function App() {
             title="Observed perimeter (RPAS)"
             summary={
               !simulationId
-                ? "Available after a run"
+                ? (canForecastObserved ? (recon.state.perimeter ? "Perimeter loaded · forecast from it" : "Forecast from an observed perimeter") : "Available after a run")
                 : recon.state.perimeter
                   ? `Perimeter loaded · ${recon.state.mode === "whole" ? "whole perimeter active" : `${recon.lines.length} active edge${recon.lines.length === 1 ? "" : "s"}`}`
                   : "Restart this run from an observed perimeter"
@@ -1334,6 +1363,8 @@ export default function App() {
               burningPeriod={skillOptions.burningPeriod}
               spinUp={skillOptions.spinUp && lastRunSpinUp}
               setupWeather={setupWeather}
+              onObservedStart={canForecastObserved ? handleObservedStart : undefined}
+              runActiveSegments={runActiveSegments}
             />
           </SetupSection>
           <SetupSection

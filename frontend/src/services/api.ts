@@ -1,6 +1,6 @@
 /** API client for the FireSim backend. */
 
-import type { SimulationCreate, MultiDaySimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse, PerimeterOverrideRequest, HourlyWeatherParams } from "../types/simulation";
+import type { SimulationCreate, MultiDaySimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse, PerimeterOverrideRequest, HourlyWeatherParams, ObservedPerimeterRequest, ClassifyPerimeterResponse } from "../types/simulation";
 import type { EnsembleResponse } from "../utils/ensemble";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
@@ -140,6 +140,39 @@ export async function createPerimeterOverride(
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     throw new Error(err.detail || "Perimeter override request failed");
+  }
+  return resp.json();
+}
+
+/** Standalone forecast from an observed perimeter at observation time T (A1) */
+export async function createObservedPerimeter(req: ObservedPerimeterRequest): Promise<SimulationResponse> {
+  const resp = await fetch(`${API_BASE}/api/v1/simulations/observed-perimeter`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(typeof err.detail === "string" ? err.detail : "Observed-perimeter request failed");
+  }
+  return resp.json();
+}
+
+/** Classify an observed perimeter into active / inactive segments (no run; A1) */
+export async function classifyPerimeter(req: {
+  perimeter_geojson: GeoJSON.Geometry;
+  observation_time: string;
+  hotspots_geojson?: GeoJSON.FeatureCollection | null;
+  firms_csv?: string | null;
+}): Promise<ClassifyPerimeterResponse> {
+  const resp = await fetch(`${API_BASE}/api/v1/simulations/classify-perimeter`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(typeof err.detail === "string" ? err.detail : "Classification failed");
   }
   return resp.json();
 }
