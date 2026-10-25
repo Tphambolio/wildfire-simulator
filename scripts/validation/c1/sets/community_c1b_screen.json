@@ -1,0 +1,209 @@
+[
+ {
+  "fire_id": "2016_255",
+  "day": 124,
+  "year": 2016,
+  "area_ha": 461707,
+  "communities": [
+   "Fort McMurray (urban service area, Wood Buffalo)"
+  ]
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 125,
+  "year": 2016,
+  "area_ha": 461707,
+  "communities": [
+   "Saprae Creek Estates (hamlet, Wood Buffalo)",
+   "Draper (locality, Wood Buffalo)"
+  ]
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 126,
+  "year": 2016,
+  "area_ha": 461707,
+  "communities": [
+   "Anzac (hamlet, Wood Buffalo)",
+   "Saprae Creek (hamlet, Wood Buffalo)",
+   "Lenarthur (locality, Wood Buffalo)"
+  ]
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 127,
+  "year": 2016,
+  "area_ha": 461707,
+  "communities": [
+   "Gregoire Lake Estates (hamlet, Wood Buffalo)"
+  ]
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 128,
+  "year": 2016,
+  "area_ha": 461707,
+  "communities": [
+   "Kinosis (locality, Wood Buffalo)"
+  ]
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 135,
+  "year": 2016,
+  "area_ha": 461707,
+  "communities": [
+   "Cheecham (locality, Wood Buffalo)"
+  ]
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 139,
+  "year": 2016,
+  "area_ha": 461707,
+  "communities": [
+   "Christina Crossing (locality, Wood Buffalo)"
+  ]
+ },
+ {
+  "fire_id": "2019_133",
+  "day": 148,
+  "year": 2019,
+  "area_ha": 61170,
+  "communities": [
+   "Steen River (hamlet, Mackenzie County)"
+  ]
+ },
+ {
+  "fire_id": "2019_172",
+  "day": 143,
+  "year": 2019,
+  "area_ha": 318153,
+  "communities": [
+   "High Level"
+  ]
+ },
+ {
+  "fire_id": "2019_172",
+  "day": 147,
+  "year": 2019,
+  "area_ha": 318153,
+  "communities": [
+   "Metis (locality, Mackenzie County)"
+  ]
+ },
+ {
+  "fire_id": "2019_172",
+  "day": 148,
+  "year": 2019,
+  "area_ha": 318153,
+  "communities": [
+   "Paddle Prairie (M\u00e9tis settlement, Northern Lights County)"
+  ]
+ },
+ {
+  "fire_id": "2022_483",
+  "day": 246,
+  "year": 2022,
+  "area_ha": 5898,
+  "communities": [
+   "Snaring (locality, Improvement District No. 12 Jasper Park)"
+  ]
+ },
+ {
+  "fire_id": "2023_317",
+  "day": 234,
+  "year": 2023,
+  "area_ha": 350844,
+  "communities": [
+   "Fort Fitzgerald (hamlet, Thebathi 196)",
+   "Thebathi 196"
+  ]
+ },
+ {
+  "fire_id": "2023_364",
+  "day": 125,
+  "year": 2023,
+  "area_ha": 90909,
+  "communities": [
+   "East Prairie (M\u00e9tis settlement, Big Lakes County)"
+  ]
+ },
+ {
+  "fire_id": "2023_366",
+  "day": 160,
+  "year": 2023,
+  "area_ha": 190382,
+  "communities": [
+   "Erith (locality, Yellowhead County)"
+  ]
+ },
+ {
+  "fire_id": "2023_681",
+  "day": 125,
+  "year": 2023,
+  "area_ha": 72751,
+  "communities": [
+   "Fox Lake (hamlet, Fox Lake 162)"
+  ]
+ },
+ {
+  "fire_id": "2023_681",
+  "day": 138,
+  "year": 2023,
+  "area_ha": 72751,
+  "communities": [
+   "Fifth Meridian (locality, Mackenzie County)"
+  ]
+ },
+ {
+  "fire_id": "2023_704",
+  "day": 138,
+  "year": 2023,
+  "area_ha": 4785,
+  "communities": [
+   "Decrene (locality, Lesser Slave River No. 124)"
+  ]
+ },
+ {
+  "fire_id": "2023_708",
+  "day": 125,
+  "year": 2023,
+  "area_ha": 5856,
+  "communities": [
+   "Entwistle (hamlet, Parkland County)",
+   "Evansburg (hamlet, Yellowhead County)",
+   "Lobstick (locality, Yellowhead County)",
+   "Styal (locality, Yellowhead County)"
+  ]
+ },
+ {
+  "fire_id": "2023_709",
+  "day": 125,
+  "year": 2023,
+  "area_ha": 3009,
+  "communities": [
+   "Poplar Ridge (hamlet, Brazeau County)",
+   "Drayton Valley"
+  ]
+ },
+ {
+  "fire_id": "2023_712",
+  "day": 137,
+  "year": 2023,
+  "area_ha": 54382,
+  "communities": [
+   "Fox Creek"
+  ]
+ },
+ {
+  "fire_id": "2024_451",
+  "day": 205,
+  "year": 2024,
+  "area_ha": 30815,
+  "communities": [
+   "Jasper (locality, Jasper)",
+   "Jasper Park Lodge (locality, Jasper)"
+  ]
+ }
+]
