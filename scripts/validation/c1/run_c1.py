@@ -22,6 +22,7 @@ import argparse
 import json
 import logging
 import math
+import os
 import random
 import shutil
 import subprocess
@@ -54,10 +55,35 @@ def free_gb() -> float:
     return math.nan
 
 
+GATE = {"free_gb": MIN_FREE_GB, "exclusive": False, "stop_below_gb": None}
+HEAVY = Path("/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/heavyjobs.slice")
+OTHER_JOB_BYTES = 1.5e9  # a heavyjobs.slice scope above this (not ours) counts as a heavy job
+
+
+def other_heavy_jobs() -> list[str]:
+    """Heavy jobs other than this process: heavyjobs.slice scopes using > 1.5 GB that do not
+    contain this process, and docker containers other than ours and the MQTT broker."""
+    me = Path(f"/proc/{os.getpid()}/cgroup").read_text().strip().split("/")[-1]
+    out = []
+    for sc in HEAVY.glob("*.scope") if HEAVY.exists() else []:
+        try:
+            if sc.name != me and int((sc / "memory.current").read_text()) > OTHER_JOB_BYTES:
+                out.append(sc.name)
+        except OSError:
+            pass
+    r = subprocess.run(["docker", "ps", "--format", "{{.Names}}"], capture_output=True, text=True)
+    out += [n for n in r.stdout.split() if n and not n.startswith("c1wise_") and n != "flighthub-emqx"]
+    return out
+
+
 def wait_for_memory(log: logging.Logger) -> None:
-    while free_gb() < MIN_FREE_GB:
-        log.info("waiting: %.1f GB available < %.0f GB", free_gb(), MIN_FREE_GB)
-        time.sleep(60)
+    while True:
+        busy = other_heavy_jobs() if GATE["exclusive"] else []
+        if free_gb() >= GATE["free_gb"] and not busy:
+            return
+        log.info("waiting: %.1f GB available (need %.0f); other heavy jobs: %s", free_gb(),
+                 GATE["free_gb"], busy)
+        time.sleep(120)
 
 
 def opts_operational():
@@ -129,7 +155,8 @@ def run_day(fid: str, day: int, args, log) -> list[dict]:
         meta = WJ.build_job(d, case, opts, setup, burning, burned_out, step_min=args.step_min,
                             cores=args.cores, hourly_ffmc=hff)
         meta["hourly_ffmc"] = {f"{k:%H}": round(v, 2) for k, v in sorted(hff.items())}
-        wr = WJ.run_wise(d, timeout_s=args.timeout)
+        wr = WJ.run_wise(d, timeout_s=args.timeout, stop_below_gb=GATE["stop_below_gb"])
+        wr["mem_cap"] = WJ.MEM
         row = dict(base, kind="det", firesim_run_s=fs["run_s"], wise=wr, wise_meta=meta)
         fs_scores = score_day(case, fs["arrival"], opts)
         row["obs_growth_ha"] = fs_scores["obs_growth_ha"]
@@ -205,7 +232,7 @@ def run_ensemble(case, opts, setup, fs, start, burning, burned_out, comms, base,
             hff = WJ.hourly_ffmc_of(case, cfg, setup["fuel_grid"])
             meta = WJ.build_job(d, case, opts, setup, burning, burned_out, member=member,
                                 step_min=args.step_min, cores=args.cores, hourly_ffmc=hff)
-            wr = WJ.run_wise(d, timeout_s=args.timeout)
+            wr = WJ.run_wise(d, timeout_s=args.timeout, stop_below_gb=GATE["stop_below_gb"])
             wise_runs.append({k: wr[k] for k in ("ok", "rc", "run_s", "peak_mb", "err")})
             if wr["ok"]:
                 w_stack[i] = WJ.arrival_from_perims(d, case, start, meta)
@@ -242,7 +269,17 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, nargs="+", default=[1])
     ap.add_argument("--ensemble-only", action="store_true")
     ap.add_argument("--keep-jobs", action="store_true")
+    ap.add_argument("--mem", default=None, help="WISE container memory cap (default 5g)")
+    ap.add_argument("--gate-free-gb", type=float, default=MIN_FREE_GB,
+                    help="start a WISE run only with this much memory available")
+    ap.add_argument("--gate-exclusive", action="store_true",
+                    help="also wait until no other heavy job runs (other_heavy_jobs)")
+    ap.add_argument("--stop-below-gb", type=float, default=None,
+                    help="kill the run and stop the batch if available memory falls below this")
     a = ap.parse_args()
+    if a.mem:
+        WJ.MEM = a.mem
+    GATE.update(free_gb=a.gate_free_gb, exclusive=a.gate_exclusive, stop_below_gb=a.stop_below_gb)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     logging.getLogger("firesim").setLevel(logging.WARNING)
     log = logging.getLogger("c1")
@@ -270,6 +307,9 @@ def main() -> None:
         t0 = time.time()
         try:
             rows = run_day(fid, day, sub, log)
+        except WJ.LowMemoryStop as exc:
+            log.error("stopping the batch: %s", exc)
+            break
         except Exception as exc:  # noqa: BLE001 (recorded, the batch continues)
             log.exception("%s:%d failed", fid, day)
             rows = [{"fire_id": fid, "day": day, "kind": "error", "error": repr(exc)}]

@@ -262,8 +262,21 @@ def hourly_ffmc_of(case, config, fuel_grid) -> dict:
     return out
 
 
-def run_wise(d: Path, timeout_s: int = 10800) -> dict:
-    """Run the job in ``d`` in its own container (``--memory`` capped); time and peak memory."""
+class LowMemoryStop(RuntimeError):
+    """The host's available memory fell below the stop threshold during a WISE run."""
+
+
+def mem_available_gb() -> float:
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) / 1024 ** 2
+    return math.nan
+
+
+def run_wise(d: Path, timeout_s: int = 10800, stop_below_gb: float | None = None) -> dict:
+    """Run the job in ``d`` in its own container (``--memory`` capped); time and peak memory.
+    With ``stop_below_gb``, the container is killed and LowMemoryStop raised if the host's
+    available memory falls below it (owner rule for the 10 GB reruns)."""
     name = f"c1wise_{d.name}_{os.getpid()}"[:60]
     cmd = ["docker", "run", "--rm", "--name", name, "--memory", MEM, "--memory-swap", MEM,
            "-u", f"{os.getuid()}:{os.getgid()}", "-v", f"{d}:/work", "-e", "HOME=/tmp",
@@ -271,8 +284,14 @@ def run_wise(d: Path, timeout_s: int = 10800) -> dict:
     peak = [0.0]
     stop = threading.Event()
 
+    low = [False]
+
     def sample():
         while not stop.wait(3.0):
+            if stop_below_gb is not None and mem_available_gb() < stop_below_gb:
+                low[0] = True
+                subprocess.run(["docker", "kill", name], capture_output=True)
+                return
             r = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", name],
                                capture_output=True, text=True)
             v = r.stdout.strip().split("/")[0].strip()
@@ -296,6 +315,8 @@ def run_wise(d: Path, timeout_s: int = 10800) -> dict:
         rc, err = -9, "timeout"
     stop.set()
     th.join(timeout=5)
+    if low[0]:
+        raise LowMemoryStop(f"available memory < {stop_below_gb} GB during {d.name}")
     ok = rc == 0 and (d / "Outputs/perim.shp").exists()
     return {"ok": ok, "rc": rc, "err": err if not ok else "", "run_s": time.time() - t0,
             "peak_mb": peak[0]}
