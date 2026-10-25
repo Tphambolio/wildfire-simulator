@@ -185,6 +185,26 @@ of §6 that were removed as `rule5_no_end_time` (100 % contained, no containment
 - **Script:** `scripts/validation/sealed2026/draw_supplement.py`, committed and pushed after this text and
   before it is run; its sha256 and the result go below.
 
+**Result (appended 2026-10-25 after the run; nothing above was edited).**
+- **Rules commit:** `df9443f` (this §6a text, pushed before the script existed); **script commit:** `159eeed`,
+  `draw_supplement.py` sha256 `614453cbbec6465195b46f737062ea28fc9a3fb2ea1026bb17d2f99d0c53ea02`, pushed before
+  it was run; run once under `capjob` (3 GB cap), no error; the pool snapshot and the main seal matched their §6
+  sha256s.
+- **Candidates:** 24 (as §6). **Removed:** initial point more than 2 km from the final perimeter 4; overlapping
+  duplicate within the block 1; name found in the record (rule 8; 6,372 text files scanned) 1; in or overlapping
+  the main seal 0; duplicate IRWIN 0; complex 0.
+- **Sealed: 18 fires**, all subset `scale` (CA 2, MT 2, NM 1, NV 1, OR 9, UT 1, WA 2). Seed `S_SEAL_US_SUPP =
+  2026102403`. End times are blank (none recorded); `percent_contained` is 100 for every record.
+
+| Sealed file (`~/dev/wildfire/validation-data/sealed2026/`) | sha256 |
+|---|---|
+| **`us/sealed_us_2026_supp.csv` (the seal)** | **`ed7cc5110f4c325d1072ae12979161e637b745e3828285f509698034ab465dc1`** |
+| `us/sealed_us_2026_supp_perimeters.geojson` | `041a269b70eab4df14fab438559f415ff330f5960b1d77bb54912f028901b57b` |
+| `us/supp_eligibility_log.csv` | `dd48c57293e477081a99778ef5684b221f998c6bc8d9f03f29bd8c773126b539` |
+
+Nothing was run on any of these fires. No hotspot, weather or growth record of any 2026 fire was opened. The
+sealed US set is now the 32 fires of §6 (`confirm` 16, `scorecard` 16) plus this `scale` block of 18.
+
 ---
 
 ### 6b. Canadian block draw result
