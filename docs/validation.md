@@ -47,7 +47,9 @@ scored by the same code. 17 h F1 FireSim 0.251 vs WISE 0.261, difference −0.01
 +0.014 [−0.002, +0.032]): **level with WISE defaults** (non-inferior, margin 0.03). Community arrival:
 no held-out community was reached by anyone (degenerate). Shared-input 10-member ensemble coverage
 18 % vs 13 % (+0.042 [−0.020, +0.136]); both far too narrow. Day-by-day F1 correlation 0.95: the shared
-error lies in the inputs and FBP rates, not the spread engine.
+error lies in the inputs and FBP rates, not the spread engine. Owner (2026-10-25): margins confirmed;
+coverage recorded, not decisive (re-registered after B2); community arrival re-tested on a set with
+observed arrivals (`docs/PREREG_COMPARATOR_C1B.md`).
 
 ## Rescored on the pre-fire fuel grid (2026-10-15)
 

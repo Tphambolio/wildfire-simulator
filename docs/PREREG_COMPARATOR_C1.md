@@ -209,3 +209,10 @@ Statistics Canada Open Licence). No ML. Nothing requested from any agency.
 - **Three-part target (§7): met (non-inferior on all three)**, with the caveats that metric 2 is degenerate on this set and metric 3 compares two badly under-dispersed ensembles.
 - **WISE failures:** deterministic 9 of 79 (11.4 %), ensemble members 15 of 1,171 attempted (1.3 %; 15 of 130 day-seeds), all exit 137 at the 5 GB container memory cap; no timeouts or crashes. 129 later members of failed day-seeds skipped (deviation 1).
 - **Deviations:** (1) commit `5a818dd` (after the deterministic phase): the runner skips the remaining WISE members of a day-seed once one has failed; under §8 such a day-seed is already a failure, so no registered number can change; FireSim members all ran; runners restarted 2026-10-24 16:22 MDT keeping completed rows. (2) Deterministic rows carry commit `cf514b7` or `4d1ad71` (docs-only report-number claim). No registered cut was needed (both seeds finished in < 36 h).
+
+### Owner follow-ups (appended 2026-10-25; Travis Kennedy, ~11:15 MDT)
+
+- **Margins confirmed** for this result as registered: 0.03 (17 h F1), 1.0 h (community arrival), 10 percentage points (coverage).
+- **Coverage: recorded, not decisive.** The coverage comparison above stands as recorded, but it does not count towards the "Prometheus-level" target: both shared-input ensembles are badly under-dispersed (18 % and 13 % against an ideal of about 80 %). A coverage test is to be defined and registered afresh after the B2 ensemble recalibration.
+- **10 GB rerun of the WISE failures approved** as a one-off exception to the 5 GB rule (one container at a time, only with ≥ 14 GB available and no other heavy job, stop below 4 GB). It is a disclosed add-on: the registered numbers above do not change. Result appended below when run.
+- **Community arrival:** a new fire-day set with observed community arrivals is pre-registered separately in `docs/PREREG_COMPARATOR_C1B.md` (commit `eb5a116`, pushed 2026-10-25 11:26:37 MDT, before any model run on it).
