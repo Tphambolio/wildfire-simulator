@@ -290,7 +290,7 @@ def run_wise(d: Path, timeout_s: int = 10800, stop_below_gb: float | None = None
         while not stop.wait(3.0):
             if stop_below_gb is not None and mem_available_gb() < stop_below_gb:
                 low[0] = True
-                subprocess.run(["docker", "kill", name], capture_output=True)
+                subprocess.run(["docker", "stop", "-t", "5", name], capture_output=True)
                 return
             r = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", name],
                                capture_output=True, text=True)
@@ -315,8 +315,9 @@ def run_wise(d: Path, timeout_s: int = 10800, stop_below_gb: float | None = None
         rc, err = -9, "timeout"
     stop.set()
     th.join(timeout=5)
-    if low[0]:
-        raise LowMemoryStop(f"available memory < {stop_below_gb} GB during {d.name}")
+    if low[0]:  # stopped for host memory: recorded as such (owner rule), not a WISE failure
+        return {"ok": False, "rc": rc, "err": f"stopped for memory (< {stop_below_gb} GB available)",
+                "stopped_for_memory": True, "run_s": time.time() - t0, "peak_mb": peak[0]}
     ok = rc == 0 and (d / "Outputs/perim.shp").exists()
     return {"ok": ok, "rc": rc, "err": err if not ok else "", "run_s": time.time() - t0,
             "peak_mb": peak[0]}
