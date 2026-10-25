@@ -39,6 +39,16 @@ rescore, 2026-10-17 [R49]): coverage 49 %, CRPS 0.407 (2014b rerun 0.465; better
 of days: closer to the observed area, but still too narrow and over-confident. See "Ensemble
 calibration".
 
+**W.I.S.E. head-to-head on the held-out set (C1, 2026-10-25 [R66]).** Pre-registered
+(`docs/PREREG_COMPARATOR_C1.md`, `cf514b7`): W.I.S.E. 1.0.6-beta.6 run as a black box (headless Docker)
+on the 79 held-out fire-days with FireSim's operational set-up, fuel, start, weather and hourly FFMC,
+scored by the same code. 17 h F1 FireSim 0.251 vs WISE 0.261, difference −0.010 [−0.026, +0.002] on the
+70 days WISE completed (9 largest days killed at the 5 GB memory cap; scoring those as no growth
++0.014 [−0.002, +0.032]): **level with WISE defaults** (non-inferior, margin 0.03). Community arrival:
+no held-out community was reached by anyone (degenerate). Shared-input 10-member ensemble coverage
+18 % vs 13 % (+0.042 [−0.020, +0.136]); both far too narrow. Day-by-day F1 correlation 0.95: the shared
+error lies in the inputs and FBP rates, not the spread engine.
+
 ## Rescored on the pre-fire fuel grid (2026-10-15)
 
 **In short:** scored on the fuel FireSim actually uses for a dated historical run in Alberta

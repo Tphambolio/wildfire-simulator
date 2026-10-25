@@ -199,3 +199,13 @@ Statistics Canada Open Licence). No ML. Nothing requested from any agency.
 ## Result
 
 (Appended after the runs; this section only grows.)
+
+### Result (appended 2026-10-25)
+
+- **Registration:** this file was committed and pushed as `cf514b7f8adeac5c2be7285aacc459435694db70` (sha256 of the file at that commit `72f9744c6e5a56ba812d4e1b3b4e9edec488ce79f695ce5cdbf0eb0a23363e4d`) before any held-out run. Report: `~/dev/wildfire/reports/WISE black-box comparator C1 2026-10-24.md` [R66]; data `~/dev/wildfire/reports/data/c1-wise-comparator-2026-10-24/`.
+- **Metric 1, 17 h F1** (primary, 70 fire-days / 16 fires where both ran): FireSim 0.251, WISE 0.261, difference **−0.010 [−0.026, +0.002]**: non-inferior (margin 0.03). Sensitivity (79 days, WISE failures = no growth): +0.014 [−0.002, +0.032].
+- **Metric 2, community arrival** (40 fire-days, 167 eligible community-days): no community reached by the fire, FireSim or WISE; MAE 0 h both, difference **0.000 [0.000, 0.000]**: non-inferior but degenerate, as anticipated in §3.
+- **Metric 3, coverage** (H65, K = 10, seeds 1-2; primary 115 day-seeds on 60 fire-days): FireSim 18.3 %, WISE 13.0 %, difference **+0.042 [−0.020, +0.136]**: non-inferior. Sensitivity (130 day-seeds): +0.069 [−0.008, +0.152]. Both far below 80 %.
+- **Three-part target (§7): met (non-inferior on all three)**, with the caveats that metric 2 is degenerate on this set and metric 3 compares two badly under-dispersed ensembles.
+- **WISE failures:** deterministic 9 of 79 (11.4 %), ensemble members 15 of 1,171 attempted (1.3 %; 15 of 130 day-seeds), all exit 137 at the 5 GB container memory cap; no timeouts or crashes. 129 later members of failed day-seeds skipped (deviation 1).
+- **Deviations:** (1) commit `5a818dd` (after the deterministic phase): the runner skips the remaining WISE members of a day-seed once one has failed; under §8 such a day-seed is already a failure, so no registered number can change; FireSim members all ran; runners restarted 2026-10-24 16:22 MDT keeping completed rows. (2) Deterministic rows carry commit `cf514b7` or `4d1ad71` (docs-only report-number claim). No registered cut was needed (both seeds finished in < 36 h).
