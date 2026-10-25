@@ -121,7 +121,7 @@ Living record of the work, decisions, references and testing behind the **ML emb
 - [ ] Choose the additive-model library (spline logistic in scikit-learn vs an EBM in a dedicated env).
 - [ ] Parquet writer (`pyarrow` missing): dedicated env or `fastparquet`.
 - [x] Report number [R68] claimed in `docs/REPORT_NUMBERS.md` (2026-10-25).
-- [ ] Seal C (in progress 2026-10-25, branch `feat/c4-sealed-us-supplement`): §6a rules for the 24 unsealed US 2026 records (seed `2026102403`, scale-only) and the §9 ember claim on the Canadian 2026 `confirm` subset; draft PR for the owner to merge.
+- [x] Seal C done 2026-10-25 on branch `feat/c4-sealed-us-supplement` (draft PR, owner merges): SEALED_2026 §6a scale-only US block, **18 fires** sealed (seed `2026102403`, list sha256 `ed7cc5110f4c325d1072ae12979161e637b745e3828285f509698034ab465dc1`); §9 claims ledger records the ember-L claim on the Canadian 2026 `confirm` subset.
 - [ ] Back up every artifact to this Claude for Science project after each phase; verify the file list.
 
 ## 7. Work log
@@ -138,3 +138,4 @@ Living record of the work, decisions, references and testing behind the **ML emb
 | 2026-10-25 ~10:25 | owner message | D1–D4 approved as recommended |
 | 2026-10-25 10:45 | `docs/PREREG_ML_EMBER_DEV.md` (this branch) | Stage-1 development pre-registration frozen; v8 undecided and unread |
 | 2026-10-25 11:00 | `docs/ML_EMBER_RECORD.md`, `docs/REPORT_NUMBERS.md` | Record moved into the repo; [R68] claimed |
+| 2026-10-25 11:30 | `feat/c4-sealed-us-supplement` `df9443f`, `159eeed`, result commit; `validation-data/sealed2026/us/sealed_us_2026_supp.csv` | D2 executed: supplementary scale-only US 2026 block sealed (18 fires), ember claim on the Canadian 2026 `confirm` subset recorded; sealed folder README/_about updated; nothing opened |
