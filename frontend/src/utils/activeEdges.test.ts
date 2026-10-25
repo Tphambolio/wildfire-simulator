@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildObservedRequest,
+  segmentLines,
+  segmentReadout,
   activeEdgesGeometry,
   activeLines,
   buildOverrideRequest,
@@ -96,5 +99,59 @@ describe("override request", () => {
 
   it("marked with nothing marked is an error", () => {
     expect(() => buildOverrideRequest({ ...base, mode: "marked", lines: [] })).toThrow(/at least one/);
+  });
+});
+
+describe("active segments (A1)", () => {
+  const perimeter: GeoJSON.Polygon = { type: "Polygon", coordinates: [square()] };
+  const base = {
+    perimeter, durationHours: 6, snapshotMinutes: 30, lines: [] as Lnglat[][], bufferM: null,
+    startTime: "2026-07-15T15:00:00-06:00", burningPeriod: null, ffmcSpinUp: false,
+  };
+
+  it("classified edges are sent as active_edges, with no hold", () => {
+    const edges: GeoJSON.MultiLineString = { type: "MultiLineString", coordinates: [[[0, 0], [1, 0]]] };
+    const req = buildOverrideRequest({ ...base, simulationId: "a", mode: "classified", classifiedEdges: edges });
+    expect(req.active_edges).toEqual(edges);
+    expect(req).not.toHaveProperty("hold_hours");
+  });
+
+  it("classified with no active segment throws (nothing would spread)", () => {
+    expect(() => buildOverrideRequest({ ...base, simulationId: "a", mode: "classified", classifiedEdges: null }))
+      .toThrow(/nothing would spread/);
+    expect(() => buildOverrideRequest({ ...base, simulationId: "a", mode: "classified",
+      classifiedEdges: { type: "MultiLineString", coordinates: [] } })).toThrow(/nothing would spread/);
+  });
+
+  it("segment lines and readout from a classification", () => {
+    const fc: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [
+      { type: "Feature", properties: { status: "active" }, geometry: { type: "LineString", coordinates: [[0, 0], [1, 0]] } },
+      { type: "Feature", properties: { status: "inactive" }, geometry: { type: "LineString", coordinates: [[1, 0], [1, 1]] } },
+      { type: "Feature", properties: { status: "inactive" }, geometry: { type: "LineString", coordinates: [[1, 1], [0, 0]] } },
+    ] };
+    expect(segmentLines(fc)).toEqual([[[0, 0], [1, 0]]]);
+    expect(segmentReadout({ n_segments: 3, n_active: 1 })).toBe("Segments active 1 of 3");
+    expect(segmentReadout(null)).toBeNull();
+  });
+
+  it("standalone request: Setup's run without ignition, start or ensemble; perimeter at T", () => {
+    const setupReq = {
+      ignition_lat: 53.5, ignition_lng: -113.5, start_time: "2026-07-15T10:00:00-06:00",
+      weather: { wind_speed: 20, wind_direction: 270, temperature: 25, relative_humidity: 30, precipitation_24h: 0 },
+      fwi_overrides: { ffmc: 90, dmc: 40, dc: 300 }, duration_hours: 4, fuel_grid_path: "/app/data/x.tif",
+      ensemble: { n_members: 20 }, ffmc_spin_up: true, snapshot_interval_minutes: 30, fuel_type: "C2",
+    };
+    const req = buildObservedRequest(setupReq, { ...base, mode: "marked", lines: [[[-113.49, 53.495], [-113.49, 53.505]]] },
+      "2026-07-15T15:00:00-06:00");
+    expect(req).not.toHaveProperty("ignition_lat");
+    expect(req).not.toHaveProperty("start_time");
+    expect(req).not.toHaveProperty("ensemble");
+    expect(req.observation_time).toBe("2026-07-15T15:00:00-06:00");
+    expect(req.duration_hours).toBe(6);
+    expect(req.perimeter_geojson).toEqual(perimeter);
+    expect(req).not.toHaveProperty("hold_hours");
+    expect((req.active_edges as GeoJSON.MultiLineString).coordinates).toHaveLength(1);
+    expect(req.ffmc_spin_up).toBe(false);
+    expect(req.fuel_grid_path).toBe("/app/data/x.tif");
   });
 });

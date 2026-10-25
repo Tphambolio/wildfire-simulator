@@ -359,6 +359,8 @@ export interface SimulationResponse {
   weather_used?: WeatherUsed | null;
   /** The scenario is dated before the year the run's fuel grid represents */
   fuel_vintage_warning?: string | null;
+  /** Active-segment restarts (A1) */
+  active_segments?: ActiveSegmentsInfo | null;
 }
 
 /** Which terrain (slope, aspect) a run used (API `terrain_source`) */
@@ -430,6 +432,8 @@ export interface WSEvent {
   n_frames?: number;
   /** simulation.completed: the scenario is dated before the fuel grid's year */
   fuel_vintage_warning?: string | null;
+  /** simulation.completed: active-segment summary and run diagnostics (A1) */
+  active_segments?: ActiveSegmentsInfo | null;
 }
 
 export interface FWIResult {
@@ -603,6 +607,42 @@ export interface PerimeterOverrideRequest {
   fwi_overrides?: FWIOverrides | null;
   /** Manual schedule, hours from this restart's start_time */
   weather_schedule?: WeatherChange[] | null;
+  /** RPAS hotspots (Point features with a `time`) to classify the boundary (A1) */
+  hotspots_geojson?: GeoJSON.FeatureCollection | null;
+  /** NASA FIRMS VIIRS CSV text to classify the boundary (A1) */
+  firms_csv?: string | null;
+  classification_radius_m?: number;
+  classification_window_h?: number;
+  classification_segment_m?: number;
+}
+
+/** POST /simulations/observed-perimeter: a run request plus the perimeter at time T (A1) */
+export type ObservedPerimeterRequest = Omit<SimulationCreate, "ignition_lat" | "ignition_lng" | "start_time" | "ensemble"> &
+  Pick<PerimeterOverrideRequest, "perimeter_geojson" | "active_edges" | "active_edge_buffer_m"
+    | "hotspots_geojson" | "firms_csv" | "classification_radius_m" | "classification_window_h" | "classification_segment_m"> & {
+    /** Time of the observed perimeter T (ISO with offset); the run starts at T */
+    observation_time: string;
+  };
+
+/** Active / inactive segments of a classified restart (API `active_segments`; docs/active-segments.md) */
+export interface ActiveSegmentsInfo {
+  source: "rpas_hotspots" | "viirs_firms" | string;
+  n_segments?: number;
+  n_active?: number;
+  n_inactive?: number;
+  active_length_km?: number;
+  inactive_length_km?: number;
+  segments?: GeoJSON.FeatureCollection;
+  /** After the run: modelled static share of the start perimeter (0-1) and growth (ha) */
+  static_share_model?: number | null;
+  growth_ha?: number;
+}
+
+/** POST /simulations/classify-perimeter */
+export interface ClassifyPerimeterResponse {
+  summary: ActiveSegmentsInfo & { n_detections_read: number; n_detections_used: number; radius_m: number; window_h: number };
+  active_edges: GeoJSON.MultiLineString | null;
+  segments: GeoJSON.FeatureCollection;
 }
 
 export const FUEL_TYPES: Record<string, string> = {
