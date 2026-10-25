@@ -71,6 +71,11 @@ def other_heavy_jobs() -> list[str]:
                 out.append(sc.name)
         except OSError:
             pass
+    for pat in GATE.get("pgrep", ()):  # named jobs that must not be running (owner rule)
+        r = subprocess.run(["pgrep", "-f", pat], capture_output=True, text=True)
+        pids = [p for p in r.stdout.split() if p != str(os.getpid())]
+        if pids:
+            out.append(f"pgrep {pat!r}: {len(pids)}")
     r = subprocess.run(["docker", "ps", "--format", "{{.Names}}"], capture_output=True, text=True)
     out += [n for n in r.stdout.split() if n and not n.startswith("c1wise_") and n != "flighthub-emqx"]
     return out
@@ -274,12 +279,15 @@ def main() -> None:
                     help="start a WISE run only with this much memory available")
     ap.add_argument("--gate-exclusive", action="store_true",
                     help="also wait until no other heavy job runs (other_heavy_jobs)")
+    ap.add_argument("--gate-pgrep", nargs="*", default=[],
+                    help="with --gate-exclusive: also wait while `pgrep -f PATTERN` finds a process")
     ap.add_argument("--stop-below-gb", type=float, default=None,
                     help="kill the run and stop the batch if available memory falls below this")
     a = ap.parse_args()
     if a.mem:
         WJ.MEM = a.mem
-    GATE.update(free_gb=a.gate_free_gb, exclusive=a.gate_exclusive, stop_below_gb=a.stop_below_gb)
+    GATE.update(free_gb=a.gate_free_gb, exclusive=a.gate_exclusive, stop_below_gb=a.stop_below_gb,
+                pgrep=tuple(a.gate_pgrep))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     logging.getLogger("firesim").setLevel(logging.WARNING)
     log = logging.getLogger("c1")
