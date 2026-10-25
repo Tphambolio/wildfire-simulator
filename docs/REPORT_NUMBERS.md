@@ -82,7 +82,7 @@ so that does not happen again.
 | R58 | Harness start-type strata baseline (with §7 whole-perimeter rerun) | `feat/harness-start-strata`, #93 | 2026-10-18 | master |
 | R61 | v7 held-out arrivals recoded with [R53] rules (A3 descriptive addendum; v8 rule check) | `docs/a3-v7-arrivals-recoded` (record only; report and data in `~/dev/wildfire/reports/`) | 2026-10-24 | open PR |
 | R64 | E10 live multi-day run time: throttled shared CPU, a 3-4x faster grid step, honest time left | `perf/e10-live-runtime` | 2026-10-24 | open PR |
-| R66 | W.I.S.E. black-box comparator on held-out Alberta fire-days (C1, PREREG_COMPARATOR_C1) | `feat/c1-comparator` | 2026-10-24 | open PR |
+| R66 | W.I.S.E. black-box comparator on held-out Alberta fire-days (C1, PREREG_COMPARATOR_C1) | `feat/c1-comparator`, #109 | 2026-10-24 | open PR |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.
