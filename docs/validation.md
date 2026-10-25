@@ -379,6 +379,17 @@ grid diagonal fix; the record's own run rescored with today's code reproduces th
 back-cast centres the members closer to the observed area but does not widen them relative to
 the error: the ensemble remains too narrow and over-confident, and P10 is still not a worst case.
 
+**Log-area post-processing (B2, 2026-10-24, [R65], opt-in).** A member-by-member shift and
+stretch of the members' log10 area (Van Schaeybroeck & Vannitsem 2015), fitted on the 61
+calibration fire-days on the back-cast grid (shift −0.25 log10, i.e. areas x 0.56; stretch 2.25,
+the smallest reaching 80 % calibration coverage) and scored on the same 65 held-out fire-days
+(pre-registered, `docs/PREREG_ENSEMBLE_B2.md`): coverage 49 % → **85 %** [74, 94], CRPS
+0.407 → 0.376 (Δ −0.031 [−0.092, +0.032], non-inferior), ensemble-mean bias +0.22 → +0.02:
+**pass**. It over-corrects the spread (spread / skill 0.55; the median P10-P90 area range is a
+factor of ~60), does worse on the largest-growth third of days, and does not move any footprint
+(P10 still holds ≥ 90 % of growth on 29 % of days). It is not applied anywhere by default
+(`firesim.validation.ensemble_calibration`).
+
 **What the numbers say.**
 
 - **The ensemble was far too narrow, not too wide.** With the placeholders the observed area
@@ -737,3 +748,12 @@ spin-up and the burning period are opt-in.
   diurnal cycle.* Inf. Rep. PS-X-69.
 - Van Wagner, C.E. (1987). *Development and structure of the Canadian Forest Fire Weather Index
   System.* Forestry Tech. Rep. 35.
+
+## Sealed 2026 held-out set (C4, 2026-10-24)
+
+32 western-US wildfires of 2026 (NIFC WFIGS 2026 perimeters, ≥ 5,000 ha, contained) are **sealed** for
+future pre-registered tests: `confirm` 16 for one-shot deciding tests (first planned: the 1-burn-day
+active-edge rule, [R63]), `scorecard` 16 for the per-release re-score. No model has run on them. List sha256
+`b9c7a303c71e63ebc63e9fdf25cda18e8ebcaf61a5af36a3ac69cdd297748e80`. Rules, hashes, the Canadian block
+(NBAC 2026, rules fixed, drawn when it publishes) and the use ledger: `docs/SEALED_2026.md`. Do not run
+anything on these fires without a committed pre-registration.

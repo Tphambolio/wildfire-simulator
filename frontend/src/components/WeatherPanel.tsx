@@ -265,6 +265,10 @@ interface WeatherPanelProps {
   onSkillOptions?: (opts: SkillOptionsState) => void;
   /** Current weather, FWI codes and weather changes (for the observed-perimeter restart) */
   onSetupWeather?: (w: SetupWeather) => void;
+  /** Registers a builder of Setup's run request at a given start (constant weather, no
+   * ensemble), used by the standalone forecast from an observed perimeter (A1); null when
+   * Setup cannot build one (no fuel grid) */
+  onRequestBuilder?: (build: ((atMs: number) => SimulationCreate) | null) => void;
   /** After a run: arm a new ignition on the map ("New ignition" in the run bar) */
   onNewIgnition?: () => void;
   /** Single run pressed: called before the hourly forecast is fetched, so the previous run
@@ -294,6 +298,7 @@ function WeatherPanel({
   runBarTarget,
   onSkillOptions,
   onSetupWeather,
+  onRequestBuilder,
   onNewIgnition,
   onRunRequested,
   runRequest = 0,
@@ -890,6 +895,44 @@ function WeatherPanel({
         structureAvailable && structureSpread && structureEmbers ? structureRoofShare : 0,
     });
   };
+
+  // Setup's run request at a given start, for the standalone forecast from an observed
+  // perimeter (A1): the observed perimeter replaces the ignition; constant weather, no ensemble
+  const buildObservedBase = (atMs: number): SimulationCreate => ({
+    ignition_lat: ignitionPoint?.lat ?? 0,
+    ignition_lng: ignitionPoint?.lng ?? 0,
+    weather,
+    start_time: toEdmontonIso(atMs),
+    fwi_overrides: fwi,
+    fuel_modifiers: fuelModifiers(atMs),
+    hourly_weather: null,
+    weather_schedule: null,
+    duration_hours: durationHours,
+    snapshot_interval_minutes: snapshotMinutes,
+    fuel_type: fuelType,
+    fuel_grid_path: useEdmontonGrid ? EDMONTON_FUEL_GRID_PATH : null,
+    water_path: useEdmontonGrid && includeWater ? EDMONTON_WATER_PATH : null,
+    buildings_path: useEdmontonGrid && includeBuildings ? EDMONTON_BUILDINGS_PATH : null,
+    wui_zones_path: useEdmontonGrid && includeWUI ? EDMONTON_WUI_PATH : null,
+    dem_path: useEdmontonGrid && includeDEM ? EDMONTON_DEM_PATH : null,
+    use_ca_mode: useSyntheticCA && !useEdmontonGrid,
+    enable_spotting: enableSpotting,
+    spotting_intensity: spottingIntensity,
+    ensemble: null,
+    burning_period: null,
+    ffmc_spin_up: false,
+    structure_spread: structureAvailable && structureSpread,
+    structure_embers: structureAvailable && structureSpread && structureEmbers,
+    structure_vegetation_bridge: structureAvailable && structureSpread && structureVegBridge,
+    structure_combustible_roof_share:
+      structureAvailable && structureSpread && structureEmbers ? structureRoofShare : 0,
+  });
+  const gridForObserved = useEdmontonGrid || useSyntheticCA;
+  const builderRef = useRef(buildObservedBase);
+  builderRef.current = buildObservedBase;
+  useEffect(() => {
+    onRequestBuilder?.(gridForObserved ? (atMs: number) => builderRef.current(atMs) : null);
+  }, [onRequestBuilder, gridForObserved]);
 
   const handleMultiDaySubmit = () => {
     const atMs = runStartMs();

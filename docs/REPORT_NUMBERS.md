@@ -11,9 +11,8 @@ Parallel sessions gave [R39] to three reports on 2026-10-12 (see the [R39] lines
 so that does not happen again.
 
 - **Next free number: [R67].** ([R59] is held for the clock follow-up; [R60] is claimed on
-  `feat/front-overspread` (#96), [R62] on #100, [R63] on #101, [R65] on `feat/b2-ensemble-calibration`
-  and [R66] on `feat/c1-comparator`; those lines are not on `master` yet, so only this branch's own
-  line is in the table below.)
+  `feat/front-overspread` (#96), [R62] on #100 and [R63] on #101; those lines are not on `master` yet,
+  so they stay out of this table until their PRs merge. [R66] is this branch's, PR #109.)
 - **Status values:** `master` = in the record on `master`; `open PR` = the report's PR is not merged;
   `claimed` = number taken before the report is written or recorded; `withdrawn` = not used, never reuse.
 - Dates are the report dates. "—" in Branch / PR = research report with no code PR of its own
@@ -82,6 +81,7 @@ so that does not happen again.
 | R58 | Harness start-type strata baseline (with §7 whole-perimeter rerun) | `feat/harness-start-strata`, #93 | 2026-10-18 | master |
 | R61 | v7 held-out arrivals recoded with [R53] rules (A3 descriptive addendum; v8 rule check) | `docs/a3-v7-arrivals-recoded` (record only; report and data in `~/dev/wildfire/reports/`) | 2026-10-24 | open PR |
 | R64 | E10 live multi-day run time: throttled shared CPU, a 3-4x faster grid step, honest time left | `perf/e10-live-runtime` | 2026-10-24 | open PR |
+| R65 | Ensemble re-calibration with a bias term (B2, PREREG_ENSEMBLE_B2) | `feat/b2-ensemble-calibration`, #106 | 2026-10-24 | master |
 | R66 | W.I.S.E. black-box comparator on held-out Alberta fire-days (C1, PREREG_COMPARATOR_C1) | `feat/c1-comparator`, #109 | 2026-10-24 | open PR |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,

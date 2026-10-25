@@ -572,6 +572,36 @@ fuel, so a restart burned through subdivisions where the continuous run stalls),
 no house-to-house. `duration_hours` (≤ 24) is run in full; the run archive stores
 `{"source_config", "perimeter_override", "restart_config", "weather_source"}`.
 
+Active-segment classification (added 2026-10-24, backlog A1; `docs/active-segments.md`):
+optional RPAS `hotspots_geojson` (points with a `time`) or a NASA FIRMS `firms_csv` (VIIRS
+nominal/high confidence), used when `active_edges` is not given: a 250 m boundary piece
+(`classification_segment_m`) is active when a detection lies within `classification_radius_m`
+(1,000) of it in the `classification_window_h` (12) hours up to the restart's `start_time`. The
+active pieces are sent to the engine as `active_edges` (the rest is burned out, as for marked
+edges); no active piece → 422. **The rule is not validated against real RPAS thermal flights.**
+Such restarts return `active_segments` (source, `n_segments`, `n_active`, `n_inactive`,
+segments as GeoJSON; after the run `static_share_model` and `growth_ha`); others return
+`active_segments: null`. Existing payloads run exactly as before. (The held-edge barrier,
+`hold_hours` / `hold_band_m`, is not part of the API: it failed its pre-registered test and
+stays on draft PR #100.)
+
+### POST /api/v1/simulations/observed-perimeter
+
+Standalone forecast from an observed perimeter at observation time T (owner items R13/R14;
+A1). Body: a POST /simulations request without `ignition_lat`/`ignition_lng` (default: the
+perimeter's centroid) plus `perimeter_geojson` and **`observation_time`** (required, ISO 8601
+with offset; the run starts at T, `start_time` must equal it if sent), with optional
+`active_edges`, `active_edge_buffer_m` and the classification fields above. No ensemble.
+Returns `simulation_id` at once (status running); stream and poll as for any run. Archive
+`kind` `observed_perimeter`.
+
+### POST /api/v1/simulations/classify-perimeter
+
+Active / inactive segments of `perimeter_geojson` at `observation_time` (required, with offset)
+from `hotspots_geojson` or `firms_csv` (same rule and parameters), without a run:
+`{summary, active_edges (MultiLineString or null), segments (FeatureCollection, status
+active / inactive)}`. 422 on a CSV without the FIRMS columns.
+
 ### POST /api/v1/simulations/burn-probability
 
 Monte Carlo burn probability (synchronous). Varies the ignition point (`jitter_m`), wind speed
