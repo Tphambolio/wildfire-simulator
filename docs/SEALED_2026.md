@@ -157,6 +157,40 @@ Nothing was run on any of these fires. No hotspot, weather or growth record of a
 The 12 rule-6 removals were checked after the draw (initial-point distances, removed records only) to rule
 out a coding error.
 
+### 6a. Supplementary US block: the 24 records removed under the conservative reading of rule 5 (rules fixed 2026-10-25; result appended below after the run)
+
+**Owner decision** (Travis Kennedy, 2026-10-25, decision D2 of the ML ember-cast review): seal the 24 records
+of §6 that were removed as `rule5_no_end_time` (100 % contained, no containment/control/out time) as a
+**scale-only block**: they add fires to any 2026 test that names them, and **never decide anything**, like the
+`scorecard` subset. Nothing in §1-§6 changes.
+
+- **Pool:** the §6 raw snapshot `raw/wfigs_ytd_2026_ge5000ha.geojson` (sha256 `9d04ba84…40c19`, downloaded
+  2026-10-24T19:04:51Z). **No re-download**: the block is defined on the same pool as the seal, so the two
+  blocks cannot overlap or disagree about a record's attributes.
+- **Candidates:** exactly the records that pass rules 1-4 and were removed only by the rule-5 clause "no end
+  time" (100 % contained, `end` missing). The script recomputes this from the snapshot; it does not read the
+  sealed list or the eligibility log.
+- **Rule 5 reading (disclosed):** 100 % containment recorded by the snapshot date is taken as "complete";
+  the 7-day lag cannot be shown and is **not** required for a scale-only block. Each pre-registration that
+  uses the block states the end of its fire-day window from its own progression source (VIIRS), never from
+  a WFIGS time, and reports results on this block **separately** from the §6 `confirm` subset.
+- **Rules 6-8** applied as written in §2 (initial point within 2 km of the final perimeter; one record per
+  IRWIN ID, no complexes, no overlapping duplicates, checked against the 32 sealed fires as well as within
+  the block; never used in the record, same text scan).
+- **Order:** sorted fire keys permuted with `numpy.random.default_rng(S_SEAL_US_SUPP)`,
+  **`S_SEAL_US_SUPP = 2026102403`**. Subset label `scale` for every record (no `confirm` orders).
+- **Output:** `us/sealed_us_2026_supp.csv` (the seal), `us/sealed_us_2026_supp_perimeters.geojson`,
+  `us/supp_eligibility_log.csv`, `us/supp_draw_summary.json` (counts and hashes only). The script prints
+  counts and hashes, never fire names, and refuses to overwrite an existing file.
+- **Script:** `scripts/validation/sealed2026/draw_supplement.py`, committed and pushed after this text and
+  before it is run; its sha256 and the result go below.
+
+---
+
+### 6b. Canadian block draw result
+
+(appended by the agent who finds the first NBAC release holding 2026; see §5)
+
 ## 7. How to use the set
 
 1. A pre-registration (committed and pushed before any run) names the subset (`confirm`, or a contiguous
@@ -171,3 +205,14 @@ out a coding error.
 | Date | Pre-registration | Subset / orders | Purpose |
 |---|---|---|---|
 | — | — | — | (none yet; sealed 2026-10-24) |
+
+## 9. Claims on subsets (append only; a claim is not an opening)
+
+A pre-registration may lay a claim on a subset before its data exist, so that no other test spends it. The
+claim names the subset, the target and the pre-registration that will use it. Opening still follows §7 and
+is logged in §8.
+
+| Date | Claimed by | Subset | Target | Owner decision |
+|---|---|---|---|---|
+| 2026-10-25 | ML ember-cast programme (`docs/PREREG_ML_EMBER_DEV.md` §11, stage 2 `docs/PREREG_ML_EMBER.md` to follow) | Canadian 2026 **`confirm`** subset (§5, NBAC 2026, seed `S_SEAL_CA = 2026102402`) | ember target L (where new VIIRS spot fires start 1-15 km ahead), PREREG_LR8 §4/§6 definitions | D2, Travis Kennedy, 2026-10-25 |
+| 2026-10-25 | ML ember-cast programme (same) | Supplementary US 2026 `scale` block (§6a) | scale only for the ember target L; never decides | D2, Travis Kennedy, 2026-10-25 |
