@@ -499,3 +499,29 @@ opened. Owner decisions: Travis Kennedy, 2026-10-24 (cache SCANFI locally; keep 
    was restarted three times (one read failure; two code reloads); each restart resumed from `draw/state.json` in
    the same sealed order and is logged in `draw/draw_log.txt`. Input builds of upcoming decision fires were run
    ahead in decision order by parallel workers (inputs only, blind to hotspots; cached per fire).
+
+---
+
+## 15. Addendum A4 (2026-10-26): ELMFIRE storage reduction after a full disk (storage only; never deciding)
+
+**Dated:** 2026-10-26 (UTC), during the ELMFIRE comparator runs, before `unseal` and before any score was computed.
+The disk filled on 2026-10-25 while the ELMFIRE subset ran: each interval folder kept ELMFIRE's band-sequential
+weather and fuel copies (`*.bsq`, about 70 MB per interval), 56 GB for 38 fires. The method is unchanged and nothing
+sealed was opened.
+
+1. **Integrity check of the 38 fires** (`validation-data/v8-pool/logs/elmfire_integrity.log`): 768 interval runs
+   had a valid `result.json` and a finite `flux.npy`. Removed for re-run: four interval folders without
+   `result.json` (MTBS AZ3343911144120240910, CA4169912147720200722, WY4117610642220200917; NBAC 2021_1655) and two
+   failed runs on MTBS NM3357010744220200615 (epochs 47, 51) whose logs show the full disk (`I/O error`). Two
+   per-fire ELMFIRE static-layer caches truncated by the crash were deleted and rebuilt. All 5,377 decision-fire
+   M8/B1 input and interval files load.
+2. **Reduction.** After each successful interval run the runner keeps what `assemble.unseal` reads: the per-candidate
+   block ELMFIRE score (sum of the 90 m ember flux over each 375 m candidate cell, float64, `blocks.npy`), plus
+   `result.json` and `run.log`. It deletes the 90 m flux, inputs, outputs and scratch only after `blocks.npy` reads
+   back byte-identical. `block_scores` reads `blocks.npy`. Raw against reduced was checked bit-identical on two
+   fires (MTBS AZ3237811092720200606, 34 intervals; MTBS AZ3434411167720210617, 6 intervals, re-run unreduced for
+   the check); the 38 existing fires were reduced the same way (`logs/elmfire_reduction.json`). Storage: 56 GB to
+   70 MB.
+3. **Disk guard.** A worker refuses to start a fire when less than 20 GB is free.
+4. **Timing.** This addendum and the runner change were committed after the reduction and the one-fire check run
+   (2026-10-26 04:54-05:03 UTC) and before the ELMFIRE subset workers were restarted.

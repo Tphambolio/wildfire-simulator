@@ -280,15 +280,16 @@ def run_interval(fire_key, meta, rec, st, it, closed125, act125, wx, zone125) ->
     for f in (case / "inputs").glob("*.tif"):
         f.unlink()  # inputs are rebuilt from the cached layers if needed; keep disk use bounded
     (case / "result.json").write_text(json.dumps(res))
+    if status == "ok":
+        reduce_case(case, fire_key, meta, it["epoch"])  # addendum A4: storage only
+    else:
+        for sub in ("inputs", "outputs", "scratch"):
+            shutil.rmtree(case / sub, ignore_errors=True)
     C.log_run("elmfire", f"{fire_key}#{it['epoch']}", status, wall, f"peak_mib={peak[0]:.0f}")
     return res
 
 
-def block_scores(fire_key, meta, epoch) -> np.ndarray | None:
-    """ELMFIRE score per candidate block of an interval (sum of 90 m ember flux by block), or None."""
-    case = RUNROOT / fire_key.replace(":", "_") / f"{epoch:05d}"
-    if not (case / "flux.npy").exists():
-        return None
+def _block_sums(case, fire_key, meta, epoch) -> np.ndarray:
     a = np.load(case / "flux.npy")
     g = meta["grid"]
     bsz = g["cell"] * C.CAND_F
@@ -301,7 +302,49 @@ def block_scores(fire_key, meta, epoch) -> np.ndarray | None:
     return B[z["bj"], z["bi"]]
 
 
+def block_scores(fire_key, meta, epoch) -> np.ndarray | None:
+    """ELMFIRE score per candidate block of an interval (sum of 90 m ember flux by block), or None.
+    Reads the reduced ``blocks.npy`` (addendum A4: storage only) or, before reduction, ``flux.npy``."""
+    case = RUNROOT / fire_key.replace(":", "_") / f"{epoch:05d}"
+    if (case / "blocks.npy").exists():
+        return np.load(case / "blocks.npy")
+    if not (case / "flux.npy").exists():
+        return None
+    return _block_sums(case, fire_key, meta, epoch)
+
+
+def reduce_case(case, fire_key, meta, epoch) -> bool:
+    """Addendum A4 (storage only): keep what the scorer reads (the per-candidate-block ELMFIRE score, float64,
+    written as ``blocks.npy``), result.json and run.log; delete the 90 m flux, inputs, outputs and scratch once
+    ``blocks.npy`` reads back bit-identical to the score computed from ``flux.npy``."""
+    case = Path(case)
+    if (case / "blocks.npy").exists() and not (case / "flux.npy").exists():
+        return True
+    if not (case / "flux.npy").exists():
+        return False
+    b = _block_sums(case, fire_key, meta, epoch)
+    np.save(case / "blocks.npy", b)
+    back = np.load(case / "blocks.npy")
+    if back.dtype != b.dtype or back.shape != b.shape or back.tobytes() != b.tobytes():
+        (case / "blocks.npy").unlink()
+        raise RuntimeError(f"reduction not bit-identical: {case}")
+    for sub in ("inputs", "outputs", "scratch"):
+        shutil.rmtree(case / sub, ignore_errors=True)
+    (case / "flux.npy").unlink()
+    return True
+
+
+def free_gb(path=RUNROOT) -> float:
+    path.mkdir(parents=True, exist_ok=True)
+    return shutil.disk_usage(path).free / 1024 ** 3
+
+
+MIN_FREE_GB = 20.0
+
+
 def run_fire(fire_key: str, assignment: str = "decision", max_intervals: int | None = None) -> list[dict]:
+    if free_gb() < MIN_FREE_GB:  # disk guard (addendum A4)
+        raise RuntimeError(f"disk guard: {free_gb():.1f} GB free < {MIN_FREE_GB} GB; fire {fire_key} not started")
     fd = C.fire_dir(fire_key)
     meta = json.loads((fd / "meta.json").read_text())
     info = json.loads((fd / "intervals" / "_done.json").read_text())
