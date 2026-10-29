@@ -55,6 +55,7 @@ import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import TopBar, { type AppTab } from "./components/TopBar";
+import ValidationScorecardDialog from "./components/ValidationScorecard";
 import Badge from "./components/Badge";
 import InfoTip from "./components/InfoTip";
 import FwiClassChip from "./components/FwiClassChip";
@@ -311,6 +312,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("simulation");
   // Section of the About & sources tab to show when it opens (the low-skill badge opens Limits)
   const [aboutSection, setAboutSection] = useState<AboutSectionId | null>(null);
+  // Validation scorecard dialog (top bar "Validation"; docs/validation-scorecard.md)
+  const [validationOpen, setValidationOpen] = useState(false);
   const openLimits = useCallback(() => {
     setAboutSection("about-limits");
     setActiveTab("about");
@@ -1209,6 +1212,7 @@ export default function App() {
           setActiveTab(tab);
         }}
         onOpenLimits={openLimits}
+        onOpenValidation={() => setValidationOpen(true)}
         status={status}
         actions={<>
           {isRunning && !isPaused && (
@@ -1476,6 +1480,8 @@ export default function App() {
       )}
 
       {/* ── About & sources tab: intended use, limits, methods and references, data, help ── */}
+      {validationOpen && <ValidationScorecardDialog onClose={() => setValidationOpen(false)} />}
+
       {activeTab === "about" && (
         <Suspense fallback={<div className="hint eoc-loading">Loading…</div>}>
           <AboutPanel

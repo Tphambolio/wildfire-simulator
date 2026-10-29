@@ -35,6 +35,8 @@ interface TopBarProps {
   actions?: ReactNode;
   /** Open About & sources at its Limits section (the low-skill badge) */
   onOpenLimits?: () => void;
+  /** Open the validation scorecard dialog (ValidationScorecard.tsx) */
+  onOpenValidation?: () => void;
 }
 
 const TABS: Array<[AppTab, string]> = [
@@ -43,7 +45,7 @@ const TABS: Array<[AppTab, string]> = [
   ["about", "About & sources"],
 ];
 
-export default function TopBar({ incidentName, incidentSub, activeTab, onTabChange, status, actions, onOpenLimits }: TopBarProps) {
+export default function TopBar({ incidentName, incidentSub, activeTab, onTabChange, status, actions, onOpenLimits, onOpenValidation }: TopBarProps) {
   return (
     <header className="top-bar">
       <div className="top-bar-brand">
@@ -82,6 +84,18 @@ export default function TopBar({ incidentName, incidentSub, activeTab, onTabChan
         >
           {BADGES.lowSkill}
         </Badge>
+        {onOpenValidation && (
+          <button
+            type="button"
+            className="ui-badge ui-badge-neutral validation-badge"
+            onClick={onOpenValidation}
+            aria-haspopup="dialog"
+            title="Validation scorecard: the latest held-out skill numbers, with sources"
+            data-testid="validation-badge"
+          >
+            Validation
+          </button>
+        )}
         <EdmontonClock />
       </div>
     </header>
