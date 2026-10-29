@@ -1,0 +1,175 @@
+/* Exercise mode (docs/exercise-mode-spec.md §4, §8; components/ExerciseBanner.tsx,
+   InjectLogPanel.tsx). The banner shares the "top" grid area with the top bar: while exercise
+   mode is on the shell's --topbar-height grows by the banner height, so the side drawers and
+   every layout that reads the token move down with it. Nothing here renders when the mode is off. */
+
+:root {
+  --exercise-banner-height: 36px;
+  --exercise: #b45309;          /* amber-brown band; white text on it 5.0:1 */
+  --exercise-text: #fff7ed;
+  --exercise-mark-bg: #fff7ed;
+  --exercise-mark-text: #7c2d12; /* 9.7:1 on the mark background */
+}
+
+.app-exercise {
+  --topbar-height: calc(52px + var(--exercise-banner-height));
+}
+
+.app-exercise .top-bar {
+  align-self: start;
+  height: 52px;
+}
+
+.exercise-banner {
+  grid-area: top;
+  align-self: end;
+  height: var(--exercise-banner-height);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4);
+  background: var(--exercise);
+  color: var(--exercise-text);
+  border-bottom: 1px solid var(--border);
+  z-index: 59;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.exercise-mark {
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  font-size: var(--fs-xs);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--exercise-mark-bg);
+  color: var(--exercise-mark-text);
+}
+
+.exercise-time {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.exercise-time-label {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.9;
+}
+
+.exercise-time-clock {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: var(--fs-md);
+}
+
+.exercise-time-clock small {
+  margin-left: 3px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.exercise-time-date,
+.exercise-time-elapsed,
+.exercise-state {
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.exercise-state.playing {
+  font-weight: 700;
+}
+
+.exercise-controls {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.exercise-rates {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.exercise-btn {
+  min-height: 26px;
+  padding: 0 var(--sp-2);
+  color: var(--exercise-text);
+  border-color: rgba(255, 247, 237, 0.55);
+  background: transparent;
+}
+
+.exercise-btn:hover:not(:disabled) {
+  background: rgba(255, 247, 237, 0.16);
+}
+
+.exercise-btn:disabled {
+  opacity: 0.5;
+}
+
+.exercise-rate.active {
+  background: var(--exercise-mark-bg);
+  color: var(--exercise-mark-text);
+  border-color: var(--exercise-mark-bg);
+}
+
+/* Top-bar toggle (visible only with the feature flag) */
+.btn-exercise-toggle.active {
+  background: var(--exercise);
+  color: var(--exercise-text);
+  border-color: var(--exercise);
+}
+
+/* Timeline readout when the exercise clock drives it */
+.ts-now-exercise {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warning-text);
+  margin-right: var(--sp-1);
+}
+
+/* Inject log */
+.inject-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+
+.inject-log-empty {
+  padding: var(--sp-2) 0;
+}
+
+.inject-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  gap: var(--sp-2);
+  align-items: baseline;
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.inject-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.inject-kind {
+  color: var(--text-2);
+}
+
+.inject-status {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.inject-withdrawn .inject-title {
+  text-decoration: line-through;
+  color: var(--text-3);
+}
