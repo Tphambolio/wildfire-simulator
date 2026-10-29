@@ -11,6 +11,7 @@ import "./styles/infotip.css";
 import "./styles/about.css";
 import "./styles/layout.css";
 import "./styles/scorecard.css";
+import "./styles/exercise.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
