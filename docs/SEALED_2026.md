@@ -157,6 +157,60 @@ Nothing was run on any of these fires. No hotspot, weather or growth record of a
 The 12 rule-6 removals were checked after the draw (initial-point distances, removed records only) to rule
 out a coding error.
 
+### 6a. Supplementary US block: the 24 records removed under the conservative reading of rule 5 (rules fixed 2026-10-25; result appended below after the run)
+
+**Owner decision** (Travis Kennedy, 2026-10-25, decision D2 of the ML ember-cast review): seal the 24 records
+of §6 that were removed as `rule5_no_end_time` (100 % contained, no containment/control/out time) as a
+**scale-only block**: they add fires to any 2026 test that names them, and **never decide anything**, like the
+`scorecard` subset. Nothing in §1-§6 changes.
+
+- **Pool:** the §6 raw snapshot `raw/wfigs_ytd_2026_ge5000ha.geojson` (sha256 `9d04ba84…40c19`, downloaded
+  2026-10-24T19:04:51Z). **No re-download**: the block is defined on the same pool as the seal, so the two
+  blocks cannot overlap or disagree about a record's attributes.
+- **Candidates:** exactly the records that pass rules 1-4 and were removed only by the rule-5 clause "no end
+  time" (100 % contained, `end` missing). The script recomputes this from the snapshot; it does not read the
+  sealed list or the eligibility log.
+- **Rule 5 reading (disclosed):** 100 % containment recorded by the snapshot date is taken as "complete";
+  the 7-day lag cannot be shown and is **not** required for a scale-only block. Each pre-registration that
+  uses the block states the end of its fire-day window from its own progression source (VIIRS), never from
+  a WFIGS time, and reports results on this block **separately** from the §6 `confirm` subset.
+- **Rules 6-8** applied as written in §2 (initial point within 2 km of the final perimeter; one record per
+  IRWIN ID, no complexes, no overlapping duplicates, checked against the 32 sealed fires as well as within
+  the block; never used in the record, same text scan).
+- **Order:** sorted fire keys permuted with `numpy.random.default_rng(S_SEAL_US_SUPP)`,
+  **`S_SEAL_US_SUPP = 2026102403`**. Subset label `scale` for every record (no `confirm` orders).
+- **Output:** `us/sealed_us_2026_supp.csv` (the seal), `us/sealed_us_2026_supp_perimeters.geojson`,
+  `us/supp_eligibility_log.csv`, `us/supp_draw_summary.json` (counts and hashes only). The script prints
+  counts and hashes, never fire names, and refuses to overwrite an existing file.
+- **Script:** `scripts/validation/sealed2026/draw_supplement.py`, committed and pushed after this text and
+  before it is run; its sha256 and the result go below.
+
+**Result (appended 2026-10-25 after the run; nothing above was edited).**
+- **Rules commit:** `df9443f` (this §6a text, pushed before the script existed); **script commit:** `159eeed`,
+  `draw_supplement.py` sha256 `614453cbbec6465195b46f737062ea28fc9a3fb2ea1026bb17d2f99d0c53ea02`, pushed before
+  it was run; run once under `capjob` (3 GB cap), no error; the pool snapshot and the main seal matched their §6
+  sha256s.
+- **Candidates:** 24 (as §6). **Removed:** initial point more than 2 km from the final perimeter 4; overlapping
+  duplicate within the block 1; name found in the record (rule 8; 6,372 text files scanned) 1; in or overlapping
+  the main seal 0; duplicate IRWIN 0; complex 0.
+- **Sealed: 18 fires**, all subset `scale` (CA 2, MT 2, NM 1, NV 1, OR 9, UT 1, WA 2). Seed `S_SEAL_US_SUPP =
+  2026102403`. End times are blank (none recorded); `percent_contained` is 100 for every record.
+
+| Sealed file (`~/dev/wildfire/validation-data/sealed2026/`) | sha256 |
+|---|---|
+| **`us/sealed_us_2026_supp.csv` (the seal)** | **`ed7cc5110f4c325d1072ae12979161e637b745e3828285f509698034ab465dc1`** |
+| `us/sealed_us_2026_supp_perimeters.geojson` | `041a269b70eab4df14fab438559f415ff330f5960b1d77bb54912f028901b57b` |
+| `us/supp_eligibility_log.csv` | `dd48c57293e477081a99778ef5684b221f998c6bc8d9f03f29bd8c773126b539` |
+
+Nothing was run on any of these fires. No hotspot, weather or growth record of any 2026 fire was opened. The
+sealed US set is now the 32 fires of §6 (`confirm` 16, `scorecard` 16) plus this `scale` block of 18.
+
+---
+
+### 6b. Canadian block draw result
+
+(appended by the agent who finds the first NBAC release holding 2026; see §5)
+
 ## 7. How to use the set
 
 1. A pre-registration (committed and pushed before any run) names the subset (`confirm`, or a contiguous
@@ -173,3 +227,14 @@ out a coding error.
 | — | — | — | (none yet; sealed 2026-10-24) |
 | 2026-10-25 | `PREREG_SEALED_CONFIRM_H1H2` (branch `feat/sealed-confirm-h1h2`; registered before the list was opened) | `confirm`, orders 1-16 (all) | **Deciding**, one shot: H1 1-burn-day active-edge rule ([R63], PR #101) and H2 B2 setting P2 ([R65], PR #106), [R67]. Orders 1-16 are spent for deciding from this date; `scorecard` (17-32) untouched |
 | 2026-10-29 | `PREREG_SEALED_CONFIRM_H1H2`, result (same test as the row above; no new use) | `confirm`, orders 1-16 | Runs completed 2026-10-26 (one ENOSPC interruption, resumed under the PREREG §3 rule); scored once 2026-10-29: **H1 FAIL, H2 FAIL** ([R67]). 14 of 16 fires contributed (C09 no eligible pair, C11 no FEDS pixel). Orders 1-16 spent for deciding; `scorecard` (17-32) untouched |
+
+## 9. Claims on subsets (append only; a claim is not an opening)
+
+A pre-registration may lay a claim on a subset before its data exist, so that no other test spends it. The
+claim names the subset, the target and the pre-registration that will use it. Opening still follows §7 and
+is logged in §8.
+
+| Date | Claimed by | Subset | Target | Owner decision |
+|---|---|---|---|---|
+| 2026-10-25 | ML ember-cast programme (`docs/PREREG_ML_EMBER_DEV.md` §11, stage 2 `docs/PREREG_ML_EMBER.md` to follow) | Canadian 2026 **`confirm`** subset (§5, NBAC 2026, seed `S_SEAL_CA = 2026102402`) | ember target L (where new VIIRS spot fires start 1-15 km ahead), PREREG_LR8 §4/§6 definitions | D2, Travis Kennedy, 2026-10-25 |
+| 2026-10-25 | ML ember-cast programme (same) | Supplementary US 2026 `scale` block (§6a) | scale only for the ember target L; never decides | D2, Travis Kennedy, 2026-10-25 |

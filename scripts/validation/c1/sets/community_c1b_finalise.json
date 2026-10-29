@@ -1,0 +1,205 @@
+[
+ {
+  "fire_id": "2016_255",
+  "day": 124,
+  "bennett_on_domain": true,
+  "reached": [
+   "Fort McMurray (urban service area, Wood Buffalo)"
+  ],
+  "stratum": "calibration"
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 125,
+  "bennett_on_domain": true,
+  "reached": [
+   "Saprae Creek Estates (hamlet, Wood Buffalo)",
+   "Draper (locality, Wood Buffalo)"
+  ],
+  "stratum": "calibration"
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 126,
+  "bennett_on_domain": true,
+  "reached": [
+   "Anzac (hamlet, Wood Buffalo)",
+   "Saprae Creek (hamlet, Wood Buffalo)",
+   "Lenarthur (locality, Wood Buffalo)"
+  ],
+  "stratum": "calibration"
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 127,
+  "bennett_on_domain": true,
+  "reached": [
+   "Gregoire Lake Estates (hamlet, Wood Buffalo)"
+  ],
+  "stratum": "calibration"
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 128,
+  "bennett_on_domain": true,
+  "reached": [],
+  "stratum": "calibration"
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 135,
+  "bennett_on_domain": true,
+  "reached": [
+   "Cheecham (locality, Wood Buffalo)"
+  ],
+  "stratum": "calibration"
+ },
+ {
+  "fire_id": "2016_255",
+  "day": 139,
+  "bennett_on_domain": true,
+  "reached": [
+   "Christina Crossing (locality, Wood Buffalo)"
+  ],
+  "stratum": "calibration"
+ },
+ {
+  "fire_id": "2019_133",
+  "day": 148,
+  "bennett_on_domain": true,
+  "reached": [
+   "Steen River (hamlet, Mackenzie County)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2019_172",
+  "day": 143,
+  "bennett_on_domain": true,
+  "reached": [
+   "High Level"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2019_172",
+  "day": 147,
+  "bennett_on_domain": true,
+  "reached": [
+   "Metis (locality, Mackenzie County)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2019_172",
+  "day": 148,
+  "bennett_on_domain": true,
+  "reached": [
+   "Paddle Prairie (M\u00e9tis settlement, Northern Lights County)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2022_483",
+  "day": 246,
+  "bennett_on_domain": true,
+  "reached": [
+   "Snaring (locality, Improvement District No. 12 Jasper Park)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_317",
+  "day": 234,
+  "bennett_on_domain": true,
+  "reached": [
+   "Fort Fitzgerald (hamlet, Thebathi 196)",
+   "Thebathi 196"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_364",
+  "day": 125,
+  "bennett_on_domain": true,
+  "reached": [
+   "East Prairie (M\u00e9tis settlement, Big Lakes County)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_366",
+  "day": 160,
+  "bennett_on_domain": true,
+  "reached": [],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_681",
+  "day": 125,
+  "bennett_on_domain": true,
+  "reached": [
+   "Fox Lake (hamlet, Fox Lake 162)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_681",
+  "day": 138,
+  "bennett_on_domain": true,
+  "reached": [
+   "Fifth Meridian (locality, Mackenzie County)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_704",
+  "day": 138,
+  "bennett_on_domain": true,
+  "reached": [
+   "Decrene (locality, Lesser Slave River No. 124)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_708",
+  "day": 125,
+  "bennett_on_domain": true,
+  "reached": [
+   "Entwistle (hamlet, Parkland County)",
+   "Evansburg (hamlet, Yellowhead County)",
+   "Lobstick (locality, Yellowhead County)",
+   "Styal (locality, Yellowhead County)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_709",
+  "day": 125,
+  "bennett_on_domain": true,
+  "reached": [
+   "Poplar Ridge (hamlet, Brazeau County)",
+   "Drayton Valley"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2023_712",
+  "day": 137,
+  "bennett_on_domain": true,
+  "reached": [
+   "Fox Creek"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ },
+ {
+  "fire_id": "2024_451",
+  "day": 205,
+  "bennett_on_domain": true,
+  "reached": [
+   "Jasper (locality, Jasper)",
+   "Jasper Park Lodge (locality, Jasper)"
+  ],
+  "stratum": "new (not in the 32-fire record)"
+ }
+]
