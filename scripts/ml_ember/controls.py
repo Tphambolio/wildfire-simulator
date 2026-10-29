@@ -18,7 +18,9 @@ Implementation notes (disclosed):
   drawn from the paired fire; the detector sees interval and fire-constant features.
 - control 5 fits the detector on (bi, bj) only; control 6 on the seam_control fuel + texture columns only,
   Canadian fires headline, US reported.
-- control 8 plants, in every jump interval, as many synthetic positives as observed with probability
+- control 8 (re-run 2026-10-29 after the first run): rungs 1-2 use the within-interval conditional logistic of
+  ladder.py (the pooled marginal logistic attenuated the planted effect about 3-fold and the spline version lost it);
+  the first run's values are kept in controls.json, the re-run in c8_rerun.json. Control 8 plants, in every jump interval, as many synthetic positives as observed with probability
   proportional to exp(-bear_off_deg / 45) and, at interval level, occurrence with logit a + 0.3 u10_ms at the
   observed rate; rungs 1-3 must recover a negative bear_off effect (coefficient / ALE slope) and a positive
   u10 effect in >= 4 of 5 folds.
@@ -198,11 +200,13 @@ def control8(ev, fires, folds) -> dict:
         if te.y.sum() == 0:
             continue
         Xtr = tr[feats].fillna(0.0); w = tr.w_sample.to_numpy()
-        r1 = make_pipeline(StandardScaler(), LogisticRegression(C=1.0, max_iter=2000)).fit(Xtr, tr.y, logisticregression__sample_weight=w)
-        res["rung1_sign"][k] = float(r1[-1].coef_[0][0])  # bear_off_deg coefficient (standardised)
-        r2 = make_pipeline(StandardScaler(), SplineTransformer(n_knots=6, degree=3), LogisticRegression(C=1.0, max_iter=3000))
-        r2.fit(Xtr, tr.y, logisticregression__sample_weight=w)
-        res["rung2_ale"][k] = ale_slope(lambda X: r2.decision_function(X), Xtr, "bear_off_deg")
+        from scripts.ml_ember.ladder import Logistic  # within-interval conditional logistic (the pre-registered GLM form)
+        grp = tr.fire_key.astype(str) + "/" + tr.epoch.astype(str)
+        r1 = Logistic(1.0).fit(Xtr, tr.y, w, groups=grp)
+        res["rung1_sign"][k] = float(r1.coef_[0])  # bear_off_deg coefficient (standardised)
+        st = SplineTransformer(n_knots=6, degree=3, knots="quantile", include_bias=False).fit(Xtr)
+        r2 = Logistic(1.0).fit(st.transform(Xtr), tr.y, w, groups=grp)
+        res["rung2_ale"][k] = ale_slope(lambda X: r2.margin(st.transform(X)), Xtr, "bear_off_deg")
         m3 = lgb_fit(Xtr, tr.y.to_numpy(), w, k)
         res["rung3_ale"][k] = ale_slope(lambda X: m3.predict(X, num_threads=4), Xtr, "bear_off_deg")
         s = m3.predict(te[feats].fillna(0.0), num_threads=4)
