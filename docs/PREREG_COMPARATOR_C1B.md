@@ -120,3 +120,28 @@ file's Result section.
 
 - A first launch at 11:31-11:39 MDT (workstation clock) broke the owner's resource rule: the runner's own gate let it start while the sealed-confirm ensemble and the v8 draw were still running. The coordinator stopped the C1 rerun, and I killed the chained C1b runner. That runner had started the primary fire-day 2019_133:148: FireSim computed it in memory and a WISE container had started. **No C1b row was written and no C1b output was seen.**
 - All runs now wait until `pgrep -f run_confirm.sh` and `pgrep -f "v8.draw|elmfire"` find nothing and ≥ 14 GB is available, in an outer loop and before every WISE run (commit `81e9950`).
+
+### Result (appended 2026-10-29)
+
+- **Integrity:** set sha256s verified (primary `fd427289…`, calibration `5a45993f…`).
+  - `analyze_c1b.py`, `communities_c1b.py`, `analyze_c1.py` and `sets/` are byte-identical to this file's commit `eb5a116`.
+  - Run rows carry `e6cc152`. Every change to `run_c1.py`/`wise_job.py` since `eb5a116` is run control only: named-job gate `81e9950`, docker stop `60eb5a7`, disk pause and job-folder trimming `e6cc152`. Inputs, the WISE mapping and scoring are untouched.
+- **Primary** (11 of 14 fire-days on 9 fires where both ran; 16 reached communities):
+  - Mean error FireSim 8.46 h, WISE 8.39 h. Difference FireSim − WISE **+0.08 h [+0.01, +0.17]**.
+  - **Verdict: non-inferior.** The upper bound is below the +1 h margin.
+  - The CI also lies wholly above 0. The §5 "worse" condition (lower bound above 0) therefore also holds: FireSim is statistically later, by about 5 min, well inside the margin.
+- **Sensitivity** (3 WISE failures as no arrival; 14 fire-days / 11 fires, 20 communities): FireSim 8.71 h, WISE 9.08 h, −0.37 h [−1.48, +0.13], non-inferior.
+- **Descriptive (primary, 16 communities):**
+  - Hits (≤ 18 h): 6 and 6, the same communities. False arrivals: 0 and 0.
+  - Inside the observed interval: FireSim 1, WISE 2.
+  - **Neither model reached 10 of the 16 within 24 h.** These shared misses (≥ 6 h each) are most of the error.
+  - 3 communities were reached before the 06:00 run start, which no model can match.
+  - The two models agree within 2 h on all 16.
+  - 17 h F1 on the 11 days: FireSim 0.318, WISE 0.349.
+- **Calibration** (Horse River, descriptive, 4 of 6 days where both ran): 2.73 h vs 1.57 h, +1.17 h (one fire, no CI). WISE times Draper and Saprae Creek, which FireSim does not reach. Fort McMurray: both within 0.3 h.
+- **WISE failures:** 10 GB cap (exit 137) on 3 of 14 primary days (2019_172:143, 2023_317:234, 2023_712:137) and 2 of 6 calibration days (2016_255:135, 139). Recorded, not retried (§4). FireSim had no failures.
+- **Deviations and disclosures:**
+  1. **Resource gate.** Runs started with ≥ 12 GB available and ran alongside other jobs (launch decision of 12:12 MDT, 2026-10-25), instead of §4's ≥ 14 GB with no other heavy job. The container cap (10 GB) was as registered, and no run was stopped for host memory.
+  2. **Disk full.** At 13:08 MDT on 2026-10-25 the first two C1b fire-days (2019_133:148, 2016_255:124) failed on a full disk while writing inputs. No row was written and WISE never ran. Both were rerun on resume, a workstation failure rerun once (§4).
+  3. **Run times.** Runs took 2026-10-26 00:48–05:39 MDT.
+- **Report:** [R66] §12 and Fig. 4. Data: `c1b/` in the [R66] data folder.
