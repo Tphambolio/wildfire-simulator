@@ -378,3 +378,31 @@ Seeds declared in this file: `S_NEG 2026102501`, `S_FOLD 2026102502`, `S_MODEL 2
 - **Labels.** Development labels are the training catalogue as re-run under PREREG_LR8 A1 (the v8 report states
   it is identical to the pre-freeze catalogue, sha256 `5da778ae…ff54e`); the loader verifies that identity and
   records both hashes in the data folder's `_about.json`.
+
+### A2 (2026-10-29, 12:30 MDT): terrain features sourced from an open DEM; development-set counts disclosed
+
+- **Finding.** The §4 terrain features (`elev_m`, `slope_pct`, `aspect_deg`, `tpi_1km`) name `inputs.npz` `elev`
+  as their source. The frozen v8 `inputs.py` writes that array as zeros for every fire (its docstring: "0 where
+  unknown"), so the source holds no data. This was found at build time, before any model was fitted.
+- **Rule applied.** These four features are already named and defined in §4; filling them from a static open
+  elevation source is their implementation, not an addition under §4's rule for additions. Their definitions
+  do not change. Source: **Copernicus DEM GLO-90** (3 arc-second, ESA, open licence, public S3 bucket
+  `copernicus-dem-90m`, read without credentials), sampled at each 375 m block centre by bilinear interpolation
+  after projection to the fire's UTM grid; slope and aspect by central differences on the 375 m block grid;
+  `tpi_1km` = block elevation minus the mean elevation of the blocks within 1 km. Water bodies and nodata are
+  filled from the nearest valid cell and flagged in the terrain table's `terrain_fill` column (diagnostic).
+- **Mechanics and leakage.** The terrain builder locates cells through `coords_control.parquet` (`row_id`,
+  `bi`, `bj`), converts them to geographic coordinates, and writes `table/terrain.parquet` with `row_id` and the
+  four features only. `bi`/`bj` never leave the builder; the ladder joins on `row_id`. Elevation is static and
+  pre-fire; it cannot encode the final footprint. The fuel-seam control (§8 item 6) is unaffected.
+- **Timing.** Terrain is built in parallel with the §8 controls and the §9 β_w check, none of which uses it.
+  Rungs 1–4 are fitted only after the terrain table exists; if the DEM fetch fails for a fire, that fire's cells
+  carry NaN terrain (GBM native; GLM imputation disclosed) and the fire is listed.
+- **Development-set counts (disclosed, read 2026-10-29 12:15 MDT from the training tables only):** 165 training
+  fires with an eligible station and intervals (CAN 60 / US 105), 55 with a matched jump, **234 positives**
+  (CAN 176 / US 58) in 161 of 4,656 intervals; 397 of the 650 training-catalogue jumps fall on fires without an
+  eligible station and are therefore outside the station-arm population (as in v8, PREREG_LR8 A2.1). The
+  development set is smaller than the proposal assumed; the §7 stop rule and §5 hyperparameter rules are
+  unchanged, and the §1 deciding tests are sized on the confirmation set, not on this one.
+- **Sector flag note.** The feature builder's recomputation of `sec_act`/`sec_all` differs from the npz in one
+  fire (NBAC:2025_430) at the ±45° boundary; the tables store the npz values, which §4 names as the source.
