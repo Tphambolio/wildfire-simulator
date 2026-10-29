@@ -21,6 +21,11 @@ RUN pip install --no-cache-dir "api/[archive-s3]"
 # Bundle Edmonton spatial data so the server-side paths /app/data/* work out of the box
 COPY data/ /app/data/
 
+# Validation scorecards (docs/validation-scorecard.md): GET /api/v1/scorecard serves the latest
+# dated docs/scorecard/<date>.json, read once at startup (routers/scorecard.py)
+COPY docs/scorecard/ /app/docs/scorecard/
+ENV FIRESIM_SCORECARD_DIR=/app/docs/scorecard
+
 # Alberta Wildfire FBP fuel grid 2025 (100 m, COG, 31.8 MB; Open Government Licence - Alberta):
 # the default fuel outside the City grid, read by windowed reads only. Not in git: fetched from
 # the repository's data release and checked against its SHA-256. If the download fails the

@@ -1,0 +1,743 @@
+{
+  "schema_version": 1,
+  "title": "FireSim validation scorecard",
+  "date": "2026-10-25",
+  "git_commit": "0020dfc5f22ecac0fc29da76bdb01893257692ad",
+  "engine_version": "3.0.0",
+  "report": "[R69]",
+  "framing": "FireSim is a preparedness and training tool for EOC Planning sections (exercises, tabletop scenarios, what-if planning). It is not an operational fire-growth forecast and is not for real-time operational prediction; the lead agency's prediction is authoritative.",
+  "fuel_grid": {
+    "spread_and_ensemble": "Alberta Wildfire FBP fuel types 2025 (100 m) back-cast to each fire's start (NBAC burn key + SCANFI v2 epoch; docs/fuel-grid-backcast.md): the fuel FireSim uses for dated historical Alberta replays",
+    "comparator": "CFS national FBP fuel grid 2014b (the record's former headline grid; internal-use licence)",
+    "scope": "historical Alberta replays (fires 2014-2024). Live, undated runs on the 2025 grid without a back-cast are not scored on observed fires",
+    "structures_and_embers": "building footprints and observed damage (Jasper 2024 Parks Canada / Municipality status; CAL FIRE DINS), not a fuel grid"
+  },
+  "data": {
+    "spread": "CFSDS v1.1 (Barber et al. 2024): 143 fire-days of 32 Alberta fires 2014-2024; held-out = 16 test fires / 79 fire-days (Bennett et al. 2026 protocol)",
+    "ensemble": "65 held-out fire-days of 16 fires (the 14 largest excluded by run time), 20 members",
+    "structures": "Jasper 2024 townsite, 1,119 buildings",
+    "embers": "CAL FIRE DINS building outcomes and community-block arrival (Glass, CZU, North Complex 2020; Dixie, Caldor 2021)"
+  },
+  "release_rescore_set": {
+    "doc": "docs/SEALED_2026.md",
+    "set": "`scorecard` 16 of the sealed 2026 US block (never decides; descriptive per-release re-score once pre-registered)",
+    "list_sha256": "b9c7a303c71e63ebc63e9fdf25cda18e8ebcaf61a5af36a3ac69cdd297748e80",
+    "status": "sealed; no model has run on these fires; this scorecard uses no sealed fire"
+  },
+  "metrics": [
+    {
+      "id": "fbp_cffdrs_conformance",
+      "group": "equations",
+      "label": "FBP and FWI equations vs CFS cffdrs",
+      "status": "validated",
+      "kind": "verification",
+      "value": 3e-10,
+      "display": "relative difference ≤ 3e-10 (FBP, 12,960 cases); FFMC/ISI/DC ≤ 1e-13",
+      "unit": "relative difference",
+      "ci95": null,
+      "n": 12960,
+      "delta": null,
+      "comparators": [],
+      "reference": {
+        "label": "CFS cffdrs reference implementation (Python port), ST-X-3 FFMC coefficient 147.2",
+        "value": 0.0,
+        "note": "float-precision match is the pass criterion"
+      },
+      "gloss": "The fire-behaviour equations match the Canadian reference implementation to floating-point precision. This shows the equations are right, not that predictions match real fires.",
+      "source": {
+        "report": "verification",
+        "kind": "doc",
+        "file": "docs/verification.md",
+        "section": "§1 and §1b",
+        "tests": [
+          "engine/tests/fbp/test_cffdrs_reference.py",
+          "engine/tests/fwi/test_cffdrs_fwi_reference.py"
+        ]
+      }
+    },
+    {
+      "id": "heldout_f1_17h",
+      "group": "spread",
+      "label": "Held-out one-day F1 (operational set-up: active edges 2 d, FFMC spin-up, 10-20 h)",
+      "status": "partly_validated",
+      "kind": "validation",
+      "value": 0.2457,
+      "display": "0.246",
+      "unit": "F1 (0-1)",
+      "ci95": null,
+      "ci95_note": "[R45] reports no CI on the level; its pre-registered test is the paired difference below",
+      "n": 79,
+      "n_note": "79 held-out fire-days of 16 Alberta fires never used to choose a setting (CFSDS 2014-2024)",
+      "delta": {
+        "vs": "CFS 2014b grid (former headline)",
+        "mean": 0.0337,
+        "ci95": [
+          0.0072,
+          0.058
+        ],
+        "verdict": "better",
+        "source": {
+          "report": "[R45]",
+          "kind": "file",
+          "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/results_rescore_backcast.json",
+          "sha256": "576638e695c513ac3d5602239ab7b161576af194cedecda2a13f81415993aede",
+          "path": "paired.C1.held_out.f1_17h"
+        }
+      },
+      "comparators": [
+        {
+          "label": "Same set-up on CFS 2014b",
+          "value": 0.212,
+          "display": "0.212",
+          "source": {
+            "report": "[R45]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/results_rescore_backcast.json",
+            "sha256": "576638e695c513ac3d5602239ab7b161576af194cedecda2a13f81415993aede",
+            "path": "levels.C1.held_out.nat2014.f1_17h"
+          }
+        },
+        {
+          "label": "W.I.S.E. default settings, national (Bennett et al. 2026)",
+          "value": 0.26,
+          "display": "0.26",
+          "source": {
+            "report": "Bennett et al. (2026); record §4.2",
+            "kind": "report text",
+            "file": "docs/validation.md"
+          }
+        },
+        {
+          "label": "W.I.S.E. tuned (Bennett et al. 2026)",
+          "value": 0.54,
+          "display": "0.54",
+          "source": {
+            "report": "Bennett et al. (2026); record §4.2",
+            "kind": "report text",
+            "file": "docs/validation.md"
+          }
+        },
+        {
+          "label": "W.I.S.E. on identical back-cast inputs, 9 record fire-days (descriptive)",
+          "value": 0.2316,
+          "display": "W.I.S.E. 0.232 vs FireSim 0.252",
+          "source": {
+            "report": "[R45]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/results_rescore_backcast.json",
+            "sha256": "576638e695c513ac3d5602239ab7b161576af194cedecda2a13f81415993aede",
+            "path": "wise.means"
+          }
+        }
+      ],
+      "reference": {
+        "label": "W.I.S.E. default / tuned one-day F1",
+        "value": [
+          0.26,
+          0.54
+        ],
+        "note": "level with W.I.S.E. defaults, short of tuned W.I.S.E."
+      },
+      "gloss": "Front position skill vs observed fires: level with W.I.S.E. defaults, short of tuned W.I.S.E. Applies to historical Alberta replays on the back-cast fuel grid; live runs on the 2025 grid are not scored.",
+      "source": {
+        "report": "[R45]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/results_rescore_backcast.json",
+        "sha256": "576638e695c513ac3d5602239ab7b161576af194cedecda2a13f81415993aede",
+        "path": "levels.C1.held_out.backcast.f1_17h"
+      },
+      "ci95_derived": {
+        "lo": 0.2136,
+        "hi": 0.2793,
+        "n_fires": 16,
+        "n_fire_days": 79,
+        "method": "whole-fire bootstrap of the fire-day mean, 2,000 draws, seed 1, percentile 95 % CI; computed by scripts/make_scorecard.py from ~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/per_fireday.csv (column f1_17h_backcast, C1 held_out). Not a number reported in [R45], which gives the paired difference CI only.",
+        "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/per_fireday.csv",
+        "sha256": "734b34265ca0d55fb513a0d64d10c455715618101ef1a3467777148e247b1ccf"
+      }
+    },
+    {
+      "id": "area_bias_17h",
+      "group": "spread",
+      "label": "Area bias, held-out (normalised (A_pred − A_obs) / (A_pred + A_obs), 17 h)",
+      "status": "partly_validated",
+      "kind": "validation",
+      "value": 0.2594,
+      "display": "+0.26",
+      "unit": "normalised area difference (−1 to 1; 0 = unbiased)",
+      "ci95": null,
+      "n": 79,
+      "delta": null,
+      "comparators": [
+        {
+          "label": "Same set-up on CFS 2014b",
+          "value": 0.2477,
+          "display": "+0.25",
+          "source": {
+            "report": "[R45]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/results_rescore_backcast.json",
+            "sha256": "576638e695c513ac3d5602239ab7b161576af194cedecda2a13f81415993aede",
+            "path": "levels.C1.held_out.nat2014.area_diff_17h"
+          }
+        },
+        {
+          "label": "Share of held-out days over-predicted",
+          "value": 0.7342,
+          "display": "73 %",
+          "source": {
+            "report": "[R45]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/results_rescore_backcast.json",
+            "sha256": "576638e695c513ac3d5602239ab7b161576af194cedecda2a13f81415993aede",
+            "path": "levels.C1.held_out.backcast.over_predicted_17h"
+          }
+        },
+        {
+          "label": "Second round on 2014b (record, 2026-10-07)",
+          "value": 0.27,
+          "display": "+0.27",
+          "source": {
+            "report": "docs/validation.md second round",
+            "kind": "report text",
+            "file": "docs/validation.md"
+          }
+        }
+      ],
+      "reference": {
+        "label": "unbiased",
+        "value": 0.0,
+        "note": "positive = modelled growth larger than observed"
+      },
+      "gloss": "Growth is still over-predicted on most held-out days; the largest wind-driven runs are under-predicted.",
+      "source": {
+        "report": "[R45]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-2026-10-15/results_rescore_backcast.json",
+        "sha256": "576638e695c513ac3d5602239ab7b161576af194cedecda2a13f81415993aede",
+        "path": "levels.C1.held_out.backcast.area_diff_17h"
+      }
+    },
+    {
+      "id": "ensemble_coverage_p10_p90",
+      "group": "ensemble",
+      "label": "Ensemble: held-out fire-days with observed area inside the members' P10-P90",
+      "status": "partly_validated",
+      "kind": "validation",
+      "value": 0.4923,
+      "display": "49 %",
+      "unit": "share of fire-days",
+      "ci95": [
+        0.3803,
+        0.597
+      ],
+      "ci95_note": "descriptive whole-fire bootstrap (2,000 draws) in [R49]; the registered verdict is the difference vs 2014b",
+      "n": 65,
+      "n_note": "65 held-out fire-days of 16 fires, 20 members, default perturbation sizes (A15)",
+      "delta": {
+        "vs": "CFS 2014b rerun",
+        "mean": 0.0154,
+        "ci95": [
+          -0.0714,
+          0.1053
+        ],
+        "verdict": "no detectable difference",
+        "source": {
+          "report": "[R49]",
+          "kind": "file",
+          "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+          "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+          "path": "direction_aware_reading.inside_p10_p90"
+        }
+      },
+      "comparators": [
+        {
+          "label": "Record value on 2014b (2026-10-08)",
+          "value": 0.49,
+          "display": "49 %",
+          "source": {
+            "report": "[R49]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+            "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+            "path": "reproduction_vs_record.published_record.coverage_p10_p90"
+          }
+        }
+      ],
+      "reference": {
+        "label": "calibrated ensemble",
+        "value": 0.8,
+        "note": "about 80 % for a P10-P90 range"
+      },
+      "gloss": "The modelled range is too narrow: the real one-day area falls inside it on about half the days, where a calibrated range would hold about 80 %.",
+      "source": {
+        "report": "[R49]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+        "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+        "path": "descriptive.levels.backcast.inside_p10_p90"
+      }
+    },
+    {
+      "id": "ensemble_crps_skill",
+      "group": "ensemble",
+      "label": "Ensemble: CRPS skill of log10 burned area vs the single run",
+      "status": "partly_validated",
+      "kind": "validation",
+      "value": 0.2377,
+      "display": "+0.24",
+      "unit": "CRPSS (> 0 = better than the single run)",
+      "ci95": [
+        0.1902,
+        0.2843
+      ],
+      "ci95_note": "descriptive whole-fire bootstrap in [R49]",
+      "n": 65,
+      "delta": {
+        "vs": "CRPS of log10 area, back-cast − 2014b rerun (registered test; lower is better)",
+        "mean": -0.0572,
+        "ci95": [
+          -0.1127,
+          -0.0072
+        ],
+        "verdict": "back-cast better",
+        "source": {
+          "report": "[R49]",
+          "kind": "file",
+          "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+          "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+          "path": "direction_aware_reading.crps_log10_area"
+        }
+      },
+      "comparators": [
+        {
+          "label": "CRPS of log10 area, back-cast",
+          "value": 0.4074,
+          "display": "0.407 [0.329, 0.506]",
+          "source": {
+            "report": "[R49]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+            "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+            "path": "descriptive.levels.backcast.crps_log10_area"
+          }
+        },
+        {
+          "label": "CRPS of log10 area, 2014b rerun",
+          "value": 0.4646,
+          "display": "0.465",
+          "source": {
+            "report": "[R49]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+            "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+            "path": "descriptive.pooled_summary_registered.nat2014.crps_log10_area"
+          }
+        }
+      ],
+      "reference": {
+        "label": "single deterministic run",
+        "value": 0.0,
+        "note": "CRPSS 0 = no better than one run"
+      },
+      "gloss": "The ensemble's area forecast beats a single run by about a quarter on the CRPS; the gain follows the single run's better area on the back-cast grid.",
+      "source": {
+        "report": "[R49]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+        "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+        "path": "descriptive.levels.backcast.crpss_vs_det"
+      }
+    },
+    {
+      "id": "ensemble_spread_skill",
+      "group": "ensemble",
+      "label": "Ensemble: spread / skill ratio (RMSE of the ensemble mean over the member spread)",
+      "status": "partly_validated",
+      "kind": "validation",
+      "value": 1.3439,
+      "display": "1.34",
+      "unit": "ratio (1 = well calibrated; > 1 = too narrow)",
+      "ci95": [
+        1.1274,
+        1.5947
+      ],
+      "ci95_note": "descriptive whole-fire bootstrap in [R49]",
+      "n": 65,
+      "delta": null,
+      "comparators": [
+        {
+          "label": "Record value on 2014b (2026-10-08)",
+          "value": 1.58,
+          "display": "1.58",
+          "source": {
+            "report": "[R49]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+            "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+            "path": "reproduction_vs_record.published_record.spread_skill_ratio"
+          }
+        }
+      ],
+      "reference": {
+        "label": "calibrated",
+        "value": 1.0,
+        "note": "Fortin et al. (2014) eq. 15"
+      },
+      "gloss": "Members agree with each other more than they agree with the fires: the range is about a third too narrow.",
+      "source": {
+        "report": "[R49]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+        "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+        "path": "descriptive.levels.backcast.spread_skill_ratio"
+      }
+    },
+    {
+      "id": "ensemble_p10_holds_90pct",
+      "group": "ensemble",
+      "label": "Ensemble: held-out fire-days where the P10 footprint held ≥ 90 % of the observed growth",
+      "status": "partly_validated",
+      "kind": "validation",
+      "value": 0.2769,
+      "display": "28 %",
+      "unit": "share of fire-days",
+      "ci95": [
+        0.1698,
+        0.3834
+      ],
+      "ci95_note": "descriptive whole-fire bootstrap in [R49]",
+      "n": 65,
+      "delta": null,
+      "comparators": [
+        {
+          "label": "Record value on 2014b (2026-10-08)",
+          "value": 0.29,
+          "display": "29 %",
+          "source": {
+            "report": "[R49]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+            "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+            "path": "reproduction_vs_record.published_record.p10_recall_ge_0.9"
+          }
+        }
+      ],
+      "reference": {
+        "label": "a worst case would hold ≥ 90 % of growth on about 90 % of days",
+        "value": 0.9,
+        "note": "P10 is not a worst case"
+      },
+      "gloss": "P10 is not a worst case: the early-arrival footprint contained nearly all of the real growth on only about a quarter of days. Read it as the early end of the modelled range.",
+      "source": {
+        "report": "[R49]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+        "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+        "path": "descriptive.levels.backcast.p10_holds_90pct"
+      }
+    },
+    {
+      "id": "burn_probability_reliability_top_bin",
+      "group": "ensemble",
+      "label": "Burn probability reliability: share of cells at ~0.94 modelled probability that burned",
+      "status": "partly_validated",
+      "kind": "validation",
+      "value": 0.435,
+      "display": "43 %",
+      "unit": "observed burned share in the 0.8-1.0 probability bin (mean forecast ≈ 0.94)",
+      "ci95": null,
+      "ci95_note": "pooled over cells, no CI (descriptive in [R49])",
+      "n": 65,
+      "delta": null,
+      "comparators": [
+        {
+          "label": "Same bin on the CFS 2014b rerun (the overview's 33 %)",
+          "value": 0.3333,
+          "display": "33 %",
+          "source": {
+            "report": "[R49]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+            "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+            "path": "descriptive.pooled_summary_registered.nat2014.top_bin_obs_freq"
+          }
+        }
+      ],
+      "reference": {
+        "label": "reliable forecast",
+        "value": 0.94,
+        "note": "cells forecast at 94 % should burn about 94 % of the time"
+      },
+      "gloss": "Burn probability is over-confident: cells the ensemble is almost sure will burn (about 95 %) burned well under half the time, because every member shares the model's over-prediction.",
+      "source": {
+        "report": "[R49]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/validation-rescore-backcast-e1-2026-10-17/results_e1.json",
+        "sha256": "10fb8fa7911ace5108a84c06caa0ac3390e60840178da306bc875539201d9b47",
+        "path": "descriptive.pooled_summary_registered.backcast.top_bin_obs_freq"
+      }
+    },
+    {
+      "id": "ensemble_b2_postprocessing",
+      "group": "ensemble",
+      "label": "Ensemble log-area post-processing B2 (opt-in, not applied by default): P10-P90 coverage",
+      "status": "pass_opt_in",
+      "kind": "validation",
+      "value": 0.8462,
+      "display": "85 %",
+      "unit": "share of fire-days",
+      "ci95": [
+        0.7407,
+        0.9365
+      ],
+      "n": 65,
+      "delta": {
+        "vs": "default ensemble (arm B)",
+        "mean": 0.3538,
+        "ci95": [
+          0.2308,
+          0.4833
+        ],
+        "verdict": "PASS",
+        "source": {
+          "report": "[R65]",
+          "kind": "file",
+          "file": "~/dev/wildfire/reports/data/b2-ensemble-calibration-2026-10-24/results.json",
+          "sha256": "8dfbbf696966bf93b1c4144a151369c7189607ed5ad22a87008f4bb034eda9cc",
+          "path": "arms.P1.d_coverage_vs_B"
+        }
+      },
+      "comparators": [
+        {
+          "label": "CRPS of log10 area (B2 P1)",
+          "value": 0.3764,
+          "display": "0.376",
+          "source": {
+            "report": "[R65]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/b2-ensemble-calibration-2026-10-24/results.json",
+            "sha256": "8dfbbf696966bf93b1c4144a151369c7189607ed5ad22a87008f4bb034eda9cc",
+            "path": "arms.P1.crps"
+          }
+        },
+        {
+          "label": "Spread / skill (B2 P1; < 1 = too wide)",
+          "value": 0.5531,
+          "display": "0.55",
+          "source": {
+            "report": "[R65]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/b2-ensemble-calibration-2026-10-24/results.json",
+            "sha256": "8dfbbf696966bf93b1c4144a151369c7189607ed5ad22a87008f4bb034eda9cc",
+            "path": "arms.P1.spread_skill"
+          }
+        },
+        {
+          "label": "P10 footprint holds ≥ 90 % of growth (unchanged by B2)",
+          "value": 0.2923,
+          "display": "29 %",
+          "source": {
+            "report": "[R65]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/b2-ensemble-calibration-2026-10-24/results.json",
+            "sha256": "8dfbbf696966bf93b1c4144a151369c7189607ed5ad22a87008f4bb034eda9cc",
+            "path": "arms.P1.mapped_p10_footprint_recall_ge_0.9"
+          }
+        }
+      ],
+      "reference": {
+        "label": "pre-registered rule PREREG_ENSEMBLE_B2",
+        "value": 0.7,
+        "note": "PASS iff P1 held-out coverage >= 0.70 AND lower 95 % CI of coverage(P1) - coverage(B) > 0 AND (mean dCRPS(P1 - B) <= 0 AND its upper 95 % CI <= +0.050)"
+      },
+      "gloss": "A shift and stretch of the members' areas (shift -0.25 log10, stretch 2.25) passed its pre-registered test but over-corrects (too wide) and moves no footprint. It stays opt-in; the app's range is the default ensemble above.",
+      "source": {
+        "report": "[R65]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/b2-ensemble-calibration-2026-10-24/results.json",
+        "sha256": "8dfbbf696966bf93b1c4144a151369c7189607ed5ad22a87008f4bb034eda9cc",
+        "path": "arms.P1.coverage"
+      }
+    },
+    {
+      "id": "structure_hamada_jasper_kappa",
+      "group": "structures",
+      "label": "House-to-house spread (Hamada, opt-in): Cohen's κ on Jasper 2024 destroyed buildings",
+      "status": "failed_test",
+      "kind": "validation",
+      "value": 0.4724,
+      "display": "κ 0.472",
+      "unit": "Cohen's κ (0 = chance, 1 = perfect)",
+      "ci95": null,
+      "n": 1119,
+      "n_note": "1119 Jasper townsite buildings; pre-registered primary run (seeds imposed, 30 m cutoff)",
+      "delta": {
+        "vs": "count-matched distance band from the seeds (baseline a)",
+        "mean": -0.0436,
+        "ci95": [
+          -0.157,
+          0.0451
+        ],
+        "verdict": "fail (Hamada does no better than distance)",
+        "source": {
+          "report": "[R10]",
+          "kind": "file",
+          "file": "~/dev/wildfire/validation-data/jasper2024/results-2026-10-10/results.json",
+          "sha256": "365e7f4c081a88cd4233b0d705eb230771aef2f95b37f389febf819e26b2f8d8",
+          "path": "runs[0].kappa_diff_vs_a"
+        }
+      },
+      "comparators": [
+        {
+          "label": "Distance-band baseline κ",
+          "value": 0.516,
+          "display": "κ 0.516",
+          "source": {
+            "report": "[R10]",
+            "kind": "file",
+            "file": "~/dev/wildfire/validation-data/jasper2024/results-2026-10-10/results.json",
+            "sha256": "365e7f4c081a88cd4233b0d705eb230771aef2f95b37f389febf819e26b2f8d8",
+            "path": "runs[0].scores.destroyed.a_distance_band_count_matched.kappa"
+          }
+        },
+        {
+          "label": "Precision / recall (destroyed)",
+          "value": [
+            0.6313,
+            0.6757
+          ],
+          "display": "63 % / 68 %",
+          "source": {
+            "report": "[R10]",
+            "kind": "file",
+            "file": "~/dev/wildfire/validation-data/jasper2024/results-2026-10-10/results.json",
+            "sha256": "365e7f4c081a88cd4233b0d705eb230771aef2f95b37f389febf819e26b2f8d8",
+            "path": "runs[0].scores.destroyed.firesim"
+          }
+        }
+      ],
+      "reference": {
+        "label": "decision rule: κ must exceed the distance-band and seeds-only baselines",
+        "value": 0.516,
+        "note": "not met"
+      },
+      "gloss": "Given where the embers entered the townsite, the house-to-house model predicts which buildings were lost no better than distance from the first ignitions. Illustrative, for exercises only; never a loss forecast.",
+      "source": {
+        "report": "[R10]",
+        "kind": "file",
+        "file": "~/dev/wildfire/validation-data/jasper2024/results-2026-10-10/results.json",
+        "sha256": "365e7f4c081a88cd4233b0d705eb230771aef2f95b37f389febf819e26b2f8d8",
+        "path": "runs[0].scores.destroyed.firesim.kappa"
+      }
+    },
+    {
+      "id": "long_range_embers",
+      "group": "embers",
+      "label": "Long-range embers (opt-in, PRs #59/#81/#83/#87, not merged): pre-registered tests v4-v7",
+      "status": "failed_test",
+      "kind": "validation",
+      "value": 0,
+      "display": "v4-v7 all FAILED their pre-registered tests; v8 design pending owner review",
+      "unit": "pre-registered tests passed",
+      "ci95": null,
+      "n": 4,
+      "delta": null,
+      "comparators": [],
+      "reference": {
+        "label": "pass rule of each PREREG_LR*",
+        "value": null,
+        "note": "none met"
+      },
+      "gloss": "Every version of long-range ember spotting has failed its pre-registered held-out test (building loss and community arrival). It is not in the app's default model; a v8 design awaits the owner's review.",
+      "source": {
+        "report": "[R48]",
+        "kind": "file",
+        "file": "~/dev/wildfire/reports/data/long-range-embers-v7-calibrated-front-2026-10-15/scores_PREREG_LR7_fresh.json",
+        "sha256": "da992e2fadd9a534a605c532b1db83c1c0e631263ab30066463428ad119d43ad",
+        "path": "decision"
+      },
+      "versions": [
+        {
+          "version": "v4",
+          "test": "PREREG_LR4 (Glass, CZU, North Complex 2020; building loss)",
+          "verdict": "FAIL",
+          "detail": "1 of 4 pooled conditions met",
+          "passed": false,
+          "source": {
+            "report": "[R39] (v4)",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/long-range-embers-v4-2026-10-12/prereg_lr4_pooled.json",
+            "sha256": "dfae4135df311b848a4ca41435b8cfedbf7db9027bf7e40d3c8c23fa6c742e23",
+            "path": "decision"
+          }
+        },
+        {
+          "version": "v5",
+          "test": "PREREG_LR5 (same fires; two-mode kernel)",
+          "verdict": "FAIL",
+          "detail": "2 of 4 pooled conditions met; held-out AUC 0.70",
+          "passed": false,
+          "source": {
+            "report": "[R-v5] (unnumbered, PR #81)",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/long-range-embers-v5-two-mode-kernel-2026-10-12/results_lr5_pooled.json",
+            "sha256": "02c8b8656ef8ba69bfec39e81284c8262dc73a014cfb24f3887737cc1542ad02",
+            "path": "decision"
+          }
+        },
+        {
+          "version": "v6",
+          "test": "PREREG_LR6 target A (community arrival, Glass/CZU/North Complex)",
+          "verdict": "FAIL",
+          "detail": "arrival error with embers − without: +0.53 h [+0.34, +0.75] (worse)",
+          "passed": false,
+          "source": {
+            "report": "[R47]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/long-range-embers-v6-reframed-validation-2026-10-13/scores_PREREG_LR6.json",
+            "sha256": "0670908407c0d401014ff11d8ee2fe467bcace185d6fa3cf816b38635850f8a3",
+            "path": "pooled"
+          }
+        },
+        {
+          "version": "v7",
+          "test": "PREREG_LR7 target A (fresh fires Dixie, Caldor 2021)",
+          "verdict": "FAIL",
+          "detail": "embers vs calibrated front, MAE: +0.31 h [+0.07, +0.67] (worse)",
+          "passed": false,
+          "source": {
+            "report": "[R48]",
+            "kind": "file",
+            "file": "~/dev/wildfire/reports/data/long-range-embers-v7-calibrated-front-2026-10-15/scores_PREREG_LR7_fresh.json",
+            "sha256": "da992e2fadd9a534a605c532b1db83c1c0e631263ab30066463428ad119d43ad",
+            "path": "pooled.A2_V7_minus_A0c_mae"
+          }
+        },
+        {
+          "version": "v8",
+          "test": "study design [R54], draft for owner review",
+          "verdict": "pending",
+          "detail": "not pre-registered; no decision-fire data opened",
+          "passed": null,
+          "source": {
+            "report": "[R54]",
+            "kind": "report text",
+            "file": "docs/PROJECT_RECORD.md §4.2"
+          }
+        }
+      ]
+    }
+  ],
+  "unsourced_from_files": [],
+  "generated_by": {
+    "script": "scripts/make_scorecard.py",
+    "argv": [
+      "--date",
+      "2026-10-25",
+      "--report",
+      "R69"
+    ],
+    "built": "2026-10-25T03:54:09-06:00"
+  }
+}
