@@ -353,4 +353,28 @@ Seeds declared in this file: `S_NEG 2026102501`, `S_FOLD 2026102502`, `S_MODEL 2
 
 ## 17. Addenda (dated; appended only)
 
-(none)
+### A1 (2026-10-29, 02:15 MDT): v8 has reported; blindness statement; sealed paths named
+
+- **v8 result read.** The professor read *Long-range embers v8 result 2026-10-29* ([R69], PR #114) in full at
+  02:12-02:20 MDT on 2026-10-29, the first reading of any v8 result by anyone on this project. This file's
+  stage-1 freeze (`07fbf59`, 2026-10-25 10:45 MDT) predates it by four days. What was read: aggregate and
+  per-stratum results only (K 176, 159 ranked jumps in 73 fires; M8 AUC 0.710 CAN / 0.642 US; B1 0.571 / 0.489;
+  S3(M8 − B1) +0.147; ELMFIRE at M8's level; M8 skill falling with distance; counts ×0.4 CAN / ×6 US; Brier
+  worse than climatology). **Not opened:** the per-jump files `results/{jumps,ranks_per_jump,sealed_manifest}.csv`
+  of the v8 data folder, `v8-pool/final/`, and any decision fire's `intervals/`.
+- **Consequence for the plan (no rule change).** The confirmation set (§11, option B) is now fixed: the 203
+  eligible decision fires, 159 ranked jumps in 73 fires. Stage 2 recomputes power from these counts (the §1 sizing
+  used a simulated median K of 162, so the +0.08 sizing is expected to stand). The v8 finding that M8's skill
+  falls with distance and that B1 is near chance in the US are **disclosed as known to the designer** before
+  stage 2; they do not add features (§4 is closed) but will be named in stage 2's blindness statement.
+- **Sealed paths, added to the loader's refusal list (§2, §14):** `validation-data/v8-pool/final/` (every file),
+  `reports/data/long-range-embers-v8-2026-10-29/results/{jumps.csv,ranks_per_jump.csv,sealed_manifest.csv,
+  score_out.json,secondary.json,sensitivities.json,unseal_exclusions.json}`, `v8-pool/elmfire_runs/` (decision
+  fires), and every `v8-pool/fires/<key>/intervals/` whose key is not in the training split. The guard is tested
+  against each.
+- **Code dependency.** `origin/feat/long-range-embers-v8` (head `593e2d1`, the v8 result commit) is merged into
+  this branch so that `scripts/ml_ember/` imports the frozen v8 code (`scripts/validation/v8/{intervals,inputs,
+  fit,common}.py`, `v8_score.py`) rather than copying it. No v8 file is modified on this branch.
+- **Labels.** Development labels are the training catalogue as re-run under PREREG_LR8 A1 (the v8 report states
+  it is identical to the pre-freeze catalogue, sha256 `5da778ae…ff54e`); the loader verifies that identity and
+  records both hashes in the data folder's `_about.json`.

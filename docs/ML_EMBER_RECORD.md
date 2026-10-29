@@ -114,9 +114,9 @@ Living record of the work, decisions, references and testing behind the **ML emb
 
 ## 6. Open items
 - [x] Owner decisions D1–D4 (review §0): approved 2026-10-25 as recommended.
-- [ ] v8 to report. Draw status 2026-10-25 10:20 MDT (count-only files): 150 drawn per region; CAN 47 eligible, 62 jumps (26 fires with jumps); US 105 eligible, 54 jumps (31 fires); total 116. Stop rule (K ≥ 150 and ≥ 60 per region) not yet met: US short by 6, total short by 34. Draw process still running; see review §11.
+- [x] v8 reported 2026-10-29 ([R69], PR #114): **PASS** on all four criteria; K 176 (CAN 96 / US 80), 159 ranked jumps in 73 fires; S3(M8 − B1) +0.147 (95 % +0.098 to +0.194); M8 AUC 0.710 / 0.642; B1 0.571 / 0.489; ELMFIRE ≈ M8; M8 skill falls with distance; counts miscalibrated ×0.4 CAN / ×6 US. Read by the professor 02:12 MDT 2026-10-29, after the stage-1 freeze (PREREG_ML_EMBER_DEV A1).
 - [x] Stage-1 development pre-registration written and pushed before anyone on the project reads the v8 result (`docs/PREREG_ML_EMBER_DEV.md`, 2026-10-25).
-- [ ] Phase 2 infrastructure after v8 decides: `scripts/ml_ember/{loader,features}.py` with tests, frozen Parquet table, data folder `reports/data/ml-ember-cast-<date>/`.
+- [ ] Phase 2 infrastructure (started 2026-10-29 02:30 MDT, data-engineer subagent): `scripts/ml_ember/{loader,features}.py` with tests, frozen Parquet table, data folder `reports/data/ml-ember-cast-<date>/`.
 - [ ] Fuel-seam control: if it fails, a box-wide pre-fire SCANFI typing for Canadian fires (feasibility: SCANFI server speed; local Alberta mirror only).
 - [ ] Choose the additive-model library (spline logistic in scikit-learn vs an EBM in a dedicated env).
 - [ ] Parquet writer (`pyarrow` missing): dedicated env or `fastparquet`.
@@ -140,3 +140,4 @@ Living record of the work, decisions, references and testing behind the **ML emb
 | 2026-10-25 11:00 | `docs/ML_EMBER_RECORD.md`, `docs/REPORT_NUMBERS.md` | Record moved into the repo; [R68] claimed |
 | 2026-10-25 11:30 | `feat/c4-sealed-us-supplement` `df9443f`, `159eeed`, result commit; `validation-data/sealed2026/us/sealed_us_2026_supp.csv` | D2 executed: supplementary scale-only US 2026 block sealed (18 fires), ember claim on the Canadian 2026 `confirm` subset recorded; sealed folder README/_about updated; nothing opened |
 | 2026-10-25 12:18 | master `34cb689` (PR #108) | Owner instructed the merge of the sealing PR; registry next-free fixed to [R69]; master record, SEALED_2026 and registry re-attached to Claude for Science |
+| 2026-10-29 02:12 | `reports/Long-range embers v8 result 2026-10-29.md` [R69] | v8 PASS read (first reading on this project); PREREG_ML_EMBER_DEV addendum A1 (blindness statement, sealed paths, v8 code merged in from `593e2d1`); Phase 2 gate open |
