@@ -245,7 +245,7 @@ def _scanfi_window(ds, gw: dict):
 
 
 def _mirror_covers(mp: Path, gw: dict, need: np.ndarray) -> bool:
-    """True when every source pixel the warp reads for the needed run-grid cells (dilated by one cell) is filled
+    """True when every source pixel the warp reads for the needed run-grid cells (dilated by three cells) is filled
     in the sparse mirror: the mirror's nodata mask is warped to the run grid with the max kernel."""
     from scipy import ndimage as _nd
     from rasterio.windows import transform as wtr
@@ -258,7 +258,7 @@ def _mirror_covers(mp: Path, gw: dict, need: np.ndarray) -> bool:
         dst = np.zeros((gw["ny"], gw["nx"]), np.uint8)
         reproject(miss, dst, src_transform=wtr(win, ds.transform), src_crs=ds.crs, dst_transform=grid_transform(gw),
                   dst_crs=gw["crs"], resampling=Resampling.max)
-    nd = _nd.binary_dilation(need, iterations=1)
+    nd = _nd.binary_dilation(need, iterations=3)
     return not bool((dst[nd] > 0).any())
 
 
