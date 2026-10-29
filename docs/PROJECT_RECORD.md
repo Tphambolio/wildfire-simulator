@@ -995,6 +995,7 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into โ€
 |---|---|---|
 | 2026-10-29 | #113 | docs: PREREG_SEALED_CONFIRM_H1H2 result: H1 FAIL, H2 FAIL on the sealed 2026 confirm subset; ENOSPC interruption and resume disclosed; disk guard script [R67] |
 | 2026-10-25 | `5dfa0a3` | docs+feat(validation): PREREG_SEALED_CONFIRM_H1H2 - H1 (1-burn-day active rule) and H2 (B2 P2) on the sealed 2026 confirm subset, registered before the list is opened; claim [R67] |
+| 2026-10-25 | `docs/runbook.md`: operations runbook (Fly machine, volume, secrets, Vercel; triage table, rollback, release checklist); linked from `docs/deployment.md`. Monitoring is in the Pyra repository (`uptime.yml`, 30-min checks of `/api/v1/health`, `/api/v1/version` and the front end, one issue per incident) | docs only |
 | 2026-10-29 | (this PR) | fix(validation)+docs: C1 runner low-memory stop and free-disk pause; 10 GB rerun add-on and C1b community-arrival result appended [R66] ยง11-12 |
 | 2026-10-25 | #109 | docs+validation: C1 W.I.S.E. black-box comparator - PREREG_COMPARATOR_C1, runner/scoring under scripts/validation/c1, result [R66] |
 | 2026-10-24 | #106 | docs+feat(engine): PREREG_ENSEMBLE_B2, opt-in log-area ensemble post-processing (shift + stretch), calibration fit and held-out result: PASS, over-dispersed [R65] |
