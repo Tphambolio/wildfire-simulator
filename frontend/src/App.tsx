@@ -20,7 +20,7 @@ import { useScenarios } from "./hooks/useScenarios";
 import { cancelEnsemble, computeBurnProbability, fetchAreaLayer, fetchFuelGridImage } from "./services/api";
 import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityRequest, BurnProbabilityResponse, ScenarioConfig, PerimeterOverrideRequest } from "./types/simulation";
 import { useRecon } from "./hooks/useRecon";
-import { clockAt, formatClock, formatElapsed, formatRunSpan, isMultiDayRun, zoneAbbrev, zonedWallTimeToMs } from "./utils/time";
+import { clockAt, formatClock, formatElapsed, formatRunSpan, isMultiDayRun, roundToMinute, zoneAbbrev, zonedWallTimeToMs } from "./utils/time";
 import { loadSetup, saveSetup, type SetupSnapshot } from "./utils/setupStore";
 import { clearLiveRun, LIVE_RUN_LOST, readLiveRun, saveLiveRun } from "./utils/liveRun";
 import { SETUP_RESTORE_PREFIX } from "./components/WeatherPanel";
@@ -55,6 +55,15 @@ import PerimeterOverridePanel from "./components/PerimeterOverridePanel";
 import MapErrorBoundary from "./components/MapErrorBoundary";
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import TopBar, { type AppTab } from "./components/TopBar";
+import ValidationScorecardDialog from "./components/ValidationScorecard";
+// Exercise mode (docs/exercise-mode-spec.md, PR0): behind a feature flag, off by default
+import { isExerciseFlagOn } from "./exercise/flag";
+import { useExerciseClock } from "./exercise/useExerciseClock";
+import { DEFAULT_EXERCISE_HOURS, frameIndexForExerciseTime, regularBoundaries } from "./exercise/clock";
+import { EMPTY_INJECT_LOG } from "./exercise/injects";
+import type { InjectLog } from "./types/exercise";
+import ExerciseBanner from "./components/ExerciseBanner";
+import InjectLogPanel from "./components/InjectLogPanel";
 import Badge from "./components/Badge";
 import InfoTip from "./components/InfoTip";
 import FwiClassChip from "./components/FwiClassChip";
@@ -309,8 +318,16 @@ export default function App() {
   const [scratchEvacTiers, setScratchEvacTiers] = useState<EvacTierRecord[]>(loadScratchEvacTiers);
   // Active top-level tab
   const [activeTab, setActiveTab] = useState<AppTab>("simulation");
+  // Exercise mode (PR0): the flag is read once per page load; with it off the clock never enables
+  const [exerciseFlag] = useState(() => isExerciseFlagOn());
+  const exercise = useExerciseClock(exerciseFlag);
+  const exerciseOn = exercise.state.enabled;
+  // Inject log: in memory for PR0 (no way to add one from the UI yet; spec PR3)
+  const [injectLog] = useState<InjectLog>(EMPTY_INJECT_LOG);
   // Section of the About & sources tab to show when it opens (the low-skill badge opens Limits)
   const [aboutSection, setAboutSection] = useState<AboutSectionId | null>(null);
+  // Validation scorecard dialog (top bar "Validation"; docs/validation-scorecard.md)
+  const [validationOpen, setValidationOpen] = useState(false);
   const openLimits = useCallback(() => {
     setAboutSection("about-limits");
     setActiveTab("about");
@@ -1000,6 +1017,56 @@ export default function App() {
     () => (scenarioStart && lastFrameHours !== null && lastFrameHours > 0 ? formatRunSpan(scenarioStart, lastFrameHours) : null),
     [scenarioStart, lastFrameHours],
   );
+
+  // ── Exercise mode (docs/exercise-mode-spec.md §4; PR0) ──────────────────────
+  // The exercise clock spans the run on screen (its start to its last frame), else 72 h from
+  // now; "Next period" jumps to the incident's operational-period ends when one is open, else
+  // every 12 h. The map and timeline show the last frame at or before the exercise time.
+  const exerciseBounds = useCallback((): { startMs: number; endMs: number; boundaries: number[] } => {
+    const startMs = scenarioStart ? scenarioStart.getTime() : roundToMinute(Date.now());
+    const hours = lastFrameHours !== null && lastFrameHours > 0 ? lastFrameHours : DEFAULT_EXERCISE_HOURS;
+    const endMs = startMs + hours * 3_600_000;
+    const fromIncident = (incident?.operationalPeriods ?? [])
+      .flatMap((p) => {
+        const s = zonedWallTimeToMs(p.date, p.opPeriodStart);
+        const e = periodEndMs(p.date, p.opPeriodStart, p.opPeriodEnd);
+        return [s ?? NaN, e];
+      })
+      .filter((t) => Number.isFinite(t));
+    return { startMs, endMs, boundaries: fromIncident.length ? fromIncident : regularBoundaries(startMs, endMs, 12) };
+  }, [scenarioStart, lastFrameHours, incident]);
+  const { enable: enableExercise, disable: disableExercise, setBounds: setExerciseBounds, seek: seekExercise } = exercise;
+  const toggleExercise = useCallback(() => {
+    if (exerciseOn) {
+      disableExercise();
+      return;
+    }
+    const b = exerciseBounds();
+    enableExercise(b.startMs, b.endMs, b.boundaries);
+  }, [exerciseOn, enableExercise, disableExercise, exerciseBounds]);
+  // A new run while the exercise is on: the clock keeps its time, clamped to the new span
+  useEffect(() => {
+    if (!exerciseOn) return;
+    const b = exerciseBounds();
+    setExerciseBounds(b.startMs, b.endMs, b.boundaries);
+  }, [exerciseOn, exerciseBounds, setExerciseBounds]);
+  // The exercise clock drives the frame shown (map, Situation panel, timeline)
+  const exerciseMs = exercise.state.exerciseMs;
+  const exerciseFrameIndex = useMemo(
+    () => (exerciseOn ? frameIndexForExerciseTime(frames, scenarioStart?.getTime() ?? null, exerciseMs) : -1),
+    [exerciseOn, frames, scenarioStart, exerciseMs],
+  );
+  useEffect(() => {
+    if (exerciseFrameIndex >= 0 && exerciseFrameIndex !== currentFrameIndex) setFrameIndex(exerciseFrameIndex);
+  }, [exerciseFrameIndex, currentFrameIndex, setFrameIndex]);
+  // Scrubbing the timeline in exercise mode moves the exercise clock to that frame's time
+  const seekExerciseToFrame = useCallback(
+    (index: number) => {
+      const f = frames[index];
+      if (f && scenarioStart) seekExercise(scenarioStart.getTime() + f.time_hours * 3_600_000);
+    },
+    [frames, scenarioStart, seekExercise],
+  );
   // A finished run whose last frame is short of the hours asked for: the engine always models
   // to the end, so frames were lost on the way. Say so and offer to reload the run from the
   // server (round-3 field test R6: a 72 h run ended at T+67:30 with no explanation).
@@ -1193,7 +1260,7 @@ export default function App() {
 
   return (
     <div
-      className={`app${activeTab === "eoc" ? " app-eoc" : activeTab === "about" ? " app-about" : ""}${layout.setupCollapsed ? " setup-collapsed" : ""}${layout.situationCollapsed ? " situation-collapsed" : ""}${layout.narrow ? " layout-narrow" : ""}${layout.focusMode ? " focus-mode" : ""}`}
+      className={`app${activeTab === "eoc" ? " app-eoc" : activeTab === "about" ? " app-about" : ""}${layout.setupCollapsed ? " setup-collapsed" : ""}${layout.situationCollapsed ? " situation-collapsed" : ""}${layout.narrow ? " layout-narrow" : ""}${layout.focusMode ? " focus-mode" : ""}${exerciseOn ? " app-exercise" : ""}`}
     >
       {/* ── Top bar: incident, tabs, run status, limits badge, clock ── */}
       <TopBar
@@ -1209,7 +1276,9 @@ export default function App() {
           setActiveTab(tab);
         }}
         onOpenLimits={openLimits}
+        onOpenValidation={() => setValidationOpen(true)}
         status={status}
+        exercise={exerciseFlag ? { on: exerciseOn, onToggle: toggleExercise } : undefined}
         actions={<>
           {isRunning && !isPaused && (
             <button className="btn-control btn-pause" onClick={pauseSimulation}>Pause</button>
@@ -1249,6 +1318,17 @@ export default function App() {
           )}
         </>}
       />
+
+      {/* ── Exercise banner (exercise mode only): EXERCISE mark, exercise clock, controls ── */}
+      {exerciseOn && (
+        <ExerciseBanner
+          state={exercise.state}
+          onTogglePlay={exercise.togglePlay}
+          onSetRate={exercise.setRate}
+          onNextPeriod={exercise.nextPeriod}
+          onExit={exercise.disable}
+        />
+      )}
 
       {/* ── Setup column: sections with summaries, More, sticky Run bar ── */}
       <aside
@@ -1392,6 +1472,15 @@ export default function App() {
               onImport={importScenario}
             />
           </SetupSection>
+          {exerciseOn && (
+            <SetupSection
+              title="Exercise injects"
+              summary={injectLog.injects.length ? `${injectLog.injects.length} inject${injectLog.injects.length === 1 ? "" : "s"}` : "No injects yet"}
+              defaultOpen
+            >
+              <InjectLogPanel log={injectLog} exerciseMs={exercise.state.exerciseMs} />
+            </SetupSection>
+          )}
           <SetupSection title="Saved runs" summary="Runs kept on the server (passphrase)">
             <SavedRunsPanel onOpen={handleOpenSavedRun} currentRunId={simulationId} currentFromArchive={runFromArchive} />
           </SetupSection>
@@ -1476,6 +1565,8 @@ export default function App() {
       )}
 
       {/* ── About & sources tab: intended use, limits, methods and references, data, help ── */}
+      {validationOpen && <ValidationScorecardDialog onClose={() => setValidationOpen(false)} />}
+
       {activeTab === "about" && (
         <Suspense fallback={<div className="hint eoc-loading">Loading…</div>}>
           <AboutPanel
@@ -1775,10 +1866,11 @@ export default function App() {
           <TimeSlider
             frames={frames}
             currentIndex={currentFrameIndex}
-            onIndexChange={setFrameIndex}
+            onIndexChange={exerciseOn ? seekExerciseToFrame : setFrameIndex}
             scenarioStart={scenarioStart}
             burningPeriod={runBurningPeriod}
             multiDay={multiDayRun}
+            exerciseTimeMs={exerciseOn ? exercise.state.exerciseMs : null}
           />
         </div>
       )}

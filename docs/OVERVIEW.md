@@ -151,6 +151,11 @@ All intervals are 95 % CIs.
 - **Fuel.** Field accuracy check of the fuel grids. A seasonal fuel switch in the City grid.
   Test code 105 on 2026+ fires against the frozen grid.
 - **Licence.** Send the licence and build-rule request to Alberta Wildfire GIS [R35] (owner).
+- **Exercise mode** (backlog E6; the first product, for the annual tabletop and four-yearly
+  functional exercises Alberta's AR 203/2018 requires of local authorities): spec in
+  [`exercise-mode-spec.md`](exercise-mode-spec.md) (controller-driven exercise clock, scenario
+  packs, injects, hidden forecast, 209-WF per period, hot-wash export, EXERCISE framing). PR0
+  (2026-10-25) ships the clock, banner and inject-log skeleton behind a feature flag, off by default.
 
 ## 8. Where to find details
 
@@ -160,7 +165,9 @@ All intervals are 95 % CIs.
   - [§6 Open items](PROJECT_RECORD.md#6-open-items)
   - [§4.2 Reports R1-R36](PROJECT_RECORD.md#42-references)
 - [`validation.md`](validation.md), [`verification.md`](verification.md), [`model-card.md`](model-card.md)
+- [`validation-scorecard.md`](validation-scorecard.md) and [`scorecard/`](scorecard/README.md): the dated, per-release scorecard JSON behind the table in §3 (`GET /api/v1/scorecard`; app top bar "Validation")
 - [`structure-spread-spec.md`](structure-spread-spec.md), [`fuel-grid-alberta.md`](fuel-grid-alberta.md),
-  [`run-archive.md`](run-archive.md), [`data-sources.md`](data-sources.md)
+  [`run-archive.md`](run-archive.md), [`data-sources.md`](data-sources.md),
+  [`exercise-mode-spec.md`](exercise-mode-spec.md)
 - Reports: `~/dev/wildfire/reports/` (internal, not in the repo)
 - Claude for Science project `proj_4c36553a0c0c` (snapshots of the record and the reports)

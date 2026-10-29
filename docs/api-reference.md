@@ -755,6 +755,17 @@ Quebec, Newfoundland and Labrador, Nunavut) the nearest CWFIS station's value
 
 `git_sha` is the commit the deployed build came from (set by the CI deploy), `unknown` locally.
 
+### GET /api/v1/scorecard
+
+The latest dated validation scorecard, `docs/scorecard/<date>.json` (`docs/validation-scorecard.md`),
+read once at startup from `FIRESIM_SCORECARD_DIR` (the image's `/app/docs/scorecard`; default the
+repository's `docs/scorecard`). The newest file name wins. Two fields are added: `file`
+(`"2026-10-25.json"`) and `available_dates` (every dated file, oldest first). 404 when the server has
+no scorecard. Nothing is computed: the response is the committed JSON (`schema_version`, `date`,
+`git_commit`, `engine_version`, `report`, `framing`, `fuel_grid`, `data`, `metrics[]` with `id`,
+`label`, `status`, `value`, `display`, `unit`, `ci95`, `ci95_derived`, `delta`, `comparators`,
+`reference`, `gloss`, `source{report, kind, file, path, sha256}`, `versions` for the ember tests).
+
 ## Perimeter format
 
 Perimeters are arrays of `[latitude, longitude]` pairs forming a closed polygon. The first and last points are the same.

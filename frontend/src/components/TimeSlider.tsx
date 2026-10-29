@@ -19,6 +19,12 @@ interface TimeSliderProps {
   burningPeriod?: BurningPeriod | null;
   /** A multi-day run: day-1 clock times read "D1 10:00" like the map labels */
   multiDay?: boolean;
+  /**
+   * Exercise mode (docs/exercise-mode-spec.md §4): the exercise clock drives the frame shown.
+   * The readout says "Exercise time" and shows this instant; the slider's own play and speed
+   * controls are hidden (the banner has the controller's). Scrubbing still calls onIndexChange.
+   */
+  exerciseTimeMs?: number | null;
 }
 
 const SPEEDS = [
@@ -62,7 +68,9 @@ export default function TimeSlider({
   scenarioStart = null,
   burningPeriod = null,
   multiDay = false,
+  exerciseTimeMs = null,
 }: TimeSliderProps) {
+  const exerciseMode = exerciseTimeMs !== null && exerciseTimeMs !== undefined;
   const [isPlaying, setIsPlaying] = useState(false);
   const [speedIdx, setSpeedIdx] = useState(DEFAULT_SPEED_IDX);
 
@@ -76,9 +84,9 @@ export default function TimeSlider({
     onIndexChangeRef.current = onIndexChange;
   });
 
-  // Playback interval
+  // Playback interval (the exercise clock drives the frame instead in exercise mode)
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || exerciseMode) return;
 
     const id = setInterval(() => {
       const next = currentIndexRef.current + 1;
@@ -90,7 +98,7 @@ export default function TimeSlider({
     }, SPEEDS[speedIdx].ms);
 
     return () => clearInterval(id);
-  }, [isPlaying, speedIdx]);
+  }, [isPlaying, speedIdx, exerciseMode]);
 
   // Stop playback when frames disappear (new simulation started); adjusting state during
   // render is React's recommended pattern for this (no extra effect pass)
@@ -142,12 +150,17 @@ export default function TimeSlider({
   }
 
   const hours = currentFrame?.time_hours ?? 0;
-  const now = scenarioStart ? clockAt(scenarioStart, hours) : null;
-  const elapsed = formatRunElapsed(hours, maxHours > 24 ? currentFrame?.day : null);
+  // In exercise mode the readout is the exercise clock (which may sit between two frames), not
+  // the frame's own time; the frame shown is the last one at or before it
+  const exerciseHours = exerciseMode && scenarioStart ? (exerciseTimeMs - scenarioStart.getTime()) / 3_600_000 : null;
+  const readoutHours = exerciseHours ?? hours;
+  const now = scenarioStart ? clockAt(scenarioStart, readoutHours) : null;
+  const elapsed = formatRunElapsed(readoutHours, maxHours > 24 ? currentFrame?.day : null);
   // The clock carries the calendar day after the start date ("D2 03:32"), as the map labels
   // do: a run past midnight read "03:32" beside labels "D2 03:25" (field test 2026-10-18)
-  const nowClock = scenarioStart ? formatClockAt(scenarioStart, hours, multiDay) : null;
-  const valueText = now ? `${nowClock} ${zoneAbbrev(now)}, ${formatElapsed(hours)}` : formatElapsed(hours);
+  const nowClock = scenarioStart ? formatClockAt(scenarioStart, readoutHours, multiDay) : null;
+  const valueBase = now ? `${nowClock} ${zoneAbbrev(now)}, ${formatElapsed(readoutHours)}` : formatElapsed(readoutHours);
+  const valueText = exerciseMode ? `Exercise time ${valueBase}` : valueBase;
   const ticks = tickIndices(frames.length);
   // Hours outside the burning period (no spread modelled), shaded on the track
   const bpLabel = burningPeriod ? formatBurningPeriod(burningPeriod) : "";
@@ -157,8 +170,8 @@ export default function TimeSlider({
   const outside = !!(scenarioStart && burningPeriod && !inBurningPeriod(scenarioStart.getTime(), hours, burningPeriod));
 
   return (
-    <div className="time-slider">
-      <div className="ts-controls">
+    <div className={`time-slider${exerciseMode ? " time-slider-exercise" : ""}`}>
+      {!exerciseMode && <div className="ts-controls">
         <button
           className="ts-btn ts-step"
           onClick={handleStepBack}
@@ -185,10 +198,11 @@ export default function TimeSlider({
         >
           &#9654;
         </button>
-      </div>
+      </div>}
 
       {/* Current time: clock first, T+ second */}
-      <div className="ts-now" title="Time of the frame shown on the map">
+      <div className="ts-now" title={exerciseMode ? "Exercise time: the scenario clock set by the controller" : "Time of the frame shown on the map"}>
+        {exerciseMode && <span className="ts-now-exercise" data-testid="ts-exercise-label">Exercise time</span>}
         {now ? (
           <span className="ts-now-clock">
             {nowClock}
@@ -268,7 +282,7 @@ export default function TimeSlider({
         </div>
       </div>
 
-      <div className="ts-speeds" role="group" aria-label="Playback speed">
+      {!exerciseMode && <div className="ts-speeds" role="group" aria-label="Playback speed">
         {SPEEDS.map((s, i) => (
           <button
             key={s.label}
@@ -280,7 +294,7 @@ export default function TimeSlider({
             {s.label}
           </button>
         ))}
-      </div>
+      </div>}
 
       <span className="time-label ts-frame-count" title="Frame">
         {currentIndex + 1}/{frames.length}

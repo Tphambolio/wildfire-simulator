@@ -35,6 +35,13 @@ interface TopBarProps {
   actions?: ReactNode;
   /** Open About & sources at its Limits section (the low-skill badge) */
   onOpenLimits?: () => void;
+  /** Open the validation scorecard dialog (ValidationScorecard.tsx) */
+  onOpenValidation?: () => void;
+  /**
+   * Exercise mode toggle (docs/exercise-mode-spec.md, PR0). Passed only when the feature flag
+   * is on; without it nothing of exercise mode is rendered.
+   */
+  exercise?: { on: boolean; onToggle: () => void };
 }
 
 const TABS: Array<[AppTab, string]> = [
@@ -43,7 +50,7 @@ const TABS: Array<[AppTab, string]> = [
   ["about", "About & sources"],
 ];
 
-export default function TopBar({ incidentName, incidentSub, activeTab, onTabChange, status, actions, onOpenLimits }: TopBarProps) {
+export default function TopBar({ incidentName, incidentSub, activeTab, onTabChange, status, actions, onOpenLimits, onOpenValidation, exercise }: TopBarProps) {
   return (
     <header className="top-bar">
       <div className="top-bar-brand">
@@ -69,6 +76,18 @@ export default function TopBar({ incidentName, incidentSub, activeTab, onTabChan
         ))}
       </nav>
       <div className="top-bar-right">
+        {exercise && (
+          <button
+            type="button"
+            className={`btn-control btn-exercise-toggle${exercise.on ? " active" : ""}`}
+            aria-pressed={exercise.on}
+            onClick={exercise.onToggle}
+            title={exercise.on ? "Leave exercise mode" : "Exercise mode: a controller-driven exercise clock, EXERCISE banner and inject log"}
+            data-testid="exercise-toggle"
+          >
+            Exercise mode
+          </button>
+        )}
         {actions}
         <span role="status" aria-live="polite" className="top-bar-status">
           {status && <span className={`status-badge status-${status}`}>{status}</span>}
@@ -82,6 +101,18 @@ export default function TopBar({ incidentName, incidentSub, activeTab, onTabChan
         >
           {BADGES.lowSkill}
         </Badge>
+        {onOpenValidation && (
+          <button
+            type="button"
+            className="ui-badge ui-badge-neutral validation-badge"
+            onClick={onOpenValidation}
+            aria-haspopup="dialog"
+            title="Validation scorecard: the latest held-out skill numbers, with sources"
+            data-testid="validation-badge"
+          >
+            Validation
+          </button>
+        )}
         <EdmontonClock />
       </div>
     </header>
