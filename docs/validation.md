@@ -51,6 +51,14 @@ error lies in the inputs and FBP rates, not the spread engine. Owner (2026-10-25
 coverage recorded, not decisive (re-registered after B2); community arrival re-tested on a set with
 observed arrivals (`docs/PREREG_COMPARATOR_C1B.md`).
 
+**C1 follow-ups (2026-10-29, [R66] §11-12).** The 9 large days WISE could not run at 5 GB were rerun
+at 10 GB as a disclosed add-on (8 completed): 17 h F1 on the full H79 −0.010 [−0.024, +0.002], the
+registered result unchanged. Community arrival on 14 pre-registered fire-days with observed arrivals
+(`PREREG_COMPARATOR_C1B`; 11 where both ran): mean interval-censored error FireSim 8.46 h vs WISE
+8.39 h, +0.08 h [+0.01, +0.17], non-inferior under the 1 h margin. Both models leave 10 of 16
+reached communities unreached within 24 h: they are level with each other but neither times
+community arrival well on these days.
+
 ## Rescored on the pre-fire fuel grid (2026-10-15)
 
 **In short:** scored on the fuel FireSim actually uses for a dated historical run in Alberta
