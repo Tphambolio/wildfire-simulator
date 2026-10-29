@@ -85,3 +85,16 @@ describe("browser storage (QA 2026-10-11)", () => {
     expect(writeStored(KEY, [1])).toBe(true);
   });
 });
+
+describe("incident name rule (E9, 2026-10-24)", () => {
+  it("an empty or blank name becomes 'Untitled incident'; others are trimmed", async () => {
+    const { normaliseIncidentName, UNTITLED_INCIDENT } = await import("./storage");
+    expect(UNTITLED_INCIDENT).toBe("Untitled incident");
+    expect(normaliseIncidentName("")).toBe("Untitled incident");
+    expect(normaliseIncidentName("   ")).toBe("Untitled incident");
+    expect(normaliseIncidentName(undefined)).toBe("Untitled incident");
+    expect(normaliseIncidentName("  Millcreek ")).toBe("Millcreek");
+    expect(normaliseIncident({ id: "x", name: "" })?.name).toBe("Untitled incident");
+    expect(normaliseIncident({ id: "x", name: " Keep " })?.name).toBe("Keep");
+  });
+});

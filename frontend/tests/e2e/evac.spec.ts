@@ -29,7 +29,8 @@ test.describe("neighbourhoods and evacuation status", () => {
     await mockApi(page);
     await openApp(page);
     await setIgnitionAtMapCentre(page);
-    await runToCompletion(page);
+    // The map centre is clicked below: wait for the post-run fit to the fire to end first
+    await runToCompletion(page, { waitForFit: true });
 
     // Modelled arrival only
     const card = page.locator(".evac-status");
@@ -43,7 +44,7 @@ test.describe("neighbourhoods and evacuation status", () => {
     await expect(page.locator("body")).not.toContainText(/LEAVE NOW|Evacuation Trigger|Evacuation Zones/i);
     for (const sel of await card.locator("select.evac-tier-select").all()) await expect(sel).toHaveValue("");
 
-    // Click a neighbourhood on the map (the fitted map is centred on the fire)
+    // Click a neighbourhood on the map (the fitted map, at rest, is centred on the fire)
     const canvas = page.locator("canvas.maplibregl-canvas").first();
     const box = (await canvas.boundingBox())!;
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -87,7 +88,11 @@ test.describe("neighbourhoods and evacuation status", () => {
     const card = page.locator(".evac-status");
 
     await card.getByLabel("Evacuation status for The Uplands", { exact: true }).selectOption("Alert");
-    await card.getByRole("combobox", { name: /^Neighbourhood/ }).selectOption("Edgemont");
+    // The picker is typed into (round-3 R1): a partial name does not enable Set; any case matches
+    const picker = card.getByRole("combobox", { name: /^Neighbourhood/ });
+    await picker.fill("Edgem");
+    await expect(card.getByRole("button", { name: "Set", exact: true })).toBeDisabled();
+    await picker.fill("edgemont");
     await card.getByRole("combobox", { name: /^Status/ }).selectOption("Watch");
     await card.getByRole("button", { name: "Set", exact: true }).click();
 

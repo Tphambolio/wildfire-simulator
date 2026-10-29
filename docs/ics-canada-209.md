@@ -71,3 +71,12 @@ official forms for formal use.
 28 never filled, model blocks labelled, run stamp) and `frontend/tests/e2e/ics209.spec.ts`
 (opens the report from the Situation panel after an ensemble run and checks the stamp,
 projections and empty observed blocks).
+
+## Opening and printing (field test 2026-10-18)
+
+In the EOC console the 209-WF is previewed in the form viewer like the ICS 201-214 forms
+(Print and New Window on the viewer); from the Situation panel it opens in its own window
+with a Print button. It never calls `window.print()` by itself: the earlier automatic print
+on load opened a print dialog that blocks the FireSim tab until it is answered, which froze the
+tab for minutes after a 72 h run on a locked screen. `frontend/tests/e2e/field-test-r4.spec.ts`
+opens it after a 145-frame 72 h run and while the page draws no frames.

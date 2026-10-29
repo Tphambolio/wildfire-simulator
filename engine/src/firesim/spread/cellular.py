@@ -182,9 +182,10 @@ def run_cellular_simulation(
             multi-day run). With either, the fire is treated as established (no
             acceleration) and spreads from that area instead of the ignition point.
         compute_perimeter: Build each frame's outline polygon (skip for ensembles).
-        progress: Optional callable(fraction) called as the front advances (0-1 of the run
-            duration, at most about every 1 %); for progress display only, no effect on the
-            result. An exception it raises (e.g. a cancel) propagates to the caller.
+        progress: Optional callable(fraction) called as the front advances (0-1 of the
+            minutes in which fire can spread, i.e. inside the burning period when there is one,
+            at most about every 1 %); for progress display only, no effect on the result. An
+            exception it raises (e.g. a cancel) propagates to the caller.
         weather_schedule: (start minute, conditions) periods, e.g. from an hourly weather
             stream; FBP rates are recomputed at each change. Default: ``conditions`` throughout.
         active_edges: Where an observed starting fire is still active (e.g. the hot edges or
@@ -305,19 +306,32 @@ def run_cellular_simulation(
         def next_change() -> float:
             return schedule[period + 1][0] if period + 1 < len(schedule) else math.inf
 
+        spread_done = _spread_minutes(schedule, duration)
+        spread_total = spread_done(duration)
         reported = -1.0
+        win = _window(arrival < np.inf, BAND_CELLS)
+        prev_win = None
+        static = None  # per-window masks and the window's top speed (_WindowStatic)
         while t < duration - 1e-9:
-            if progress is not None and duration > 0 and t / duration - reported >= 0.01:
-                reported = t / duration
-                progress(reported)
+            if progress is not None and spread_total > 0:
+                # Progress over the minutes in which fire can spread (outside a burning
+                # period the loop jumps ahead at no cost, so counting clock minutes made the
+                # bar leap at each night and the time-left estimate run fast)
+                frac = spread_done(t) / spread_total
+                if frac - reported >= 0.01:
+                    reported = frac
+                    progress(reported)
             if t >= next_change() - 1e-9:  # weather period changes: new FBP rates everywhere
                 while t >= next_change() - 1e-9:
                     period += 1
                 conditions = schedule[period][1]
                 params = _CellParams.evaluate(cell_keys, conditions)
-            win = _window(arrival < np.inf, BAND_CELLS)
-            entering = ~in_band[win]
-            if entering.any():
+                static = None
+            if win != prev_win:
+                entering = ~in_band[win]
+            else:  # same window as the last step: every cell in it is already in the band
+                entering = None
+            if entering is not None and entering.any():
                 # Cells joining the computational window still hold their starting phi,
                 # which has not evolved with the front; reset them to their distance from
                 # the current burned area so the front does not lag behind.
@@ -326,7 +340,10 @@ def run_cellular_simulation(
                 sub[entering] = np.maximum(dist[entering] - 0.5 * h_min, 0.5 * h_min)
                 phi[win] = sub
                 in_band[win] = True
-            speed = (params.head[win] + params.b[win]).max()
+            if static is None or win != prev_win:
+                static = _WindowStatic(params, win, near_nonfuel[win])
+            prev_win = win
+            speed = static.speed
             if speed <= 1e-9:
                 # Nothing can spread in this period (e.g. outside a burning period): wait for
                 # the next weather change rather than ending the run.
@@ -339,8 +356,11 @@ def run_cellular_simulation(
                 continue
             step = min(CFL * h_min / speed, next_slice - t, next_change() - t)
             _advance(phi, win, params, near_nonfuel[win], dx, dy, step, t, arrival, cross_ros,
-                     acceleration, t_ign)
+                     acceleration, t_ign, static)
             t += step
+            # New burned cells can only appear inside the window (the front moves only there),
+            # so the next window is found from the window alone, not the whole grid
+            win = _window_within(arrival, win, BAND_CELLS)
             if t >= next_slice - 1e-9:
                 if enable_spotting and spotting_intensity > 0.0:
                     newly = np.argwhere((arrival > slice_start) & (arrival <= t))
@@ -358,6 +378,7 @@ def run_cellular_simulation(
                             arrival[r, c] = t
                             cross_ros[r, c] = params.head[r, c]
                             spot_events.append((t, spot))
+                    win = _window(arrival < np.inf, BAND_CELLS)  # spots may land outside it
                 slice_start = t
                 next_slice = min(t + slice_len, duration)
 
@@ -460,6 +481,39 @@ def _window(burned: np.ndarray, margin: int) -> tuple[slice, slice]:
         return slice(0, 0), slice(0, 0)
     return (slice(max(r_idx[0] - margin, 0), min(r_idx[-1] + margin + 1, rows)),
             slice(max(c_idx[0] - margin, 0), min(c_idx[-1] + margin + 1, cols)))
+
+
+def _window_within(arrival: np.ndarray, win: tuple[slice, slice], margin: int) -> tuple[slice, slice]:
+    """``_window(arrival < inf, margin)`` when every burned cell lies inside ``win`` (true after
+    a front step, which only burns cells in its window): searches the window, not the grid."""
+    rows, cols = arrival.shape
+    burned = arrival[win] < np.inf
+    r_idx = np.flatnonzero(burned.any(axis=1))
+    c_idx = np.flatnonzero(burned.any(axis=0))
+    if r_idx.size == 0:
+        return slice(0, 0), slice(0, 0)
+    r0, c0 = win[0].start, win[1].start
+    return (slice(max(r0 + r_idx[0] - margin, 0), min(r0 + r_idx[-1] + margin + 1, rows)),
+            slice(max(c0 + c_idx[0] - margin, 0), min(c0 + c_idx[-1] + margin + 1, cols)))
+
+
+def _spread_minutes(schedule, duration: float):
+    """f(t): minutes of [0, t) in weather periods that can spread (ROS multiplier above 0, e.g.
+    inside the burning period), for progress display. Falls back to clock minutes when no
+    period can spread."""
+    edges = []
+    for k, (start, cond) in enumerate(schedule):
+        end = schedule[k + 1][0] if k + 1 < len(schedule) else duration
+        lo, hi = max(start, 0.0), min(end, duration)
+        if hi > lo and getattr(cond, "ros_multiplier", 1.0) > 0.0:
+            edges.append((lo, hi))
+    if not edges:
+        return lambda t: min(max(t, 0.0), duration)
+
+    def done(t: float) -> float:
+        return sum(max(0.0, min(hi, t) - lo) for lo, hi in edges)
+
+    return done
 
 
 def _initial_region(fuel_grid, fuel, perimeter, burned_points, cell_lat, cell_lng):
@@ -743,42 +797,89 @@ def _ellipse_signed_distance(u, v, semi_major, semi_minor, centre, in_ellipse, h
     return np.where(in_ellipse, -dist, dist)
 
 
+class _WindowStatic:
+    """What one front step needs that depends only on the window and the cell parameters, kept
+    while neither changes (the window grows only when the fire reaches its margin).
+
+    The step is computed on the window's fuel cells only, as flat arrays: a non-fuel cell's
+    new value is max(phi, h/2) whatever its neighbours hold, and every other quantity is per
+    cell, so the arithmetic of each fuel cell is the same as on the full window (the result is
+    identical) at the cost of the fuel cells alone (about 40 % of a large fire's window in
+    Edmonton, where streets, buildings and water are non-fuel). Holds the fuel cells' indices,
+    their barrier masks, ENO switch and linked diagonals, their FBP parameters, and the
+    window's top speed (head + flank-ellipse b) for the Courant step.
+    """
+
+    def __init__(self, p: "_CellParams", win: tuple[slice, slice], near_nonfuel: np.ndarray):
+        fuel = p.fuel[win]
+        rows, cols = fuel.shape
+        r, c = np.nonzero(fuel)
+        self.r, self.c = r, c
+        self.width = cols + 4  # row length of the window padded by 2
+        self.pidx = (r + 2) * self.width + (c + 2)  # fuel cells in the padded window, flat
+        fpad = np.pad(fuel, 1, mode="edge")
+
+        def fuel_at(dr, dc):
+            return fpad[1 + dr + r, 1 + dc + c]
+
+        # Barrier boundary: a non-fuel neighbour (W, E, S, N) takes the cell's own value
+        self.fW, self.fE, self.fS, self.fN = fuel_at(0, -1), fuel_at(0, 1), fuel_at(1, 0), fuel_at(-1, 0)
+        self.eno = ~near_nonfuel[r, c]  # ENO2 away from non-fuel, first order next to it
+        self.eno_half = self.eno * 0.5
+        # a diagonal neighbour is linked when it is fuel and so is a cell beside both
+        self.open_corner = {(dr, dc): fuel_at(dr, dc) & (fuel_at(dr, 0) | fuel_at(0, dc))
+                            for dr in (-1, 1) for dc in (-1, 1)}
+        self.a, self.b, self.c_ = p.a[win][r, c], p.b[win][r, c], p.c[win][r, c]
+        self.hx, self.hy = p.hx[win][r, c], p.hy[win][r, c]
+        self.alpha, self.lb = p.alpha[win][r, c], p.lb[win][r, c]
+        self.speed = (p.head[win] + p.b[win]).max() if fuel.size else 0.0
+
+
+def _mm(u, v):
+    """ENO2 choice: the second difference of smaller magnitude."""
+    return np.where(np.abs(u) < np.abs(v), u, v)
+
+
 def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acceleration=True,
-             t_ign=0.0):
+             t_ign=0.0, static: _WindowStatic | None = None):
     """Advance phi by one time step inside the window ``win`` (in place); acceleration counts
-    from the ignition minute ``t_ign``."""
+    from the ignition minute ``t_ign``. ``static`` (optional) carries the window's fuel cells
+    and masks between steps; the result is the same with or without it."""
+    if static is None:
+        static = _WindowStatic(p, win, near_nonfuel)
     sub = phi[win]
-    pad = np.pad(sub, 2, mode="edge")
-    C = pad[2:-2, 2:-2]
-    W1, W2, E1, E2 = pad[2:-2, 1:-3], pad[2:-2, :-4], pad[2:-2, 3:-1], pad[2:-2, 4:]
-    S1, S2, N1, N2 = pad[3:-1, 2:-2], pad[4:, 2:-2], pad[1:-3, 2:-2], pad[:-4, 2:-2]  # row+1 is south
+    pad = np.pad(sub, 2, mode="edge").ravel()
+    k, width = static.pidx, static.width
+
+    def at(dr, dc):  # phi at (row + dr, col + dc) of each fuel cell; row + 1 is south
+        return pad[k + (dr * width + dc)]
+
+    C = pad[k]
+    W1, W2, E1, E2 = at(0, -1), at(0, -2), at(0, 1), at(0, 2)
+    S1, S2, N1, N2 = at(1, 0), at(2, 0), at(-1, 0), at(-2, 0)
     # Barrier boundary: a non-fuel neighbour takes the cell's own value (zero gradient across
     # it), so the front slides along walls instead of being turned by their frozen phi.
-    fpad = np.pad(p.fuel[win], 1, mode="edge")
-    W1 = np.where(fpad[1:-1, :-2], W1, C)
-    E1 = np.where(fpad[1:-1, 2:], E1, C)
-    S1 = np.where(fpad[2:, 1:-1], S1, C)
-    N1 = np.where(fpad[:-2, 1:-1], N1, C)
+    W1 = np.where(static.fW, W1, C)
+    E1 = np.where(static.fE, E1, C)
+    S1 = np.where(static.fS, S1, C)
+    N1 = np.where(static.fN, N1, C)
     dxm, dxp = (C - W1) / dx, (E1 - C) / dx
     dym, dyp = (C - S1) / dy, (N1 - C) / dy
 
     # ENO2 correction (smaller second difference), first order next to non-fuel
-    def mm(u, v):
-        return np.where(np.abs(u) < np.abs(v), u, v)
+    eh = static.eno_half
+    dxm = dxm + eh * _mm(C - 2 * W1 + W2, E1 - 2 * C + W1) / dx
+    dxp = dxp - eh * _mm(E1 - 2 * C + W1, E2 - 2 * E1 + C) / dx
+    dym = dym + eh * _mm(C - 2 * S1 + S2, N1 - 2 * C + S1) / dy
+    dyp = dyp - eh * _mm(N1 - 2 * C + S1, N2 - 2 * N1 + C) / dy
 
-    eno = ~near_nonfuel
-    dxm = dxm + eno * 0.5 * mm(C - 2 * W1 + W2, E1 - 2 * C + W1) / dx
-    dxp = dxp - eno * 0.5 * mm(E1 - 2 * C + W1, E2 - 2 * E1 + C) / dx
-    dym = dym + eno * 0.5 * mm(C - 2 * S1 + S2, N1 - 2 * C + S1) / dy
-    dyp = dyp - eno * 0.5 * mm(N1 - 2 * C + S1, N2 - 2 * N1 + C) / dy
-
-    a, b, c = p.a[win], p.b[win], p.c[win]
-    hx, hy, fuel = p.hx[win], p.hy[win], p.fuel[win]
+    a, b, c = static.a, static.b, static.c_
+    hx, hy = static.hx, static.hy
     if acceleration:  # mean FBP acceleration over the step and LB(t) at its midpoint
-        alpha = p.alpha[win]
+        alpha = static.alpha
         ta = t - t_ign
         g = 1.0 - (np.exp(-alpha * ta) - np.exp(-alpha * (ta + step))) / (alpha * step)
-        lb_t = (p.lb[win] - 1.0) * (1.0 - np.exp(-alpha * (ta + 0.5 * step))) + 1.0
+        lb_t = (static.lb - 1.0) * (1.0 - np.exp(-alpha * (ta + 0.5 * step))) + 1.0
         a, c = a * g, c * g
         b = a / lb_t
     gx, gy = 0.5 * (dxm + dxp), 0.5 * (dym + dyp)
@@ -790,22 +891,25 @@ def _advance(phi, win, p, near_nonfuel, dx, dy, step, t, arrival, cross_ros, acc
     uk = b * b * nk / root
     ux = uh * hx - uk * hy
     uy = uh * hy + uk * hx
-    rate = _rotated_upwind_rate(pad, fpad, C, eno, mm, ux, uy, dxm, dxp, dym, dyp, dx, dy)
-    new = np.where(fuel, C - step * rate, np.maximum(C, 0.5 * min(dx, dy)))
+    rate = _rotated_upwind_rate(pad, static, C, ux, uy, dxm, dxp, dym, dyp, dx, dy)
+    new_fuel = C - step * rate
+    new = np.maximum(sub, 0.5 * min(dx, dy))  # non-fuel cells
+    new[static.r, static.c] = new_fuel
 
-    crossed = fuel & (C >= 0) & (new < 0)
+    crossed = (C >= 0) & (new_fuel < 0)
     if crossed.any():
-        frac = C[crossed] / np.maximum(C[crossed] - new[crossed], 1e-12)
+        frac = C[crossed] / np.maximum(C[crossed] - new_fuel[crossed], 1e-12)
+        rr, cc = static.r[crossed], static.c[crossed]
         arr_win = arrival[win]
         ros_win = cross_ros[win]
-        arr_win[crossed] = t + frac * step
-        ros_win[crossed] = (c * nh + root)[crossed]
+        arr_win[rr, cc] = t + frac * step
+        ros_win[rr, cc] = (c * nh + root)[crossed]
     phi[win] = new
 
 
-def _rotated_upwind_rate(pad, fpad, C, eno, mm, ux, uy, dxm, dxp, dym, dyp, dx, dy):
+def _rotated_upwind_rate(pad, static, C, ux, uy, dxm, dxp, dym, dyp, dx, dy):
     """U . grad(phi) from upwind differences along the grid axis and the grid diagonal that
-    bracket U.
+    bracket U, for the window's fuel cells (``pad`` is the 2-padded window, flattened).
 
     U is split into non-negative parts along those two directions (U = A (dx, 0) + B (dx, dy)
     in the quadrant of U), and each part uses the one-sided (ENO2) difference along its own
@@ -814,32 +918,20 @@ def _rotated_upwind_rate(pad, fpad, C, eno, mm, ux, uy, dxm, dxp, dym, dyp, dx, 
     the valley of phi across a narrow front (a grass fire's ellipse) and makes it stall
     when the wind is on a diagonal. The scheme stays monotone (A, B >= 0).
     """
-    rows, cols = C.shape
-
-    def at(dr, dc):  # phi at (row + dr, col + dc); row + 1 is south
-        return pad[2 + dr:2 + dr + rows, 2 + dc:2 + dc + cols]
-
-    def fuel_at(dr, dc):
-        return fpad[1 + dr:1 + dr + rows, 1 + dc:1 + dc + cols]
-
-    def open_corner(dr, dc):
-        # a diagonal neighbour is linked when it is fuel and so is a cell beside both
-        return fuel_at(dr, dc) & (fuel_at(dr, 0) | fuel_at(0, dc))
-
-    sr = np.where(uy > 0, 1, -1)  # upwind row offset (south when U points north)
-    sc = np.where(ux > 0, -1, 1)  # upwind column offset (west when U points east)
-    diag = np.zeros_like(C)
-    for dr in (-1, 1):
-        for dc in (-1, 1):
-            sel = (sr == dr) & (sc == dc)
-            if not sel.any():
-                continue
-            p1 = np.where(open_corner(dr, dc), at(dr, dc), C)
-            f1 = np.where(open_corner(-dr, -dc), at(-dr, -dc), C)
-            d = (C - p1) + eno * 0.5 * mm(C - 2 * p1 + at(2 * dr, 2 * dc), f1 - 2 * C + p1)
-            diag = np.where(sel, d, diag)
-    along_x = np.where(ux > 0, dxm, -dxp) * dx  # one-sided differences against U, per cell
-    along_y = np.where(uy > 0, dym, -dyp) * dy
+    north = uy > 0  # upwind row offset +1 (south) when U points north, else -1
+    east = ux > 0  # upwind column offset -1 (west) when U points east, else +1
+    off = np.where(north, 1, -1) * static.width + np.where(east, -1, 1)  # upwind diagonal
+    oc = static.open_corner
+    open_up = np.where(north, np.where(east, oc[(1, -1)], oc[(1, 1)]),
+                       np.where(east, oc[(-1, -1)], oc[(-1, 1)]))
+    open_down = np.where(north, np.where(east, oc[(-1, 1)], oc[(-1, -1)]),
+                         np.where(east, oc[(1, 1)], oc[(1, -1)]))
+    k = static.pidx
+    p1 = np.where(open_up, pad[k + off], C)  # upwind diagonal neighbour (C behind a barrier)
+    f1 = np.where(open_down, pad[k - off], C)  # downwind diagonal neighbour
+    diag = (C - p1) + static.eno * 0.5 * _mm(C - 2 * p1 + pad[k + 2 * off], f1 - 2 * C + p1)
+    along_x = np.where(east, dxm, -dxp) * dx  # one-sided differences against U, per cell
+    along_y = np.where(north, dym, -dyp) * dy
     qx, qy = np.abs(ux) / dx, np.abs(uy) / dy
     return np.where(qx >= qy, (qx - qy) * along_x + qy * diag, (qy - qx) * along_y + qx * diag)
 

@@ -50,7 +50,13 @@ export const TIPS = {
     "limits and validation in About & sources.",
   notSaved:
     "This scenario is not saved. Open or create an incident in the EOC Console, or save the " +
-    "scenario under Incidents & saved scenarios in Setup.",
+    "scenario under Incidents & saved scenarios in Setup. Incidents and the Setup panel are " +
+    "stored in this browser only; they survive reloads, including hard reloads, and are cleared " +
+    "with \"Reset this browser's FireSim data\" in About & sources.",
+  incidentStorage:
+    "Incidents and the Setup panel are stored in this browser only, not on the server, and " +
+    "survive reloads, including hard reloads. Export an incident as JSON to keep or move it; " +
+    "\"Reset this browser's FireSim data\" (About & sources) clears them.",
   fwiClass:
     "CWFIS national FWI map class (Low 0–5, Moderate 6–15, High 16–22, Very High 23–29, " +
     "Extreme 30+). Not an official fire danger rating.",
@@ -165,8 +171,12 @@ export const TIPS = {
   multiDay:
     "FWI codes (FFMC, DMC, DC) carry forward each day with the CFFDRS equations; the fire front " +
     "continues from the previous day's perimeter. Each day runs 24 h from the start time; with a " +
-    "burning period, no spread is modelled outside it. A 3-day run takes about half an hour on " +
-    "the server; progress shows the day being computed. No ember spotting, buildings or ensemble.",
+    "burning period, no spread is modelled outside it. Each day takes longer to compute than the " +
+    "one before, as the fire grows. On the shared server a 3-day run with the burning period " +
+    "takes a few minutes when the server has been idle and up to about 45 minutes after other " +
+    "heavy runs (its CPU is throttled once a burst allowance is used up); without the burning " +
+    "period a large fire can take several hours. The time left shown is for the day being " +
+    "computed. No ember spotting, buildings or ensemble.",
   burnProbability:
     "Monte Carlo burn probability: repeated runs with jittered ignition, wind speed and RH. More " +
     "iterations are slower and smoother.",
@@ -194,10 +204,26 @@ export const TIPS = {
   runShort: (shownTo: string, hours: number) =>
     `The run was asked for ${hours} h but its frames end at ${shownTo}. The model always runs to the end, ` +
     "so frames were lost on the way (e.g. a dropped connection). Reload run reads it again from the server.",
+  runReattached:
+    "The page was reloaded while this tab had a run on screen. The run is read again from the " +
+    "server by its ID (no passphrase needed for this tab's own run); a run still computing is " +
+    "followed to the end. Clear results removes it.",
   activeEdges:
     "Edges not marked active are treated as burned out and do not spread. This raised one-day " +
     "skill on held-out Alberta fires.",
   bufferBlank: "Blank: one fuel-grid cell (the validated default).",
+  observationTime:
+    "When the perimeter was observed (T). The forecast starts at T, and hotspots or VIIRS " +
+    "detections count only in the 12 h up to T.",
+  segmentClassification:
+    "Each 250 m piece of the perimeter is active if a hotspot or a VIIRS 375 m detection " +
+    "(nominal or high confidence) lies within 1 km of it in the 12 h before T. Active pieces " +
+    "become the active edges; the rest is treated as burned out, as with edges you mark. " +
+    "Hotspots take priority over VIIRS. Not validated: the 1 km / 12 h / 250 m rule has not " +
+    "been checked against real RPAS thermal flights.",
+  staticShare:
+    "Modelled share of the start perimeter that advanced 1 km or less (500 m samples). The " +
+    "observed share is not known during an incident; compare it after the fact.",
 
   // ── Situation panel ──
   outsideBurning: (period: string, from: string) =>

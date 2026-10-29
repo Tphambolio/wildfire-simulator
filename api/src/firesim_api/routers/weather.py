@@ -47,6 +47,7 @@ from pydantic import BaseModel
 from firesim.fwi.calculator import FWICalculator
 from firesim.fwi.classes import fwi_class
 
+from ..services import alberta_time, cwfis_tz
 from ..services import pyra as pyra_source
 from ..settings import settings
 
@@ -76,11 +77,16 @@ FORECAST_MODEL_LABEL = "Open-Meteo GEM (gem_seamless)"
 _START_UP = (85.0, 6.0, 15.0)
 
 # Standard (non-daylight) UTC offset in hours used for "noon LST", by province/territory code as
-# CWFIS reports it. Alberta stations report at noon MST (UTC-7). Nunavut spans three zones and
-# falls back to the zone or longitude.
+# CWFIS reports it. Alberta stations report at noon fire-weather LST = 19 UTC (CWFIS tz_correct -7,
+# not the legal clock, which is UTC-6 all year from 2026-11-01); the Alberta value is dated and
+# configurable in ``services/alberta_time.py``. In provinces where CWFIS uses more than one
+# value (SK "SA", BC, ON, QC, NL "NF", NU) the nearest CWFIS station's value is used
+# (``services/cwfis_tz.py``); the table below is the fallback and the single-value provinces.
+# Values are CWFIS ``tz_correct`` (cwfis_allstn2026.csv): Yukon -8 (not its legal UTC-7), and
+# whole hours for Newfoundland (-3 island, -4 Labrador), as CWFIS uses hourly records.
 _STD_OFFSET_H = {
-    "BC": -8.0, "YT": -7.0, "AB": -7.0, "NT": -7.0, "SK": -6.0, "MB": -6.0, "ON": -5.0,
-    "QC": -5.0, "NB": -4.0, "NS": -4.0, "PE": -4.0, "NL": -3.5,
+    "BC": -8.0, "YT": -8.0, "AB": -7.0, "NT": -7.0, "SK": -6.0, "SA": -6.0, "MB": -6.0,
+    "ON": -5.0, "QC": -5.0, "NB": -4.0, "NS": -4.0, "PE": -4.0, "NL": -3.0, "NF": -3.0,
 }
 
 
@@ -109,7 +115,7 @@ class PyraDetails(BaseModel):
     step: str
     # 24 h rain (mm) to noon LST used for the step
     rain_24h: float | None = None
-    # Pyra's "peak burn" indices: the same codes with the 16:00 MDT GEM wind (display only)
+    # Pyra's "peak burn" indices: the same codes with the 16:00 UTC-6 (MDT / MT) GEM wind (display only)
     peak_wind_speed: float | None = None
     peak_isi: float | None = None
     peak_fwi: float | None = None
@@ -330,7 +336,11 @@ def _from_station(
     fwi = _float(props.get("fwi"))
     station_name = _station_name(props)
     prov = str(props.get("prov", "")).strip() or None
-    codes_date, status, label = _codes_age(props.get("rep_date"), now, prov, lng)
+    # the station's own noon hour (CWFIS tz_correct of that station)
+    s_lat, s_lng = _float(props.get("lat"), allow_negative=True), _float(props.get("lon"), allow_negative=True)
+    codes_date, status, label = _codes_age(
+        props.get("rep_date"), now, prov, s_lng if s_lng is not None else lng,
+        s_lat if s_lat is not None else lat)
 
     nearest_any, nearest_d = _nearest(lat, lng, features)
     skipped = ""
@@ -377,7 +387,7 @@ def _from_station(
 
 
 def _codes_age(
-    rep_date: object, now: datetime, prov: str | None, lng: float,
+    rep_date: object, now: datetime, prov: str | None, lng: float, lat: float | None = None,
 ) -> tuple[str | None, str | None, str | None]:
     """(codes_date, status, label) for codes reported for ``rep_date``'s date (noon LST)."""
     if not rep_date:
@@ -386,7 +396,7 @@ def _codes_age(
         d = date.fromisoformat(str(rep_date)[:10])
     except ValueError:
         return None, None, None
-    local = now + timedelta(hours=_std_offset_hours(prov, lng))
+    local = now + timedelta(hours=_std_offset_hours(prov, lng, at=now, lat=lat))
     age = (local.date() - d).days
     before_noon = local.hour < 12
     if age <= 0:
@@ -397,8 +407,22 @@ def _codes_age(
     return d.isoformat(), "older", f"Codes from noon LST {d.isoformat()} ({age} days old)"
 
 
-def _std_offset_hours(prov: str | None, lng: float, tz_name: str | None = None) -> float:
-    """Standard-time UTC offset (hours) for noon LST: province table, else the zone, else longitude."""
+def _std_offset_hours(
+    prov: str | None, lng: float, tz_name: str | None = None, at: datetime | None = None,
+    lat: float | None = None,
+) -> float:
+    """Standard-time UTC offset (hours) for noon LST: the nearest CWFIS station's ``tz_correct``
+    in a province with more than one (needs ``lat``), else the province table, else the zone,
+    else longitude.
+
+    Alberta's fire-weather LST offset is dated (``alberta_time.fwi_lst_offset_at``; ``at`` = now
+    when not given); before 2026-11-01 it is the table's -7.
+    """
+    if prov and prov.upper() == "AB":
+        return -float(alberta_time.fwi_lst_offset_at(at or datetime.now(timezone.utc)))
+    station = cwfis_tz.station_offset(prov, lat, lng)
+    if station is not None:
+        return float(station)
     if prov and prov.upper() in _STD_OFFSET_H:
         return _STD_OFFSET_H[prov.upper()]
     if tz_name:
@@ -453,7 +477,9 @@ async def _fetch_open_meteo_hourly(lat: float, lng: float) -> dict | None:
         return None
 
 
-def _noon_weather(data: dict, now: datetime, prov: str | None, lng: float) -> dict | str:
+def _noon_weather(
+    data: dict, now: datetime, prov: str | None, lng: float, lat: float | None = None,
+) -> dict | str:
     """Weather at the latest noon LST at or before ``now`` and the 24 h rain to it.
 
     Open-Meteo hourly precipitation is the total over the preceding hour, so the 24 h rain is the
@@ -465,7 +491,7 @@ def _noon_weather(data: dict, now: datetime, prov: str | None, lng: float) -> di
     times = h.get("time") or []
     if not times:
         return f"{FORECAST_MODEL_LABEL} returned no hours"
-    off = _std_offset_hours(prov, lng, data.get("timezone"))
+    off = _std_offset_hours(prov, lng, data.get("timezone"), at=now, lat=lat)
     local = now + timedelta(hours=off)
     noon_date = local.date() if local.hour >= 12 else local.date() - timedelta(days=1)
     noon_utc = datetime(noon_date.year, noon_date.month, noon_date.day, 12, tzinfo=timezone.utc) - timedelta(hours=off)
@@ -506,7 +532,7 @@ async def _estimate_fwi_from_open_meteo(
     data = await _fetch_open_meteo_hourly(lat, lng)
     if not data:
         return None
-    noon = _noon_weather(data, now, prov, lng)
+    noon = _noon_weather(data, now, prov, lng, lat)
     if isinstance(noon, str):
         logger.warning("Open-Meteo estimate not possible: %s", noon)
         return noon

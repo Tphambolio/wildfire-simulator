@@ -8,7 +8,7 @@ import type { RunParams, SetupWeather, SkillOptionsState } from "./components/We
 import { runParamsFor } from "./utils/fwiCalc";
 import FireMetrics from "./components/FireMetrics";
 import EOCSummary from "./components/EOCSummary";
-import type { ICS209RunContext } from "./utils/ics209";
+import { runFuelLabel, type ICS209RunContext } from "./utils/ics209";
 import TimeSlider from "./components/TimeSlider";
 import AssetLayersPanel, { type UserLayer } from "./components/AssetLayersPanel";
 import CriticalAssetsPanel from "./components/CriticalAssetsPanel";
@@ -22,6 +22,7 @@ import type { BurningPeriod, SimulationCreate, SimulationFrame, BurnProbabilityR
 import { useRecon } from "./hooks/useRecon";
 import { clockAt, formatClock, formatElapsed, formatRunSpan, isMultiDayRun, zoneAbbrev, zonedWallTimeToMs } from "./utils/time";
 import { loadSetup, saveSetup, type SetupSnapshot } from "./utils/setupStore";
+import { clearLiveRun, LIVE_RUN_LOST, readLiveRun, saveLiveRun } from "./utils/liveRun";
 import { SETUP_RESTORE_PREFIX } from "./components/WeatherPanel";
 import { weatherAt } from "./utils/weatherSchedule";
 import StructureSpreadPanel from "./components/StructureSpreadPanel";
@@ -65,6 +66,7 @@ import SetupSection from "./components/SetupSection";
 import SavedRunsPanel from "./components/SavedRunsPanel";
 import RunLabelField from "./components/RunLabelField";
 import { withRunLabel, type SavedRun } from "./services/savedRuns";
+import { buildObservedRequest, type OverrideInputs } from "./utils/activeEdges";
 import SituationPanel from "./components/SituationPanel";
 import { CollapseButton, SideRail } from "./components/SideRail";
 import { isTypingTarget, useLayout } from "./hooks/useLayout";
@@ -313,6 +315,11 @@ export default function App() {
     setAboutSection("about-limits");
     setActiveTab("about");
   }, []);
+  // "Reset this browser's FireSim data" (About ▸ Data kept in this browser; E9, 2026-10-24)
+  const openBrowserData = useCallback(() => {
+    setAboutSection("about-browser-data");
+    setActiveTab("about");
+  }, []);
   const [isochronesVisible, setIsochronesVisible] = useState(false);
   // House-to-house spread map layer: on by default when the run has it (opt-in run option)
   const [structureVisible, setStructureVisible] = useState(true);
@@ -469,6 +476,8 @@ export default function App() {
     startSimulation,
     startMultiDaySimulation,
     startPerimeterOverride,
+    startObservedPerimeter,
+    activeSegments: runActiveSegments,
     prepareRun,
     restoreRun,
     setFrameIndex,
@@ -555,6 +564,31 @@ export default function App() {
       startPerimeterOverride(req);
     },
     [startPerimeterOverride, cancelReconDrawing, leaveCurrentRun, scenarioStart, frames]
+  );
+
+  // Standalone forecast from an observed perimeter at T (A1, owner items R13/R14): Setup's
+  // run request (WeatherPanel's builder) with the perimeter instead of the ignition
+  const observedBuilderRef = useRef<((atMs: number) => SimulationCreate) | null>(null);
+  const [canForecastObserved, setCanForecastObserved] = useState(false);
+  const handleRequestBuilder = useCallback((b: ((atMs: number) => SimulationCreate) | null) => {
+    observedBuilderRef.current = b;
+    setCanForecastObserved(!!b);
+  }, []);
+  const handleObservedStart = useCallback(
+    (inputs: Omit<OverrideInputs, "simulationId">, observationIso: string) => {
+      const build = observedBuilderRef.current;
+      const t = Date.parse(observationIso);
+      if (!build || !Number.isFinite(t)) return;
+      const req = buildObservedRequest(build(t), inputs, observationIso);
+      leaveCurrentRun();
+      setCarriedFire([]);
+      setScenarioStart(new Date(t));
+      setRunBurningPeriod(req.burning_period ?? null);
+      setLastRunSpinUp(false);
+      cancelReconDrawing();
+      startObservedPerimeter(withRunLabel(req, runLabel));
+    },
+    [startObservedPerimeter, cancelReconDrawing, leaveCurrentRun, runLabel]
   );
 
   const handleStartMultiDay = useCallback(
@@ -732,6 +766,68 @@ export default function App() {
     restoreRun(run.id);
   }, [leaveCurrentRun, restoreRun]);
 
+  // ── The run on screen survives a reload of the tab (field test 2026-10-18, Issue 2) ──
+  // The run's ID and inputs are kept in sessionStorage (utils/liveRun.ts) while it computes and
+  // once it has finished; after a reload the app reads it back by ID and, if it is still
+  // computing, follows it to the end. Only this tab's own run: no passphrase, no run list.
+  const [reattachedRun, setReattachedRun] = useState<{ id: string; startedAt: number | null } | null>(null);
+  useEffect(() => {
+    if (!simulationId) return;
+    if (status === "failed" || status === "cancelled") {
+      clearLiveRun();
+      return;
+    }
+    if (status !== "running" && status !== "pending" && status !== "paused" && status !== "completed") return;
+    saveLiveRun({
+      id: simulationId,
+      startIso: scenarioStart ? scenarioStart.toISOString() : null,
+      durationHours: runDurationHours,
+      startedAt: runStartedAt,
+      ensembleMembers,
+      burningPeriod: runBurningPeriod,
+      runParams: lastRunParams,
+      runTarget: runTargetRef.current,
+      savedAt: Date.now(),
+    });
+  }, [simulationId, status, scenarioStart, runDurationHours, runStartedAt, ensembleMembers, runBurningPeriod, lastRunParams]);
+  const reattachTriedRef = useRef(false);
+  useEffect(() => {
+    if (reattachTriedRef.current) return;
+    reattachTriedRef.current = true;
+    const rec = readLiveRun();
+    if (!rec) return;
+    const at = rec.startIso ? Date.parse(rec.startIso) : NaN;
+    setScenarioStart(Number.isFinite(at) ? new Date(at) : null);
+    setLastRunParams(rec.runParams);
+    setRunBurningPeriod(rec.burningPeriod);
+    setLastRunSpinUp(false);
+    setEnsembleMembers(rec.ensembleMembers);
+    runTargetRef.current = rec.runTarget;
+    fittedOnceRef.current = false;
+    setReattachedRun({ id: rec.id, startedAt: rec.startedAt });
+    restoreRun(rec.id, rec.durationHours, rec.startedAt, LIVE_RUN_LOST);
+  }, [restoreRun]);
+  // The notice goes with the run: another run, Clear results or a failed reload removes it
+  useEffect(() => {
+    if (reattachedRun && simulationId !== reattachedRun.id) setReattachedRun(null);
+  }, [simulationId, reattachedRun]);
+  // The server no longer has the run (it restarted, or the run was deleted): say so once in
+  // the Situation panel and start clean (not "Run restored" over a failed run, E1 2026-10-24).
+  // The record was already forgotten when the run read as failed (above).
+  const [reattachLost, setReattachLost] = useState(false);
+  useEffect(() => {
+    if (!reattachedRun || simulationId !== reattachedRun.id || status !== "failed" || error !== LIVE_RUN_LOST) return;
+    setReattachedRun(null);
+    setReattachLost(true);
+    clearResults();
+    setLastRunParams(null);
+    setRunBurningPeriod(null);
+    setEnsembleMembers(null);
+  }, [reattachedRun, simulationId, status, error, clearResults]);
+  useEffect(() => {
+    if (simulationId) setReattachLost(false);
+  }, [simulationId]);
+
   // ── Ensemble (range of outcomes): polled after the single run, the headline once in ──
   const ensemble = useEnsemble(simulationId, ensembleMembers, status);
   // Remember which run's ensemble may still be computing on the server (leaveCurrentRun)
@@ -907,6 +1003,11 @@ export default function App() {
   // A finished run whose last frame is short of the hours asked for: the engine always models
   // to the end, so frames were lost on the way. Say so and offer to reload the run from the
   // server (round-3 field test R6: a 72 h run ended at T+67:30 with no explanation).
+  // Fuel line of the EOC summary and forms: a grid run's burned fuel mix, else the Setup fuel
+  const runFuel = useMemo(
+    () => runFuelLabel(lastRunParams?.fuel_type, frames.length ? frames[frames.length - 1] : null, FUEL_TYPES),
+    [lastRunParams?.fuel_type, frames],
+  );
   const runShortOf =
     status === "completed" && lastFrameHours !== null && runDurationHours !== null &&
     lastFrameHours < runDurationHours - 1e-6
@@ -993,6 +1094,18 @@ export default function App() {
   useEffect(() => {
     window.addEventListener("pagehide", flushSetup);
     return () => window.removeEventListener("pagehide", flushSetup);
+  }, [flushSetup]);
+  // After the browser-data reset: drop the pending Setup write (pagehide would otherwise write
+  // it back) and reload, so every module (incidents, Setup, evacuation statuses, layout,
+  // legends, the run on screen) starts from its defaults. A controlled reload is simpler and
+  // safer than resetting each store in place.
+  const handleBrowserDataCleared = useCallback(() => {
+    if (setupTimerRef.current !== null) window.clearTimeout(setupTimerRef.current);
+    setupTimerRef.current = null;
+    pendingSetupRef.current = null;
+    window.removeEventListener("pagehide", flushSetup);
+    setupKeyRef.current = undefined;
+    window.location.reload();
   }, [flushSetup]);
   // On load, and when another incident is opened: restore that incident's setup (ignition,
   // start, weather and its source, curing, options). A new incident takes the current setup;
@@ -1203,6 +1316,7 @@ export default function App() {
             runBarTarget={runBarEl}
             onSkillOptions={setSkillOptions}
             onSetupWeather={setSetupWeather}
+            onRequestBuilder={handleRequestBuilder}
             onNewIgnition={!isRunning && frames.length > 0 ? armNewIgnition : undefined}
             onRunRequested={handleRunRequested}
             runRequest={runRequest}
@@ -1233,7 +1347,7 @@ export default function App() {
             title="Observed perimeter (RPAS)"
             summary={
               !simulationId
-                ? "Available after a run"
+                ? (canForecastObserved ? (recon.state.perimeter ? "Perimeter loaded · forecast from it" : "Forecast from an observed perimeter") : "Available after a run")
                 : recon.state.perimeter
                   ? `Perimeter loaded · ${recon.state.mode === "whole" ? "whole perimeter active" : `${recon.lines.length} active edge${recon.lines.length === 1 ? "" : "s"}`}`
                   : "Restart this run from an observed perimeter"
@@ -1249,6 +1363,8 @@ export default function App() {
               burningPeriod={skillOptions.burningPeriod}
               spinUp={skillOptions.spinUp && lastRunSpinUp}
               setupWeather={setupWeather}
+              onObservedStart={canForecastObserved ? handleObservedStart : undefined}
+              runActiveSegments={runActiveSegments}
             />
           </SetupSection>
           <SetupSection
@@ -1264,6 +1380,7 @@ export default function App() {
               onDelete={deleteIncident}
               onExport={exportIncident}
               onImport={importIncident}
+              onOpenBrowserData={openBrowserData}
             />
             <ScenarioPanel
               scenarios={scenarios}
@@ -1319,7 +1436,7 @@ export default function App() {
             showBurnProbView={showBurnProbView}
             runParams={eocShowsLiveRun ? lastRunParams : null}
             ignitionPoint={ignitionPoint}
-            fuelTypeLabel={eocShowsLiveRun && lastRunParams?.fuel_type ? `${lastRunParams.fuel_type} — ${FUEL_TYPES[lastRunParams.fuel_type] ?? ""}` : undefined}
+            fuelTypeLabel={eocShowsLiveRun ? runFuel : undefined}
             overlayCommunities={communities}
             assetPoints={assetPoints}
             assetsVisible={assetsVisible}
@@ -1361,7 +1478,11 @@ export default function App() {
       {/* ── About & sources tab: intended use, limits, methods and references, data, help ── */}
       {activeTab === "about" && (
         <Suspense fallback={<div className="hint eoc-loading">Loading…</div>}>
-          <AboutPanel section={aboutSection} />
+          <AboutPanel
+            section={aboutSection}
+            onExportIncident={exportIncident}
+            onBrowserDataCleared={handleBrowserDataCleared}
+          />
         </Suspense>
       )}
 
@@ -1511,6 +1632,9 @@ export default function App() {
                   onClick={() => {
                     leaveCurrentRun();
                     clearResults();
+                    clearLiveRun();
+                    // The header chips describe the run: they go with it (field test 2026-10-18)
+                    setLastRunParams(null);
                     setRunBurningPeriod(null);
                     setCarriedFire([]);
                     clearRecon();
@@ -1540,6 +1664,27 @@ export default function App() {
             </SideRail>
           }
         >
+          {reattachLost && !simulationId && (
+            <div className="status-line run-reattach-lost" role="status">
+              <span data-testid="run-reattach-lost">{LIVE_RUN_LOST}</span>{" "}
+              <button type="button" className="btn-secondary btn-inline" onClick={() => setReattachLost(false)}>
+                OK
+              </button>
+            </div>
+          )}
+          {reattachedRun && reattachedRun.id === simulationId && (
+            <div className="status-line run-reattached" role="status" data-testid="run-reattached">
+              <Badge tone="info" tip={TIPS.runReattached}>
+                {isRunning ? "Run continued after reload" : "Run restored after reload"}
+              </Badge>
+              {reattachedRun.startedAt !== null && (
+                <span className="hint-sm"> started {formatClock(new Date(reattachedRun.startedAt))}</span>
+              )}
+              <button type="button" className="btn-secondary btn-inline" onClick={() => setReattachedRun(null)}>
+                OK
+              </button>
+            </div>
+          )}
           {lastRunParams?.fuel_vintage_warning && frames.length > 0 && (
             <div className="status-line fuel-vintage-warning" role="note" data-testid="fuel-vintage-result">
               <Badge tone="warn">{lastRunParams.fuel_vintage_warning}</Badge>
@@ -1614,11 +1759,7 @@ export default function App() {
             burnProbData={burnProbabilityData}
             runParams={lastRunParams}
             ignitionPoint={ignitionPoint}
-            fuelTypeLabel={
-              lastRunParams?.fuel_type
-                ? `${lastRunParams.fuel_type} — ${FUEL_TYPES[lastRunParams.fuel_type] ?? ""}`
-                : undefined
-            }
+            fuelTypeLabel={runFuel}
             criticalReach={criticalReach}
             evacZones={evacZones}
             run209={run209}
@@ -1637,6 +1778,7 @@ export default function App() {
             onIndexChange={setFrameIndex}
             scenarioStart={scenarioStart}
             burningPeriod={runBurningPeriod}
+            multiDay={multiDayRun}
           />
         </div>
       )}

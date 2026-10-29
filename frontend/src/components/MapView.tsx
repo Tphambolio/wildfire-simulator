@@ -1205,8 +1205,10 @@ export default function MapView({
       style: BASEMAPS.osm.style(),
       center: [-113.49, 53.55],
       zoom: 11,
-      // @ts-expect-error: preserveDrawingBuffer is a valid WebGL option not yet in MapLibre v5 type definitions
-      preserveDrawingBuffer: true,
+      // The EOC console map keeps its drawing buffer so a form's map snapshot can be read
+      // without waiting for a repaint (none comes while the page is hidden; field test
+      // 2026-10-18). MapLibre 5 takes it here; the former top-level option was ignored.
+      canvasContextAttributes: { preserveDrawingBuffer: readOnlyRef.current },
     });
 
     m.addControl(new maplibregl.NavigationControl(), "top-right");

@@ -93,6 +93,16 @@ export interface MockOptions {
   /** Multi-day runs replay the recorded engine fixture (first N days of it) instead of the
    * synthetic multiDayFrames */
   multidayRecorded?: boolean;
+  /** Multi-day runs replay the recorded fixture at 30 min snapshots (145 frames for 3 days, as
+   * the live 72 h run): `denseMultiDayFrames` */
+  multidayDense?: boolean;
+  /** GET /simulations/{multi-day ID} answers "running" with the frames so far (a third, then
+   * two thirds, ...) for its first N calls, then "completed": a run still computing on the
+   * server when the page reads it (a reload during the run) */
+  multidayRunningPolls?: number;
+  /** WebSocket for the multi-day run: replay this many frames, then stay open and silent (the
+   * run still computing when the page is reloaded) */
+  multidayWsStopAfter?: number;
   /** Shift every coordinate of the replayed frames by [dLat, dLng] (runs outside Edmonton) */
   translate?: [number, number];
   /** Each POST /simulations gets its own ID (fixture ID, then `<fixture ID>-2`, `-3`, ...);
@@ -101,6 +111,14 @@ export interface MockOptions {
   /** POST /simulations number n gets runIds[n - 1] (then the default ID); GET, /arrival and
    * /ensemble (404, none requested) answer for these IDs, replaying the same frames */
   runIds?: string[];
+  /** Single runs and restarts (not multi-day): GET /simulations/{id} answers "running" with a
+   * share of the frames for its first N calls, then the completed run (a reload mid-run) */
+  singleRunningPolls?: number;
+  /** WebSocket for single runs and restarts: replay this many frames, then stay open and silent */
+  wsStopAfter?: number;
+  /** WebSocket for single runs and restarts: replay this many frames, then send
+   * `simulation.completed` without `n_frames` (frames lost on the way: "Reload run") */
+  wsCompleteAfter?: number;
 }
 
 /** Frames with every coordinate shifted by [dLat, dLng] (perimeter, cells, head, spot fires). */
@@ -120,6 +138,30 @@ export function translateFrames(frames: Fixture["frames"], [dLat, dLng]: [number
 /** The recorded multi-day frames for a request of `days` days (the fixture has 3). */
 export function recordedMultiDayFrames(days: number): Fixture["frames"] {
   return multidayFixture.frames.filter((f) => ((f as { day?: number }).day ?? 1) <= days);
+}
+
+/**
+ * The recorded multi-day frames at 30 min snapshots, as a live 72 h run sends them (145 frames
+ * for 3 days): between two recorded 2 h frames come three frames at +30/+60/+90 min that repeat
+ * the earlier frame's state with no new cells (`cells_offset` = all earlier cells). Only the
+ * frame count and clock span differ from the recorded run.
+ */
+export function denseMultiDayFrames(days: number): Fixture["frames"] {
+  const rec = recordedMultiDayFrames(days);
+  const out: Fixture["frames"] = [rec[0]];
+  let cells = (rec[0].burned_cells as unknown[] | null)?.length ?? 0;
+  for (let k = 1; k < rec.length; k++) {
+    const prev = rec[k - 1];
+    const cur = rec[k];
+    for (let j = 1; j < 4; j++) {
+      const t = prev.time_hours + (j * (cur.time_hours - prev.time_hours)) / 4;
+      out.push({ ...prev, time_hours: t, day: Math.max(1, Math.ceil(t / 24 - 1e-9)), day_fwi: t > 24 * ((prev as { day?: number }).day ?? 1) ? cur.day_fwi : prev.day_fwi, burned_cells: [], cells_offset: cells });
+    }
+    out.push(cur);
+    const off = cur.cells_offset ?? 0;
+    cells = off + ((cur.burned_cells as unknown[] | null)?.length ?? 0);
+  }
+  return out;
 }
 
 /** Simulation ID the mocked POST /simulations/multiday returns */
@@ -152,6 +194,10 @@ export interface MockState {
   posts: Array<Record<string, unknown>>;
   /** POST /simulations/perimeter-override bodies */
   overridePosts: Array<Record<string, unknown>>;
+  /** POST /simulations/observed-perimeter bodies (A1 standalone forecast) */
+  observedPosts: Array<Record<string, unknown>>;
+  /** POST /simulations/classify-perimeter bodies */
+  classifyPosts: Array<Record<string, unknown>>;
   wsConnections: number;
   polls: number;
   ensemblePolls: number;
@@ -180,12 +226,25 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
   const fx = opts.structure ? structureFixture : fixture;
   const frameDelayMs = opts.frameDelayMs ?? 40;
   const state: MockState = {
-    posts: [], overridePosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0, multidayPosts: [], ensemblePollIds: [],
+    posts: [], overridePosts: [], observedPosts: [], classifyPosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0, multidayPosts: [], ensemblePollIds: [],
     ensembleCancels: [], gone: new Set(), archived: new Set(), getIds: [],
   };
   const shift = (frames: Fixture["frames"]) => (opts.translate ? translateFrames(frames, opts.translate) : frames);
-  const mdFrames = (n: number) => shift(opts.multidayRecorded ? recordedMultiDayFrames(n) : multiDayFrames(n));
+  const mdFrames = (n: number) => shift(
+    opts.multidayDense ? denseMultiDayFrames(n) : opts.multidayRecorded ? recordedMultiDayFrames(n) : multiDayFrames(n),
+  );
   const fxFrames = shift(fx.frames);
+  /** GET body of a single run or restart: "running" with a share of the frames for the first
+   * `singleRunningPolls` calls for that ID, then the completed fixture */
+  const singleBody = (id: string): Record<string, unknown> => {
+    const running = opts.singleRunningPolls ?? 0;
+    const n = state.getIds.filter((x) => x === id).length;
+    if (n <= running) {
+      const k = Math.max(1, Math.round((fxFrames.length * n) / (running + 1)));
+      return { ...fx, simulation_id: id, status: "running", frames: fxFrames.slice(0, k), phase: "spread", progress: k / fxFrames.length };
+    }
+    return { ...fx, simulation_id: id, frames: fxFrames };
+  };
   let multiDays = 3;
   const ensembleStep = opts.ensembleStep ?? 8;
 
@@ -219,6 +278,29 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       state.overridePosts.push(req.postDataJSON() as Record<string, unknown>);
       return json(route, { simulation_id: fx.simulation_id, status: "running", config: fx.config, frames: [], error: null });
     }
+    if (path === "/api/v1/simulations/observed-perimeter" && req.method() === "POST") {
+      // The standalone forecast replays the same fixture frames
+      state.observedPosts.push(req.postDataJSON() as Record<string, unknown>);
+      return json(route, { simulation_id: fx.simulation_id, status: "running", config: fx.config, frames: [], error: null });
+    }
+    if (path === "/api/v1/simulations/classify-perimeter" && req.method() === "POST") {
+      // A fixed answer: the first quarter of the perimeter ring active, the rest not
+      const body = req.postDataJSON() as { perimeter_geojson: { type: string; coordinates: number[][][] } };
+      state.classifyPosts.push(body as unknown as Record<string, unknown>);
+      const ring = body.perimeter_geojson.coordinates[0];
+      const k = Math.max(2, Math.floor(ring.length / 4));
+      const active = ring.slice(0, k);
+      const inactive = ring.slice(k - 1);
+      return json(route, {
+        summary: { source: "rpas_hotspots", n_segments: 4, n_active: 1, n_inactive: 3, n_detections_read: 3,
+          n_detections_used: 2, radius_m: 1000, window_h: 12 },
+        active_edges: { type: "MultiLineString", coordinates: [active] },
+        segments: { type: "FeatureCollection", features: [
+          { type: "Feature", properties: { status: "active" }, geometry: { type: "LineString", coordinates: active } },
+          { type: "Feature", properties: { status: "inactive" }, geometry: { type: "LineString", coordinates: inactive } },
+        ] },
+      });
+    }
     if (path === "/api/v1/simulations/multiday" && req.method() === "POST") {
       const body = req.postDataJSON() as Record<string, unknown>;
       state.multidayPosts.push(body);
@@ -242,11 +324,22 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         return json(route, { ...body, archived: true });
       }
       if (one[1] === MULTIDAY_ID) {
-        return json(route, { simulation_id: MULTIDAY_ID, status: "completed", config: null, frames: mdFrames(multiDays), error: null });
+        const all = mdFrames(multiDays);
+        const running = opts.multidayRunningPolls ?? 0;
+        const n = state.getIds.filter((x) => x === MULTIDAY_ID).length;
+        if (n <= running) {
+          const k = Math.max(1, Math.round((all.length * n) / (running + 1)));
+          const day = (all[k - 1] as { day?: number }).day ?? 1;
+          return json(route, {
+            simulation_id: MULTIDAY_ID, status: "running", config: null, frames: all.slice(0, k), error: null,
+            phase: "spread", progress: k / all.length, day, n_days: multiDays,
+          });
+        }
+        return json(route, { simulation_id: MULTIDAY_ID, status: "completed", config: null, frames: all, error: null });
       }
       if (opts.runIds?.includes(one[1])) {
         state.polls++;
-        return json(route, { ...fx, simulation_id: one[1], frames: fxFrames });
+        return json(route, singleBody(one[1]));
       }
       if (opts.distinctRunIds && one[1].startsWith(`${fx.simulation_id}-`)) {
         state.polls++;
@@ -276,7 +369,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     }
     if (path === `/api/v1/simulations/${fx.simulation_id}` && req.method() === "GET") {
       state.polls++;
-      return json(route, opts.translate ? { ...fx, frames: fxFrames } : fx);
+      return json(route, opts.translate || opts.singleRunningPolls ? singleBody(fx.simulation_id) : fx);
     }
     if (path === "/api/v1/health") return json(route, { status: "ok" });
     if (path === "/api/v1/version") return json(route, { version: "3.0.0", git_sha: "e2e0sha" });
@@ -302,6 +395,12 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         const [phase, progress] = statuses[s++];
         ws.send(JSON.stringify({ type: "simulation.status", simulation_id: simId, phase, progress }));
         timer = setTimeout(next, opts.phaseDelayMs ?? 400);
+        return;
+      }
+      if (simId === MULTIDAY_ID && opts.multidayWsStopAfter !== undefined && i >= opts.multidayWsStopAfter) return;
+      if (simId !== MULTIDAY_ID && opts.wsStopAfter !== undefined && i >= opts.wsStopAfter) return;
+      if (simId !== MULTIDAY_ID && opts.wsCompleteAfter !== undefined && i >= opts.wsCompleteAfter) {
+        ws.send(JSON.stringify({ type: "simulation.completed", simulation_id: simId }));
         return;
       }
       if (i < frames.length) {

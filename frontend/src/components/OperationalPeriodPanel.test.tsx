@@ -64,3 +64,43 @@ describe("OperationalPeriodPanel", () => {
     expect(nextPeriodDate(undefined, now)).toBe("2026-10-11");
   });
 });
+
+describe("OperationalPeriodPanel incident name (E9, 2026-10-24)", () => {
+  function setup() {
+    const incident = makeIncident("Old name");
+    const onUpdateName = vi.fn();
+    render(
+      <OperationalPeriodPanel
+        incident={incident}
+        activePeriod={incident.operationalPeriods[0]}
+        onPeriodSelect={vi.fn()}
+        onAdvancePeriod={vi.fn()}
+        onUpdateName={onUpdateName}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Old name/ }));
+    return { onUpdateName, input: screen.getByLabelText("Incident name") as HTMLInputElement };
+  }
+
+  it("can be erased to empty while editing; blur stores 'Untitled incident'", () => {
+    const { onUpdateName, input } = setup();
+    fireEvent.change(input, { target: { value: "" } });
+    expect(input).toHaveValue("");
+    expect(input).toHaveAttribute("placeholder", "Incident name");
+    expect(onUpdateName).not.toHaveBeenCalled();
+    fireEvent.blur(input);
+    expect(onUpdateName).toHaveBeenCalledWith("Untitled incident");
+  });
+
+  it("Enter commits a new name; Esc cancels", () => {
+    const { onUpdateName, input } = setup();
+    fireEvent.change(input, { target: { value: "Millcreek" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onUpdateName).toHaveBeenCalledWith("Millcreek");
+    fireEvent.click(screen.getByRole("button", { name: /Old name/ }));
+    const again = screen.getByLabelText("Incident name");
+    fireEvent.change(again, { target: { value: "" } });
+    fireEvent.keyDown(again, { key: "Escape" });
+    expect(onUpdateName).toHaveBeenCalledTimes(1);
+  });
+});

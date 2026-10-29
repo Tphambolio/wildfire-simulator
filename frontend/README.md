@@ -36,6 +36,18 @@ Since 2026-10-11 (owner request: "the actual viewable map is tiny"; `hooks/useLa
 E2E specs other than `layout-focus.spec.ts` open the app with a saved "both open" preference
 (`openApp`'s `pinLayout`, default on), so the one-time auto-collapse does not move their Run bar.
 
+## Browser storage and the reset control
+
+Incidents, the restored Setup panel, saved scenarios, evacuation statuses set without an
+incident, legend and layout preferences, and the last grass-curing value live in this browser's
+localStorage; the run on screen and the saved-runs passphrase live in sessionStorage (this tab).
+None of it is cleared by a reload, including a hard reload. `src/utils/browserData.ts` is the one
+list of these keys (add any new key there); About ▸ "Data kept in this browser" has
+**Reset this browser's FireSim data** (`components/BrowserDataReset.tsx`): it lists what is
+stored (incident names and statuses), offers each incident's JSON export, and after a confirm
+removes exactly those keys and reloads the page. The server's run archive is not affected.
+The Incidents section links to it (E9, owner report 2026-10-24).
+
 ## UI text: badges, tooltips, About & sources
 
 Since 2026-10-10 (owner request: a decluttered interface) the panels carry labels, values and
@@ -113,6 +125,7 @@ The suite:
 | `assets.spec.ts` | Critical assets: automatic layers, reached assets and roads in clock time, "Model output" badge with sources and data notes in its tooltip, EOC Console summary badge; axe clean. |
 | `structure.spec.ts` | House-to-house spread: opt-in (badge tooltip), counts, chart, map layer, caveat tooltips. |
 | `declutter.spec.ts` | About & sources tab (8 sections, GitHub references, version; the low-skill badge opens Limits; hover persistence); keyboard tooltip access (Tab, focus, Esc) and axe with a tooltip open; wording fixes; main-run progress bar (phases, advancing, gone on completion); re-run at a new ignition without reload (New ignition and Move ignition, weather kept, view kept, Clear results). |
+| `reattach.spec.ts` | Reload re-attach (E1): single run with ensemble reloaded mid-run, multi-day run reloaded on day 2 ("Day 2 of 3"), perimeter restart, reload after completion, a run the server no longer has (one sentence, record forgotten), and the "Reload run" flag of a run that ended short. |
 
 ### Regenerating the fixture
 

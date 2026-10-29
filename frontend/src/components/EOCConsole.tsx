@@ -11,7 +11,8 @@
  *   Map        → full-width map (hides data panel)
  *
  * Map snapshot: captured from MapLibre canvas (preserveDrawingBuffer: true) before
- * any print or ICS form render — embedded as base64 PNG in form HTML.
+ * any print or ICS form render — embedded as base64 PNG in form HTML. The capture waits at
+ * most SNAPSHOT_WAIT_MS for a repaint (none comes while the page is hidden).
  *
  * Design: Stitch EOC Tactical Dark system — indigo-ember palette, no-line rule,
  * tonal layering. Reference: /tmp/stitch_export/stitch/stitch/eoc_tactical_dark/DESIGN.md
@@ -40,12 +41,13 @@ import {
   buildFullIAPHTML,
 } from "../utils/icsForms";
 import { ghostPerimeterPath } from "../utils/ghostPerimeter";
-import { openICS209Report, type ICS209RunContext } from "../utils/ics209";
+import { buildICS209HTML, modelVersionWithin, type ICS209RunContext } from "../utils/ics209";
 import { getVersion } from "../services/api";
 import type { SuppressionAdvisory } from "../utils/suppressionAdvisory";
 import { buildSuppressionAdvisory } from "../utils/suppressionAdvisory";
 import type { AnnotationLayer, ICSSymbolKey, IncidentAnnotation } from "../types/incident";
 import { SYMBOL_DEFS } from "../types/incident";
+import { normaliseIncidentName, UNTITLED_INCIDENT } from "../utils/storage";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -119,6 +121,60 @@ const ICS_FORM_LABELS: Record<ICSFormId, string> = {
   "full-iap": "Full IAP Package",
 };
 
+/** Longest wait for a map repaint before the snapshot is taken from the last drawn frame. */
+const SNAPSHOT_WAIT_MS = 1500;
+
+/**
+ * PNG data URL of the map canvas with the markup SVG on top (map only if the overlay fails),
+ * or undefined if the canvas cannot be read. The map pixels are copied synchronously, so this
+ * can run inside the map's 'render' event or, with a preserved drawing buffer, at any time.
+ */
+function composeMapSnapshot(glCanvas: HTMLCanvasElement, svg: SVGSVGElement | null): Promise<string | undefined> {
+  try {
+    const rect = glCanvas.getBoundingClientRect();
+    const w = Math.round(rect.width);
+    const h = Math.round(rect.height);
+    if (w <= 0 || h <= 0) return Promise.resolve(undefined);
+    const offscreen = document.createElement("canvas");
+    offscreen.width = w;
+    offscreen.height = h;
+    const ctx = offscreen.getContext("2d");
+    if (!ctx) return Promise.resolve(undefined);
+    // The WebGL map layer, scaled from physical to CSS pixels
+    ctx.drawImage(glCanvas, 0, 0, w, h);
+    const png = () => {
+      try {
+        return offscreen.toDataURL("image/png");
+      } catch {
+        return undefined;
+      }
+    };
+    if (!svg || !svg.childElementCount) return Promise.resolve(png());
+    // Composite the SVG annotation overlay on top
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", String(w));
+    clone.setAttribute("height", String(h));
+    const svgStr = new XMLSerializer().serializeToString(clone);
+    const url = URL.createObjectURL(new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" }));
+    return new Promise((resolve) => {
+      const img = new Image();
+      const done = () => {
+        URL.revokeObjectURL(url);
+        resolve(png());
+      };
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0);
+        done();
+      };
+      img.onerror = done; // overlay failed: map-only snapshot
+      img.src = url;
+    });
+  } catch {
+    return Promise.resolve(undefined);
+  }
+}
+
 export default function EOCConsole({
   frames,
   currentFrameIndex,
@@ -157,13 +213,18 @@ export default function EOCConsole({
 }: EOCConsoleProps) {
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("situation");
   // Use incident name from prop if provided (incident store), else local state
-  const [localIncidentName, setLocalIncidentName] = useState("Untitled Incident");
+  const [localIncidentName, setLocalIncidentName] = useState(UNTITLED_INCIDENT);
   const incidentName = incidentNameProp ?? localIncidentName;
-  const setIncidentName = (name: string) => {
+  // Name being edited (null = not editing): may be empty while typing; blur/Enter stores an
+  // empty name as "Untitled incident" (E9), Esc cancels
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const commitName = () => {
+    if (nameDraft === null) return;
+    const name = normaliseIncidentName(nameDraft);
     setLocalIncidentName(name);
     onIncidentNameChange?.(name);
+    setNameDraft(null);
   };
-  const [editingName, setEditingName] = useState(false);
   const [activeLayer, setActiveLayer] = useState<AnnotationLayer>("situation");
   const [activeSymbolKey, setActiveSymbolKey] = useState<ICSSymbolKey | null>(null);
   const [activeColor, setActiveColor] = useState<string | null>(null);
@@ -349,67 +410,35 @@ export default function EOCConsole({
   }, []);
 
   // ── Map snapshot capture ──────────────────────────────────────────────────
-  // WebGL doesn't preserve the drawing buffer between frames, so we must
-  // trigger a repaint and capture inside the 'render' event callback.
+  // The console map keeps its drawing buffer (MapView `canvasContextAttributes`), so the
+  // snapshot is taken at the next repaint when there is one, else from the last drawn frame.
+  // A page that draws no frames (hidden tab, occluded window, locked screen) never fires the
+  // map's 'render' event: waiting for it left every ICS form unopened (field test 2026-10-18,
+  // Issue 1). The wait is now bounded (SNAPSHOT_WAIT_MS) and skipped for a hidden page.
 
   const captureMapSnapshot = useCallback((): Promise<string | undefined> => {
     const map = consoleMapRef.current;
     if (!map) return Promise.resolve(undefined);
 
     return new Promise((resolve) => {
-      map.once("render", () => {
-        try {
-          const glCanvas = map.getCanvas();
-          const rect = glCanvas.getBoundingClientRect();
-          const w = Math.round(rect.width);
-          const h = Math.round(rect.height);
-
-          const offscreen = document.createElement("canvas");
-          offscreen.width = w;
-          offscreen.height = h;
-          const ctx = offscreen.getContext("2d");
-          if (!ctx) { resolve(undefined); return; }
-
-          // Draw the WebGL map layer (scale from physical → CSS pixels)
-          ctx.drawImage(glCanvas, 0, 0, w, h);
-
-          const svg = svgRef.current;
-          if (!svg || !svg.childElementCount) {
-            // No annotations — return map only
-            const dataUrl = offscreen.toDataURL("image/png");
-            setMapSnapshot(dataUrl);
-            resolve(dataUrl);
-            return;
-          }
-
-          // Composite SVG annotation overlay on top
-          const clone = svg.cloneNode(true) as SVGSVGElement;
-          clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-          clone.setAttribute("width", String(w));
-          clone.setAttribute("height", String(h));
-          const svgStr = new XMLSerializer().serializeToString(clone);
-          const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
-          const url = URL.createObjectURL(blob);
-          const img = new Image();
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0);
-            URL.revokeObjectURL(url);
-            const dataUrl = offscreen.toDataURL("image/png");
-            setMapSnapshot(dataUrl);
-            resolve(dataUrl);
-          };
-          img.onerror = () => {
-            URL.revokeObjectURL(url);
-            // Annotation overlay failed — return map-only snapshot
-            const dataUrl = offscreen.toDataURL("image/png");
-            setMapSnapshot(dataUrl);
-            resolve(dataUrl);
-          };
-          img.src = url;
-        } catch {
-          resolve(undefined);
-        }
-      });
+      let settled = false;
+      const wait: { timer?: ReturnType<typeof setTimeout> } = {};
+      const grab = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(wait.timer);
+        map.off("render", grab);
+        composeMapSnapshot(map.getCanvas(), svgRef.current).then((dataUrl) => {
+          if (dataUrl) setMapSnapshot(dataUrl);
+          resolve(dataUrl);
+        });
+      };
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        grab();
+        return;
+      }
+      map.on("render", grab);
+      wait.timer = setTimeout(grab, SNAPSHOT_WAIT_MS);
       map.triggerRepaint();
     });
   }, []);
@@ -456,33 +485,44 @@ export default function EOCConsole({
 
   // ── Form rendering ────────────────────────────────────────────────────────
 
-  const renderForm = useCallback((formId: ICSFormId, snapshot?: string) => {
-    const opts = buildFormOptions(snapshot);
-    if (formId === "ics209") {
-      openICS209Report({ frames, burnProbData: burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, suppAdvisory: getSuppressionAdvisory(), run: run209, incidentName }, getVersion);
-      return; // ICS-209 opens in new window, not iframe
-    }
+  // A form request newer than the one being prepared wins (the 209 waits for the model version)
+  const formRequestRef = useRef(0);
+
+  const renderForm = useCallback(async (formId: ICSFormId, snapshot?: string) => {
+    const request = ++formRequestRef.current;
     let html = "";
-    if (formId === "ics201") html = buildICS201HTML(opts);
-    else if (formId === "ics202") html = buildICS202HTML(opts);
-    else if (formId === "ics203") html = buildICS203HTML(opts);
-    else if (formId === "ics204") html = buildICS204HTML(opts);
-    else if (formId === "ics205") html = buildICS205HTML(opts);
-    else if (formId === "ics206") html = buildICS206HTML(opts);
-    else if (formId === "ics214") html = buildICS214HTML(opts);
-    else if (formId === "full-iap") html = buildFullIAPHTML(opts);
+    if (formId === "ics209") {
+      // Previewed in the console like the other forms. It used to open a pop-up window that
+      // called window.print() on load: the print dialog blocks the app's tab (the pop-up
+      // shares its event loop), which froze the tab for minutes when nobody could answer the
+      // dialog (field test 2026-10-18, Issue 1). Print and New Window are on the viewer.
+      const modelVersion = await modelVersionWithin(getVersion);
+      if (request !== formRequestRef.current) return;
+      html = buildICS209HTML({
+        frames, burnProbData: burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones,
+        suppAdvisory: getSuppressionAdvisory(), run: run209, incidentName, modelVersion,
+      });
+    } else {
+      const opts = buildFormOptions(snapshot);
+      if (formId === "ics201") html = buildICS201HTML(opts);
+      else if (formId === "ics202") html = buildICS202HTML(opts);
+      else if (formId === "ics203") html = buildICS203HTML(opts);
+      else if (formId === "ics204") html = buildICS204HTML(opts);
+      else if (formId === "ics205") html = buildICS205HTML(opts);
+      else if (formId === "ics206") html = buildICS206HTML(opts);
+      else if (formId === "ics214") html = buildICS214HTML(opts);
+      else if (formId === "full-iap") html = buildFullIAPHTML(opts);
+    }
     setRenderedForm({ html, period: operationalPeriod, frames });
     setSelectedForm(formId);
   }, [buildFormOptions, frames, burnProbabilityData, runParams, ignitionPoint, fuelTypeLabel, criticalReach, evacZones, getSuppressionAdvisory, run209, incidentName, operationalPeriod]);
 
   const handleFormSelect = useCallback(async (formId: ICSFormId) => {
-    const snap = await captureMapSnapshot();
-    if (formId === "ics209") {
-      renderForm(formId, snap);
-      return;
-    }
     setConsoleTab("ics-forms");
-    renderForm(formId, snap);
+    setSelectedForm(formId);
+    // The 209-WF embeds no map: no snapshot to wait for
+    const snap = formId === "ics209" ? undefined : await captureMapSnapshot();
+    await renderForm(formId, snap);
   }, [captureMapSnapshot, renderForm]);
 
   const handlePrintForm = useCallback(() => {
@@ -492,7 +532,9 @@ export default function EOCConsole({
   const handleOpenInNewWindow = useCallback(() => {
     if (!formHtml) return;
     const w = window.open("", "_blank");
-    if (w) { w.document.write(formHtml); w.document.close(); w.print(); }
+    // No automatic print: a print dialog opened from script blocks the app's tab until it is
+    // answered (field test 2026-10-18, Issue 1); the window has its own Print
+    if (w) { w.document.write(formHtml); w.document.close(); }
   }, [formHtml]);
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -505,17 +547,22 @@ export default function EOCConsole({
       <div className="eoc-console-header">
         <div className="eoc-header-left">
           {/* With an incident open, its name and ACTIVE status are in the period strip above */}
-          {incidentNameProp !== undefined ? null : editingName ? (
+          {incidentNameProp !== undefined ? null : nameDraft !== null ? (
             <input
               className="eoc-incident-name-input"
-              value={incidentName}
+              value={nameDraft}
+              placeholder="Incident name"
+              aria-label="Incident name"
               autoFocus
-              onChange={(e) => setIncidentName(e.target.value)}
-              onBlur={() => setEditingName(false)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingName(false); }}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitName();
+                else if (e.key === "Escape") setNameDraft(null);
+              }}
             />
           ) : (
-            <button className="eoc-incident-name-btn" onClick={() => setEditingName(true)} title="Click to edit incident name">
+            <button className="eoc-incident-name-btn" onClick={() => setNameDraft(incidentName)} title="Click to edit incident name">
               {incidentName}
               <span className="eoc-edit-icon">✎</span>
             </button>

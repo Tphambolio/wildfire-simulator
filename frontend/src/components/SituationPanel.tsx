@@ -5,7 +5,7 @@
 
 import { forwardRef, type ReactNode } from "react";
 import type { BurningPeriod, SimulationFrame } from "../types/simulation";
-import { clockAt, formatClock, formatElapsed, formatRunElapsed, zoneAbbrev } from "../utils/time";
+import { clockAt, formatClock, formatClockAt, formatElapsed, formatRunElapsed, zoneAbbrev } from "../utils/time";
 import { formatBurningPeriod, formatHour, inBurningPeriod } from "../utils/skillOptions";
 import HfiClassChip from "./HfiClassChip";
 import Badge from "./Badge";
@@ -45,25 +45,27 @@ interface SituationPanelProps {
 
 const DIRS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
-function clockLabel(start: Date | null, hours: number): string {
+/** "03:32 MDT", with the calendar day after the start date ("D2 03:32 MDT") as the map
+ * labels and the timeline show it (field test 2026-10-18); "D1 …" too in a multi-day run. */
+function clockLabel(start: Date | null, hours: number, multiDay = false): string {
   if (!start) return formatElapsed(hours);
   const t = clockAt(start, hours);
-  return `${formatClock(t)} ${zoneAbbrev(t)}`;
+  return `${formatClockAt(start, hours, multiDay)} ${zoneAbbrev(t)}`;
 }
 
-function statusLine(status: string | null, totalFrames: number, last: SimulationFrame | null, start: Date | null): string {
+function statusLine(status: string | null, totalFrames: number, last: SimulationFrame | null, start: Date | null, multiDay = false): string {
   switch (status) {
     case "pending":
       return "Starting the run…";
     case "running":
       return last
-        ? `Running · ${totalFrames} frames received, up to ${clockLabel(start, last.time_hours)}`
+        ? `Running · ${totalFrames} frames received, up to ${clockLabel(start, last.time_hours, multiDay)}`
         : "Running · waiting for the first frame";
     case "paused":
       return "Paused";
     case "completed":
       return last
-        ? `Run complete · ${totalFrames} frames, ${formatElapsed(last.time_hours)} to ${clockLabel(start, last.time_hours)}`
+        ? `Run complete · ${totalFrames} frames, ${formatElapsed(last.time_hours)} to ${clockLabel(start, last.time_hours, multiDay)}`
         : "Run complete";
     case "failed":
       return "Run failed. See the message at the bottom of the screen.";
@@ -95,14 +97,14 @@ const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function Sit
       {/* Run status stays announced while the panel is collapsed */}
       {collapsed && (
         <div className="visually-hidden" role="status" aria-live="polite">
-          {statusLine(status, totalFrames, frame, scenarioStart)}
+          {statusLine(status, totalFrames, frame, scenarioStart, multiDay)}
         </div>
       )}
       <div id={contentId} className="situation-content" hidden={collapsed}>
       <header className="situation-header">
         <div className="situation-title-row">
           <h2 id="situation-title" className="situation-title">
-            {frame ? `At ${clockLabel(scenarioStart, frame.time_hours)}` : "Situation"}
+            {frame ? `At ${clockLabel(scenarioStart, frame.time_hours, multiDay)}` : "Situation"}
           </h2>
           {collapseButton}
         </div>
@@ -113,7 +115,7 @@ const SituationPanel = forwardRef<HTMLElement, SituationPanelProps>(function Sit
           </div>
         )}
         <div className="situation-status" role="status" aria-live="polite">
-          {statusLine(status, totalFrames, frame, scenarioStart)}
+          {statusLine(status, totalFrames, frame, scenarioStart, multiDay)}
         </div>
         {progress}
         {actions}

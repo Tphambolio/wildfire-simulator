@@ -39,6 +39,18 @@ rescore, 2026-10-17 [R49]): coverage 49 %, CRPS 0.407 (2014b rerun 0.465; better
 of days: closer to the observed area, but still too narrow and over-confident. See "Ensemble
 calibration".
 
+**W.I.S.E. head-to-head on the held-out set (C1, 2026-10-25 [R66]).** Pre-registered
+(`docs/PREREG_COMPARATOR_C1.md`, `cf514b7`): W.I.S.E. 1.0.6-beta.6 run as a black box (headless Docker)
+on the 79 held-out fire-days with FireSim's operational set-up, fuel, start, weather and hourly FFMC,
+scored by the same code. 17 h F1 FireSim 0.251 vs WISE 0.261, difference −0.010 [−0.026, +0.002] on the
+70 days WISE completed (9 largest days killed at the 5 GB memory cap; scoring those as no growth
++0.014 [−0.002, +0.032]): **level with WISE defaults** (non-inferior, margin 0.03). Community arrival:
+no held-out community was reached by anyone (degenerate). Shared-input 10-member ensemble coverage
+18 % vs 13 % (+0.042 [−0.020, +0.136]); both far too narrow. Day-by-day F1 correlation 0.95: the shared
+error lies in the inputs and FBP rates, not the spread engine. Owner (2026-10-25): margins confirmed;
+coverage recorded, not decisive (re-registered after B2); community arrival re-tested on a set with
+observed arrivals (`docs/PREREG_COMPARATOR_C1B.md`).
+
 ## Rescored on the pre-fire fuel grid (2026-10-15)
 
 **In short:** scored on the fuel FireSim actually uses for a dated historical run in Alberta
@@ -367,6 +379,17 @@ grid diagonal fix; the record's own run rescored with today's code reproduces th
 back-cast centres the members closer to the observed area but does not widen them relative to
 the error: the ensemble remains too narrow and over-confident, and P10 is still not a worst case.
 
+**Log-area post-processing (B2, 2026-10-24, [R65], opt-in).** A member-by-member shift and
+stretch of the members' log10 area (Van Schaeybroeck & Vannitsem 2015), fitted on the 61
+calibration fire-days on the back-cast grid (shift −0.25 log10, i.e. areas x 0.56; stretch 2.25,
+the smallest reaching 80 % calibration coverage) and scored on the same 65 held-out fire-days
+(pre-registered, `docs/PREREG_ENSEMBLE_B2.md`): coverage 49 % → **85 %** [74, 94], CRPS
+0.407 → 0.376 (Δ −0.031 [−0.092, +0.032], non-inferior), ensemble-mean bias +0.22 → +0.02:
+**pass**. It over-corrects the spread (spread / skill 0.55; the median P10-P90 area range is a
+factor of ~60), does worse on the largest-growth third of days, and does not move any footprint
+(P10 still holds ≥ 90 % of growth on 29 % of days). It is not applied anywhere by default
+(`firesim.validation.ensemble_calibration`).
+
 **What the numbers say.**
 
 - **The ensemble was far too narrow, not too wide.** With the placeholders the observed area
@@ -593,6 +616,33 @@ For each fire-day (Bennett's day *n*):
    which needs the observation and therefore measures the model's potential, not its forecast
    skill). Cumulative (whole-fire) scores are also stored; they are higher simply because old
    burned area counts as agreement, and are not reported as skill.
+7. **Start type and start-perimeter diagnostics** (2026-10-18, backlog A2, [R58];
+   `engine/src/firesim/validation/start_strata.py`). Descriptive: they change no score.
+   - *Start type*, from CFSDS DOB before day *n* only: age = day *n* − the earliest DOB in the
+     start area. **Mature perimeter** if age ≥ 2 days; otherwise (the whole start area burned
+     on day *n*-1) **point start** if the start area is ≤ 100 ha, else **fresh perimeter**.
+     DOB is daily, so a "fresh" start area burned about 6-30 h before the 06:00 start: the
+     harness's nearest analogue of a "< 24 h" perimeter. The harness has no true point
+     ignitions (Bennett's filters need day *n*-1 burning), so "point" means a start area
+     small enough to act as one at the scale of a day's growth. The rule was fixed from the
+     start age and area of the 143 fire-days before any per-stratum score was computed.
+   - *Static share of the start perimeter* ([R53] Fig. 4 method on the raster): start-area
+     boundary cells thinned to one per 500 m block; each growth cell is assigned to its
+     nearest sample; a sample's advance is the farthest assigned cell's distance from the
+     start area; static = advance ≤ 1 km. Reported for the observed growth (record
+     `start_perimeter_obs`) and for the modelled growth at each window
+     (`static_share_model`).
+   - *Growth ratio* = modelled ÷ observed growth area beyond the start area, per window
+     (`growth_ratio`; > 1 over-spread).
+   - `validate.py report` adds "By start type" tables and `start_strata.json`; `compare`
+     appends a per-stratum table with paired ΔF1. Run files written before A2 are tagged
+     from their domains (the diagnostics need a rerun).
+   - Baseline ([R58], descriptive; C1 set-up, back-cast grid, 143 fire-days): point 8 /
+     fresh 9 / mature 126 fire-days; 17 h F1 0.353 / 0.296 / 0.250 (held-out 0.402 / 0.306 /
+     0.231, pooled 0.246 unchanged); static share observed vs modelled (median) 42 / 58 %,
+     95 / 81 %, 99 / 97 %; growth ratio (median) 0.97 / 1.32 / 2.22. With active edges the
+     model leaves mature perimeters about as static as observed; their excess is over-spread
+     at the active edges.
 
 Metrics (`engine/src/firesim/validation/metrics.py`, unit-tested on shapes with known
 answers): precision TP/(TP+FP); recall TP/(TP+FN); F1 = 2PR/(P+R) (Sørensen/Dice); IoU =
@@ -698,3 +748,12 @@ spin-up and the burning period are opt-in.
   diurnal cycle.* Inf. Rep. PS-X-69.
 - Van Wagner, C.E. (1987). *Development and structure of the Canadian Forest Fire Weather Index
   System.* Forestry Tech. Rep. 35.
+
+## Sealed 2026 held-out set (C4, 2026-10-24)
+
+32 western-US wildfires of 2026 (NIFC WFIGS 2026 perimeters, ≥ 5,000 ha, contained) are **sealed** for
+future pre-registered tests: `confirm` 16 for one-shot deciding tests (first planned: the 1-burn-day
+active-edge rule, [R63]), `scorecard` 16 for the per-release re-score. No model has run on them. List sha256
+`b9c7a303c71e63ebc63e9fdf25cda18e8ebcaf61a5af36a3ac69cdd297748e80`. Rules, hashes, the Canadian block
+(NBAC 2026, rules fixed, drawn when it publishes) and the use ledger: `docs/SEALED_2026.md`. Do not run
+anything on these fires without a committed pre-registration.

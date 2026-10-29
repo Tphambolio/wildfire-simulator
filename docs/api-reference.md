@@ -572,6 +572,36 @@ fuel, so a restart burned through subdivisions where the continuous run stalls),
 no house-to-house. `duration_hours` (≤ 24) is run in full; the run archive stores
 `{"source_config", "perimeter_override", "restart_config", "weather_source"}`.
 
+Active-segment classification (added 2026-10-24, backlog A1; `docs/active-segments.md`):
+optional RPAS `hotspots_geojson` (points with a `time`) or a NASA FIRMS `firms_csv` (VIIRS
+nominal/high confidence), used when `active_edges` is not given: a 250 m boundary piece
+(`classification_segment_m`) is active when a detection lies within `classification_radius_m`
+(1,000) of it in the `classification_window_h` (12) hours up to the restart's `start_time`. The
+active pieces are sent to the engine as `active_edges` (the rest is burned out, as for marked
+edges); no active piece → 422. **The rule is not validated against real RPAS thermal flights.**
+Such restarts return `active_segments` (source, `n_segments`, `n_active`, `n_inactive`,
+segments as GeoJSON; after the run `static_share_model` and `growth_ha`); others return
+`active_segments: null`. Existing payloads run exactly as before. (The held-edge barrier,
+`hold_hours` / `hold_band_m`, is not part of the API: it failed its pre-registered test and
+stays on draft PR #100.)
+
+### POST /api/v1/simulations/observed-perimeter
+
+Standalone forecast from an observed perimeter at observation time T (owner items R13/R14;
+A1). Body: a POST /simulations request without `ignition_lat`/`ignition_lng` (default: the
+perimeter's centroid) plus `perimeter_geojson` and **`observation_time`** (required, ISO 8601
+with offset; the run starts at T, `start_time` must equal it if sent), with optional
+`active_edges`, `active_edge_buffer_m` and the classification fields above. No ensemble.
+Returns `simulation_id` at once (status running); stream and poll as for any run. Archive
+`kind` `observed_perimeter`.
+
+### POST /api/v1/simulations/classify-perimeter
+
+Active / inactive segments of `perimeter_geojson` at `observation_time` (required, with offset)
+from `hotspots_geojson` or `firms_csv` (same rule and parameters), without a run:
+`{summary, active_edges (MultiLineString or null), segments (FeatureCollection, status
+active / inactive)}`. 422 on a CSV without the FIRMS columns.
+
 ### POST /api/v1/simulations/burn-probability
 
 Monte Carlo burn probability (synchronous). Varies the ignition point (`jitter_m`), wind speed
@@ -647,7 +677,7 @@ with its own FWI calculator (same equations, FFMC coefficient 147.2):
   station's entry in Pyra's published `data/cwfis_prev.json` (by name, else nearest within
   10 km); the newer one, CWFIS first on a tie; at most 2 days old. Spring (March-June) DC ≤ 60 is
   raised to Pyra's regional floor.
-- **Before noon LST (MST, 19 UTC):** the carry-over is stepped one day with the GEM noon-LST
+- **Before noon LST (Alberta fire-weather LST, 19 UTC; 13:00 MT from 2026-11-01):** the carry-over is stepped one day with the GEM noon-LST
   forecast for today (Open-Meteo `models=gem_seamless`, the URL Pyra requests: noon temperature,
   RH, 10 m wind, 24 h rain to noon). `codes_status` = `forecast`.
 - **After noon LST:** a CWFIS station with codes → its codes as published (`today`, or
@@ -707,8 +737,15 @@ Fields added 2026-10-10 (all optional, `null` when not applicable):
 | `source_tier` | `pyra`, `cwfis`, `cwfis_archive` or `gem_estimate` (`null` when unavailable); added with the Pyra tier |
 | `pyra` | Pyra tier details (above) |
 
-Noon LST uses the province's standard-time offset (AB UTC-7, BC UTC-8, …), else the zone's
-standard offset, else longitude / 15.
+Noon LST uses the CWFIS per-station UTC-LST correction (`tz_correct`, cwfis_allstn2026.csv):
+in provinces where CWFIS uses more than one value (Saskatchewan -6/-7, BC -8/-7, Ontario,
+Quebec, Newfoundland and Labrador, Nunavut) the nearest CWFIS station's value
+(`services/cwfis_tz.py`, built by `scripts/build_cwfis_tz.py`), else the province's value
+(AB -7, BC -8, YT -8, SK -6, …), else the zone's standard offset, else longitude / 15. Alberta's is the fire-weather offset CWFIS uses
+(`tz_correct` -7, i.e. 19 UTC), not the legal clock: Alberta has been on UTC-6 all year since
+2026-11-01, and the daily observation stays at 19 UTC (13:00 MT) unless
+`FIRESIM_AB_FWI_LST_OFFSET_H=6` (18 UTC) is set; before 2026-11-01 it is always 19 UTC
+(`services/alberta_time.py`; report "Alberta permanent UTC-6 switch 2026-10-18").
 
 ### GET /api/v1/version
 
