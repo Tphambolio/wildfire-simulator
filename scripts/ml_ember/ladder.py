@@ -28,7 +28,10 @@ the carried rung and the hybrid; a finding needs the sign in >= 4 of 5 folds.
 Missing values: GBM native; GLM / additive by outer-training-fold median with a missing indicator for the FBP
 columns (disclosed). Weather arm: station only (section 10 primary); the ERA5 arm is not run here.
 Output: reports/data/ml-ember-cast-2026-10-29/ladder/{ladder.json, oof_scores.parquet, betas.json}.
-Usage: python -I scripts/ml_ember/ladder.py [--no-terrain] [--quick]
+Arms (section 8 control 6 outcome, option (b), addendum A3): --arm clean drops the fuel columns whose within-fire
+fuel-seam AUC exceeded 0.55 in the control (fuel_code, hazshare, d_nonfuel_km); --arm full keeps every section-4
+feature. Both are run and reported; the clean arm is proposed for the deciding comparisons in stage 2.
+Usage: python -I scripts/ml_ember/ladder.py --arm clean|full [--no-terrain] [--quick]
 """
 from __future__ import annotations
 
@@ -50,7 +53,8 @@ for _p in (ROOT, ROOT / "engine" / "src"):
 from scripts.ml_ember import cv  # noqa: E402
 from scripts.ml_ember import paths as P  # noqa: E402
 
-OUT = P.DATA_FOLDER / "ladder"
+OUT = P.DATA_FOLDER / "ladder"  # / arm appended in main
+ARM_DROP = {"clean": ["fuel_code", "hazshare", "d_nonfuel_km"], "full": []}
 FBP = ["I_head_kwm", "ros_mmin", "cfb", "spread_prev_km"]
 R1_FEATURES = ["d_act_km", "d_all_km", "bear_off_deg", "u10_ms", "m_ff_pct", "ffmc", "I_head_kwm", "ros_mmin",
                "frp_prev_mw", "hazshare", "curing_pct", "fuel_group", "slope_pct", "elev_m"]  # 14 features (fuel_group one-hot -> 16 columns); sec_act dropped: it equals 1{bear_off_deg <= 45} exactly (disclosed)
@@ -239,9 +243,10 @@ def score_rung3(fm, df, offset=None):
 
 # ── main ─────────────────────────────────────────────────────────────────────────────────────────
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(); ap.add_argument("--no-terrain", action="store_true"); ap.add_argument("--quick", action="store_true")
+    ap = argparse.ArgumentParser(); ap.add_argument("--arm", choices=list(ARM_DROP), required=True); ap.add_argument("--no-terrain", action="store_true"); ap.add_argument("--quick", action="store_true")
     a = ap.parse_args(argv)
-    t0 = time.time(); OUT.mkdir(parents=True, exist_ok=True)
+    global OUT
+    OUT = OUT / a.arm; t0 = time.time(); OUT.mkdir(parents=True, exist_ok=True)
     log = lambda *x: print(f"[{time.time() - t0:6.0f}s]", *x, flush=True)  # noqa: E731
     fires = cv.table("fires"); folds = cv.outer_folds(fires); region = fires.set_index("fire_key").region
     fit = cv.table("cells_fit"); ev = cv.table("cells_eval")
@@ -255,14 +260,14 @@ def main(argv=None) -> int:
         terrain_used = False
     ss = pd.read_parquet(cv.suffstats_path())
     pos = fit[fit.y == 1]
-    r1f = [f for f in R1_FEATURES if terrain_used or f not in cv.TERRAIN]
-    r3f = [f for f in R3_FEATURES if terrain_used or f not in cv.TERRAIN]
+    r1f = [f for f in R1_FEATURES if (terrain_used or f not in cv.TERRAIN) and f not in ARM_DROP[a.arm]]
+    r3f = [f for f in R3_FEATURES if (terrain_used or f not in cv.TERRAIN) and f not in ARM_DROP[a.arm]]
     assert len(r1f) <= 15 and len(r3f) <= 25, (len(r1f), len(r3f))
     cv.assert_allowed(r1f + r3f)
     if a.quick:
         keep = fires.fire_key.isin(fires.sample(60, random_state=1).fire_key) | fires.n_jumps.gt(0)
         ks = set(fires.fire_key[keep]); fit = fit[fit.fire_key.isin(ks)]; ev = ev[ev.fire_key.isin(ks)]
-    res = dict(started_utc=pd.Timestamp.now("UTC").isoformat(), terrain_used=terrain_used, features=dict(rung1=r1f, rung3=r3f),
+    res = dict(started_utc=pd.Timestamp.now("UTC").isoformat(), arm=a.arm, dropped_by_arm=ARM_DROP[a.arm], terrain_used=terrain_used, features=dict(rung1=r1f, rung3=r3f),
                folds={k: int(v) for k, v in folds.items()}, lightgbm=__import__("lightgbm").__version__, choices={}, betas={}, ale={}, importance={})
     MODELS = ["b1", "m8", "dist", "dist_sec", "rung1", "rung2", "rung3"]
     oof = ev[["row_id", "fire_key", "epoch", "y", "region", "year", "gap_h"]].copy()

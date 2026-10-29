@@ -406,3 +406,31 @@ Seeds declared in this file: `S_NEG 2026102501`, `S_FOLD 2026102502`, `S_MODEL 2
   unchanged, and the §1 deciding tests are sized on the confirmation set, not on this one.
 - **Sector flag note.** The feature builder's recomputation of `sec_act`/`sec_all` differs from the npz in one
   fire (NBAC:2025_430) at the ±45° boundary; the tables store the npz values, which §4 names as the source.
+
+### A3 (2026-10-29, 14:45 MDT): outcome of the §8 controls; fuel decision (option b); GLM form; one feature dropped
+
+Run on the training tables before any rung of §5 was fitted (`reports/data/ml-ember-cast-2026-10-29/controls/`:
+`controls.json`, `followup.json`, `c8_rerun.json`, `c6_subsets_extra.json`). Detector for every control: LightGBM 4.6
+with the rung-3 constraints, 300 rounds, no tuning; five outer folds of §6. No ladder number was computed.
+
+| Control | Result | Reading |
+|---|---|---|
+| 1 shuffled labels within interval | AUC 0.511 (0.469–0.555) | pass |
+| 2 weather shifted ±1 day | interval-level occurrence model, weather only: unshifted 0.615; +24 h 0.559; −24 h 0.624; ±3 d 0.54/0.56; ±7 d 0.62/0.53; **fire-mean weather alone 0.595** | **fails the letter; cause found:** the weather signal in occurrence is a fire-level (climate/season) component that no shift within the fire removes. It is not information from after t_start. Within an interval the station weather is constant per zone and cannot rank cells, so this control is defined at interval level (disclosed). Consequence: the RQ2b occurrence model is read with the fire-level component separated (fire-mean weather vs within-fire deviation); weather features stay allowed. |
+| 3 features of another fire | first seed 0.458; five seeds mean 0.494, sd 0.028 | pass in substance; the ±0.03 band is about one standard deviation of this control's own null at 234 positives in 55 fires (disclosed) |
+| 4 fire-level label permutation | interval level: first seed 0.532; five seeds mean 0.475, sd 0.087 | pass in substance (noisy at 161 jump intervals) |
+| 5 box coordinates only | AUC 0.723 (0.682–0.768) | fails the letter as anticipated: the run box is centred on the fire, so (bi, bj) encode distance to the fire. They are forbidden in every rung (§4) and asserted absent from the cell tables at build time; the "leak" is the construction itself, now measured. |
+| 6 fuel seam (Canada decides) | all fuel + texture: within-fire AUC 0.737 (pooled 0.704); `fuel_code` alone 0.72; `hazard` alone 0.554; `hazshare` lifts hazard+curing from 0.558 to 0.597; `d_nonfuel_km` alone 0.584 (US 0.591); `fuel_group` alone 0.520; `curing_pct` alone 0.512; texture alone 0.585 (nothing beyond code). US: every subset 0.47–0.54 within fires. Within-fire AUC is **not** correlated with the SCANFI-restored share (Spearman −0.30). | **fail → option (b).** The leak sits in the Canadian fuel code (and anything that resolves it finely), not in the coarse group, and it is not explained by the re-typed share alone, so re-typing the box (option a) would not cure it. Two ladder arms, both reported: **clean** (drops `fuel_code`, `hazshare`, `d_nonfuel_km`) and **full** (every §4 feature). The clean arm is proposed for the deciding comparisons in stage 2 (owner approval). `fuel_group` stays, so κ_g and the pre-declared interaction remain available. |
+| 7 planted β_w = 1 through the physics | in `beta_w/beta_w_check.json` (running) | — |
+| 8 planted ML signal | first run: rungs 1 and 3 recovered 5/5, rung 2 0/5; re-run with the within-interval GLM form: **5/5 at rungs 1, 2 and 3**; interval-level u10 effect 5/5 | pass |
+
+- **GLM form (rungs 1–2).** The pooled marginal logistic attenuated the planted within-interval effect about threefold
+  (standardised coefficient −0.26 vs −1.13 planted) and the spline version lost it. The pre-registered "within-interval"
+  GLM is implemented as a conditional logistic (softmax over the interval's sampled cells, importance weights
+  1/sampling fraction on the negatives, L2 penalty, offset for the hybrid). It recovers −1.34. §5's penalty grid and
+  knot rule are unchanged.
+- **One feature dropped from the ML rungs:** `sec_act` equals 1{`bear_off_deg` ≤ 45°} exactly on these tables, so it
+  is removed from rungs 1–4 as an exact duplicate (it stays in the rung-0 reference "distance + sec_act"). Rung 1 has
+  14 features, rung 3 has 24 (clean arm: 21).
+- **Inner-fold seed** (not fixed in §6): `S_FOLD + 1000 × (outer + 1)` per outer fold, disclosed.
+- **LightGBM 4.6.0** pinned in the dedicated environment (§5 named 4.6); scikit-learn 1.9.1.
