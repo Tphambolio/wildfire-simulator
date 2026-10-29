@@ -22,6 +22,7 @@ The job gets FireSim's own inputs for the fire-day (PREREG_COMPARATOR_C1 §4):
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import shutil
@@ -32,6 +33,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+
+LOG = logging.getLogger("c1")
 
 IMAGE = "wise-local:1.0.6b6"
 DEMO = Path.home() / "dev/wildfire/vendor/wise_demo/demo_data/testjob/job.fgmj"
@@ -273,25 +276,47 @@ def mem_available_gb() -> float:
     return math.nan
 
 
-def run_wise(d: Path, timeout_s: int = 10800, stop_below_gb: float | None = None) -> dict:
+def disk_free_gb(path: Path) -> float:
+    """Free space (GB) on the filesystem holding ``path`` (what ``df`` reports as available)."""
+    return shutil.disk_usage(path).free / 1024 ** 3
+
+
+def run_wise(d: Path, timeout_s: int = 10800, stop_below_gb: float | None = None,
+             disk_pause_gb: float | None = None) -> dict:
     """Run the job in ``d`` in its own container (``--memory`` capped); time and peak memory.
-    With ``stop_below_gb``, the container is killed and LowMemoryStop raised if the host's
-    available memory falls below it (owner rule for the 10 GB reruns)."""
+    With ``stop_below_gb``, the container is stopped (recorded as stopped for memory) if the
+    host's available memory falls below it (owner rule for the 10 GB reruns). With
+    ``disk_pause_gb``, the container is ``docker pause``d while free disk on ``d``'s filesystem
+    is below it and resumed when it recovers; paused time is excluded from ``run_s`` and from
+    the timeout and reported as ``paused_s``."""
     name = f"c1wise_{d.name}_{os.getpid()}"[:60]
     cmd = ["docker", "run", "--rm", "--name", name, "--memory", MEM, "--memory-swap", MEM,
            "-u", f"{os.getuid()}:{os.getgid()}", "-v", f"{d}:/work", "-e", "HOME=/tmp",
            "-w", "/work", IMAGE, "wise", "-t", "/work/job.fgmj"]
     peak = [0.0]
     stop = threading.Event()
-
     low = [False]
+    paused = {"on": False, "since": 0.0, "total": 0.0}
 
     def sample():
         while not stop.wait(3.0):
             if stop_below_gb is not None and mem_available_gb() < stop_below_gb:
                 low[0] = True
-                subprocess.run(["docker", "kill", name], capture_output=True)
+                if paused["on"]:
+                    subprocess.run(["docker", "unpause", name], capture_output=True)
+                subprocess.run(["docker", "stop", "-t", "5", name], capture_output=True)
                 return
+            if disk_pause_gb is not None:
+                free = disk_free_gb(d)
+                if not paused["on"] and free < disk_pause_gb:
+                    if subprocess.run(["docker", "pause", name], capture_output=True).returncode == 0:
+                        paused.update(on=True, since=time.time())
+                        LOG.warning("%s paused: %.1f GB disk free (< %g)", name, free, disk_pause_gb)
+                elif paused["on"] and free >= disk_pause_gb:
+                    subprocess.run(["docker", "unpause", name], capture_output=True)
+                    paused["total"] += time.time() - paused["since"]
+                    paused["on"] = False
+                    LOG.warning("%s resumed: %.1f GB disk free", name, free)
             r = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", name],
                                capture_output=True, text=True)
             v = r.stdout.strip().split("/")[0].strip()
@@ -303,22 +328,35 @@ def run_wise(d: Path, timeout_s: int = 10800, stop_below_gb: float | None = None
             except ValueError:
                 pass
 
+    def paused_s() -> float:
+        return paused["total"] + (time.time() - paused["since"] if paused["on"] else 0.0)
+
     th = threading.Thread(target=sample, daemon=True)
     th.start()
     t0 = time.time()
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
-        rc = r.returncode
-        err = (r.stderr or "")[-400:]
-    except subprocess.TimeoutExpired:
-        subprocess.run(["docker", "kill", name], capture_output=True)
-        rc, err = -9, "timeout"
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    timed_out = False
+    while True:  # timeout counts running time only (paused time excluded)
+        try:
+            _, stderr = proc.communicate(timeout=10)
+            break
+        except subprocess.TimeoutExpired:
+            if time.time() - t0 - paused_s() > timeout_s:
+                timed_out = True
+                subprocess.run(["docker", "unpause", name], capture_output=True)
+                subprocess.run(["docker", "kill", name], capture_output=True)
+                _, stderr = proc.communicate()
+                break
+    rc, err = (-9, "timeout") if timed_out else (proc.returncode, (stderr or "")[-400:])
     stop.set()
     th.join(timeout=5)
-    if low[0]:
-        raise LowMemoryStop(f"available memory < {stop_below_gb} GB during {d.name}")
+    p_s = paused_s()
+    run_s = time.time() - t0 - p_s
+    if low[0]:  # stopped for host memory: recorded as such (owner rule), not a WISE failure
+        return {"ok": False, "rc": rc, "err": f"stopped for memory (< {stop_below_gb} GB available)",
+                "stopped_for_memory": True, "run_s": run_s, "paused_s": p_s, "peak_mb": peak[0]}
     ok = rc == 0 and (d / "Outputs/perim.shp").exists()
-    return {"ok": ok, "rc": rc, "err": err if not ok else "", "run_s": time.time() - t0,
+    return {"ok": ok, "rc": rc, "err": err if not ok else "", "run_s": run_s, "paused_s": p_s,
             "peak_mb": peak[0]}
 
 

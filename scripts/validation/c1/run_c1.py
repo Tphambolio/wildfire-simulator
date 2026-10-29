@@ -46,6 +46,7 @@ WINDOWS = (4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 17.0, 24.0)
 SHARED_SIZES = dict(wind_dir_sd_deg=24.0, wind_speed_log_sd=0.405, ffmc_sd=7.2,
                     dmc_dc_log_sd=0.6, curing_sd=20.25, fmc_sd=0.0, ros_log_sd=0.0)
 MIN_FREE_GB = 8.0
+JOB_KEEP = ("job.fgmj", "status.json", "statistics.txt")  # kept from a scored job folder
 
 
 def free_gb() -> float:
@@ -55,7 +56,8 @@ def free_gb() -> float:
     return math.nan
 
 
-GATE = {"free_gb": MIN_FREE_GB, "exclusive": False, "stop_below_gb": None}
+GATE = {"free_gb": MIN_FREE_GB, "exclusive": False, "stop_below_gb": None, "disk_free_gb": None,
+        "disk_paths": ()}
 HEAVY = Path("/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/heavyjobs.slice")
 OTHER_JOB_BYTES = 1.5e9  # a heavyjobs.slice scope above this (not ours) counts as a heavy job
 
@@ -81,8 +83,22 @@ def other_heavy_jobs() -> list[str]:
     return out
 
 
+def disk_low() -> list[str]:
+    """Paths (jobs dir, --out dir) whose filesystem has less free disk than the disk gate."""
+    lim = GATE["disk_free_gb"]
+    return [] if lim is None else [f"{p}: {WJ.disk_free_gb(p):.1f} GB" for p in GATE["disk_paths"]
+                                   if WJ.disk_free_gb(p) < lim]
+
+
+def wait_for_disk(log: logging.Logger) -> None:
+    while low := disk_low():
+        log.info("paused: free disk below %g GB (%s)", GATE["disk_free_gb"], ", ".join(low))
+        time.sleep(120)
+
+
 def wait_for_memory(log: logging.Logger) -> None:
     while True:
+        wait_for_disk(log)
         busy = other_heavy_jobs() if GATE["exclusive"] else []
         if free_gb() >= GATE["free_gb"] and not busy:
             return
@@ -160,7 +176,8 @@ def run_day(fid: str, day: int, args, log) -> list[dict]:
         meta = WJ.build_job(d, case, opts, setup, burning, burned_out, step_min=args.step_min,
                             cores=args.cores, hourly_ffmc=hff)
         meta["hourly_ffmc"] = {f"{k:%H}": round(v, 2) for k, v in sorted(hff.items())}
-        wr = WJ.run_wise(d, timeout_s=args.timeout, stop_below_gb=GATE["stop_below_gb"])
+        wr = WJ.run_wise(d, timeout_s=args.timeout, stop_below_gb=GATE["stop_below_gb"],
+                         disk_pause_gb=GATE["disk_free_gb"])
         wr["mem_cap"] = WJ.MEM
         row = dict(base, kind="det", firesim_run_s=fs["run_s"], wise=wr, wise_meta=meta)
         fs_scores = score_day(case, fs["arrival"], opts)
@@ -182,10 +199,13 @@ def run_day(fid: str, day: int, args, log) -> list[dict]:
             stats = d / "Outputs/stats.csv"
             if stats.exists():
                 shutil.copy(stats, adir / f"{key}_wise_stats.csv")
+        wait_for_disk(log)
         np.savez_compressed(adir / f"{key}_det.npz", **arrs)
         out.append(row)
-        if not args.keep_jobs:
-            shutil.rmtree(d / "Outputs", ignore_errors=True)
+        if not args.keep_jobs:  # scored: keep only the WISE input spec and run status
+            for x in d.iterdir():
+                if x.name not in JOB_KEEP:
+                    shutil.rmtree(x, ignore_errors=True) if x.is_dir() else x.unlink()
         f_fs = row["firesim"]["17h"]["f1"]
         f_w = row.get("wise_scores", {}).get("17h", {}).get("f1")
         log.info("%s day %d det: FireSim F1 %.3f  WISE F1 %s  (WISE %.0f s, %.0f MB)", fid, day,
@@ -237,7 +257,8 @@ def run_ensemble(case, opts, setup, fs, start, burning, burned_out, comms, base,
             hff = WJ.hourly_ffmc_of(case, cfg, setup["fuel_grid"])
             meta = WJ.build_job(d, case, opts, setup, burning, burned_out, member=member,
                                 step_min=args.step_min, cores=args.cores, hourly_ffmc=hff)
-            wr = WJ.run_wise(d, timeout_s=args.timeout, stop_below_gb=GATE["stop_below_gb"])
+            wr = WJ.run_wise(d, timeout_s=args.timeout, stop_below_gb=GATE["stop_below_gb"],
+                         disk_pause_gb=GATE["disk_free_gb"])
             wise_runs.append({k: wr[k] for k in ("ok", "rc", "run_s", "peak_mb", "err")})
             if wr["ok"]:
                 w_stack[i] = WJ.arrival_from_perims(d, case, start, meta)
@@ -283,11 +304,14 @@ def main() -> None:
                     help="with --gate-exclusive: also wait while `pgrep -f PATTERN` finds a process")
     ap.add_argument("--stop-below-gb", type=float, default=None,
                     help="kill the run and stop the batch if available memory falls below this")
+    ap.add_argument("--disk-pause-gb", type=float, default=None,
+                    help="pause (no new WISE job; docker pause a running one) while free disk on the "
+                         "jobs/--out filesystems is below this")
     a = ap.parse_args()
     if a.mem:
         WJ.MEM = a.mem
     GATE.update(free_gb=a.gate_free_gb, exclusive=a.gate_exclusive, stop_below_gb=a.stop_below_gb,
-                pgrep=tuple(a.gate_pgrep))
+                pgrep=tuple(a.gate_pgrep), disk_free_gb=a.disk_pause_gb)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     logging.getLogger("firesim").setLevel(logging.WARNING)
     log = logging.getLogger("c1")
@@ -296,6 +320,8 @@ def main() -> None:
              if x.strip() and not x.startswith("#")]
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    Path(a.jobs_dir).mkdir(parents=True, exist_ok=True)
+    GATE["disk_paths"] = (Path(a.jobs_dir), out.parent)
     done = set()
     if out.exists():
         for line in out.read_text().splitlines():
@@ -321,6 +347,7 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001 (recorded, the batch continues)
             log.exception("%s:%d failed", fid, day)
             rows = [{"fire_id": fid, "day": day, "kind": "error", "error": repr(exc)}]
+        wait_for_disk(log)
         with open(out, "a") as fh:
             for r in rows:
                 r["wall_s"] = time.time() - t0
