@@ -172,3 +172,4 @@ out a coding error.
 |---|---|---|---|
 | — | — | — | (none yet; sealed 2026-10-24) |
 | 2026-10-25 | `PREREG_SEALED_CONFIRM_H1H2` (branch `feat/sealed-confirm-h1h2`; registered before the list was opened) | `confirm`, orders 1-16 (all) | **Deciding**, one shot: H1 1-burn-day active-edge rule ([R63], PR #101) and H2 B2 setting P2 ([R65], PR #106), [R67]. Orders 1-16 are spent for deciding from this date; `scorecard` (17-32) untouched |
+| 2026-10-29 | `PREREG_SEALED_CONFIRM_H1H2`, result (same test as the row above; no new use) | `confirm`, orders 1-16 | Runs completed 2026-10-26 (one ENOSPC interruption, resumed under the PREREG §3 rule); scored once 2026-10-29: **H1 FAIL, H2 FAIL** ([R67]). 14 of 16 fires contributed (C09 no eligible pair, C11 no FEDS pixel). Orders 1-16 spent for deciding; `scorecard` (17-32) untouched |

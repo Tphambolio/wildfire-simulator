@@ -82,7 +82,7 @@ so that does not happen again.
 | R61 | v7 held-out arrivals recoded with [R53] rules (A3 descriptive addendum; v8 rule check) | `docs/a3-v7-arrivals-recoded` (record only; report and data in `~/dev/wildfire/reports/`) | 2026-10-24 | open PR |
 | R64 | E10 live multi-day run time: throttled shared CPU, a 3-4x faster grid step, honest time left | `perf/e10-live-runtime` | 2026-10-24 | open PR |
 | R65 | Ensemble re-calibration with a bias term (B2, PREREG_ENSEMBLE_B2) | `feat/b2-ensemble-calibration` | 2026-10-24 | open PR |
-| R67 | Sealed 2026 confirmation of H1 (1-burn-day active rule) and H2 (B2 P2) on the US `confirm` subset (PREREG_SEALED_CONFIRM_H1H2) | `feat/sealed-confirm-h1h2` | 2026-10-25 | claimed |
+| R67 | Sealed 2026 confirmation of H1 (1-burn-day active rule) and H2 (B2 P2) on the US `confirm` subset (PREREG_SEALED_CONFIRM_H1H2; H1 FAIL, H2 FAIL) | `feat/sealed-confirm-h1h2` | 2026-10-25 | open PR |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.

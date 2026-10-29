@@ -185,3 +185,34 @@ harness skips finished fire-days) and reported; no fire-day is re-run for any ot
 ## Result
 
 *(appended after the runs; the text above is unchanged)*
+
+- **Registration:** commit `5dfa0a35b33759606dc32680ede7bf2e59989495` (2026-10-25 01:16:53 MDT), pushed
+  as the branch's creation at 07:16:55 UTC (01:16:55 MDT, GitHub branch activity); this file's sha256 at
+  registration `11ce8189b6263beb73934c8cf739fc696123d85531c0be6d7be4d2ac97b8060c`. The sealed list was first
+  opened by step 1 at 07:21 UTC (`build_summary.json`). All seven code/fit sha256s in the table above were
+  re-checked unchanged before scoring (2026-10-29 01:58 MDT).
+- **Inputs (step 1):** 16 fires opened; 14 contribute fire-days (69). Not contributing: `2026_C11` (no FEDS
+  pixel inside the perimeter) and `2026_C09` (pixels but no eligible fire-day pair).
+- **Runs:** step 2, B and A, 58 mature fire-days of 10 fires each, 0 errors. Step 3, `det_C1` 69 fire-days,
+  0 errors; `ens20_A15` on the 62 fire-days of 14 fires whose deterministic run took ≤ 120 s (7 fire-days
+  of `2026_C05`, 160-459 s, dropped by the cut), 0 errors.
+- **Interruption (disclosed, §3):** `ens20_A15` stopped after 36 of 62 fire-days with a half-written 37th
+  line (`2026_C12` day 207), most likely because the root disk filled (ENOSPC inferred: disk 99 % used,
+  traceback truncated). The 36 complete lines were kept, the partial line was removed (copy and sha256
+  kept), and `run_confirm.sh 3` resumed at 2026-10-25 22:53 MDT. The harness skipped the 69 finished
+  `det_C1` fire-days and ran the 26 remaining ensemble fire-days; it finished at 2026-10-26 06:12. Nothing
+  else was re-run. Integrity: the first 36 lines are byte-identical after the resume, and the re-run
+  `2026_C12` day 207 record equals the dropped partial line in every byte apart from the timing fields.
+  The final file has 62 rows, all unique (fire, day); there was nothing to de-duplicate. A disk guard
+  (`scripts/validation/sealed2026/disk_guard.sh`, committed after the runs; it pauses the runs below 10 G
+  free and changes no result) ran during the resume and never triggered. Side effect: the resume
+  overwrote the original `det_C1.log`; `det_C1.jsonl` is unchanged.
+- **H1: FAIL** (10 fires, 49 scored fire-days; minimum data met). D = **−0.127 [−0.349, +0.053]**: the CI
+  does not lie below 0, so condition 1 fails. Guard 1 ΔF1 +0.009 [−0.006, +0.023] passes; guard 2 share
+  g < 0.5 +4.1 pts passes. Not "worse" (the CI is not above 0).
+- **H2: FAIL** (14 fires, 62 fire-days; minimum data met). P2 coverage **0.597 [0.494, 0.717]** < 0.70, so
+  condition 1 fails. Δcoverage P2 − B +0.242 [+0.140, +0.387] passes; ΔCRPS −0.207 [−0.257, −0.149] passes
+  (non-inferior and better). Raw B coverage 0.355, ensemble-mean bias +1.17 log10.
+- Report [R67]: `~/dev/wildfire/reports/Sealed 2026 confirmation H1 H2 2026-10-25.md`; results
+  `~/dev/wildfire/reports/data/sealed-confirm-h1h2-2026-10-25/result_confirm_h1h2.json`. Orders 1-16 are
+  now spent for deciding.
