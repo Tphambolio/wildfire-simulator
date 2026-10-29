@@ -70,12 +70,19 @@ def main():
             w = (K / (1 + 0.3 * (K - 1))).to_dict()
             res[str(g)] = {"n_jumps": int(len(d)), "n_fires": int(d.fire_key.nunique())}
             for m in models:
-                per = d.groupby("fire_key")[m].mean()
-                ww = np.array([w[f] for f in per.index])
-                res[str(g)][m] = float(np.nansum(ww * per.values) / ww.sum()) if ww.sum() else None
+                dm = d.dropna(subset=[m])  # ELMFIRE: only jumps on its subset with a run (never deciding)
+                if not len(dm):
+                    res[str(g)][m] = None
+                    continue
+                Km = dm.groupby("fire_key").size()
+                wm = Km / (1 + 0.3 * (Km - 1))
+                per = dm.groupby("fire_key")[m].mean()
+                res[str(g)][m] = float((wm[per.index] * per).sum() / wm.sum())
+                if m == "ELMFIRE":
+                    res[str(g)]["n_jumps_ELMFIRE"] = int(len(dm))
         return res
 
-    R["dband"] = pd.cut(R.dist_m, [1000, 2000, 3000, 15001], labels=["1-2 km", "2-3 km", "3-15 km"]) if len(R) else []
+    R["dband"] = pd.cut(R.dist_m, [1000, 2000, 3000, 15001], labels=["1-2 km", "2-3 km", "3-15 km"], include_lowest=True) if len(R) else []
     R["all"] = "all"
     out["auc"] = {k: auc_by(k) for k in ("all", "region", "year", "gap", "dband")}
     # predicted vs observed per fire, Brier, tail ratio
@@ -88,7 +95,7 @@ def main():
             obs_int[key] = "jump"
         elif cur == "none":
             obs_int[key] = "neither"
-    pred_fire, brier, far, near = {}, [], 0.0, 0.0
+    pred_fire, brier, far, near, base, pbar = {}, [], 0.0, 0.0, [], []
     el = pd.read_csv(FINAL / "counts.csv")
     for f in el.fire_key:
         fd = C.FIRES / f.replace(":", "_")
@@ -108,6 +115,7 @@ def main():
             o = obs_int.get((f, str(it["epoch"])), "none")
             if o != "neither":
                 brier.append(((1 - np.exp(-s)) - (o == "jump")) ** 2)
+                base.append(float(o == "jump")); pbar.append(1 - np.exp(-s))
         pred_fire[f] = tot
     acc = json.loads((FINAL / "score_out.json").read_text())["jump_accounting"]["per_fire"] if (FINAL / "score_out.json").exists() else {}
     obs_fire = {f: v["ranked"] + v["interval_excluded"] + v["not_candidate"] + v["never_reached_gt540m"] for f, v in acc.items()}
@@ -116,10 +124,11 @@ def main():
     out["pred_vs_obs"] = {r: {"n_fires": int(len(d)), "pred_total": float(d.pred.sum()), "obs_total": float(d.obs.sum()),
                               "spearman": float(d.pred.rank().corr(d.obs.rank())) if len(d) > 2 else None}
                           for r, d in P.groupby("region")}
-    out["brier_any_jump_M8"] = {"n_intervals": len(brier), "brier": float(np.mean(brier)) if brier else None,
-                                "obs_rate": None}
-    obs_any = [v == "jump" for v in obs_int.values()]
-    out["brier_any_jump_M8"]["obs_rate_among_intervals_with_clusters"] = float(np.mean(obs_any)) if obs_any else None
+    br = float(np.mean(brier)) if brier else None
+    rate = float(np.mean(base)) if base else None
+    out["brier_any_jump_M8"] = {"n_intervals": len(brier), "brier": br, "obs_rate": rate,
+                                "mean_predicted_P": float(np.mean(pbar)) if pbar else None,
+                                "brier_climatology": rate * (1 - rate) if rate is not None else None}
     out["tail_ratio"] = {"M8_pred_gt3km_over_gt1km": far / near if near else None, "reference": 0.20,
                          "observed_jumps": float((R.dist_m > 3000).mean()) if len(R) else None}
     (FINAL / "secondary.json").write_text(json.dumps(out, indent=1, default=float))

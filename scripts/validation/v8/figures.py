@@ -58,7 +58,7 @@ def main(out: Path):
             K = d.groupby("fire_key").size(); wf = K / (1 + 0.3 * (K - 1))
             per = d.groupby("fire_key")[m].mean()
             vals.append(float((wf * per).sum() / wf.sum()))
-        ax.bar(np.arange(len(regs)) + i * w - 0.4 + w / 2, vals, w, color=COL[m], label=m)
+        ax.bar(np.arange(len(regs)) + i * w - 0.4 + w / 2, vals, w, color=COL[m], label=m if m != "ELMFIRE" else "ELMFIRE (subset)")
         for x, v in zip(np.arange(len(regs)) + i * w - 0.4 + w / 2, vals):
             if np.isfinite(v):
                 ax.text(x, v + 0.01, f"{v:.2f}", ha="center", fontsize=7)
@@ -75,7 +75,7 @@ def main(out: Path):
         ax.scatter(d.K, d.a_f, s=18, color=c, alpha=0.75, label=r)
     s3 = res["S3"]
     ax.axhline(0, color="grey", lw=1)
-    ax.axhline(s3["est"], color="k", lw=1.5, label=f"S3 = {s3['est']:+.3f} (95 % {s3['boot95'][0]:+.3f} to {s3['boot95'][1]:+.3f}); p = {s3['p_signflip']:.3f}")
+    ax.axhline(s3["est"], color="k", lw=1.5, label=f"S3 = {s3['est']:+.3f} (95 % {s3['boot95'][0]:+.3f} to {s3['boot95'][1]:+.3f}); one-sided p = {s3['p_signflip']:.1e}")
     ax.axhspan(s3["boot95"][0], s3["boot95"][1], color="k", alpha=0.1)
     ax.set_xscale("log"); ax.set_xlabel("ranked jumps in the fire (K_f)"); ax.set_ylabel("a_f = mean(r_M8 − r_B1)")
     ax.legend(fontsize=8); fig.tight_layout(); fig.savefig(out / "fig3_af.png", dpi=150); plt.close(fig)
