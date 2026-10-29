@@ -14,7 +14,7 @@ so that does not happen again.
   #96, #100 and #101, which were closed unmerged on 2026-10-29 with their branches kept: never reuse them. [R68] is claimed on
   `research/ml-ember-cast` (ML ember-cast). [R71]-[R74] were pre-assigned on 2026-10-29: [R71] US transfer over-prediction
   diagnosis, [R72] community-arrival under-spread diagnosis, [R73] PREREG_LR8S (M8 on the simulated edge), [R74] PREREG_LR8G
-  (ember coupling in the growth model). Lines not on `master` stay out of this table until their PRs merge. [R66] merged in #109;
+  (ember coupling in the growth model); [R73] and [R74] claimed on `feat/lr8-next` 2026-10-29. Lines not on `master` stay out of this table until their PRs merge. [R66] merged in #109;
   [R67] in #113; [R69] in #111; [R70] in #114.)
 - **Status values:** `master` = in the record on `master`; `open PR` = the report's PR is not merged;
   `claimed` = number taken before the report is written or recorded; `withdrawn` = not used, never reuse.
