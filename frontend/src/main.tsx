@@ -10,6 +10,7 @@ import "./styles/structures.css";
 import "./styles/infotip.css";
 import "./styles/about.css";
 import "./styles/layout.css";
+import "./styles/scorecard.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

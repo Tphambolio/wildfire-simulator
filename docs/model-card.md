@@ -230,6 +230,17 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   MST/MDT before 2026-11-01 02:00 MDT and "MT" after. The daily fire-weather observation stays
   at 19 UTC (CWFIS convention; configurable, `FIRESIM_AB_FWI_LST_OFFSET_H`).
 
+## Validation scorecard
+
+The numbers above are snapshotted per release as a dated, machine-readable scorecard,
+`docs/scorecard/<date>.json` (first: `2026-10-25.json`, [R69]), built by
+`python scripts/make_scorecard.py --date YYYY-MM-DD` from the reports' result files (nothing is
+re-run; every metric names its report number, source file, JSON path and SHA-256). The API serves
+the latest at `GET /api/v1/scorecard` and the app shows it under **Validation** in the top bar, with
+the framing above: a preparedness and training tool, not for real-time operational prediction. Rules,
+fields and the release rule (every tagged release gets a dated scorecard; the frontend shows the
+latest): `docs/validation-scorecard.md`.
+
 ## Responsible use
 
 - State the issuer, run time, model version and inputs with any output shared beyond the

@@ -129,6 +129,7 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | POST | `/api/v1/fwi/multi-day` | Chain FWI across daily observations |
 | GET | `/api/v1/weather/current?lat=&lng=` | Live CWFIS WFS → `CurrentWeather` |
 | GET | `/api/v1/layers/assets?south=&west=&north=&east=` / `/layers/roads?...` | Alberta critical assets / major roads in a box (≤ 1° × 2°), GeoJSON; `available: false` without the files |
+| GET | `/api/v1/scorecard` | Latest dated validation scorecard `docs/scorecard/<date>.json` (+ `file`, `available_dates`; 404 when none), read once at startup from `FIRESIM_SCORECARD_DIR`; `scripts/make_scorecard.py`, `docs/validation-scorecard.md` |
 
 ### Frames
 WebSocket events are `{"type": "simulation.frame", "simulation_id": ..., "frame": {...}}`, then
@@ -168,6 +169,7 @@ FIRESIM_RUNS_PASSPHRASE   shared passphrase for the saved-runs list / rename / d
 FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)
 FIRESIM_AB_FWI_LST_OFFSET_H  Alberta fire-weather "noon LST" offset for CFFDRS days from 2026-11-01: 7 (default, 19 UTC = 13:00 MT, CWFIS tz_correct) or 6 (18 UTC = 12:00 MT); before 2026-11-01 always 7 (services/alberta_time.py)
 FIRESIM_AB_ASSETS_PATH / FIRESIM_AB_ROADS_PATH  Alberta assets / roads FlatGeobuf (set by api/Dockerfile); FIRESIM_LAYERS_MAX_BOX_DEG (1.0)
+FIRESIM_SCORECARD_DIR     Directory of dated validation scorecards (api/Dockerfile: /app/docs/scorecard; default the repo's docs/scorecard)
 ```
 Run archive (`services/archive.py`): finished runs go to a SQLite index + object store in the
 background; GET `/simulations/{id}`, `/arrival`, `/ensemble` fall back to it (`archived: true`).
@@ -192,7 +194,7 @@ opaque strings). Unknown IDs back off per IP (`middleware/run_probe_limit.py`: 2
 `React 19 + TypeScript 5.9 + Vite 7 + MapLibre GL 5`
 
 ### Layout
-Top bar (incident, status, limits badge, America/Edmonton clock) · Setup column (sections with
+Top bar (incident, status, limits badge, "Validation" scorecard dialog `ValidationScorecard.tsx`, America/Edmonton clock) · Setup column (sections with
 summaries, sticky Run bar) · map (`MapView.tsx`) · Situation panel (`FireMetrics.tsx`, exposure,
 Neighbourhoods card `EvacStatusPanel.tsx`, `EOCSummary.tsx`) · clock-time timeline
 (`TimeSlider.tsx`). Setup and Situation collapse to rails, "Focus map" / `F` collapses both, map

@@ -1,6 +1,7 @@
 /** API client for the FireSim backend. */
 
 import type { SimulationCreate, MultiDaySimulationCreate, SimulationResponse, CurrentWeather, FWIResult, BurnProbabilityRequest, BurnProbabilityResponse, PerimeterOverrideRequest, HourlyWeatherParams, ObservedPerimeterRequest, ClassifyPerimeterResponse } from "../types/simulation";
+import type { Scorecard } from "../types/scorecard";
 import type { EnsembleResponse } from "../utils/ensemble";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
@@ -39,6 +40,13 @@ export async function createMultiDaySimulation(
 export async function getVersion(): Promise<{ version: string; git_sha: string }> {
   const resp = await fetch(`${API_BASE}/api/v1/version`);
   if (!resp.ok) throw new Error(`Version request failed: ${resp.status}`);
+  return resp.json();
+}
+
+/** Latest validation scorecard (docs/scorecard/<date>.json; 404 when none is published). */
+export async function getScorecard(): Promise<Scorecard> {
+  const resp = await fetch(`${API_BASE}/api/v1/scorecard`);
+  if (!resp.ok) throw new Error(`Scorecard request failed: ${resp.status}`);
   return resp.json();
 }
 

@@ -160,6 +160,7 @@ All intervals are 95 % CIs.
   - [§6 Open items](PROJECT_RECORD.md#6-open-items)
   - [§4.2 Reports R1-R36](PROJECT_RECORD.md#42-references)
 - [`validation.md`](validation.md), [`verification.md`](verification.md), [`model-card.md`](model-card.md)
+- [`validation-scorecard.md`](validation-scorecard.md) and [`scorecard/`](scorecard/README.md): the dated, per-release scorecard JSON behind the table in §3 (`GET /api/v1/scorecard`; app top bar "Validation")
 - [`structure-spread-spec.md`](structure-spread-spec.md), [`fuel-grid-alberta.md`](fuel-grid-alberta.md),
   [`run-archive.md`](run-archive.md), [`data-sources.md`](data-sources.md)
 - Reports: `~/dev/wildfire/reports/` (internal, not in the repo)
