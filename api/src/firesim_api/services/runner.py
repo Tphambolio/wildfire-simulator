@@ -109,6 +109,9 @@ class SimulationRun:
         # Active-segment restarts (A1): summary for the response, and the engine options
         self.active_segments: dict | None = None
         self.restart_kw: dict = {}
+        # Opt-in M8 spot-fire likelihood (restarts with an observed active edge; [R70])
+        self.ember_m8: dict | None = None
+        self.ember_m8_request: dict | None = None
 
     def set_phase(self, phase: str, progress: float | None = None) -> None:
         """Record the run's phase and progress; notify ``on_status`` when the phase changes
@@ -310,13 +313,16 @@ def restart_config(req: PerimeterOverrideRequest,
 #: hotspots / CSV were sent, so an earlier payload archives exactly as before)
 CLASSIFICATION_FIELDS = {"hotspots_geojson", "firms_csv", "classification_radius_m",
                          "classification_window_h", "classification_segment_m"}
+EMBER_M8_FIELDS = {"ember_m8", "ember_m8_previous_perimeter_geojson", "ember_m8_previous_time"}
 
 
 def _request_record(req) -> dict:
     """The restart request as archived: the FIRMS CSV text is replaced by its row count."""
     classified = req.hotspots_geojson is not None or bool(req.firms_csv)
-    d = req.model_dump(mode="json",
-                       exclude={"firms_csv"} if classified else CLASSIFICATION_FIELDS)
+    exclude = {"firms_csv"} if classified else set(CLASSIFICATION_FIELDS)
+    if not getattr(req, "ember_m8", False):
+        exclude |= EMBER_M8_FIELDS  # not requested: the record is the earlier one
+    d = req.model_dump(mode="json", exclude=exclude)
     if getattr(req, "firms_csv", None):
         d["firms_csv_rows"] = max(0, req.firms_csv.count("\n") - 1)
     return d
@@ -360,6 +366,46 @@ def resolve_active_segments(req, observed_at, has_grid: bool) -> tuple[dict, dic
                "window_h": req.classification_window_h,
                "segment_m": req.classification_segment_m}
     return kw, summary
+
+
+def ember_m8_request(req, restart_kw: dict, observed_at, has_grid: bool) -> dict | None:
+    """The M8 layer's inputs when the restart asks for it (``ember_m8``), else None.
+
+    Needs an observed active edge (manual ``active_edges``, or one classified from RPAS hotspots
+    or a FIRMS CSV) and the grid model; ValueError (422) otherwise."""
+    from firesim_api.schemas.simulation import EMBER_M8_NEEDS_EDGE
+
+    if not getattr(req, "ember_m8", False):
+        return None
+    if restart_kw.get("active_edges") is None:
+        raise ValueError(EMBER_M8_NEEDS_EDGE)
+    if not has_grid:
+        raise ValueError("ember_m8 needs the grid model: the run has no fuel grid")
+    prev, dt_min = req.ember_m8_previous_perimeter_geojson, None
+    if prev is not None:
+        if observed_at is None:
+            raise ValueError("ember_m8_previous_time needs the observation time (start_time)")
+        dt_min = (observed_at - req.ember_m8_previous_time).total_seconds() / 60.0
+        if dt_min <= 0:
+            raise ValueError("ember_m8_previous_time must be before the observation time")
+    return {"perimeter": req.perimeter_geojson, "active_edges": restart_kw["active_edges"],
+            "previous": prev, "previous_dt_min": dt_min}
+
+
+def _compute_ember_m8(run, simulator) -> None:
+    """The M8 layer at the observation time (before the spread runs); a failure is reported in
+    the layer, never fails the restart."""
+    spec = run.ember_m8_request
+    if spec is None:
+        return
+    from firesim.spread.embers_m8 import m8_for_simulator
+
+    try:
+        run.ember_m8 = m8_for_simulator(simulator, spec["perimeter"], spec["active_edges"],
+                                        spec["previous"], spec["previous_dt_min"])
+    except Exception as exc:  # noqa: BLE001 - an opt-in layer must never fail the run
+        logger.warning("M8 ember layer not computed for %s: %s", run.id, exc)
+        run.ember_m8 = {"model": "M8", "error": f"not computed: {exc}"}
 
 
 def _add_run_diagnostics(run) -> None:
@@ -1577,6 +1623,9 @@ class SimulationRunner:
         run.weather_source = weather_source
         run.override_request = _request_record(req)
         run.restart_kw, run.active_segments = restart_kw, segments
+        run.ember_m8_request = ember_m8_request(
+            req, restart_kw, params.start_time,
+            bool(original.config.fuel_grid_path) or original.config.use_ca_mode)
 
         self._store(sim_id, run)
 
@@ -1616,6 +1665,7 @@ class SimulationRunner:
         run.override_request = _request_record(req)
         run.weather_source = "request"
         run.restart_kw, run.active_segments = restart_kw, segments
+        run.ember_m8_request = ember_m8_request(req, restart_kw, req.observation_time, has_grid)
         self._store(sim_id, run)
         self._start(self._execute_perimeter_override, run, params, initial_front, req,
                     on_frame, clock)
@@ -1643,6 +1693,7 @@ class SimulationRunner:
                 run, config, params, prep, initial_front=initial_front,
                 **(run.restart_kw or {"active_edges": req.active_edges,
                                       "active_edge_buffer_m": req.active_edge_buffer_m}))
+            _compute_ember_m8(run, simulator)
 
             run.set_phase("spread", 0.0)
             for frame in simulator.run():

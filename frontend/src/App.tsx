@@ -495,6 +495,7 @@ export default function App() {
     startPerimeterOverride,
     startObservedPerimeter,
     activeSegments: runActiveSegments,
+    emberM8: runEmberM8,
     prepareRun,
     restoreRun,
     setFrameIndex,
@@ -1445,6 +1446,7 @@ export default function App() {
               setupWeather={setupWeather}
               onObservedStart={canForecastObserved ? handleObservedStart : undefined}
               runActiveSegments={runActiveSegments}
+              runEmberM8={runEmberM8}
             />
           </SetupSection>
           <SetupSection
@@ -1668,6 +1670,7 @@ export default function App() {
             evacTierRecords={evacTierRecords}
             ensemble={ensembleMap}
             recon={recon.mapLayers}
+            emberM8={runEmberM8?.tiers ?? null}
             onReconDrawPoint={recon.addPoint}
             onReconDrawFinish={recon.finishDrawing}
             structureUnits={structureUnits}

@@ -51,6 +51,10 @@ const RECON_PERIMETER = "#6d28d9";
 const RECON_ACTIVE = "#ff4500";
 /** Major roads reached by the modelled fire (tokens.css --watched-line) */
 const ROAD_REACHED = "#0e7490";
+/** M8 spot-fire likelihood tiers (relative): magenta, apart from fire, probability and recon */
+const EMBER_M8_HIGHER = "#be185d";
+const EMBER_M8_MIDDLE = "#f472b6";
+const EMBER_M8_LAYERS = ["ember-m8-fill", "ember-m8-line"];
 const RECON_LAYERS = [
   "recon-perimeter-casing", "recon-perimeter-line", "recon-active-casing", "recon-active-line",
   "recon-draft-line", "recon-draft-points",
@@ -267,6 +271,8 @@ interface MapViewProps {
   ensemble?: EnsembleMapLayers | null;
   /** Observed (RPAS) perimeter and its active edges, and the edge being drawn */
   recon?: ReconMapLayers | null;
+  /** M8 spot-fire likelihood of a restart: higher / middle tiers (relative only; [R70]) */
+  emberM8?: GeoJSON.FeatureCollection | null;
   /** Drawing an active edge: a map click (or Enter at the keyboard crosshair) adds a vertex */
   onReconDrawPoint?: (lng: number, lat: number) => void;
   /** Drawing an active edge: double-click ends the line */
@@ -329,6 +335,7 @@ export default function MapView({
   armIgnitionRequest = 0,
   ensemble = null,
   recon = null,
+  emberM8 = null,
   onReconDrawPoint,
   onReconDrawFinish,
   structureUnits = null,
@@ -1099,6 +1106,23 @@ export default function MapView({
       filter: ["==", ["get", "kind"], "p10"],
       layout: { "line-join": "round" },
       paint: { "line-color": ENS_INK, "line-width": 3.5 },
+    });
+
+    // ── M8 spot-fire likelihood tiers (below the observed perimeter) ──
+    for (const id of EMBER_M8_LAYERS) if (m.getLayer(id)) m.removeLayer(id);
+    if (m.getSource("ember-m8")) m.removeSource("ember-m8");
+    m.addSource("ember-m8", { type: "geojson", data: emptyFc });
+    m.addLayer({
+      id: "ember-m8-fill", type: "fill", source: "ember-m8",
+      paint: {
+        "fill-color": ["match", ["get", "tier"], "higher", EMBER_M8_HIGHER, EMBER_M8_MIDDLE],
+        "fill-opacity": ["match", ["get", "tier"], "higher", 0.5, 0.3],
+      },
+    });
+    m.addLayer({
+      id: "ember-m8-line", type: "line", source: "ember-m8",
+      filter: ["==", ["get", "tier"], "higher"],
+      paint: { "line-color": EMBER_M8_HIGHER, "line-width": 0.5, "line-opacity": 0.6 },
     });
 
     // ── Observed (RPAS) perimeter and its active edges (thick orange-red dashes) ──
@@ -2004,6 +2028,15 @@ export default function MapView({
     labelSrc.setData(isochroneLabelsGeoJSON(visible));
   }, [isochrones, mapReady, fireLayersVersion, frames, currentFrameIndex]);
 
+  // M8 spot-fire likelihood tiers of the shown restart
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const src = map.current.getSource("ember-m8") as maplibregl.GeoJSONSource | undefined;
+    src?.setData(emberM8 ?? { type: "FeatureCollection", features: [] });
+    const el = map.current.getContainer();
+    el.setAttribute("data-ember-m8", String(emberM8?.features.length ?? 0));
+  }, [emberM8, mapReady, fireLayersVersion]);
+
   // House-to-house spread: data, time filter (units appear when involved), visibility
   useEffect(() => {
     if (!map.current || !mapReady) return;
@@ -2289,6 +2322,34 @@ export default function MapView({
             </>
           )}
         </>
+      ),
+    });
+  }
+  if (emberM8) {
+    legendItems.push({
+      id: "ember-m8",
+      title: "Spot-fire likelihood (M8)",
+      testId: "ember-m8-legend",
+      className: "ember-m8-legend",
+      extra: (
+        <>
+          <Badge tone="warn">{BADGES.relativeOnly}</Badge>
+          <InfoTip text={TIPS.emberM8} label="About the spot-fire likelihood layer" />
+        </>
+      ),
+      swatches: [EMBER_M8_HIGHER, EMBER_M8_MIDDLE],
+      body: (
+        <div className="burn-prob-legend-scale">
+          <div className="burn-prob-legend-row">
+            <div className="burn-prob-legend-swatch" style={{ background: EMBER_M8_HIGHER }} />
+            <span>Higher likelihood</span>
+          </div>
+          <div className="burn-prob-legend-row">
+            <div className="burn-prob-legend-swatch" style={{ background: EMBER_M8_MIDDLE, opacity: 0.7 }} />
+            <span>Middle</span>
+          </div>
+          <p className="hint-sm">1-15 km beyond the observed perimeter · not calibrated</p>
+        </div>
       ),
     });
   }

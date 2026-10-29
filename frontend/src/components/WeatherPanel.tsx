@@ -32,6 +32,7 @@ import WeatherSchedulePanel from "./WeatherSchedulePanel";
 import { computeBUI, computeFWI, computeISI, fmtCode, runParamsFor } from "../utils/fwiCalc";
 import { DEFAULT_FUEL_GRID_YEAR, edmontonYear, fuelVintageWarning } from "../utils/fuelVintage";
 import { multiDaySummary, scheduleErrors, scheduleRequest, timedSteps, type ScheduleRow, type TimedStep } from "../utils/weatherSchedule";
+import { EMBER_M8_NEEDS_EDGE } from "../utils/activeEdges";
 
 /** Moving the ignition this far from where the weather was set shows a notice. */
 const FAR_KM = 25;
@@ -1806,6 +1807,19 @@ function WeatherPanel({
               </label>
             )}
             {!useEdmontonGrid && <p className="status-line">{BADGES.needsGrid}</p>}
+          </div>
+        )}
+        {simMode === "single" && (
+          <div className="ember-m8-option" role="group" aria-label="Spot-fire likelihood (M8)" data-testid="setup-ember-m8">
+            <div className="with-tip">
+              <label>
+                <input type="checkbox" checked={false} disabled aria-describedby="setup-ember-m8-hint"
+                  data-testid="setup-ember-m8-toggle" />
+                Spot-fire likelihood (M8)
+              </label>
+              <InfoTip label="Why spot-fire likelihood is not offered here" text={TIPS.emberM8NeedsEdge} />
+            </div>
+            <p className="status-line" id="setup-ember-m8-hint">{`Disabled: ${EMBER_M8_NEEDS_EDGE} (RPAS restart or observed perimeter)`}</p>
           </div>
         )}
         <fieldset className="field-group skill-options">

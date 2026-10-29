@@ -1,0 +1,70 @@
+[
+ {
+  "fire": 1,
+  "fire_key": "NBAC:2018_780",
+  "region": "CAN",
+  "epoch": 2,
+  "file": "fire1_interval1.npz",
+  "sha256": "97c5fe3b8f395754d20b2df89f546fae111e648c99bf2adf6ae6bf3986087c5b",
+  "bytes": 129750,
+  "grid": [
+   333,
+   375
+  ],
+  "n_active": 47,
+  "n_candidates": 5056,
+  "zones": 1,
+  "build_max_rel_diff_A": 0.0
+ },
+ {
+  "fire": 1,
+  "fire_key": "NBAC:2018_780",
+  "region": "CAN",
+  "epoch": 4,
+  "file": "fire1_interval2.npz",
+  "sha256": "ed5d4a12631a215abe4a837e2bfabf2ae628ece1fd6f4131bbe57493a50f7249",
+  "bytes": 134387,
+  "grid": [
+   333,
+   375
+  ],
+  "n_active": 50,
+  "n_candidates": 5480,
+  "zones": 1,
+  "build_max_rel_diff_A": 0.0
+ },
+ {
+  "fire": 2,
+  "fire_key": "MTBS:AZ3368910927620210616",
+  "region": "US",
+  "epoch": 2,
+  "file": "fire2_interval1.npz",
+  "sha256": "ea2b35404eb2fccb3863523fe229ed94d60335c452f5cd67b1e15120f929f2c7",
+  "bytes": 265757,
+  "grid": [
+   327,
+   339
+  ],
+  "n_active": 79,
+  "n_candidates": 6945,
+  "zones": 1,
+  "build_max_rel_diff_A": 0.0
+ },
+ {
+  "fire": 2,
+  "fire_key": "MTBS:AZ3368910927620210616",
+  "region": "US",
+  "epoch": 4,
+  "file": "fire2_interval2.npz",
+  "sha256": "e370fbdbe8de9ec13d2ddd7d502ae6969397c14615fff5e55c9b1ed6da41b16c",
+  "bytes": 267692,
+  "grid": [
+   327,
+   339
+  ],
+  "n_active": 165,
+  "n_candidates": 7165,
+  "zones": 1,
+  "build_max_rel_diff_A": 0.0
+ }
+]

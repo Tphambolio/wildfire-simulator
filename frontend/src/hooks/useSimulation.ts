@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { createSimulation, createMultiDaySimulation, createObservedPerimeter, createPerimeterOverride, getSimulation, getWebSocketUrl } from "../services/api";
 import type {
   ActiveSegmentsInfo,
+  EmberM8Info,
   ObservedPerimeterRequest,
   SimulationCreate,
   MultiDaySimulationCreate,
@@ -59,6 +60,8 @@ interface SimulationState {
   fuelVintageWarning: string | null;
   /** Active-segment restarts (A1): segments active / inactive and the modelled static share */
   activeSegments: ActiveSegmentsInfo | null;
+  /** Opt-in M8 spot-fire likelihood of a restart (relative tiers; [R70]) */
+  emberM8: EmberM8Info | null;
 }
 
 const IDLE: SimulationState = {
@@ -78,6 +81,7 @@ const IDLE: SimulationState = {
   archived: false,
   fuelVintageWarning: null,
   activeSegments: null,
+  emberM8: null,
 };
 
 /** Progress from a frame's time (Huygens runs stream frames as they compute). */
@@ -190,6 +194,7 @@ export function useSimulation() {
               ...prev, status: "completed", isRunning: false, isPaused: false,
               fuelVintageWarning: data.fuel_vintage_warning ?? null,
               activeSegments: data.active_segments ?? prev.activeSegments,
+              emberM8: data.ember_m8 ?? prev.emberM8,
             }));
           }
         } else if (data.type === "simulation.error") {
@@ -304,6 +309,7 @@ export function useSimulation() {
           archived: resp.archived === true,
           fuelVintageWarning: resp.fuel_vintage_warning ?? null,
           activeSegments: resp.active_segments ?? null,
+          emberM8: resp.ember_m8 ?? null,
           phase: resp.phase ?? prev.phase,
           progress: typeof resp.progress === "number" ? Math.max(prev.progress ?? 0, resp.progress) : prev.progress,
           day: typeof resp.day === "number" ? resp.day : prev.day,

@@ -34,7 +34,12 @@ export const BADGES = {
   needsGrid: "Needs Edmonton grid",
   needsHourly: "Needs hourly forecast",
   notMultiDay: "Not for multi-day",
+  relativeOnly: "Relative only",
 } as const;
+
+/** M8 spot-fire likelihood (v8 ember model, [R70]): the owner-approved sentence (2026-10-29). */
+export const EMBER_M8_SENTENCE =
+  "ranks likely spot-fire locations near the active edge better than a fuel-and-distance baseline";
 
 export const TIPS = {
   outbuildings:
@@ -221,6 +226,17 @@ export const TIPS = {
     "become the active edges; the rest is treated as burned out, as with edges you mark. " +
     "Hotspots take priority over VIIRS. Not validated: the 1 km / 12 h / 250 m rule has not " +
     "been checked against real RPAS thermal flights.",
+  emberM8:
+    "Spot-fire likelihood (M8, opt-in): " + EMBER_M8_SENTENCE + " (pre-registered test on 203 " +
+    "fires FireSim never used, 2026 [R70]). Shown as relative tiers of 375 m cells 1-15 km beyond " +
+    "the observed perimeter: higher = top 10 in 100 cells, middle = next 20. Not calibrated: no " +
+    "spot counts or probabilities. Weaker at longer distances; no better than the ELMFIRE " +
+    "comparator; does not respond to wind speed (beta_w = 0; wind sets only direction and reach). " +
+    "A Canadian fuel-seam sensitivity check on R70 is pending. Needs an observed active edge.",
+  emberM8NeedsEdge:
+    "M8 was tested from observed active edges only (VIIRS detections at the perimeter). Mark " +
+    "active edges or classify them from RPAS hotspots / VIIRS on an RPAS restart or a forecast " +
+    "from an observed perimeter. Use from a simulated edge waits for its own pre-registered test.",
   staticShare:
     "Modelled share of the start perimeter that advanced 1 km or less (500 m samples). The " +
     "observed share is not known during an incident; compare it after the fact.",

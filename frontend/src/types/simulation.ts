@@ -361,6 +361,28 @@ export interface SimulationResponse {
   fuel_vintage_warning?: string | null;
   /** Active-segment restarts (A1) */
   active_segments?: ActiveSegmentsInfo | null;
+  /** Opt-in M8 spot-fire likelihood (restarts with an observed active edge; [R70]) */
+  ember_m8?: EmberM8Info | null;
+}
+
+/** M8 spot-fire likelihood (API `ember_m8`): relative tiers only, never counts or probabilities */
+export interface EmberM8Info {
+  model: "M8";
+  model_version?: string;
+  /** Approved description and short caveat (from the API) */
+  description?: string;
+  caveat?: string;
+  /** The higher and middle tiers of 375 m cells 1-15 km beyond the observed perimeter */
+  tiers?: GeoJSON.FeatureCollection<GeoJSON.Polygon, { tier: "higher" | "middle"; distance_km: number }>;
+  n_candidate_cells?: number;
+  n_by_tier?: { higher: number; middle: number; lower: number };
+  tier_rule?: string;
+  any_landing?: boolean;
+  spread_rate?: string;
+  fuel_grid_coverage?: number;
+  hours?: number;
+  /** Set when the layer could not be computed (the restart still ran) */
+  error?: string;
 }
 
 /** Which terrain (slope, aspect) a run used (API `terrain_source`) */
@@ -434,6 +456,8 @@ export interface WSEvent {
   fuel_vintage_warning?: string | null;
   /** simulation.completed: active-segment summary and run diagnostics (A1) */
   active_segments?: ActiveSegmentsInfo | null;
+  /** simulation.completed: M8 spot-fire likelihood layer, when requested */
+  ember_m8?: EmberM8Info | null;
 }
 
 export interface FWIResult {
@@ -614,12 +638,15 @@ export interface PerimeterOverrideRequest {
   classification_radius_m?: number;
   classification_window_h?: number;
   classification_segment_m?: number;
+  /** Opt-in M8 spot-fire likelihood layer (needs an observed active edge; [R70]) */
+  ember_m8?: boolean;
 }
 
 /** POST /simulations/observed-perimeter: a run request plus the perimeter at time T (A1) */
 export type ObservedPerimeterRequest = Omit<SimulationCreate, "ignition_lat" | "ignition_lng" | "start_time" | "ensemble"> &
   Pick<PerimeterOverrideRequest, "perimeter_geojson" | "active_edges" | "active_edge_buffer_m"
-    | "hotspots_geojson" | "firms_csv" | "classification_radius_m" | "classification_window_h" | "classification_segment_m"> & {
+    | "hotspots_geojson" | "firms_csv" | "classification_radius_m" | "classification_window_h" | "classification_segment_m"
+    | "ember_m8"> & {
     /** Time of the observed perimeter T (ISO with offset); the run starts at T */
     observation_time: string;
   };

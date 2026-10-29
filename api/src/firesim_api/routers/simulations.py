@@ -289,6 +289,7 @@ def _response_for(run: SimulationRun) -> SimulationResponse:
         weather_used=_weather_used(run),
         fuel_vintage_warning=_vintage_warning(run),
         active_segments=getattr(run, "active_segments", None),
+        ember_m8=getattr(run, "ember_m8", None),
     )
 
 
@@ -615,6 +616,7 @@ async def simulation_websocket(websocket: WebSocket, sim_id: str) -> None:
                 "buildings_source": getattr(run, "buildings_source", None),
                 "terrain_source": getattr(run, "terrain_source", None),
                 "active_segments": getattr(run, "active_segments", None),
+                "ember_m8": getattr(run, "ember_m8", None),
             })
         elif status == SimulationStatus.FAILED:
             await websocket.send_json({

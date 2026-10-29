@@ -178,6 +178,16 @@ export interface OverrideInputs {
   weather?: WeatherParams | null;
   fwi?: FWIOverrides | null;
   schedule?: WeatherChange[] | null;
+  /** Opt-in M8 spot-fire likelihood layer; needs an observed active edge ("marked" or
+   * "classified" with edges) */
+  emberM8?: boolean;
+}
+
+/** M8 needs an observed active edge: marked or classified edges, not the whole perimeter */
+export const EMBER_M8_NEEDS_EDGE = "needs an observed active edge";
+
+export function emberM8Available(mode: ReconMode, nLines: number): boolean {
+  return (mode === "marked" || mode === "classified") && nLines > 0;
 }
 
 /** The perimeter-override request. Throws if "marked" is chosen with no active edge. */
@@ -205,6 +215,10 @@ export function buildOverrideRequest(i: OverrideInputs): PerimeterOverrideReques
   if (i.weather) req.weather = i.weather;
   if (i.fwi) req.fwi_overrides = i.fwi;
   if (i.schedule?.length) req.weather_schedule = i.schedule;
+  if (i.emberM8) {
+    if (!req.active_edges) throw new Error(`Spot-fire likelihood (M8) ${EMBER_M8_NEEDS_EDGE}.`);
+    req.ember_m8 = true;
+  }
   return req;
 }
 
@@ -226,7 +240,7 @@ export function buildObservedRequest(base: SimulationCreate, i: Omit<OverrideInp
     duration_hours: i.durationHours,
     snapshot_interval_minutes: i.snapshotMinutes,
   };
-  for (const k of ["active_edges", "active_edge_buffer_m"] as const) {
+  for (const k of ["active_edges", "active_edge_buffer_m", "ember_m8"] as const) {
     if (override[k] !== undefined) (req as Record<string, unknown>)[k] = override[k];
   }
   if (i.burningPeriod) req.burning_period = i.burningPeriod;

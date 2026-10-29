@@ -585,6 +585,19 @@ segments as GeoJSON; after the run `static_share_model` and `growth_ha`); others
 `hold_hours` / `hold_band_m`, is not part of the API: it failed its pre-registered test and
 stays on draft PR #100.)
 
+M8 spot-fire likelihood (opt-in, added 2026-10-29; [R70], `docs/validation.md` "Long-range embers
+v8"): `ember_m8: true` (default false) on a restart with an observed active edge (`active_edges`,
+`hotspots_geojson` or `firms_csv`; also on `/observed-perimeter`). Without one → 422 "needs an observed
+active edge"; a plain POST /simulations with `ember_m8: true` → 422 too. Optional
+`ember_m8_previous_perimeter_geojson` + `ember_m8_previous_time` (an earlier observed perimeter, before
+`start_time`): the spread rate at each active-edge cell, else the v8 floor 0.5 m/min. The response and
+`simulation.completed` carry `ember_m8`: `tiers` (GeoJSON of the higher and middle 375 m cells 1-15 km
+beyond the perimeter, properties `tier`, `distance_km`), `n_by_tier`, `n_candidate_cells` (cells, not
+spots), `description` (the approved sentence), `caveat`, `tier_rule`, `spread_rate`, `fuel_grid_coverage`,
+`model_version`; `error` instead when it could not be computed (the restart still runs). **Relative only:**
+no spot counts, probabilities or raw scores are returned. Other runs: `ember_m8: null`; requests without
+it archive as before.
+
 ### POST /api/v1/simulations/observed-perimeter
 
 Standalone forecast from an observed perimeter at observation time T (owner items R13/R14;
