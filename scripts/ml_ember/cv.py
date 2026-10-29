@@ -186,4 +186,4 @@ def m8_log(cells: pd.DataFrame, beta: dict) -> np.ndarray:
     A_s = cells[["A_s0", "A_s1", "A_s2"]].to_numpy(float); A_l = cells[["A_l0", "A_l1", "A_l2"]].to_numpy(float)
     u = cells.u10_ms.to_numpy(float)[:, None]; m = cells.m_ff_pct.to_numpy(float)
     lam = (np.exp(beta["b_w"] * np.log1p(u * WAF[None, :])) * (A_s + math.exp(beta["b_L"]) * A_l)).sum(1)
-    return np.log(np.maximum(lam * np.exp(beta["b0"] + beta["b_m"] * (m - 21.0)), 1e-300))
+    return np.log(np.maximum(lam * np.exp(beta["b0"] + beta["b_m"] * (m - 21.0)), 1e-300)).astype(np.float32)

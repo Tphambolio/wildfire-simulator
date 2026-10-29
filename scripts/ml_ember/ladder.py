@@ -36,6 +36,7 @@ Usage: python -I scripts/ml_ember/ladder.py --arm clean|full [--no-terrain] [--q
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import math
 import sys
@@ -131,9 +132,10 @@ def grouped_permutation(predict, te: pd.DataFrame, X: pd.DataFrame, groups: dict
         cols = [c for c in cols if c in X]
         if not cols:
             continue
-        Xp = X.copy(); perm = rng.permutation(len(Xp))
-        Xp[cols] = X[cols].to_numpy()[perm]
-        out[g] = base - cv.auc_from_ranks(cv.interval_ranks(te, predict(Xp)), fires_region)["AUC"]
+        perm = rng.permutation(len(X)); saved = X[cols].to_numpy().copy()
+        X[cols] = saved[perm]
+        out[g] = base - cv.auc_from_ranks(cv.interval_ranks(te, predict(X)), fires_region)["AUC"]
+        X[cols] = saved; del saved
     out["_base_auc"] = base
     return out
 
@@ -249,7 +251,10 @@ def main(argv=None) -> int:
     OUT = OUT / a.arm; t0 = time.time(); OUT.mkdir(parents=True, exist_ok=True)
     log = lambda *x: print(f"[{time.time() - t0:6.0f}s]", *x, flush=True)  # noqa: E731
     fires = cv.table("fires"); folds = cv.outer_folds(fires); region = fires.set_index("fire_key").region
-    fit = cv.table("cells_fit"); ev = cv.table("cells_eval")
+    NEED = ["row_id", "fire_key", "epoch", "y", "region", "year", "gap_h", "b1", "u10_ms", "m_ff_pct", "fuel_group",
+            "A_s0", "A_s1", "A_s2", "A_l0", "A_l1", "A_l2"] + [f for f in cv.PRODUCT_FEATURES if f not in cv.TERRAIN + ["m8_log", "b1"]]
+    NEED = list(dict.fromkeys(NEED))
+    fit = cv.table("cells_fit", NEED + ["w_sample"]); ev = cv.table("cells_eval", NEED)
     terr = cv.suffstats_path().parent / "terrain.parquet"
     if not a.no_terrain and terr.exists():
         T = pd.read_parquet(terr).set_index("row_id")[cv.TERRAIN]
@@ -320,8 +325,11 @@ def main(argv=None) -> int:
         res["choices"][f"rung3_fold{k}"] = dict(min_data_in_leaf=mdl3, rounds=rounds3, inner=pick)
         res["ale"].setdefault("rung3", {})[k] = {c: ale(lambda X: f3["model"].predict(X, raw_score=True, num_threads=4), tr[r3f], c)["spearman"] for c in ["d_act_km", "bear_off_deg", "u10_ms", "m_ff_pct", "curing_pct", "hazshare", "I_head_kwm", "frp_prev_mw", "slope_pct", "elev_m"] if c in r3f}
         groups = dict(geometry=cv.GEOMETRY, weather=cv.WEATHER, fire_behaviour=cv.FIRE_BEHAVIOUR, receptor=cv.RECEPTOR, terrain=cv.TERRAIN)
-        res["importance"].setdefault("rung3", {})[k] = grouped_permutation(lambda X: f3["model"].predict(X, raw_score=True, num_threads=4), te, te[r3f], groups, region, cv.S_MODEL + k)
+        X3 = te[r3f].copy()
+        res["importance"].setdefault("rung3", {})[k] = grouped_permutation(lambda X: f3["model"].predict(X, raw_score=True, num_threads=4), te, X3, groups, region, cv.S_MODEL + k)
+        del X3, X1, X2, f1, f2, f3; gc.collect()
         res.setdefault("fold_models", {})[k] = dict(f3_rounds=rounds3, f3_mdl=mdl3, C1=C1, C2=C2)
+        del tr, te; gc.collect()
         log(f"fold {k} rungs 0-3 done")
     # ── pooled statistics and stop rule ───────────────────────────────────────────────────────
     valid = oof.m8.notna()
