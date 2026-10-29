@@ -193,15 +193,31 @@ def spline_design(X: pd.DataFrame, fitted=None, linear_cols=()):
     return pd.concat([S, rest], axis=1), fitted
 
 
+CHUNK = 200_000
+
+
+def chunked(fn, df, offset=None):
+    """Score a large frame in row chunks to bound memory (the spline basis of rung 2 is ~90 float64 columns)."""
+    parts = []
+    for i in range(0, len(df), CHUNK):
+        off = None if offset is None else np.asarray(offset)[i:i + CHUNK]
+        parts.append(np.asarray(fn(df.iloc[i:i + CHUNK], off), dtype=np.float32))
+    return np.concatenate(parts) if parts else np.zeros(0, np.float32)
+
+
 def fit_rung1(tr, C, med=None, offset=None, features=R1_FEATURES):
     X, med = design(tr, features, med)
     m = Logistic(C).fit(X, tr.y, tr.w_sample, offset, groups=tr.fire_key.astype(str) + "/" + tr.epoch.astype(str))
     return dict(model=m, med=med, cols=list(X.columns), features=features)
 
 
-def score_rung1(fm, df, offset=None):
+def _score_rung1(fm, df, offset=None):
     X, _ = design(df, fm["features"], fm["med"])
     return fm["model"].margin(X[fm["cols"]], offset)
+
+
+def score_rung1(fm, df, offset=None):
+    return chunked(lambda d, o: _score_rung1(fm, d, o), df, offset)
 
 
 def fit_rung2(tr, C, med=None, linear_cols=(), offset=None):
@@ -214,6 +230,10 @@ def fit_rung2(tr, C, med=None, linear_cols=(), offset=None):
 
 
 def score_rung2(fm, df, offset=None):
+    return chunked(lambda d, o: _score_rung2(fm, d, o), df, offset)
+
+
+def _score_rung2(fm, df, offset=None):
     X, _ = design(df, R1_FEATURES, fm["med"])
     if fm.get("hybrid"):
         X["dact_x_fuel1"] = X["d_act_km"] * X["fuel_g1"]; X["dact_x_fuel2"] = X["d_act_km"] * X["fuel_g2"]
@@ -239,8 +259,10 @@ def fit_rung3(tr, cand, features=R3_FEATURES, rounds=None, inner=None, offset=No
 
 
 def score_rung3(fm, df, offset=None):
-    s = fm["model"].predict(df[fm["features"]], raw_score=True, num_threads=4, num_iteration=fm.get("best_iter"))
-    return s + (0 if offset is None else np.asarray(offset))
+    def one(d, o):
+        s = fm["model"].predict(d[fm["features"]], raw_score=True, num_threads=4, num_iteration=fm.get("best_iter"))
+        return s + (0 if o is None else np.asarray(o))
+    return chunked(one, df, offset)
 
 
 # ── main ─────────────────────────────────────────────────────────────────────────────────────────
