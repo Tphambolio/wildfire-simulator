@@ -165,19 +165,26 @@ def main() -> int:
     out["step1_unbounded_prior"] = dict(fit=L.fit(b_w_bounds=(-5, 5), prior=True), profile=L.profile_bw(grid, prior=True))
     out["step1_unbounded_noprior"] = dict(fit=L.fit(b_w_bounds=(-5, 5), prior=False), profile=L.profile_bw(grid, prior=False))
     log("step1", out["step1_unbounded_prior"]["fit"], out["step1_unbounded_prior"]["profile"]["ci95"])
-    kg = [g for g in GROUPS if g != 0 and (ss.fuel_group == g).any()]
-    out["step1_kappa_free"] = dict(fit=L.fit(b_w_bounds=(-5, 5), prior=True, kappa_groups=kg),
-                                   profile=L.profile_bw(np.round(np.arange(-5.0, 5.0001, 0.25), 2), prior=True, kappa_groups=kg),
-                                   kappa_reference="group 0 (grass / unsheltered) = 0; groups: -1 non-fuel centre, 1 D-M, 2 C-timber")
+    kg_all = [g for g in GROUPS if g != 0 and (ss.fuel_group == g).any()]
+    out["step1_kappa_free_4groups"] = dict(fit=L.fit(b_w_bounds=(-5, 5), prior=True, kappa_groups=kg_all),
+                                           note="group -1 (non-fuel block centre; 6 positives with A = 0 among them) runs to its bound: reported, not read")
+    ss_m = ss.assign(fuel_group=ss.fuel_group.replace(-1, 0)); pos_m = pos.assign(fuel_group=pos.fuel_group.replace(-1, 0))
+    Lm = Lik(ss_m, pos_m); kg = [1, 2]
+    out["step1_kappa_free"] = dict(fit=Lm.fit(b_w_bounds=(-5, 5), prior=True, kappa_groups=kg),
+                                   profile=Lm.profile_bw(np.round(np.arange(-5.0, 5.0001, 0.25), 2), prior=True, kappa_groups=kg),
+                                   kappa_reference="group 0 (grass / unsheltered, with the non-fuel-centre blocks merged in) = 0; 1 D-M, 2 C-timber",
+                                   n_pos_by_group=pos.fuel_group.value_counts().to_dict(), n_cells_by_group=ss.groupby("fuel_group").n_cells.sum().to_dict())
     log("kappa", out["step1_kappa_free"]["fit"])
 
     # 2 between-interval count model
     b_fixed = L.fit(prior=True, fixed_bw=0.0)
     iv = cv.table("intervals")
     lam0 = Lik._lam(0.0, b_fixed["b_L"], L.S, L.u, L.m, None, L.g) * math.exp(b_fixed["b0"])
-    Lam = pd.Series(lam0).groupby([ss.fire_key.to_numpy(), ss.epoch.to_numpy()]).sum()
-    U = ss.groupby(["fire_key", "epoch"]).apply(lambda g: float((g.u10 * g.S_s0.add(g.S_s1).add(g.S_s2).add(g.S_l0).add(g.S_l1).add(g.S_l2)).sum() / max(g[["S_s0", "S_s1", "S_s2", "S_l0", "S_l1", "S_l2"]].sum().sum(), 1e-300)))
-    d = iv.set_index(["fire_key", "epoch"]).join(Lam.rename("Lam")).join(U.rename("U10w")).dropna(subset=["Lam"]).reset_index()
+    tmp = ss[["fire_key", "epoch", "u10"]].copy(); tmp["lam0"] = lam0
+    tmp["Stot"] = ss[["S_s0", "S_s1", "S_s2", "S_l0", "S_l1", "S_l2"]].sum(axis=1).to_numpy(); tmp["uS"] = tmp.u10 * tmp.Stot
+    agg = tmp.groupby(["fire_key", "epoch"]).agg(Lam=("lam0", "sum"), uS=("uS", "sum"), Stot=("Stot", "sum"))
+    agg["U10w"] = agg.uS / agg.Stot.clip(lower=1e-300)  # landing-weighted mean zone wind of the interval
+    d = iv.set_index(["fire_key", "epoch"]).join(agg[["Lam", "U10w"]]).dropna(subset=["Lam"]).reset_index()
     d["gap_class"] = np.where(d.gap_h < 4, "short(<4h)", "long(>=4h)"); d["len_class"] = np.where(d.gap_h < 8, "<8h", "8-12h")
     def count_model(df):
         n = df.n_jumps.to_numpy(float); off = np.log(np.maximum(df.Lam.to_numpy(float), 1e-300)); x = np.log1p(df.U10w.to_numpy(float))
