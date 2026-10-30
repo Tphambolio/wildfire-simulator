@@ -98,7 +98,8 @@ def seal(fire_key: str, rec: dict) -> None:
         f.write(f"{fire_key},{p.name},{C.sha256(p)}\n")
 
 
-def run(only_pool: str | None = None, limit: int | None = None) -> None:
+def run(only_pool: str | None = None, limit: int | None = None, batch: int = 25) -> None:
+    """Batches of ``batch`` fires in order: inputs for each, one FIRMS pass for the batch, then seal + intervals."""
     from . import draw as D
     from . import inputs as I
     from . import intervals as IV
@@ -109,39 +110,53 @@ def run(only_pool: str | None = None, limit: int | None = None) -> None:
     P = pool()
     if only_pool:
         P = P[P.pool == only_pool]
-    n = 0
-    for row in P.itertuples():
-        k = row.fire_key
-        s = st.setdefault(k, {"pool": row.pool, "region": row.region, "rank": int(row.rank)})
-        if s.get("done"):
-            continue
-        if limit is not None and n >= limit:
-            break
+    todo = [r for r in P.itertuples() if not st.get(r.fire_key, {}).get("done")]
+    if limit is not None:
+        todo = todo[:limit]
+    for b0 in range(0, len(todo), batch):
         if _free_gb() < MIN_FREE_GB:
             print(f"paused: {_free_gb():.1f} GB free < {MIN_FREE_GB}", flush=True)
-            break
-        t = time.time()
-        try:
-            m = I.build(k, blind=True)
-            s["eligible"] = bool(m["eligible_station"])
-            if s["eligible"]:
-                rec = I.fire_record(k)
-                D.extract_detections([rec])
-                if not s.get("sealed"):
-                    seal(k, rec)
-                    s["sealed"] = True
-                r = IV.run_fire(k, "heldout")
-                s["intervals"] = r.get("status")
-            s["done"] = True
-            s["seconds"] = round(time.time() - t, 1)
-            C.log_run("heldout", k, "ok", time.time() - t, row.pool)
-        except Exception as e:  # recorded, retried on the next run (inputs are cached per fire)
-            s["error"] = repr(e)[:300]
-            C.log_run("heldout", k, f"error {e!r}"[:200], time.time() - t, row.pool)
-        _save(st)
-        n += 1
-        print(row.pool, row.region, row.rank, "done" if s.get("done") else "ERROR",
-              "eligible" if s.get("eligible") else "ineligible", flush=True)
+            return
+        rows = todo[b0:b0 + batch]
+        recs = {}
+        for row in rows:  # phase 1: blind inputs
+            k = row.fire_key
+            s = st.setdefault(k, {"pool": row.pool, "region": row.region, "rank": int(row.rank)})
+            t = time.time()
+            try:
+                m = I.build(k, blind=True)
+                s["eligible"] = bool(m["eligible_station"])
+                if s["eligible"]:
+                    recs[k] = I.fire_record(k)
+                C.log_run("heldout_inputs", k, "ok", time.time() - t, row.pool)
+            except Exception as e:
+                s["error"] = repr(e)[:300]
+                C.log_run("heldout_inputs", k, f"error {e!r}"[:200], time.time() - t, row.pool)
+            _save(st)
+        D.extract_detections(list(recs.values()))  # phase 2: one pass over FIRMS per year
+        for row in rows:  # phase 3: seal, then the registered intervals
+            k = row.fire_key
+            s = st[k]
+            if "error" in s and not s.get("eligible"):
+                print(row.pool, row.region, row.rank, "ERROR", flush=True)
+                continue
+            t = time.time()
+            try:
+                if s.get("eligible"):
+                    if not s.get("sealed"):
+                        seal(k, recs[k])
+                        s["sealed"] = True
+                    s["intervals"] = IV.run_fire(k, "heldout").get("status")
+                s.pop("error", None)
+                s["done"] = True
+                s["seconds"] = round(time.time() - t, 1)
+                C.log_run("heldout", k, "ok", time.time() - t, row.pool)
+            except Exception as e:
+                s["error"] = repr(e)[:300]
+                C.log_run("heldout", k, f"error {e!r}"[:200], time.time() - t, row.pool)
+            _save(st)
+            print(row.pool, row.region, row.rank, "done" if s.get("done") else "ERROR",
+                  "eligible" if s.get("eligible") else "ineligible", flush=True)
 
 
 def status() -> None:

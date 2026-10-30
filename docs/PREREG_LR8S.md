@@ -166,3 +166,5 @@ pool E had been simulated, catalogued or scored when this was committed. Develop
    `no_start`; its intervals are dropped for the sim models and counted.
 6. **Timing (training).** 5-12 s per fire-day on small Canadian domains. US fires add a one-off LANDFIRE elevation
    export of about 5-13 min per fire, cached.
+
+- **Hash update (2026-10-29, later the same evening).** `heldout.py` now runs fires in batches of 25 (one FIRMS pass per batch), as v8's `draw.py` did; the per-fire steps are unchanged. New sha256 `111bc43c3a52e0b45b46ec96d06100b3c34fc469b2109da68b70ec054bf7ca5f`, replacing `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`. The first 3 pool A fires (CAN ranks 201-203; one eligible) were processed by the earlier version. No sealed file was opened and nothing was scored.

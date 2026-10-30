@@ -114,3 +114,5 @@ Nothing above was edited. This addendum changes no criterion, model or value.
   added to the station lists on 2026-10-29. These are station metadata only; CA_ON was already present. No western
   fire has a station of these networks within 50 km.
 - **Gate.** `unseal` and every score wait for the main session's go.
+
+- **Hash update (2026-10-29, later the same evening).** `heldout.py` now runs fires in batches of 25 (one FIRMS pass per batch), as v8's `draw.py` did; the per-fire steps are unchanged. New sha256 `111bc43c3a52e0b45b46ec96d06100b3c34fc469b2109da68b70ec054bf7ca5f`, replacing `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`. The first 3 pool A fires (CAN ranks 201-203; one eligible) were processed by the earlier version. No sealed file was opened and nothing was scored.
