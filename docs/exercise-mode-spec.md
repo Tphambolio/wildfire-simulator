@@ -400,7 +400,7 @@ decides when to turn it on by default.
 | **PR6** | Facilitator pack editor (form over the JSON, perimeter drawing for injects, weather script table), pack validation messages, "run ahead and load from archive" option for slow 72 h packs. | Vitest for validation; E2E save → reload → identical pack. |
 | **PR7** | Flag removal / default on (owner decision), About & sources section "Exercise mode", `OVERVIEW.md` §2 line, pricing-relevant limits if any (§13 Q2). | Docs reviewed; E2E without the flag. |
 
-Rough sizes: PR0 done; PR1 S; PR2 M; PR3 M; PR4 L; PR5 L; PR6 M; PR7 S. PR2 to PR4 are the
+Rough sizes: PR0 done; PR1 done (2026-10-29); PR2 M; PR3 M; PR4 L; PR5 L; PR6 M; PR7 S. PR2 to PR4 are the
 minimum for a facilitated tabletop in one browser; PR5 is the functional-exercise case.
 
 ---
