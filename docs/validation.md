@@ -101,8 +101,7 @@ sealed order until 150 jumps (≥ 60 per region).
   partly because the baseline is near chance.
 - **Canadian sample narrow.** Station eligibility (≥ 50 % hourly coverage within 50 km) left 63 of 200 Canadian
   fires, mostly near airports; no cloud mask (A2.7).
-- **Pending:** a Canadian fuel-seam sensitivity check on [R70] (another analysis, under way 2026-10-29). Until it
-  is reported the engine port stays in a draft PR.
+- **Fuel seam.** A post-hoc check that restricted Canadian fuel to hazard class left M8's margin intact ([R70] addendum, branch feat/lr8-next).
 
 **In the engine (opt-in; `firesim.spread.embers_m8`, API `ember_m8`).** The frozen model is ported without refit
 or tuning: coefficients b0 −22.670412340012348, b_w 0, b_L −4.67467954790124, b_m −0.24413606414846878
@@ -123,7 +122,9 @@ rule for a fire's first interval; the app does not send one yet). Fuel types are
 grid at the 125 m cell centres (off the grid: non-fuel, no candidate) and grass curing is the run's, not v8's
 MODIS NDVI curing. Tiers: higher = top 10 % of candidate cells by rank, middle = next 20 %, lower = rest; a cell
 outside every landing kernel's reach is lower (the float32 landing field holds FFT round-off up to about 10⁻⁴
-of the highest cell there). The existing Albini ember option is unchanged.
+of the highest cell there); this reach rule is display-only and leaves the v8 ranks unchanged. FireSim's
+simulated spread rate is never substituted for the observed one (that is PREREG_LR8S territory). The existing
+Albini ember option is unchanged.
 
 ## Rescored on the pre-fire fuel grid (2026-10-15)
 

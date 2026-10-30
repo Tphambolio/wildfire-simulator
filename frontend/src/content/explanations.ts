@@ -232,7 +232,7 @@ export const TIPS = {
     "the observed perimeter: higher = top 10 in 100 cells, middle = next 20. Not calibrated: no " +
     "spot counts or probabilities. Weaker at longer distances; no better than the ELMFIRE " +
     "comparator; does not respond to wind speed (beta_w = 0; wind sets only direction and reach). " +
-    "A Canadian fuel-seam sensitivity check on R70 is pending. Needs an observed active edge.",
+    "A post-hoc check that restricted Canadian fuel to hazard class left M8's margin intact (R70 addendum). Needs an observed active edge.",
   emberM8NeedsEdge:
     "M8 was tested from observed active edges only (VIIRS detections at the perimeter). Mark " +
     "active edges or classify them from RPAS hotspots / VIIRS on an RPAS restart or a forecast " +

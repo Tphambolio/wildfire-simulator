@@ -71,6 +71,9 @@ const CURRENT_WEATHER = {
 };
 
 export interface MockOptions {
+  /** Body of `ember_m8` sent with `simulation.completed` (and GET) when the last restart or
+   * observed-perimeter request asked for it (`ember_m8: true`) */
+  emberM8?: Record<string, unknown>;
   /** "ws": replay frames over the routed WebSocket (default). "poll": close the socket so the app polls GET. */
   mode?: "ws" | "poll";
   /** Delay between replayed frames (ms). */
@@ -407,7 +410,9 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         ws.send(JSON.stringify({ type: "simulation.frame", simulation_id: simId, frame: frames[i++] }));
         timer = setTimeout(next, frameDelayMs);
       } else {
-        ws.send(JSON.stringify({ type: "simulation.completed", simulation_id: simId }));
+        const lastRestart = [...state.overridePosts, ...state.observedPosts].at(-1);
+        const m8 = opts.emberM8 && lastRestart?.ember_m8 === true ? { ember_m8: opts.emberM8 } : {};
+        ws.send(JSON.stringify({ type: "simulation.completed", simulation_id: simId, ...m8 }));
       }
     };
     ws.onClose(() => clearTimeout(timer));

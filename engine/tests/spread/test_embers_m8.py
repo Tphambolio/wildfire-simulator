@@ -62,7 +62,7 @@ def test_relative_tiers_only_no_counts_or_probabilities():
     assert props == {"tier", "distance_km"}
     assert len(json.dumps(out)) < 2_000_000
     assert out["description"] == E.APPROVED_SENTENCE
-    assert "not calibrated" in out["caveat"] and "pending" in out["caveat"]
+    assert "not calibrated" in out["caveat"] and "margin intact" in out["caveat"]
     assert set(out["n_by_tier"]) == {"higher", "middle", "lower"}
     assert out["n_by_tier"]["higher"] > 0
     assert {f["properties"]["tier"] for f in out["tiers"]["features"]} == {"higher", "middle"}

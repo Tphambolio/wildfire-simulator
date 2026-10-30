@@ -84,7 +84,7 @@ APPROVED_SENTENCE = ("ranks likely spot-fire locations near the active edge bett
                      "fuel-and-distance baseline")
 SHORT_CAVEAT = ("Relative only, not calibrated (no counts or probabilities); weaker at longer "
                 "distances; no better than ELMFIRE; does not respond to wind speed (beta_w = 0). "
-                "A Canadian fuel-seam sensitivity check on [R70] is pending.")
+                "A post-hoc check that restricted Canadian fuel to hazard class left M8's margin intact ([R70] addendum).")
 
 # ── v8 constants (scripts/validation/v8/intervals.py, common.py, v8_gate.py) ─────────────────
 
