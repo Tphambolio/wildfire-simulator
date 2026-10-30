@@ -17,6 +17,8 @@ Variants (``VARIANTS``):
               ``stn_trh``: station temperature and RH only; ``stn_fwi``: station daily codes only;
               ``nospin``: no hourly FFMC spin-up (start-of-day FFMC held); ``wind075``: every hour's
               wind speed x 0.75 (elasticity, not a correction).
+  (c) damping ``rm050`` / ``rm030`` / ``rm020``: every cell's ROS x 0.5 / 0.3 / 0.2 (the harness's ensemble
+              ``ros_multiplier`` hook), the dose-response used to size a suppression-persistence damping rule.
   (d) start   ``act1``: last 1 burn day active; ``perim``: whole start perimeter active (no edge rule).
   (e) scoring ``feds``: DOB from the NASA FEDS archive (the R67 day-of-burning source; US 2018-2021).
 The base record also carries scoring-geometry extras: growth inside the eventual final footprint, growth on
@@ -49,7 +51,7 @@ WINDOWS = (8.0, 17.0, 24.0)
 XW = [k for k in C.CROSSWALKS if k != "base"]
 VARIANTS = (["base"] + [f"xw_{k}" for k in XW] +
             ["cure95", "cure_ndvi", "stn", "stn_wind", "stn_trh", "stn_fwi", "nospin", "wind075",
-             "act1", "perim", "feds"])
+             "act1", "perim", "feds", "rm050", "rm030", "rm020", "rm010"])
 
 
 @lru_cache(maxsize=2)
@@ -113,7 +115,7 @@ def run_task(task: dict) -> dict:
         man, dom, side, era5, stn, groups = load_fire(fid)
         records, grp = era5, groups["era5"]
         opts = dict(ignition="active", active_days=2, ffmc_spinup=True, burning_period=(10.0, 20.0),
-                    windows_h=WINDOWS)
+                    windows_h=tuple(task.get("windows", WINDOWS)))
         member = Member()
         same = False
         if v.startswith("xw_"):
@@ -160,6 +162,8 @@ def run_task(task: dict) -> dict:
             if day not in {p.day for p in fire_day_pairs(dom)}:
                 out["error"] = "fire-day not eligible under FEDS DOB"
                 return out
+        elif v in ("rm050", "rm030", "rm020", "rm010"):
+            opts["_rm"] = {"rm050": 0.5, "rm030": 0.3, "rm020": 0.2, "rm010": 0.1}[v]
         elif v != "base":
             raise ValueError(v)
         if same:
@@ -167,8 +171,15 @@ def run_task(task: dict) -> dict:
             return out
         r0, r1, c0, c1 = crop_bounds(dom.dob, day, dom)
         case = build_case(dom, day, grp, records, start_hour=6, hours=24, margin_m=20000.0)
+        rm = opts.pop("_rm", 1.0)
         ro = RunOptions(**opts)
-        res = simulate(case, ro, member)
+        if rm != 1.0:
+            from firesim.validation.harness import _run, _setup
+            st_ = _setup(case, ro, member)
+            arr, rs_, fmc_ = _run(st_, st_["config"], ro, ros_multiplier=rm, seed=f"{fid}:{day}:{member.name}")
+            res = {"arrival": arr, "run_s": rs_, "fmc": fmc_}
+        else:
+            res = simulate(case, ro, member)
         sc = score_day(case, res["arrival"], ro)
         cd = case.domain
         cell = cd.cell_area_m2
@@ -186,7 +197,7 @@ def run_task(task: dict) -> dict:
                    start_perimeter_obs=sc.get("start_perimeter_obs"))
         from firesim.validation.start_strata import start_type
         out.update(start_type(cd.dob, day, cell))
-        for w in WINDOWS:
+        for w in ro.windows_h:
             k = f"{w:g}h"
             pred = (res["arrival"] <= w * 60.0) & ~excluded
             s = area_scores(pred, obs, cell)
@@ -224,6 +235,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--variants", nargs="+", default=["base"])
     ap.add_argument("--region", nargs="+", default=["US", "CAN"])
+    ap.add_argument("--windows", type=float, nargs="+", default=list(WINDOWS))
+    ap.add_argument("--days-per-fire", type=int, default=0,
+                    help="at most this many fire-days per fire (seeded random.Random(f'2026102902:{fid}'))")
     ap.add_argument("--fires", nargs="+", default=None, help="only these fire IDs")
     ap.add_argument("--runs-dir", default=str(C.DATA / "runs"))
     ap.add_argument("--workers", type=int, default=3)
@@ -241,6 +255,13 @@ def main() -> None:
     if a.max_base_s:
         base = [json.loads(x) for x in (rd / "base.jsonl").read_text().splitlines()]
         keep = {(r["fire_id"], r["day"]) for r in base if "error" not in r and r["run_s"] <= a.max_base_s}
+    if a.days_per_fire:
+        import random
+        for m in man:
+            ds = [d for d in m["days"] if keep is None or (m["fire_id"], d) in keep]
+            if len(ds) > a.days_per_fire:
+                ds = sorted(random.Random(f"2026102902:{m['fire_id']}").sample(ds, a.days_per_fire))
+            m["days"] = ds
     tasks = []
     for v in a.variants:
         p = rd / f"{v}.jsonl"
@@ -252,7 +273,7 @@ def main() -> None:
             for d in m["days"]:
                 if (m["fire_id"], d) in done or (keep is not None and (m["fire_id"], d) not in keep):
                     continue
-                tasks.append({"fire_id": m["fire_id"], "day": d, "variant": v})
+                tasks.append({"fire_id": m["fire_id"], "day": d, "variant": v, "windows": a.windows})
     tasks.sort(key=lambda t: (t["fire_id"], t["day"], t["variant"]))
     print(f"{len(tasks)} runs", flush=True)
     fhs = {v: open(rd / f"{v}.jsonl", "a") for v in a.variants}
