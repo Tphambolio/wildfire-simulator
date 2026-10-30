@@ -106,3 +106,55 @@
 .vsc-versions li + li {
   margin-top: 2px;
 }
+
+/* Feedback (components/FeedbackDialog.tsx): top-bar entry shares .validation-badge; the dialog
+   reuses the .bdr-* shell */
+.fbk-dialog {
+  width: min(440px, 100%);
+}
+
+.fbk-rating {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+.fbk-rate {
+  flex: 1;
+  min-height: 44px;
+  font-weight: 700;
+}
+
+.fbk-rate[aria-pressed="true"] {
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.fbk-thanks {
+  min-height: 1.4em;
+  margin: var(--sp-1) 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.fbk-label {
+  display: block;
+  margin-bottom: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.fbk-text {
+  width: 100%;
+  min-height: 80px;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+
+.fbk-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

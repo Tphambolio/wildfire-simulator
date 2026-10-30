@@ -37,6 +37,8 @@ interface TopBarProps {
   onOpenLimits?: () => void;
   /** Open the validation scorecard dialog (ValidationScorecard.tsx) */
   onOpenValidation?: () => void;
+  /** Opens the feedback dialog (components/FeedbackDialog.tsx) */
+  onOpenFeedback?: () => void;
   /**
    * Exercise mode toggle (docs/exercise-mode-spec.md, PR0). Passed only when the feature flag
    * is on; without it nothing of exercise mode is rendered.
@@ -50,7 +52,7 @@ const TABS: Array<[AppTab, string]> = [
   ["about", "About & sources"],
 ];
 
-export default function TopBar({ incidentName, incidentSub, activeTab, onTabChange, status, actions, onOpenLimits, onOpenValidation, exercise }: TopBarProps) {
+export default function TopBar({ incidentName, incidentSub, activeTab, onTabChange, status, actions, onOpenLimits, onOpenValidation, onOpenFeedback, exercise }: TopBarProps) {
   return (
     <header className="top-bar">
       <div className="top-bar-brand">
@@ -111,6 +113,18 @@ export default function TopBar({ incidentName, incidentSub, activeTab, onTabChan
             data-testid="validation-badge"
           >
             Validation
+          </button>
+        )}
+        {onOpenFeedback && (
+          <button
+            type="button"
+            className="ui-badge ui-badge-neutral validation-badge feedback-badge"
+            onClick={onOpenFeedback}
+            aria-haspopup="dialog"
+            title="Feedback: was this useful? Opens a prefilled GitHub issue"
+            data-testid="feedback-badge"
+          >
+            Feedback
           </button>
         )}
         <EdmontonClock />
