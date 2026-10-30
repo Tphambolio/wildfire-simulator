@@ -237,4 +237,8 @@ of Open-Meteo's processed copy.
    panel weather is used).
 5. The ensemble's input-error climatology (`scripts/validation/input_errors.py`) was measured on
    Open-Meteo's GEM previous-runs archive. It is the same model family, and it was not
-   re-measured.
+   re-measured. GeoMet keeps no history to re-measure on, so the ensemble keeps its "calibrated on
+   Open-Meteo GEM errors" provenance. The proposal for the owner is a small daily GeoMet archive of
+   noon-LST inputs at the Alberta points, re-measured once a season has accumulated.
+6. No elevation (lapse-rate) adjustment: negligible in Alberta's product scope, but it matters for any
+   BC or mountain expansion (BC mountain ΔFFMC up to 3.4 above).
