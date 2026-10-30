@@ -75,6 +75,7 @@
 
 .exercise-time-date,
 .exercise-time-elapsed,
+.exercise-time-span,
 .exercise-state {
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;

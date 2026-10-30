@@ -62,6 +62,11 @@ export type InjectStatus = "scheduled" | "delivered" | "withdrawn";
 /** GeoJSON geometry in [lng, lat], as the perimeter-override API takes it. */
 export interface PerimeterInjectPayload {
   kind: "perimeter";
+  /**
+   * "drawn": `perimeterGeojson` is the polygon; "truth_run": the truth run's own perimeter at
+   * the inject time (a pack's default; delivered from PR3). Absent = "drawn".
+   */
+  perimeterSource?: "drawn" | "truth_run";
   perimeterGeojson: unknown;
   /** Optional active edges (same format as the perimeter-override request). */
   activeEdges?: unknown | null;
@@ -119,22 +124,34 @@ export interface InjectLog {
   injects: Inject[];
 }
 
-// ── Scenario packs and sessions (spec §9; stored server-side from PR2 on) ───────
+// ── Scenario packs (spec §5; stored server-side from PR2) ─────────────────────
+// Mirrors api/src/firesim_api/schemas/exercise.py (the file format is camelCase); keep the
+// two and docs/api-reference.md ("Exercise packs") in step.
+
+export const PACK_SCHEMA = "firesim.exercise.pack/1";
+/** Owner defaults 2026-10-30 (Q12) */
+export const PACK_MAX_DURATION_HOURS = 72;
+export const PACK_DEFAULT_FORECAST_HORIZON_HOURS = 36;
+export const PACK_MAX_BYTES = 2 * 1024 * 1024;
 
 export interface WeatherScriptStep {
-  /** Hours from the exercise start at which this step takes over. */
+  /** Hours from the exercise start at which this step takes over (the first step is at 0). */
   hoursFromStart: number;
   windSpeedKmh: number;
+  /** Direction the wind blows from (degrees). */
   windDirectionDeg: number;
   temperatureC: number;
   relativeHumidityPct: number;
+  /** First step: 24 h rain before the start (Setup's weather, an FWI input). Later steps: ignored. */
   precipitation24hMm: number;
+  /** Rain rate during a later step (mm/h). */
+  precipitationMmH?: number;
 }
 
 export interface ScenarioPackIgnition {
   lat: number;
   lng: number;
-  /** Hours from the exercise start (0 = at the start). */
+  /** Hours from the exercise start (0 = at the start; later ones are spot-fire injects). */
   hoursFromStart: number;
 }
 
@@ -146,16 +163,41 @@ export interface ScenarioPackPeriod {
   endIso: string;
 }
 
+/** A pack's scheduled inject: timed from the exercise start (the log gets absolute times). */
+export interface ScenarioPackInject {
+  id: string;
+  kind: InjectKind;
+  hoursFromStart: number;
+  title: string;
+  payload:
+    | (Omit<PerimeterInjectPayload, "observedAtIso"> & { observedAtIso?: string })
+    | SpotFireInjectPayload
+    | WindShiftInjectPayload
+    | ResourceInjectPayload
+    | NoteInjectPayload;
+}
+
 export interface ScenarioPack {
   /** Schema version of this file. */
-  schema: "firesim.exercise.pack/1";
+  schema: typeof PACK_SCHEMA;
+  /** 32-hex once stored on a server; any [A-Za-z0-9_-]{1,64} in a file (examples: "example-…"). */
   id: string;
+  /** Always "EXERCISE" (owner's hard rule: every exercise artefact is marked). */
+  marking: "EXERCISE";
   title: string;
+  summary?: string | null;
   /** Open data only; name every source and its licence. */
   sources: string[];
+  /** Limits stated on the pack (fuel-grid accuracy, footprint coverage, scripted values...). */
+  caveats?: string[];
   /** The exercise's day-1 start (ISO 8601 with offset). */
   startIso: string;
+  /** Length of the exercise, ≤ 72 h. */
   durationHours: number;
+  /** Players' forecast shows steps up to exercise time plus this (default 36 h). */
+  forecastHorizonHours?: number;
+  /** Start the run when the pack is loaded (default false: the facilitator presses Run). */
+  autoRun?: boolean;
   ignitions: ScenarioPackIgnition[];
   /** Ground truth the engine runs on. */
   weatherScript: WeatherScriptStep[];
@@ -165,13 +207,27 @@ export interface ScenarioPack {
    */
   playerForecast?: WeatherScriptStep[] | null;
   startingCodes: { ffmc: number | null; dmc: number | null; dc: number | null };
+  /** Grass curing (%); null = the app's date-aware default. */
+  grassCuringPct?: number | null;
   fuel: { source: "city_lidar" | "ab_wildfire" | "uniform"; uniformFuelType?: string | null };
   periods: ScenarioPackPeriod[];
-  /** Injects scheduled in advance; the controller can add more live. */
-  scheduledInjects: Omit<Inject, "status" | "deliveredAtMs" | "createdAtIso">[];
+  /** Injects scheduled in advance; the controller can add more live (PR3). */
+  scheduledInjects: ScenarioPackInject[];
+  /** Communities shown under another name in this exercise (e.g. a fictional name). */
+  placeAliases?: Array<{ place: string; shownAs: string }>;
   /** Pre-placed assets as a GeoJSON FeatureCollection in [lng, lat]; symbol keys of types/incident.ts. */
   prePlacedAssets?: unknown | null;
   notesForFacilitator?: string | null;
+}
+
+/** A stored pack's row in the facilitator's list (GET /api/v1/exercise/packs). */
+export interface PackSummary {
+  id: string;
+  title: string;
+  startIso: string | null;
+  durationHours: number | null;
+  sources: string[];
+  createdAt: string;
 }
 
 export interface ExerciseSession {
