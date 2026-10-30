@@ -246,12 +246,49 @@ export interface HourlyWeatherResponse {
  * before the start (an FFMC spin-up reaching too far back) are dropped, so the spin-up check
  * reports it as skipped; a null hour at or after the start fails the request with its reason.
  */
+/** Which models supplied the hours a stream uses (from the API's per-hour ``src`` codes). */
+export interface ForecastSourceInfo {
+  /** Hours from the 15 km global model GDPS (src b, G, g): coarser, wind can differ */
+  coarseHours: number;
+  /** Of those, hours before the start (FFMC spin-up) */
+  coarseSpinupHours: number;
+  /** Run-length summary of the codes, e.g. "h8H25" */
+  summary: string;
+}
+
+/** GDPS codes of services/geomet.py SRC_LEGEND: b history, G hourly, g 3-hourly interpolated. */
+const COARSE_SRC = new Set(["b", "G", "g"]);
+
+export function forecastSourceInfo(src: string, times: string[], fromMs: number, startMs: number, endMs: number): ForecastSourceInfo {
+  let coarse = 0, coarseSpin = 0, used = "";
+  times.forEach((t, i) => {
+    const ms = Date.parse(t.endsWith("Z") ? t : t + "Z");
+    if (ms + 3600_000 <= fromMs || ms >= endMs) return;
+    const c = src[i] ?? "-";
+    used += c;
+    if (COARSE_SRC.has(c)) {
+      coarse++;
+      if (ms + 3600_000 <= startMs) coarseSpin++;
+    }
+  });
+  const summary = used.replace(/(.)\1*/g, (m) => `${m[0]}${m.length}`);
+  return { coarseHours: coarse, coarseSpinupHours: coarseSpin, summary };
+}
+
+/** " · N h from the 15 km global model (GDPS) …" when coarse hours feed the stream, else "". */
+export function forecastSourceNote(info: ForecastSourceInfo | null): string {
+  if (!info || info.coarseHours === 0) return "";
+  const spin = info.coarseSpinupHours ? ` (${info.coarseSpinupHours} in the FFMC spin-up)` : "";
+  return ` · ${info.coarseHours} h${spin} from the 15 km global model GDPS: coarser, wind can differ`;
+}
+
 export async function fetchHourlyForecast(
   lat: number,
   lng: number,
   hours: number,
   startMs: number = Date.now(),
   fromMs?: number,
+  onSource?: (info: ForecastSourceInfo) => void,
 ): Promise<HourlyWeatherParams[]> {
   const first = Math.min(startMs, fromMs ?? startMs);
   const last = startMs + hours * 3600_000;
@@ -275,7 +312,18 @@ export async function fetchHourlyForecast(
   const trimmed = Object.fromEntries(
     Object.entries(h).map(([key, arr]) => [key, (arr as unknown[]).slice(k)]),
   ) as typeof h;
-  return forecastStream(trimmed as Parameters<typeof forecastStream>[0], startMs, hours, fromMs);
+  // The hour containing the start must exist: say plainly why when GeoMet no longer holds it
+  const iStart = trimmed.time.findIndex((t) => Date.parse(t.endsWith("Z") ? t : t + "Z") === startHour);
+  if (iStart >= 0 && trimmed.temperature_2m[iStart] === null) {
+    throw new Error(
+      `no model weather for ${trimmed.time[iStart]} UTC: ECCC GeoMet keeps only about 1.5-2 days of past model runs`,
+    );
+  }
+  const stream = forecastStream(trimmed as Parameters<typeof forecastStream>[0], startMs, hours, fromMs);
+  if (onSource && data.src) {
+    onSource(forecastSourceInfo(data.src.slice(k), trimmed.time, Math.min(fromMs ?? startMs, startMs), startMs, last));
+  }
+  return stream;
 }
 
 /**
