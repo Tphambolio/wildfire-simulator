@@ -1,0 +1,136 @@
+{
+  "schema": "firesim.exercise.pack/1",
+  "id": "example-ab-ridgewater",
+  "marking": "EXERCISE",
+  "title": "EXERCISE: Hamlet of Ridgewater spring boreal fire (fictional community)",
+  "summary": "A leaf-off spring fire north-west of a fictional boreal hamlet on a highway. A wind shift the forecast missed turns the fire back toward the highway.",
+  "sources": [
+    "Alberta Wildfire FBP Fuel Type raster 2025, 100 m (© Government of Alberta, Open Government Licence – Alberta)",
+    "NRCan MRDEM-30 elevation (Open Government Licence – Canada)",
+    "Alberta hamlet boundaries, Municipal Affairs (Open Government Licence – Alberta); geography only, shown under a fictional name",
+    "OpenStreetMap major roads (ODbL); StatCan ODHF + OpenStreetMap critical assets (Open Government Licence – Canada; ODbL)",
+    "Microsoft Canadian Building Footprints (ODbL)"
+  ],
+  "caveats": [
+    "Fictional community name on real geography (owner decision 2026-10-30): nothing here describes or predicts a real community.",
+    "The Alberta grid maps little vegetation inside towns and treats cropland as non-fuel (docs/fuel-grid-alberta.md).",
+    "Building footprints: Microsoft (2019 imagery) with uneven coverage; newer houses missing.",
+    "Weather and FWI codes are scripted exercise values, not observations or a forecast.",
+    "Runs as a 2-day multi-day run (one weather per 24 h day); the wind shift is at the day boundary (T+24 h), so the model takes it at its scripted time.",
+    "FireSim is a preparedness and training tool: held-out one-day skill is low (F1 0.246 on the pre-fire grid) and the ensemble is over-confident (49 % coverage). The fire in this pack is a scripted stimulus, not a prediction."
+  ],
+  "startIso": "2026-05-05T13:00:00-06:00",
+  "durationHours": 36,
+  "forecastHorizonHours": 36,
+  "autoRun": false,
+  "ignitions": [
+    {
+      "lat": 55.2368,
+      "lng": -112.5389,
+      "hoursFromStart": 0
+    }
+  ],
+  "weatherScript": [
+    {
+      "hoursFromStart": 0,
+      "windSpeedKmh": 15,
+      "windDirectionDeg": 135,
+      "temperatureC": 22,
+      "relativeHumidityPct": 25,
+      "precipitation24hMm": 0,
+      "precipitationMmH": 0
+    },
+    {
+      "hoursFromStart": 24,
+      "windSpeedKmh": 30,
+      "windDirectionDeg": 315,
+      "temperatureC": 22,
+      "relativeHumidityPct": 20,
+      "precipitation24hMm": 0,
+      "precipitationMmH": 0
+    }
+  ],
+  "playerForecast": [
+    {
+      "hoursFromStart": 0,
+      "windSpeedKmh": 15,
+      "windDirectionDeg": 135,
+      "temperatureC": 22,
+      "relativeHumidityPct": 25,
+      "precipitation24hMm": 0,
+      "precipitationMmH": 0
+    }
+  ],
+  "startingCodes": {
+    "ffmc": 90,
+    "dmc": 25,
+    "dc": 150
+  },
+  "grassCuringPct": null,
+  "fuel": {
+    "source": "ab_wildfire",
+    "uniformFuelType": null
+  },
+  "periods": [
+    {
+      "number": 1,
+      "startIso": "2026-05-05T13:00:00-06:00",
+      "endIso": "2026-05-06T01:00:00-06:00"
+    },
+    {
+      "number": 2,
+      "startIso": "2026-05-06T01:00:00-06:00",
+      "endIso": "2026-05-06T13:00:00-06:00"
+    },
+    {
+      "number": 3,
+      "startIso": "2026-05-06T13:00:00-06:00",
+      "endIso": "2026-05-07T01:00:00-06:00"
+    }
+  ],
+  "scheduledInjects": [
+    {
+      "id": "ridgewater-windshift-t24",
+      "kind": "wind_shift",
+      "hoursFromStart": 24,
+      "title": "Forecast update: wind shift to the north-west",
+      "payload": {
+        "kind": "wind_shift",
+        "windSpeedKmh": 30,
+        "windDirectionDeg": 315,
+        "hiddenFromForecast": true
+      }
+    },
+    {
+      "id": "ridgewater-spot-t26",
+      "kind": "spot_fire",
+      "hoursFromStart": 26,
+      "title": "Spot fire reported east of the highway",
+      "payload": {
+        "kind": "spot_fire",
+        "lat": 55.2367,
+        "lng": -112.4586
+      }
+    },
+    {
+      "id": "ridgewater-perimeter-t30",
+      "kind": "perimeter",
+      "hoursFromStart": 30,
+      "title": "Observed perimeter",
+      "payload": {
+        "kind": "perimeter",
+        "perimeterSource": "truth_run",
+        "perimeterGeojson": null,
+        "activeEdges": null
+      }
+    }
+  ],
+  "placeAliases": [
+    {
+      "place": "Wandering River",
+      "shownAs": "Hamlet of Ridgewater (fictional)"
+    }
+  ],
+  "prePlacedAssets": null,
+  "notesForFacilitator": "EXERCISE. Facilitator only: the geography is the Wandering River area (Athabasca County, Highway 63); the pack calls the hamlet Ridgewater, a fictional name. Truth: SE 15 km/h, 22 °C, 25 % RH from 13:00 MDT on 5 May (leaf-off: D-1 / M-1 by date); at T+24 h (13:00 on 6 May) the wind shifts to NW 30 km/h with RH 20 %, hidden from the players' forecast until the wind-shift inject. Ignition about 6.2 km NW of the hamlet and 4.5 km west of Highway 63 in a mapped C-1 stand of the Alberta grid (chosen by rule, see the PR2 record). Spot fire at T+26 h 0.6 km east of Highway 63 in mapped D-1/M-1 fuel (delivered from PR3 as a union-perimeter restart). Perimeter inject at T+30 h from the truth run. Values set by the owner 2026-10-30 and revised the same day after a climatology check (the shift moved from T+20 h, 09:00, to the afternoon; see the PR2 record)."
+}

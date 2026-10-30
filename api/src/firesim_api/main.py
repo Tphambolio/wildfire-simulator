@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from firesim_api.middleware.run_probe_limit import RunProbeLimitMiddleware
-from firesim_api.routers import fwi, health, layers, runs, simulations, weather
+from firesim_api.routers import exercise, fwi, health, layers, runs, scorecard, simulations, weather
 from firesim_api.services import archive as run_archive
 from firesim_api.services.runner import SimulationRunner
 from firesim_api.ws.manager import ConnectionManager
@@ -50,6 +50,7 @@ async def _retention_loop() -> None:
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     _ws_manager.set_loop(asyncio.get_event_loop())
     run_archive.get_archive()  # configure now, so its warnings appear at startup
+    scorecard.preload()  # latest docs/scorecard/<date>.json, read once (routers/scorecard.py)
     retention = asyncio.create_task(_retention_loop())
     logging.getLogger(__name__).info("FireSim API started")
     try:
@@ -95,6 +96,8 @@ def create_app() -> FastAPI:
     application.include_router(weather.router)
     application.include_router(fwi.router)
     application.include_router(layers.router)
+    application.include_router(scorecard.router)  # validation scorecard (docs/validation-scorecard.md)
+    application.include_router(exercise.router)  # exercise scenario packs (docs/exercise-mode-spec.md)
 
     return application
 

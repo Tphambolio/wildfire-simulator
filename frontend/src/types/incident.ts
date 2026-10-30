@@ -201,8 +201,22 @@ export function makeOperationalPeriod(day: number, date: string): OperationalPer
   };
 }
 
-export function makeIncident(name: string): IncidentSession {
+/** An operational period's clock (Edmonton date, "HH:MM" start and end) for a new incident. */
+export interface PeriodClock {
+  date: string;
+  opPeriodStart: string;
+  opPeriodEnd: string;
+}
+
+/**
+ * A new incident; `periods` (exercise packs, docs/exercise-mode-spec.md §5) sets its
+ * operational periods instead of one 08:00-20:00 period today.
+ */
+export function makeIncident(name: string, periods?: PeriodClock[]): IncidentSession {
   const today = new Date().toISOString().slice(0, 10);
+  const ops = periods?.length
+    ? periods.map((c, i) => ({ ...makeOperationalPeriod(i + 1, c.date), opPeriodStart: c.opPeriodStart, opPeriodEnd: c.opPeriodEnd }))
+    : [makeOperationalPeriod(1, today)];
   return {
     id: crypto.randomUUID(),
     name,
@@ -212,7 +226,7 @@ export function makeIncident(name: string): IncidentSession {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     activePeriodIndex: 0,
-    operationalPeriods: [makeOperationalPeriod(1, today)],
+    operationalPeriods: ops,
     useEdmontonGrid: true,
     fuelType: "C2",
     enableSpotting: false,

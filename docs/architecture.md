@@ -135,8 +135,9 @@ only if every code in the raster belongs to it, or set explicitly with `code_sch
   (see `docs/verification.md`).
 - Not a structure-loss model: building exposure ignores embers and building-to-building spread.
 - Weather is one state per simulation unless an hourly stream is given (`hourly_weather`, or
-  "Use hourly forecast weather" in the UI, which fetches the Open-Meteo forecast for the
-  ignition point). With a stream, wind changes hourly and FFMC follows the hourly FFMC model
+  "Use hourly forecast weather" in the UI, which fetches the ECCC GEM forecast for the
+  ignition point from the API, `GET /api/v1/weather/hourly`, read from MSC GeoMet;
+  `docs/weather-geomet.md`). With a stream, wind changes hourly and FFMC follows the hourly FFMC model
   (Van Wagner 1977, matching cffdrs); DMC and DC stay fixed within a run. Multi-day mode advances
   the daily codes between days.
 - No authentication or multi-tenancy.

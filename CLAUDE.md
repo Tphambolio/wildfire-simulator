@@ -127,8 +127,13 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | POST | `/api/v1/simulations/burn-probability` | Monte Carlo burn grid (2D float [0,1]) |
 | POST | `/api/v1/fwi/calculate` | Single observation → FWI codes + danger rating |
 | POST | `/api/v1/fwi/multi-day` | Chain FWI across daily observations |
-| GET | `/api/v1/weather/current?lat=&lng=` | Live CWFIS WFS → `CurrentWeather` |
+| GET | `/api/v1/weather/current?lat=&lng=` | Starting codes: Pyra tier → CWFIS WFS → GEM cold start → `CurrentWeather` |
+| GET | `/api/v1/weather/hourly?lat=&lng=&start=&end=` | Hourly ECCC GEM at a point from MSC GeoMet (HRDPS → RDPS → GDPS, `services/geomet.py`; per-hour `src`); the frontend's forecast/hindcast stream. Open-Meteo is not used anywhere in the product (guard `api/tests/test_no_open_meteo.py`; `docs/weather-geomet.md`) |
 | GET | `/api/v1/layers/assets?south=&west=&north=&east=` / `/layers/roads?...` | Alberta critical assets / major roads in a box (≤ 1° × 2°), GeoJSON; `available: false` without the files |
+| GET | `/api/v1/scorecard` | Latest dated validation scorecard `docs/scorecard/<date>.json` (+ `file`, `available_dates`; 404 when none), read once at startup from `FIRESIM_SCORECARD_DIR`; `scripts/make_scorecard.py`, `docs/validation-scorecard.md` |
+| GET | `/api/v1/exercise/examples` | Exercise mode: the repository's public example scenario packs (`data/exercise-packs/`) |
+| GET / POST | `/api/v1/exercise/packs` | List / store scenario packs (facilitator passphrase header; ≤ 2 MB, validated `ScenarioPack`, new 32-hex ID; `routers/exercise.py`, `schemas/exercise.py`) |
+| GET / DELETE | `/api/v1/exercise/packs/{id}` | One pack by 32-hex ID (no passphrase; probe backoff) / delete (passphrase) |
 
 ### Frames
 WebSocket events are `{"type": "simulation.frame", "simulation_id": ..., "frame": {...}}`, then
@@ -165,9 +170,12 @@ FIRESIM_SMALL_FOOTPRINTS     count_separately (default) | exclude (drop outbuild
 FIRESIM_MAX_STORED_RUNS   runs kept in memory (40)
 FIRESIM_ARCHIVE(_DIR/_DB/_BACKEND/_S3_*/_MAX_AGE_DAYS/_MAX_BYTES/_RETENTION_HOURS)  run archive (docs/run-archive.md)
 FIRESIM_RUNS_PASSPHRASE   shared passphrase for the saved-runs list / rename / delete (header X-FireSim-Passphrase; unset = list disabled, 403; Fly secret, set by the owner only)
+FIRESIM_EXERCISE_PASSPHRASE  exercise facilitator passphrase for stored scenario packs (header X-FireSim-Exercise-Passphrase; separate from the runs one, same compare/backoff, own count; unset = 403; one per server; Fly secret, set by the owner only)
+FIRESIM_EXERCISE_EXAMPLES_DIR  example scenario packs (default /app/data/exercise-packs, else the repo's data/exercise-packs)
 FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)
 FIRESIM_AB_FWI_LST_OFFSET_H  Alberta fire-weather "noon LST" offset for CFFDRS days from 2026-11-01: 7 (default, 19 UTC = 13:00 MT, CWFIS tz_correct) or 6 (18 UTC = 12:00 MT); before 2026-11-01 always 7 (services/alberta_time.py)
 FIRESIM_AB_ASSETS_PATH / FIRESIM_AB_ROADS_PATH  Alberta assets / roads FlatGeobuf (set by api/Dockerfile); FIRESIM_LAYERS_MAX_BOX_DEG (1.0)
+FIRESIM_SCORECARD_DIR     Directory of dated validation scorecards (api/Dockerfile: /app/docs/scorecard; default the repo's docs/scorecard)
 ```
 Run archive (`services/archive.py`): finished runs go to a SQLite index + object store in the
 background; GET `/simulations/{id}`, `/arrival`, `/ensemble` fall back to it (`archived: true`).
@@ -183,6 +191,11 @@ Run IDs (owner decision 2026-10-13): new IDs are 32 hex characters, 128 bits fro
 only by `services/run_ids.py`; pre-2026-10-13 8-hex IDs stay valid everywhere (treat IDs as
 opaque strings). Unknown IDs back off per IP (`middleware/run_probe_limit.py`: 20 free, then
 429; `docs/run-archive.md` "Run IDs").
+Exercise packs (exercise mode PR2, owner decisions 2026-10-30): stored in the run archive at
+`exercise/packs/<id>.json` + index table `exercise_packs`, exempt from age/byte pruning; IDs from
+`run_ids.py`; facilitator gate `services/passphrase.py` (shared with the saved-runs gate);
+unknown pack IDs count in the same probe backoff. App: Setup → Scenario pack
+(`ExercisePackPanel.tsx`, `exercise/packs.ts`; exercise mode only).
 
 ---
 
@@ -192,7 +205,7 @@ opaque strings). Unknown IDs back off per IP (`middleware/run_probe_limit.py`: 2
 `React 19 + TypeScript 5.9 + Vite 7 + MapLibre GL 5`
 
 ### Layout
-Top bar (incident, status, limits badge, America/Edmonton clock) · Setup column (sections with
+Top bar (incident, status, limits badge, "Validation" scorecard dialog `ValidationScorecard.tsx`, America/Edmonton clock) · Setup column (sections with
 summaries, sticky Run bar) · map (`MapView.tsx`) · Situation panel (`FireMetrics.tsx`, exposure,
 Neighbourhoods card `EvacStatusPanel.tsx`, `EOCSummary.tsx`) · clock-time timeline
 (`TimeSlider.tsx`). Setup and Situation collapse to rails, "Focus map" / `F` collapses both, map
@@ -227,6 +240,9 @@ and limits in the "About & sources" tab (`AboutPanel.tsx`). Main-run progress `R
 ```
 VITE_API_URL=             Base URL (default "" = relative paths)
 VITE_MAPBOX_TOKEN=        Satellite tiles (optional, defaults to OSM)
+VITE_FIRESIM_EXERCISE=    "1" turns exercise mode on (also `?exercise=1`); default off, nothing rendered (docs/exercise-mode-spec.md)
+VITE_FIRESIM_TELEMETRY=   usage counting: none (default) | cloudflare (+ VITE_FIRESIM_TELEMETRY_TOKEN) | post (+ VITE_FIRESIM_TELEMETRY_ENDPOINT, https); docs/privacy.md
+VITE_FIRESIM_FEEDBACK_EMAIL=  shows "Email" in the top-bar Feedback dialog (GitHub issue link always shown)
 ```
 
 ---

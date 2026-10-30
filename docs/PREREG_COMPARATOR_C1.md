@@ -216,3 +216,20 @@ Statistics Canada Open Licence). No ML. Nothing requested from any agency.
 - **Coverage: recorded, not decisive.** The coverage comparison above stands as recorded, but it does not count towards the "Prometheus-level" target: both shared-input ensembles are badly under-dispersed (18 % and 13 % against an ideal of about 80 %). A coverage test is to be defined and registered afresh after the B2 ensemble recalibration.
 - **10 GB rerun of the WISE failures approved** as a one-off exception to the 5 GB rule (one container at a time, only with ≥ 14 GB available and no other heavy job, stop below 4 GB). It is a disclosed add-on: the registered numbers above do not change. Result appended below when run.
 - **Community arrival:** a new fire-day set with observed community arrivals is pre-registered separately in `docs/PREREG_COMPARATOR_C1B.md` (commit `eb5a116`, pushed 2026-10-25 11:26:37 MDT, before any model run on it).
+
+### 10 GB rerun of the WISE failures: disclosed add-on (appended 2026-10-29)
+
+Not a registered result: the numbers above do not change. Details: [R66] §11; data `addon_10g_rerun/` in the [R66] data folder.
+
+- **Runs:** the 9 deterministic failure days were rerun once at a 10 GB container cap. **8 completed; 2019_255:205 failed again** (exit 137 at 10 GB). FireSim's 17 h F1 was identical to the registered value on all 9 days.
+- **17 h F1, scored by the frozen `analyze_c1.analyse` (same bootstrap and margin):**
+  - Full H79 with the reruns, both ran (78 days / 16 fires): FireSim 0.246, WISE 0.256, **−0.010 [−0.024, +0.002]**: non-inferior, unchanged from the registered −0.010 [−0.026, +0.002].
+  - Same, 2019_255:205 scored as WISE no growth (79 days): −0.007 [−0.019, +0.004].
+  - 4 large fires only (2014_350, 2015_452, 2019_255, 2023_365; 8 days): 0.196 vs 0.213, −0.017 [−0.048, +0.029], inconclusive. With 2019_255:205 as WISE no growth (9 days): +0.013 [−0.041, +0.040].
+- **Reading:** the registered sensitivity row (+0.014, WISE failures as no growth) flattered FireSim. With WISE's actual runs on the large days, the difference stays at about −0.01.
+- **Disclosures:**
+  - **Disk full.** The run stopped on a full disk at 13:08 MDT on 2026-10-25. Disk use outside this job filled the drive. That counts as a workstation failure, which §5 allows to be rerun once, disclosed.
+    - Three rows written before that are kept (`60eb5a7`).
+    - The 4th day's error record was cut off and was dropped; that day was rerun.
+    - The remaining rows carry `e6cc152`: a disk pause and job-folder trimming, with inputs and scoring unchanged.
+  - **Memory gate.** The run started with ≥ 12 GB available and ran alongside other jobs (launch decision of 12:12 MDT), instead of the approved ≥ 14 GB with no other heavy job. No run was stopped for host memory.

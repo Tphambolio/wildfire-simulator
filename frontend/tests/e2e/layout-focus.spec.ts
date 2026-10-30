@@ -83,14 +83,15 @@ test.describe("collapsible side columns", () => {
       const expandSetup = page.getByRole("button", { name: "Expand Setup" });
       await expect(expandSetup).toHaveAttribute("aria-expanded", "false");
       await expect(expandSetup).toBeFocused(); // focus follows to the rail
+      // MapLibre resizes the canvas on the next frame after the column change; on a slow runner
+      // that can land after the rail is visible, so wait for the resize rather than read once
+      await expect.poll(async () => (await canvasSize(page)).w, { message: "map wider with Setup collapsed" }).toBeGreaterThan(w0 + 200);
       const w1 = (await canvasSize(page)).w;
-      expect(w1, "map wider with Setup collapsed").toBeGreaterThan(w0 + 200);
 
       // Situation: header chevron -> rail
       await page.getByRole("button", { name: "Collapse Situation" }).click();
       await expect(situationRail(page)).toBeVisible();
-      const w2 = (await canvasSize(page)).w;
-      expect(w2, "map wider with both collapsed").toBeGreaterThan(w1 + 200);
+      await expect.poll(async () => (await canvasSize(page)).w, { message: "map wider with both collapsed" }).toBeGreaterThan(w1 + 200);
       const railW = (await setupRail(page).boundingBox())!.width;
       expect(railW).toBeLessThanOrEqual(48);
       await expectTimelineFullWidth(page);

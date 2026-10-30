@@ -13,6 +13,20 @@ Attribution shown in the app (Critical assets card footer and map attribution):
 Alberta continuing care list (Open Government Licence – Alberta) · Statistics Canada ODHF (Open
 Government Licence – Canada) · © OpenStreetMap contributors (ODbL)".
 
+## Model weather (read at run time, not bundled)
+
+| Data | Source | Licence | Used for |
+|---|---|---|---|
+| ECCC GEM: HRDPS 2.5 km, RDPS 10 km, GDPS 15 km | MSC GeoMet `https://geo.weather.gc.ca/geomet` (WCS 2.0.1), read by the API (`api/src/firesim_api/services/geomet.py`) at the point; cached in memory | Open Government Licence – Canada; "Data Source: Environment and Climate Change Canada" | Hourly forecast / hindcast stream (`GET /api/v1/weather/hourly`), off-season cold-start estimate |
+| Pyra GEM series `data/gem/ab.json` | Pyra's `gem-points.yml` (MSC GeoMet, every 6 h), read from raw.githubusercontent.com (Pages copy second), cached 15 min | ECCC data (OGL – Canada); Pyra MIT | GEM noon-LST weather of the "pyra" tier (station ≤ 1 km); cold-start fallback in the ~16-19 UTC gap (station ≤ 50 km) |
+| CWFIS station weather and FWI codes | CWFIS GeoServer WFS | OGL – Canada (assumed) | Starting codes (`/api/v1/weather/current`) |
+
+Since 2026-10-30 the product does not call Open-Meteo. Its free tier is non-commercial. A guard
+test, `api/tests/test_no_open_meteo.py`, keeps it out of `frontend/src` and `api/src`. ERA5
+through the Open-Meteo archive is still used by the validation scripts under `scripts/`, which
+are not part of the product. Layers, units, time handling, coverage limits and the GeoMet vs
+Open-Meteo comparison are in `docs/weather-geomet.md`.
+
 ## `assets.geojson`: critical assets
 
 Built by `scripts/build_edmonton_assets.py` (fetch, clip to the Edmonton fuel grid, normalise,
