@@ -91,3 +91,23 @@ Open data only; nothing requested from any agency; no ML; ELMFIRE not used. `cap
 ≥ 8 GB RAM and ≥ 20 GB disk free. Jump locations are sealed per fire (sha256 manifest) and opened once, after all three
 M8 variants and B1 have been scored as inputs on every drawn fire. Changes only as dated addenda, before any held-out
 score is seen.
+
+---
+
+## Addendum A1 (2026-10-29): draw implementation, before any held-out fire is opened
+
+Nothing above was edited. This addendum changes no criterion, model or value.
+
+- **Shared draw.** LR8C, LR8L and LR8S (PREREG_LR8S §2, frozen `e9c6e51`) share one draw of pools A and E:
+  `scripts/validation/v8/heldout.py` (sha256 `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`).
+- **Per fire, in sealed order, with no stop:** blind inputs, then VIIRS detections, then the A1 jump catalogue,
+  then the registered `intervals.py` (`4303e544…4dbe`).
+- **Counts are sealed too.** Each fire's whole jump table, its counts included, goes to a sealed file listed in a
+  sha256 manifest. No count or location is written elsewhere or printed before `unseal`; LR8C scores counts, so
+  this is stricter than v8, which showed per-block counts.
+- **Eastern stations.** IEM ASOS networks CA_QC, CA_NF (Newfoundland and Labrador), CA_NS, CA_NB and CA_PE were
+  added to the station lists on 2026-10-29. These are station metadata only; CA_ON was already present. No western
+  fire has a station of these networks within 50 km.
+- **Gate.** `unseal` and every score wait for the main session's go.
+
+- **Hash update (2026-10-29, later the same evening).** `heldout.py` now runs fires in batches of 25 (one FIRMS pass per batch), as v8's `draw.py` did; the per-fire steps are unchanged. New sha256 `111bc43c3a52e0b45b46ec96d06100b3c34fc469b2109da68b70ec054bf7ca5f`, replacing `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`. The first 3 pool A fires (CAN ranks 201-203; one eligible) were processed by the earlier version. No sealed file was opened and nothing was scored.

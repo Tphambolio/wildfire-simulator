@@ -96,3 +96,61 @@ against observed counts.
 Seeds: bootstrap `2026102911`. Files: `calibration_planning.json` (sha256 in the data-folder README), the v8
 `decision_order.csv` above, and `scripts/validation/v8_score.py` `623233f6…d880` (ranks unchanged; not used for the
 decision here).
+
+---
+
+## Addendum A1 (2026-10-29): draw implementation, before any held-out fire is opened
+
+Nothing above was edited. This addendum changes no criterion, model or value.
+
+- **Shared draw.** LR8C, LR8L and LR8S (PREREG_LR8S §2, frozen `e9c6e51`) share one draw of pools A and E:
+  `scripts/validation/v8/heldout.py` (sha256 `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`).
+- **Per fire, in sealed order, with no stop:** blind inputs, then VIIRS detections, then the A1 jump catalogue,
+  then the registered `intervals.py` (`4303e544…4dbe`).
+- **Counts are sealed too.** Each fire's whole jump table, its counts included, goes to a sealed file listed in a
+  sha256 manifest. No count or location is written elsewhere or printed before `unseal`; LR8C scores counts, so
+  this is stricter than v8, which showed per-block counts.
+- **Eastern stations.** IEM ASOS networks CA_QC, CA_NF (Newfoundland and Labrador), CA_NS, CA_NB and CA_PE were
+  added to the station lists on 2026-10-29. These are station metadata only; CA_ON was already present. No western
+  fire has a station of these networks within 50 km.
+- **Gate.** `unseal` and every score wait for the main session's go.
+
+- **Hash update (2026-10-29, later the same evening).** `heldout.py` now runs fires in batches of 25 (one FIRMS pass per batch), as v8's `draw.py` did; the per-fire steps are unchanged. New sha256 `111bc43c3a52e0b45b46ec96d06100b3c34fc469b2109da68b70ec054bf7ca5f`, replacing `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`. The first 3 pool A fires (CAN ranks 201-203; one eligible) were processed by the earlier version. No sealed file was opened and nothing was scored.
+
+---
+
+## Addendum A2 (2026-10-29): ECCC hourly stations added to eligibility (owner decision), before any LR8C data is opened
+
+**Dated:** 2026-10-29, after the BCWS and ACIS licence verdicts. Owner decision: Travis Kennedy, 2026-10-29, about
+22:10 MDT ("ECCC hourly: approved for LR8C"). Sections 1-7 and A1 are unchanged. No held-out jump table has been
+opened, no count has been seen and no score computed. Only blind inputs, detections and sealed tables exist.
+
+- **Why.** IEM airport stations made only about 25 % of western Canadian fires eligible in v8. The station scoping
+  note (2026-10-29) found that BCWS ("Access Only") and Alberta ACIS (data-request terms, no redistribution) are not
+  open. ECCC hourly is the only open addition (reach 25 % → 34 % on training fires).
+- **Source.** ECCC MSC climate-hourly: the `climate-hourly` collection of the MSC GeoMet OGC API
+  (`api.weather.gc.ca`), with station metadata from `climate-stations` (hourly data available). Licence: ECCC Data
+  Servers End-use Licence, open with attribution. Keyless; nothing is requested from any agency.
+- **Variables.** TEMP (°C), RELATIVE_HUMIDITY (%), WIND_SPEED (km/h, 10 m), WIND_DIRECTION (tens of degrees → degrees;
+  calm = 0 speed). Precipitation comes from ERA5 at the station, exactly as for IEM (A2.1 of PREREG_LR8). The ECCC
+  PRECIP_AMOUNT field is not used, so both sources are treated alike. An hour is "observed" when temperature, RH
+  and wind speed are present. Hourly FFMC and daily codes follow A2.2 unchanged.
+- **Station-selection rule (frozen rules as for IEM).**
+  1. IEM first, exactly as registered. A fire with an eligible IEM station is unchanged: same stations, zones and
+     weather.
+  2. A fire with **no** eligible IEM station becomes eligible for LR8C if at least one ECCC climate-hourly station
+     lies within 50 km of the final perimeter with ≥ 50 % of hours observed over the record window (the A2.1 rule).
+     The eligible ECCC stations then play the IEM stations' role: nearest first, and zones by HydroBASINS level 6
+     with the nearest eligible station in each basin (A2.4).
+  3. An ECCC station sharing a WMO/ICAO site with an IEM station already tried is skipped (the same site with the
+     same coverage test).
+- **Coverage checks (reported).** Per fire: source (IEM / ECCC), station distance, hourly coverage. Per region: the
+  share of fires eligible by each source. Fires made eligible by ECCC are listed. Their LR8C results are also
+  reported separately (descriptive), beside the registered pooled criteria.
+- **Scope.** This addendum applies to **LR8C only**. LR8L and LR8S keep IEM-only eligibility as frozen; ECCC-only
+  fires do not enter their scores. The shared draw (A1) marks each fire's eligibility source.
+- **Effect on the frozen numbers.** §2's recalibration (a_r, b_r, c_r) and climatology rates are unchanged, and so
+  are the §3 not-decidable thresholds and the §4 criteria. More eligible Canadian fires raise power; the US is not
+  affected (ECCC is Canadian only).
+
+- **Implementation (2026-10-29, before any ECCC held-out fire is built).** Code: `scripts/validation/v8/eccc.py` (sha256 `dfcb1f4e4ddfa8be2f5e3406476aa491161d3829735ed1c1df670f7f4fadc8fe`). It runs `inputs.build` unchanged with the ECCC station list and the `climate-hourly` fetch substituted, in its own namespace (`fires_eccc/`, `heldout/sealed_eccc/`, separate manifest). ECCC coordinates are decoded from DDMMSSsss. Development used v8 training fires only: on NBAC:2024_391 one ECCC station 31 km away had 100 % coverage and plausible values; NBAC:2021_42 and 2021_44 had no qualifying station, because the ECCC stations nearby are IEM sites (rule 3) or lack hourly data in the window. Of the 529 ECCC hourly stations in the six jurisdictions, 188 remain after rule 3.
