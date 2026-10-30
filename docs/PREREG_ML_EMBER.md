@@ -274,6 +274,88 @@ recommendations above: **"Approve, yes and yes."** (D5 approved; D6 yes: the cle
 scored; D7 yes: the ERA5 arm is reported as a sensitivity). The commit that carries this line is the confirmation
 commit; the registered text above is frozen from this commit on.
 
-## 12. Result (appended after the one-shot run; registered text above never edited)
+## 12. Result (appended 2026-10-30, 07:05 MDT, after the one-shot run; registered text above never edited)
 
-_(empty at the draft)_
+**Run facts.** Confirmation commit `7972d5cb95885b772a46a89978c0b565445f83c9` (approval line §11, pushed 06:25 MDT).
+`confirm.py features` 06:26–06:58 MDT (2 workers, 5 GB cap): 82 decision fires with candidate-cell jump rows, all 82
+built, 2,708 intervals iterated, **136 jump intervals kept, 1,802,903 candidate cells**, terrain filled for every fire,
+recomputed geometry identical to the v8 interval files on every field except the ±45° sector flags (max difference 1,
+the known boundary case; the tables carry the npz values and the deciding model does not use the flags). `confirm.py
+score` ran **once**, 06:58 MDT (39 s), `force_rescore` false: pickle sha256 verified `cf11ba9b…b65d43`; **alignment 136
+intervals, 0 cell-set mismatches, 0 M8 mismatches, 0 missing files**; `refusals.log` 3,010 logged overrides under the
+confirmation commit, 0 refusals. Jump accounting (A1): 193 rows → **159 ranked** (CAN 83 / US 76), 15 never reached,
+2 at 375–540 m, 17 not a candidate, 0 interval excluded: identical to [R70]. **Integrity check: S3(M8 − B1) = +0.1468
+[+0.098, +0.194], p 5.0 × 10⁻⁵** against [R70]'s +0.147 [+0.098, +0.194].
+
+### 12.1 Deciding tests (73 fires, 159 ranked jumps; sign-flip 20,000 flips seed 2026101803; bootstrap 2,000 draws seed 2026101804)
+
+| Test | Comparison | S3 | 95 % | p (one-sided) | fires with a_f > 0 | CAN / US | Verdict |
+|---|---|---|---|---|---|---|---|
+| **RQ1a** | RUNG2 − M8 | **+0.238** | [+0.181, +0.295] | 5.0 × 10⁻⁵ | 74 % | +0.175 / +0.288 | **PASS** |
+| **RQ1b** | RUNG2 − DIST | **+0.008** | [−0.012, +0.027] | 0.22 | 49 % | +0.013 / +0.004 | **FAIL** |
+| **RQ3** | HYBRID − M8 | **−0.034** | [−0.069, +0.002] | 0.96 | 38 % | +0.014 / −0.072 | **FAIL** |
+
+S1 / S2 weightings: RQ1a +0.235 / +0.234; RQ1b +0.006 / +0.008; RQ3 −0.033 / −0.027.
+
+### 12.2 Within-interval AUC (S3-weighted mean percentile rank of the jump cell)
+
+| Model | All | CAN | US |
+|---|---|---|---|
+| B1 | 0.525 | 0.571 | 0.489 |
+| M8 | 0.672 | 0.710 | 0.642 |
+| ELMFIRE (52 fires / 106 jumps) | 0.652 | 0.641 | 0.662 |
+| HYBRID | 0.637 | 0.724 | 0.570 |
+| **DIST** (distance-only) | **0.902** | 0.872 | 0.925 |
+| **RUNG2** | **0.910** | 0.885 | 0.929 |
+
+Descriptive pairs: DIST − M8 **+0.231** [+0.175, +0.286]; RUNG2 − B1 +0.385 [+0.339, +0.429]; HYBRID − RUNG2 −0.273
+[−0.337, −0.207]; HYBRID − DIST −0.265. ELMFIRE subset (reference only): RUNG2 − ELMFIRE +0.255 [+0.203, +0.306];
+M8 − ELMFIRE −0.014 [−0.071, +0.046] (as [R70]); HYBRID − ELMFIRE −0.056 [−0.128, +0.019].
+
+### 12.3 Strata (mean percentile-rank difference per jump; n = ranked jumps)
+
+| Stratum | n | AUC M8 / DIST / RUNG2 | RUNG2 − M8 | RUNG2 − DIST | HYBRID − M8 |
+|---|---|---|---|---|---|
+| gap unburned | 35 | 0.62 / 0.89 / 0.88 | +0.26 | −0.01 | −0.03 |
+| gap later detected | 63 | 0.69 / 0.90 / 0.92 | +0.23 | +0.02 | −0.03 |
+| gap never detected | 61 | 0.71 / 0.92 / 0.93 | +0.23 | +0.01 | −0.03 |
+| distance 1–3 km | 128 | 0.71 / 0.94 / 0.97 | +0.26 | +0.02 | −0.03 |
+| distance 3–7 km | 23 | 0.54 / 0.89 / 0.81 | +0.27 | −0.07 | −0.03 |
+| **distance 7–15 km** | **8** | **0.65 / 0.40 / 0.40** | **−0.25** | 0.00 | 0.00 |
+| active share low / mid / high | 53 each | M8 0.60 / 0.70 / 0.74; RUNG2 0.93 / 0.90 / 0.91 | +0.33 / +0.20 / +0.17 | +0.03 / −0.01 / +0.01 | +0.03 / −0.03 / −0.08 |
+| year 2018 … 2025 | 29, 16, 7, 16, 14, 18, 23, 36 | RUNG2 0.84–0.96 every year; M8 0.61–0.76 | +0.11 to +0.34, positive every year | −0.05 to +0.07 | −0.12 to +0.05 |
+
+### 12.4 Readings (as fixed in §3)
+
+1. **RQ1a pass, RQ1b fail: the learned ranker beats M8 on unseen fires by +0.24, and it does so through the distance
+   decay alone.** A one-coefficient logistic in distance to the nearest active segment reaches 0.902; the 13-feature
+   additive model adds +0.008 (not significant, 49 % of fires). Bearing offset, fine-fuel moisture, intensity,
+   curing, fuel group and terrain add nothing measurable on the confirmation set; the development gain of +0.055 over
+   distance did not transfer. **The single instruction to the physics is the decay shape** (§8): a correction layer
+   beyond a re-specified distance decay is not proposed for the product.
+2. **RQ3 fail: M8's physics as a fixed offset makes the ranking worse** (−0.034 against M8; −0.27 against RUNG2; worse
+   in the US, −0.072, level in Canada). The pre-registered hybrid is not proposed for the product. The development
+   value (+0.033) did not transfer, consistent with its development interval covering zero.
+3. **Where the decay fails:** the 8 jumps beyond 7 km are ranked at AUC 0.40 by DIST and RUNG2 (below chance) against
+   0.65 by M8. A monotone decay pushes far cells down; M8's long mode holds some skill there. Eight jumps decide
+   nothing, but this is the one stratum where M8's two-mode kernel beats the decay, and the physics memo keeps the long
+   mode for that reason while re-specifying the short-range decay.
+4. The ranker's skill transfers: positive in every year, both regions, every gap class, every active-share tercile;
+   largest where M8 is weakest (low active share, +0.33; US, +0.29; 2025, +0.34).
+5. Nothing here says "M8 is near the information limit" (stage 1 §1). The minimum detectable gains of §2 stand as the
+   bound: a true gain of RUNG2 over DIST larger than about +0.035 would have been detected with 80 % power.
+
+### 12.5 What is not claimed and what follows
+
+Not claimed: any operational forecast skill (weather is observed); any count or probability calibration (RQ5 not
+scored); any product change (owner decision; stage 1 §11 option C applies before product use). Follows: the final
+report [R68] with figures (`stage2/figures/`), the physics-translation memo (§8: a re-specified short-range decay as
+the first corrected-M8 pre-registered test; wind entered once; a receptor-group establishment factor; counts not
+scaled by interval length; the long mode kept), the record, Claude for Science, the draft PR (never merged by an agent).
+
+Outputs (sha256): `stage2/confirmation.json` `8b52683f9c44caf10bf57949b7442ca64a1fd3450d856e9ec89ef3994e3f62c9`;
+`ranks_per_jump.csv` `58eeaaadc0043c13d30071a339334b296c500761634c337355e5bd3019ddeab1`; `per_fire.csv`
+`e068a639531d3d06ba2e814f8c4f8c2af652ccef5d187473f0daf0f975a167ad`; `decision_cells.parquet`
+`08ccce6a3c95a1b3233b35014ac0513cebeaab87da3f1abae031587a364666b3`; `decision_build.json`
+`b5db0c5afeb5be9e7aae8b7fd3e890c0a6099deec1dbd3645b51088b8659075f`; `alignment.json`
+`4dd8376fefef3b010a20172809e3fbae3afeb743fed99a353622303df692626e`.
