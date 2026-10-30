@@ -153,8 +153,9 @@ and rate-of-spread models commonly err by 35-75 % (Cruz & Alexander 2013).
   perimeter grows 1-2 % more than the continuous run on uniform fuel, about 7-10 % more on mixed
   fuel (docs/PROJECT_RECORD.md §3, 2026-10-12).
 - Weather: constant, hourly or a manual schedule; DMC and DC fixed within a run; the hourly forecast is
-  Open-Meteo GEM (`gem_seamless`, pinned 2026-10-10, the model the ensemble's error climatology
-  was measured on). In Alberta the starting codes are the ones Pyra (the team's fire-weather app)
+  ECCC GEM read from MSC GeoMet (HRDPS → RDPS → GDPS; since 2026-10-30, before that Open-Meteo
+  `gem_seamless`, pinned 2026-10-10; the same model family the ensemble's error climatology was
+  measured on; `docs/weather-geomet.md`). In Alberta the starting codes are the ones Pyra (the team's fire-weather app)
   shows for the nearest Pyra station: CWFIS carry-over stepped one day with the GEM noon-LST
   weather (before noon LST a forecast), the same numbers as Pyra's station page (checked against
   Pyra's engine and live page, 2026-10-10). They are only as good as that one-station chain: a

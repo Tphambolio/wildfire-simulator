@@ -303,7 +303,7 @@ could not catch the errors.
   ensemble over historical weather and ignitions.
 - **Weather**: an hourly stream is supported; hourly FFMC matches cffdrs `hffmc` (5,760 cases,
   max difference 3e-11). DMC and DC are held fixed within a run, and the forecast option depends
-  on Open-Meteo's forecast quality. Without a stream, weather is constant.
+  on the ECCC GEM forecast's quality (MSC GeoMet since 2026-10-30; Open-Meteo `gem_seamless` before). Without a stream, weather is constant.
 - **Huygens perimeters are convex**; heterogeneous landscapes should use the grid model.
 - **Fuel grids**: the Edmonton grid is the City canopy-LiDAR product at 20 m, simulated at 50 m
   (majority class per cell since 2026-10-10) and, for fires near buildings that fit the guards, at

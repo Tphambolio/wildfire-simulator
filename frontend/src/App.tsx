@@ -64,8 +64,10 @@ import { isExerciseFlagOn } from "./exercise/flag";
 import { useExerciseClock } from "./exercise/useExerciseClock";
 import { DEFAULT_EXERCISE_HOURS, frameIndexForExerciseTime, regularBoundaries } from "./exercise/clock";
 import { EMPTY_INJECT_LOG } from "./exercise/injects";
-import type { InjectLog } from "./types/exercise";
+import { applyPlaceAliases, packClock, packLoadPlan } from "./exercise/packs";
+import type { InjectLog, ScenarioPack } from "./types/exercise";
 import ExerciseBanner from "./components/ExerciseBanner";
+import ExercisePackPanel from "./components/ExercisePackPanel";
 import InjectLogPanel from "./components/InjectLogPanel";
 import Badge from "./components/Badge";
 import InfoTip from "./components/InfoTip";
@@ -293,7 +295,7 @@ export default function App() {
   const [showBurnProbView, setShowBurnProbView] = useState(false);
   const [lastRunParams, setLastRunParams] = useState<RunParams | null>(null);
   // Neighbourhood polygons (arrival outlines, evacuation status), loaded on startup
-  const [communities, setCommunities] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [baseCommunities, setCommunities] = useState<GeoJSON.FeatureCollection | null>(null);
   // Critical assets and major roads: Edmonton layers (automatic with the Edmonton grid), user layers
   const [edmontonAssets, setEdmontonAssets] = useState<GeoJSON.FeatureCollection | null>(null);
   const [edmontonRoads, setEdmontonRoads] = useState<GeoJSON.FeatureCollection | null>(null);
@@ -330,8 +332,15 @@ export default function App() {
   useEffect(() => {
     startTelemetry(telemetryCfg, { page: "simulation", exercise: false });
   }, [telemetryCfg]);
-  // Inject log: in memory for PR0 (no way to add one from the UI yet; spec PR3)
-  const [injectLog] = useState<InjectLog>(EMPTY_INJECT_LOG);
+  // Inject log: in memory; a loaded scenario pack schedules its injects here (PR2; delivery PR3)
+  const [injectLog, setInjectLog] = useState<InjectLog>(EMPTY_INJECT_LOG);
+  // Scenario pack loaded in exercise mode (PR2): its span drives the exercise clock
+  const [exercisePack, setExercisePack] = useState<{ pack: ScenarioPack; notes: string[] } | null>(null);
+  // A pack may show a community under another name (a fictional name on real geography)
+  const communities = useMemo(
+    () => (exerciseFlag && exercisePack ? applyPlaceAliases(baseCommunities, exercisePack.pack.placeAliases) : baseCommunities),
+    [exerciseFlag, exercisePack, baseCommunities],
+  );
   // Section of the About & sources tab to show when it opens (the low-skill badge opens Limits)
   const [aboutSection, setAboutSection] = useState<AboutSectionId | null>(null);
   // Validation scorecard dialog (top bar "Validation"; docs/validation-scorecard.md)
@@ -1033,6 +1042,8 @@ export default function App() {
   // now; "Next period" jumps to the incident's operational-period ends when one is open, else
   // every 12 h. The map and timeline show the last frame at or before the exercise time.
   const exerciseBounds = useCallback((): { startMs: number; endMs: number; boundaries: number[] } => {
+    // A loaded scenario pack fixes the span and boundaries (spec §5), whatever run is on screen
+    if (exercisePack) return packClock(exercisePack.pack);
     const startMs = scenarioStart ? scenarioStart.getTime() : roundToMinute(Date.now());
     const hours = lastFrameHours !== null && lastFrameHours > 0 ? lastFrameHours : DEFAULT_EXERCISE_HOURS;
     const endMs = startMs + hours * 3_600_000;
@@ -1044,7 +1055,7 @@ export default function App() {
       })
       .filter((t) => Number.isFinite(t));
     return { startMs, endMs, boundaries: fromIncident.length ? fromIncident : regularBoundaries(startMs, endMs, 12) };
-  }, [scenarioStart, lastFrameHours, incident]);
+  }, [scenarioStart, lastFrameHours, incident, exercisePack]);
   const { enable: enableExercise, disable: disableExercise, setBounds: setExerciseBounds, seek: seekExercise } = exercise;
   const toggleExercise = useCallback(() => {
     if (exerciseOn) {
@@ -1060,6 +1071,28 @@ export default function App() {
     const b = exerciseBounds();
     setExerciseBounds(b.startMs, b.endMs, b.boundaries);
   }, [exerciseOn, exerciseBounds, setExerciseBounds]);
+  // Load a scenario pack (spec §5, PR2): Setup (ignition, start, codes, fuel, weather script),
+  // an incident with the pack's operational periods, the clock at the pack's start (paused) over
+  // its span, and its injects scheduled in the log. The run is not started (autoRun is not acted
+  // on yet; the facilitator presses Run after the pre-brief).
+  const packSeqRef = useRef(0);
+  const loadExercisePack = useCallback((pack: ScenarioPack) => {
+    if (!exerciseFlag) return;
+    packSeqRef.current += 1;
+    const plan = packLoadPlan(pack, packSeqRef.current);
+    const notes = pack.autoRun ? [...plan.notes, "autoRun is not acted on yet: press Run."] : plan.notes;
+    setExercisePack({ pack, notes });
+    createIncident(pack.title, plan.periods);
+    setIgnitionPoint(plan.ignition);
+    setScenarioToLoad(plan.config);
+    setInjectLog(plan.injectLog);
+    enableExercise(plan.clock.startMs, plan.clock.endMs, plan.clock.boundaries);
+  }, [exerciseFlag, createIncident, enableExercise]);
+  const unloadExercisePack = useCallback(() => {
+    setExercisePack(null);
+    setInjectLog(EMPTY_INJECT_LOG);
+  }, []);
+
   // The exercise clock drives the frame shown (map, Situation panel, timeline)
   const exerciseMs = exercise.state.exerciseMs;
   const exerciseFrameIndex = useMemo(
@@ -1484,6 +1517,20 @@ export default function App() {
               onImport={importScenario}
             />
           </SetupSection>
+          {exerciseOn && (
+            <SetupSection
+              title="Scenario pack"
+              summary={exercisePack ? exercisePack.pack.title.replace(/^EXERCISE:\s*/, "") : "No pack loaded"}
+              defaultOpen
+            >
+              <ExercisePackPanel
+                loaded={exercisePack?.pack ?? null}
+                notes={exercisePack?.notes ?? []}
+                onLoad={loadExercisePack}
+                onUnload={unloadExercisePack}
+              />
+            </SetupSection>
+          )}
           {exerciseOn && (
             <SetupSection
               title="Exercise injects"

@@ -30,7 +30,7 @@ and buildings.
 ## 2. What it does today (live)
 
 - **Fire weather.** Starting FWI codes come from Pyra's chain for the nearest Alberta station.
-  The hourly forecast is Environment Canada's GEM model, through Open-Meteo. Users can enter
+  The hourly forecast is Environment Canada's GEM model, read from ECCC's MSC GeoMet. Users can enter
   codes themselves.
 - **Spread.** The FBP System runs on a level-set grid, at 50 m cells and 20 m near buildings.
   Defaults include a burning period, FFMC spin-up and RPAS active edges. Multi-day runs carry
@@ -118,7 +118,7 @@ All intervals are 95 % CIs.
 | Alberta hamlet boundaries, urban service areas | OGL – Alberta |
 | OpenStreetMap (assets, roads) | ODbL |
 | Meta/WRI 1 m canopy height (building vegetation) | CC BY 4.0 |
-| CWFIS weather/FWI; Open-Meteo GEM forecast; Pyra carry-over | Government of Canada open data; Open-Meteo terms; Pyra (team app) |
+| CWFIS weather/FWI; ECCC GEM forecast (MSC GeoMet); Pyra carry-over and GEM series | Government of Canada open data (Open Government Licence – Canada); Pyra (team app) |
 | CFSDS fire progressions (validation); CAL FIRE DINS (structure tests) | as listed in [`data-sources.md`](data-sources.md) and record §4.3 |
 
 ## 6. Known limits that matter operationally

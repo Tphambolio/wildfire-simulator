@@ -16,7 +16,7 @@
 import { mkdirSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { mockApi } from "./mockApi";
+import { hourlyWeatherBody, mockApi } from "./mockApi";
 import { openApp, runButton, runToCompletion, setIgnitionAtMapCentre } from "./app";
 
 const SHOT_DIR = process.env.SHOT_DIR;
@@ -40,9 +40,9 @@ async function setStart(page: Page, date: string, time: string) {
   await page.getByLabel(/^Time \(/).fill(time);
 }
 
-/** Open-Meteo stub: 72 h from 2026-07-14 00:00 UTC, temperature = UTC hour of day. */
+/** Model-weather stub (FireSim /api/v1/weather/hourly): 72 h from 2026-07-14 00:00 UTC, temperature = UTC hour of day. */
 async function stubForecast(page: Page) {
-  await page.route(/api\.open-meteo\.com/, (route) => {
+  await page.route(/\/api\/v1\/weather\/hourly/, (route) => {
     const t0 = Date.UTC(2026, 6, 14, 0);
     const time: string[] = [];
     const temp: number[] = [];
@@ -54,13 +54,11 @@ async function stubForecast(page: Page) {
     const n = time.length;
     return route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify({
-        hourly: {
+      body: hourlyWeatherBody({
           time, temperature_2m: temp, relative_humidity_2m: Array(n).fill(30),
           wind_speed_10m: Array(n).fill(20), wind_direction_10m: Array(n).fill(270),
           precipitation: Array(n).fill(0),
-        },
-      }),
+        }),
     });
   });
 }

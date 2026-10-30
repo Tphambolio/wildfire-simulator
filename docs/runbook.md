@@ -15,8 +15,8 @@ the Pyra repository (Tphambolio/FWI: `.github/workflows/uptime.yml`, `tools/upti
 | Secrets | Fly secret `FIRESIM_RUNS_PASSPHRASE` (saved-runs gate; value known to the owner only) | — | `flyctl secrets set` redeploys |
 
 Data files (Edmonton 10 m fuel grid, Alberta 100 m grid, DEM, buildings, hamlets, assets) are baked
-into the API image by `api/Dockerfile`; nothing is fetched at runtime except weather (Open-Meteo GEM,
-CWFIS) when a run asks for it.
+into the API image by `api/Dockerfile`; nothing is fetched at runtime except weather (ECCC GEM from
+MSC GeoMet, Pyra's GEM and carry-over files, CWFIS) when a run asks for it.
 
 ## First five minutes
 
@@ -43,7 +43,7 @@ A healthy answer is `{"status":"healthy", …, "archive":{"enabled":true,"durabl
 | Front end loads but every run errors with CORS | API redeployed with a different `FIRESIM_CORS_ORIGINS` or the Vercel domain changed | Set the origin in `fly.toml [env]` and deploy; previews use their own domain and are expected to fail CORS. |
 | Front end 404/500 or shows an old build | Vercel build failed (type error) or Vercel incident | Vercel dashboard → Deployments: read the build log; **Promote** the last good production deployment; fix on a branch. `cd frontend && npm run build` must be zero-error before merging. |
 | Deploy job red in Actions | Fly token expired/rotated, remote builder failed, or tests failed | Open the run. Token: regenerate (`flyctl tokens create deploy -a firesim-api`) and store as the `FLY_API_TOKEN` repository secret. Builder: re-run the job. Tests: fix on a branch. |
-| Weather fetch failures in logs (Open-Meteo 429/5xx, CWFIS down) | Upstream outage or free-tier throttling | Runs still work with manual weather. Repeated 429 means the free tier is being throttled; the business plan requires moving to ECCC GeoMet or a paid plan before commercial use. |
+| Weather fetch failures in logs ("GeoMet capabilities … failed", GeoMet 5xx, CWFIS down) | ECCC GeoMet or CWFIS outage | Runs still work with manual weather; `GET /api/v1/weather/hourly` answers `available: false` with the reason. The last model-run list is reused for a failed refresh and sampled values are cached (`services/geomet.py`). Open-Meteo is no longer used (2026-10-30, `docs/weather-geomet.md`). |
 | Times in the UI one hour off after 2026-11-01 | Stale browser tz data | Handled by `frontend/src/utils/time.ts` (dated Alberta rule, fixed UTC−6). If seen, it is an old cached bundle: hard-reload. |
 | Fly bill higher than expected | Machine not suspending (a WebSocket kept it awake), or memory scaled up and not reverted | `flyctl status`; `flyctl scale show -a firesim-api`; return to `shared-cpu-1x`, 2 GB. |
 

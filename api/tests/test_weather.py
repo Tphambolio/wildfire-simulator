@@ -236,7 +236,7 @@ from datetime import datetime  # noqa: E402
 from firesim.fwi.calculator import FWICalculator  # noqa: E402
 from firesim_api.routers import weather as weather_router  # noqa: E402
 
-_OM_URL = "https://api.open-meteo.com/v1/forecast"
+from firesim_api.services import geomet  # noqa: E402
 
 
 def _fix_clock(monkeypatch, iso: str) -> None:
@@ -257,26 +257,46 @@ def _by_layer(current: list[dict], archive: list[dict]):
     return handler
 
 
-def _open_meteo(noon_iso: str, *, noon: tuple = (12.0, 40.0, 15.0, 200.0), rain_per_hour: float = 0.25,
-                missing: str | None = None) -> dict:
-    """Hourly GEM payload (unixtime) covering 48 h before to 24 h after ``noon_iso`` (UTC).
+def _gem(monkeypatch, noon_iso: str | None, *, noon: tuple = (12.0, 40.0, 15.0, 200.0),
+         rain_per_hour: float = 0.25, missing: str | None = None, uncovered_before: str | None = None):
+    """Replace the GeoMet sampler with a synthetic GEM series; returns the list of requested windows.
 
-    Every hour has T 5, RH 80, wind 5 from 90 and ``rain_per_hour``; the noon hour has ``noon``.
+    Every hour has T 5, RH 80, wind 5 from 90 and ``rain_per_hour``; the hour ``noon_iso`` has
+    ``noon``. ``noon_iso=None`` = GeoMet unreachable. Hours before ``uncovered_before`` are null.
     """
-    t_noon = int(datetime.fromisoformat(noon_iso.replace("Z", "+00:00")).timestamp())
-    times = list(range(t_noon - 48 * 3600, t_noon + 24 * 3600 + 1, 3600))
-    i_noon = times.index(t_noon)
-    t = [5.0] * len(times)
-    rh = [80.0] * len(times)
-    ws = [5.0] * len(times)
-    wd = [90.0] * len(times)
-    pr: list = [rain_per_hour] * len(times)
-    t[i_noon], rh[i_noon], ws[i_noon], wd[i_noon] = noon
-    hourly = {"time": times, "temperature_2m": t, "relative_humidity_2m": rh, "wind_speed_10m": ws,
-              "wind_direction_10m": wd, "precipitation": pr}
-    if missing:
-        hourly[missing] = [None] * len(times)
-    return {"timezone": "America/Edmonton", "utc_offset_seconds": -21600, "hourly": hourly}
+    calls: list[tuple[datetime, datetime]] = []
+    t_noon = datetime.fromisoformat(noon_iso.replace("Z", "+00:00")) if noon_iso else None
+    cut = datetime.fromisoformat(uncovered_before.replace("Z", "+00:00")) if uncovered_before else None
+
+    async def fake_hourly(lat, lng, start, end, client=None):
+        calls.append((start, end))
+        if t_noon is None:
+            return None
+        hours = []
+        t = geomet.floor_hour(start)
+        while t <= geomet.floor_hour(end):
+            hours.append(t)
+            t += geomet.HOUR
+        h = {"time": [x.strftime("%Y-%m-%dT%H:00") for x in hours], "temperature_2m": [],
+             "relative_humidity_2m": [], "wind_speed_10m": [], "wind_direction_10m": [],
+             "precipitation": []}
+        for x in hours:
+            vals = noon if x == t_noon else (5.0, 80.0, 5.0, 90.0)
+            if cut is not None and x < cut:
+                vals, rain = (None, None, None, None), None
+            else:
+                rain = rain_per_hour
+            for k, v in zip(("temperature_2m", "relative_humidity_2m", "wind_speed_10m",
+                             "wind_direction_10m"), vals):
+                h[k].append(v)
+            h["precipitation"].append(rain)
+        if missing:
+            h[missing] = [None] * len(hours)
+        h.update(src="h" * len(hours), model_runs={}, requests=0, failed=0)
+        return h
+
+    monkeypatch.setattr(geomet, "hourly", fake_hourly)
+    return calls
 
 
 class TestWeatherPath:
@@ -365,7 +385,7 @@ class TestWeatherPath:
     def test_archive_query_limits_age(self, client, monkeypatch):
         _fix_clock(monkeypatch, "2026-07-16T19:10:00Z")
         route = respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
-        respx.get(_OM_URL).mock(return_value=httpx.Response(503))
+        _gem(monkeypatch, None)
         client.get("/api/v1/weather/current?lat=53.5&lng=-113.5")
         cql = route.calls[-1].request.url.params["CQL_FILTER"]
         assert "rep_date >= '2026-07-14T00:00:00Z'" in cql
@@ -375,11 +395,11 @@ class TestWeatherPath:
         """M6 + M3: no station at all -> GEM noon-LST weather + 24 h rain, cold start, labelled."""
         _fix_clock(monkeypatch, "2026-07-16T21:00:00Z")  # 14:00 LST (UTC-7): today's noon (19 UTC) has passed
         respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
-        om = respx.get(_OM_URL).mock(return_value=httpx.Response(200, json=_open_meteo("2026-07-16T19:00:00Z")))
+        calls = _gem(monkeypatch, "2026-07-16T19:00:00Z")
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
-        params = om.calls[-1].request.url.params
-        assert params["models"] == "gem_seamless"
-        assert "precipitation" in params["hourly"]
+        # The 24 h to noon LST (19 UTC, Alberta box without a CWFIS station), nothing more
+        assert calls[-1] == (datetime.fromisoformat("2026-07-15T20:00:00+00:00"),
+                             datetime.fromisoformat("2026-07-16T19:00:00+00:00"))
         expected = FWICalculator(85.0, 6.0, 15.0).calculate_daily(
             temp=12.0, rh=40.0, wind=15.0, rain=24 * 0.25, month=7)
         assert data["available"] is True
@@ -388,7 +408,7 @@ class TestWeatherPath:
         assert data["temperature"] == pytest.approx(12.0)  # noon value, not another hour
         assert data["codes_status"] == "estimate"
         assert data["codes_date"] == "2026-07-16"
-        assert data["weather_model"] == "gem_seamless"
+        assert data["weather_model"] == "eccc_gem_geomet"
         assert "cold-start estimate" in data["source"].lower()
         assert "Cold-start estimate" in data["message"]
         assert "6.0 mm in 24 h" in data["codes_label"]
@@ -398,7 +418,7 @@ class TestWeatherPath:
     def test_estimate_before_noon_uses_yesterdays_noon(self, client, monkeypatch):
         _fix_clock(monkeypatch, "2026-07-16T15:00:00Z")  # 08:00 LST (UTC-7)
         respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
-        respx.get(_OM_URL).mock(return_value=httpx.Response(200, json=_open_meteo("2026-07-15T19:00:00Z")))
+        _gem(monkeypatch, "2026-07-15T19:00:00Z")
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
         assert data["codes_date"] == "2026-07-15"
         assert data["temperature"] == pytest.approx(12.0)
@@ -410,12 +430,12 @@ class TestWeatherPath:
         off = _station(temp=-12.0, ffmc=None, dmc=None, dc=None, isi=None, bui=None, fwi=None,
                        rep_date="2026-11-20T12:00:00Z")
         respx.get(_WFS_URL).mock(return_value=_wfs_response([off]))
-        respx.get(_OM_URL).mock(return_value=httpx.Response(200, json=_open_meteo("2026-11-20T19:00:00Z")))
+        _gem(monkeypatch, "2026-11-20T19:00:00Z")
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
         assert data["temperature"] == pytest.approx(-12.0)
         assert data["codes_status"] == "estimate"
         assert data["station_name"] == "TEST STATION"
-        assert "(weather) + Open-Meteo GEM (gem_seamless)" in data["source"]
+        assert "(weather) + ECCC GEM (GeoMet)" in data["source"]
         assert "off-season" in data["message"]
 
     @respx.mock
@@ -423,8 +443,105 @@ class TestWeatherPath:
         """If GEM has no value for a needed variable the response says so (no silent fallback)."""
         _fix_clock(monkeypatch, "2026-07-16T21:00:00Z")
         respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
-        respx.get(_OM_URL).mock(return_value=httpx.Response(
-            200, json=_open_meteo("2026-07-16T19:00:00Z", missing="relative_humidity_2m")))
+        _gem(monkeypatch, "2026-07-16T19:00:00Z", missing="relative_humidity_2m")
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
         assert data["available"] is False
         assert "has no relative_humidity_2m" in data["message"]
+
+    @respx.mock
+    def test_rain_window_beyond_geomet_is_reported(self, client, monkeypatch):
+        """Hours of the 24 h rain window older than the runs GeoMet keeps: said, not filled."""
+        _fix_clock(monkeypatch, "2026-07-16T18:30:00Z")  # 11:30 LST: yesterday's noon, 23.5 h ago
+        respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
+        _gem(monkeypatch, "2026-07-15T19:00:00Z", uncovered_before="2026-07-15T00:00:00Z")
+        data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
+        assert data["available"] is False
+        assert "has no precipitation for 4 of the 24 h to noon LST 2026-07-15" in data["message"]
+        assert "FWI codes are unavailable until noon LST has passed" in data["message"]
+
+    @staticmethod
+    def _pyra_gem_file(lat: float, lng: float, start: str, n: int, rain: float = 0.5) -> dict:
+        """Pyra data/gem/ab.json with one station: T 3, RH 60, wind 10 from 250, ``rain`` mm/h."""
+        st = {"lat": lat, "lon": lng, "temp": [3.0] * n, "rh": [60.0] * n, "wind": [10.0] * n,
+              "wdir": [250.0] * n, "rain": [rain] * n}
+        return {"schema": 1, "province": "ab", "generated": start, "start": start, "step_h": 1, "n": n,
+                "stations": {"Test Station AGCM": st}}
+
+    @respx.mock
+    def test_gap_window_uses_pyra_gem_file(self, client, monkeypatch):
+        """10:30 LST (17:30 UTC), the daily ~16-19 UTC gap: GeoMet lacks the oldest rain hours, so the
+        cold start uses the nearest station of Pyra's GEM file (48 h of history), labelled."""
+        from firesim_api.services import pyra as pyra_source
+        _fix_clock(monkeypatch, "2026-07-16T17:30:00Z")
+        respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
+        _gem(monkeypatch, "2026-07-15T19:00:00Z", uncovered_before="2026-07-15T00:00:00Z")
+        respx.get(pyra_source.GEM_FILE_URLS[0]).mock(return_value=httpx.Response(
+            200, json=self._pyra_gem_file(53.60, -113.50, "2026-07-14T17:00:00Z", 289)))
+        data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
+        expected = FWICalculator(85.0, 6.0, 15.0).calculate_daily(temp=3.0, rh=60.0, wind=10.0, rain=12.0, month=7)
+        assert data["available"] is True and data["codes_status"] == "estimate"
+        assert data["codes_date"] == "2026-07-15"
+        assert data["ffmc"] == pytest.approx(expected.ffmc)
+        assert "Pyra's GEM series for Test Station AGCM (11 km" in data["codes_label"]
+        assert "GeoMet no longer holds these hours at the point" in data["codes_label"]
+
+    @respx.mock
+    def test_gap_window_without_pyra_station_is_plainly_unavailable(self, client, monkeypatch):
+        """Same window, Pyra's nearest station is > 50 km away: no codes, a plain reason."""
+        from firesim_api.services import pyra as pyra_source
+        _fix_clock(monkeypatch, "2026-07-16T17:30:00Z")
+        respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
+        _gem(monkeypatch, "2026-07-15T19:00:00Z", uncovered_before="2026-07-15T00:00:00Z")
+        respx.get(pyra_source.GEM_FILE_URLS[0]).mock(return_value=httpx.Response(
+            200, json=self._pyra_gem_file(55.0, -113.50, "2026-07-14T17:00:00Z", 289)))
+        data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
+        assert data["available"] is False
+        assert "no Pyra GEM series within 50 km covers it either" in data["message"]
+
+    @respx.mock
+    def test_after_noon_lst_geomet_covers_the_window(self, client, monkeypatch):
+        """At 19:30 UTC today's noon window is recent: GeoMet alone, no Pyra file needed."""
+        _fix_clock(monkeypatch, "2026-07-16T19:30:00Z")
+        respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
+        _gem(monkeypatch, "2026-07-16T19:00:00Z", uncovered_before="2026-07-15T00:00:00Z")
+        data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
+        assert data["available"] is True and data["codes_date"] == "2026-07-16"
+        assert "Pyra" not in data["codes_label"]
+
+
+class TestHourlyRoute:
+    def test_hourly_window_and_shape(self, client, monkeypatch):
+        calls = _gem(monkeypatch, "2026-07-16T19:00:00Z")
+        r = client.get("/api/v1/weather/hourly?lat=53.5&lng=-113.5"
+                       "&start=2026-07-16T17:30:00Z&end=2026-07-16T20:00:00-00:00")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["available"] is True
+        assert d["hourly"]["time"] == ["2026-07-16T17:00", "2026-07-16T18:00", "2026-07-16T19:00",
+                                       "2026-07-16T20:00"]
+        assert d["hourly"]["temperature_2m"][2] == 12.0
+        assert d["weather_model"] == "eccc_gem_geomet"
+        assert "Environment and Climate Change Canada" in d["attribution"]
+        assert calls[0][0].isoformat() == "2026-07-16T17:30:00+00:00"
+
+    def test_hourly_reports_uncovered_hours(self, client, monkeypatch):
+        _gem(monkeypatch, "2026-07-16T19:00:00Z", uncovered_before="2026-07-16T18:00:00Z")
+        d = client.get("/api/v1/weather/hourly?lat=53.5&lng=-113.5"
+                       "&start=2026-07-16T16:00:00Z&end=2026-07-16T19:00:00Z").json()
+        assert d["hourly"]["temperature_2m"][:2] == [None, None]
+        assert "2 h not covered" in d["message"]
+
+    def test_hourly_geomet_down(self, client, monkeypatch):
+        _gem(monkeypatch, None)
+        d = client.get("/api/v1/weather/hourly?lat=53.5&lng=-113.5"
+                       "&start=2026-07-16T16:00:00Z&end=2026-07-16T19:00:00Z").json()
+        assert d["available"] is False and d["hourly"] is None
+
+    @pytest.mark.parametrize("q", [
+        "start=2026-07-16T16:00:00&end=2026-07-16T19:00:00Z",        # no offset
+        "start=2026-07-16T19:00:00Z&end=2026-07-16T16:00:00Z",       # reversed
+        "start=2026-07-01T00:00:00Z&end=2026-07-16T19:00:00Z",       # too long
+        "start=yesterday&end=2026-07-16T19:00:00Z",
+    ])
+    def test_hourly_rejects_bad_windows(self, client, q):
+        assert client.get(f"/api/v1/weather/hourly?lat=53.5&lng=-113.5&{q}").status_code == 422

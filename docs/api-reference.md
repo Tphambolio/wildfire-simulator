@@ -691,8 +691,11 @@ with its own FWI calculator (same equations, FFMC coefficient 147.2):
   10 km); the newer one, CWFIS first on a tie; at most 2 days old. Spring (March-June) DC ≤ 60 is
   raised to Pyra's regional floor.
 - **Before noon LST (Alberta fire-weather LST, 19 UTC; 13:00 MT from 2026-11-01):** the carry-over is stepped one day with the GEM noon-LST
-  forecast for today (Open-Meteo `models=gem_seamless`, the URL Pyra requests: noon temperature,
-  RH, 10 m wind, 24 h rain to noon). `codes_status` = `forecast`.
+  forecast for today (noon temperature, RH, 10 m wind, 24 h rain to noon) from Pyra's own GEM
+  series `data/gem/ab.json` (ECCC GEM via MSC GeoMet, the file Pyra's page reads since Pyra v150;
+  station within 1 km), else FireSim's GeoMet sample at the station (`pyra.notes` says so).
+  Before 2026-10-30 this was the Open-Meteo `gem_seamless` URL Pyra then requested.
+  `codes_status` = `forecast`.
 - **After noon LST:** a CWFIS station with codes → its codes as published (`today`, or
   `yesterday` until CWFIS publishes today's, as Pyra shows them); CWFIS with weather-only
   stations → carry-over stepped with that station's observation; CWFIS empty → carry-over
@@ -734,9 +737,13 @@ is the distance of the station actually used.
 - If the current layer is empty (it is refreshed around 19 UTC), the newest day of the archive
   layer `public:firewx_stns` at most two days old is used (`source` ends in `[archive layer]`).
 - If no station has codes (off-season) or CWFIS has nothing, the codes are a **cold-start
-  estimate**: one day from 85 / 6 / 15 with the Open-Meteo GEM forecast (`models=gem_seamless`)
-  at the latest noon LST and the noon-to-noon 24 h rain. Station weather is kept when present.
-  If GEM has no value for a needed variable, the message says which.
+  estimate**: one day from 85 / 6 / 15 with the ECCC GEM weather (MSC GeoMet, at the point; see
+  `docs/weather-geomet.md`) at the latest noon LST and the noon-to-noon 24 h rain. Station
+  weather is kept when present. If GeoMet no longer holds the oldest hours of the rain window
+  (about 16-19 UTC in Alberta), the nearest station's series in Pyra's `data/gem/ab.json`
+  within 50 km is used and named in `codes_label`; else no codes, with the reason. If GEM has
+  no value for a needed variable, the message says which. (Open-Meteo `gem_seamless` before
+  2026-10-30.)
 - `temperature` may be negative (before 2026-10-10 sub-zero values were dropped).
 
 Fields added 2026-10-10 (all optional, `null` when not applicable):
@@ -746,7 +753,7 @@ Fields added 2026-10-10 (all optional, `null` when not applicable):
 | `codes_date` | Date (YYYY-MM-DD) whose noon-LST codes are returned (CWFIS `rep_date`, or the estimate's noon) |
 | `codes_status` | `today`, `yesterday`, `older` (station codes), `estimate` (cold-start estimate); Pyra tier also `forecast` (before noon LST, stepped with the noon forecast) and `stepped` (after noon LST, carried and stepped) |
 | `codes_label` | The same in words, e.g. "Yesterday's codes (as of noon LST 2026-10-09; today's are computed after noon LST)"; also appended to `message` |
-| `weather_model` | Open-Meteo model used for any value (`gem_seamless`), `null` for station data only |
+| `weather_model` | Model weather used for any value: `eccc_gem_geomet` (ECCC GEM via MSC GeoMet; `gem_seamless` = Open-Meteo before 2026-10-30), `null` for station data only |
 | `source_tier` | `pyra`, `cwfis`, `cwfis_archive` or `gem_estimate` (`null` when unavailable); added with the Pyra tier |
 | `pyra` | Pyra tier details (above) |
 
@@ -759,6 +766,38 @@ Quebec, Newfoundland and Labrador, Nunavut) the nearest CWFIS station's value
 2026-11-01, and the daily observation stays at 19 UTC (13:00 MT) unless
 `FIRESIM_AB_FWI_LST_OFFSET_H=6` (18 UTC) is set; before 2026-11-01 it is always 19 UTC
 (`services/alberta_time.py`; report "Alberta permanent UTC-6 switch 2026-10-18").
+
+### GET /api/v1/weather/hourly?lat=&lng=&start=&end=
+
+Hourly ECCC GEM model weather at a point, read from MSC GeoMet (HRDPS 2.5 km → RDPS 10 km →
+GDPS 15 km; past hours from earlier runs' short leads; `api/.../services/geomet.py`,
+`docs/weather-geomet.md`). Added 2026-10-30; the frontend's hourly forecast / hindcast stream
+(it called Open-Meteo directly before).
+
+- `start`, `end`: ISO 8601 times **with an offset** (e.g. `2026-10-30T14:00:00Z`), floored to the
+  UTC hour; `end` inclusive; at most 300 hours. 422 otherwise.
+- Coverage: about 1.5-2 days before now (the runs GeoMet keeps) to +240 h; other hours are
+  `null`.
+
+```json
+{"lat": 53.55, "lng": -113.5, "available": true,
+ "message": "25 of 25 h from ECCC GEM (MSC GeoMet: HRDPS 2.5 km → RDPS 10 km → GDPS 15 km) (h8H17)",
+ "hourly": {"time": ["2026-10-29T23:00", "..."], "temperature_2m": [-1.8], "relative_humidity_2m": [77.0],
+            "wind_speed_10m": [5.0], "wind_direction_10m": [170.0], "precipitation": [0.0]},
+ "src": "hhhhhhhhHHHH…", "src_legend": {"H": "HRDPS 2.5 km, newest run", "...": "..."},
+ "model_runs": {"hrdps": "2026-10-30T06:00:00Z", "rdps": "2026-10-30T06:00:00Z", "gdps": "2026-10-30T00:00:00Z"},
+ "weather_model": "eccc_gem_geomet", "source": "ECCC GEM (MSC GeoMet: …)",
+ "attribution": "Data Source: Environment and Climate Change Canada",
+ "licence_url": "https://eccc-msc.github.io/open-data/licence/readme_en/"}
+```
+
+| Field | Meaning |
+|---|---|
+| `hourly` | One entry per UTC hour stamp `YYYY-MM-DDTHH:00`: °C, %, km/h (10 m), degrees (from) at the stamp; `precipitation` = mm in the hour ending at the stamp |
+| `src` | One character per hour, the model run that supplied it: `H` HRDPS newest run, `h` HRDPS earlier run (lead 1-6 h), `r` RDPS earlier run, `b` GDPS earlier run (lead 1-12 h), `R` RDPS newest, `G` GDPS hourly, `g` GDPS 3-hourly interpolated, `-` none |
+| `model_runs` | Newest run of each model GeoMet listed |
+| `available` | `false` when GeoMet is unreachable or no hour is covered (`hourly` may then be `null`) |
+| `message` | Hours covered, run-length `src` summary, and how many hours no run covers |
 
 ### GET /api/v1/version
 
@@ -778,6 +817,69 @@ no scorecard. Nothing is computed: the response is the committed JSON (`schema_v
 `git_commit`, `engine_version`, `report`, `framing`, `fuel_grid`, `data`, `metrics[]` with `id`,
 `label`, `status`, `value`, `display`, `unit`, `ci95`, `ci95_derived`, `delta`, `comparators`,
 `reference`, `gloss`, `source{report, kind, file, path, sha256}`, `versions` for the ember tests).
+
+### Exercise packs: /api/v1/exercise (exercise mode PR2)
+
+Added 2026-10-30 (`docs/exercise-mode-spec.md` §5, §11; `routers/exercise.py`,
+`schemas/exercise.py`; owner decisions 2026-10-30). A **scenario pack** is one JSON file
+(schema `firesim.exercise.pack/1`) that describes a repeatable exercise. Example packs are public
+and ship in the repository (`data/exercise-packs/`); packs a facilitator stores are private to
+the server's facilitator passphrase and can be opened by their ID. There is no public pack
+library and no listing without the passphrase.
+
+**Facilitator passphrase:** header `X-FireSim-Exercise-Passphrase`, compared with the server's
+`FIRESIM_EXERCISE_PASSPHRASE` exactly as the saved-runs passphrase (SHA-256 digests,
+`hmac.compare_digest`, never logged; per-IP backoff, 5 free failures then 2, 4, 8 ... s, at most
+300 s, answered **429** with `Retry-After`). It is a separate secret with its own failure count:
+the saved-runs passphrase does not open exercise packs and the reverse. One passphrase per
+server. Unset → **403** on every gated endpoint; missing or wrong → **401**.
+
+| Method | Path | Passphrase | Answer |
+|---|---|---|---|
+| GET | `/api/v1/exercise/examples` | no | `{"packs": [<pack>, ...]}`: the repository's example packs, in full |
+| GET | `/api/v1/exercise/packs` | yes | `{"packs": [{"id", "title", "startIso", "durationHours", "sources", "createdAt"}], "total"}`, newest first |
+| POST | `/api/v1/exercise/packs` | yes | Body: the pack file (≤ 2 MB). **201** `{"id", "createdAt", "pack"}`; the server gives every stored pack a new 32-hex ID (an `id` in the body is replaced, so posting a stored pack again makes a copy). **413** over 2 MB; **422** not a valid pack (Pydantic error list) |
+| GET | `/api/v1/exercise/packs/{id}` | no | The stored pack. **404** `"Pack not found"` for an unknown or malformed ID (only 32 lowercase hex characters are IDs). Unknown IDs count toward the per-IP probe backoff of `/simulations/{id}` (20 free, then **429**) |
+| DELETE | `/api/v1/exercise/packs/{id}` | yes | `{"id", "deleted": true}`; 404 unknown |
+
+**409** on the stored-pack endpoints when the run archive is off (packs are stored in it).
+
+**Storage and retention.** The pack JSON is stored in the run archive's object store at
+`exercise/packs/<id>.json` (local backend: `<FIRESIM_ARCHIVE_DIR>/exercise/packs/`; s3: the same
+bucket, `exercise/packs/` beside the `runs/` prefix), with a row in the archive index's table
+`exercise_packs`. Packs are exempt from age and byte pruning (owner decision 2026-10-30): they
+are removed only by `DELETE`.
+
+**Pack fields** (camelCase; unknown fields are rejected everywhere, so a pack cannot carry an
+evacuation tier, an address or any other field the format does not define):
+
+| Field | Type, rule |
+|---|---|
+| `schema` | `"firesim.exercise.pack/1"` |
+| `id` | `[A-Za-z0-9_-]{1,64}` in a file (examples: `example-…`); a 32-hex ID once stored |
+| `marking` | always `"EXERCISE"` |
+| `title`, `summary` | ≤ 80 / ≤ 500 characters, plain text |
+| `sources[]`, `caveats[]` | 1-30 / 0-20 strings ≤ 300: open-data sources with licences; stated limits |
+| `startIso` | ISO 8601 with a UTC offset (required offset) |
+| `durationHours` | > 0, ≤ 72 |
+| `forecastHorizonHours` | default 36, ≤ 72 (players' forecast cut-off, PR4) |
+| `autoRun` | default `false` (the facilitator presses Run after the pre-brief; the app does not act on `true` yet) |
+| `ignitions[]` | `{lat, lng, hoursFromStart}`; at least one at 0; later ones are scheduled as spot-fire injects |
+| `weatherScript[]` | truth steps `{hoursFromStart, windSpeedKmh (0-100), windDirectionDeg (from, 0-<360), temperatureC (-40-50), relativeHumidityPct (1-100), precipitation24hMm, precipitationMmH}`; first at 0, strictly increasing, before the end. `precipitation24hMm` is read on the first step (24 h rain before the start), `precipitationMmH` on later steps |
+| `playerForecast[]` | optional, same rules (the players' forecast; omitted = the script) |
+| `startingCodes` | `{ffmc (0-101), dmc, dc}`, each nullable |
+| `grassCuringPct` | optional 0-100; null = the app's date-aware default |
+| `fuel` | `{source: "city_lidar" \| "ab_wildfire" \| "uniform", uniformFuelType}` (one of the 18 FBP types, only for `uniform`) |
+| `periods[]` | `{number, startIso, endIso}`, numbered 1, 2, 3 ..., ascending, not overlapping, inside the exercise |
+| `scheduledInjects[]` | ≤ 200 `{id, kind, hoursFromStart, title, payload}`; `kind` ∈ `perimeter`, `spot_fire`, `wind_shift`, `resource`, `note` and equal to `payload.kind`. Payloads: perimeter `{perimeterSource: "truth_run" \| "drawn", perimeterGeojson (Polygon/MultiPolygon, required when drawn), activeEdges}`; spot_fire `{lat, lng}`; wind_shift `{windSpeedKmh, windDirectionDeg, hiddenFromForecast}`; resource / note `{text ≤ 500}` |
+| `placeAliases[]` | `{place, shownAs}`: a community shown under another name in this exercise (e.g. a fictional name on real geography) |
+| `prePlacedAssets` | optional GeoJSON FeatureCollection, ≤ 500 features |
+| `notesForFacilitator` | ≤ 5000 characters |
+
+The app (exercise mode, Setup → Scenario pack) maps a pack to Setup: a pack of ≤ 24 h runs as a
+single run with the later script steps as `weather_schedule`; a longer one as a multi-day run
+whose days take the step in force at each day's start (stated on the panel). No live forecast
+weather is used in an exercise.
 
 ## Perimeter format
 

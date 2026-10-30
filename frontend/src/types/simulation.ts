@@ -527,7 +527,7 @@ export interface CurrentWeather {
   codes_status?: "today" | "yesterday" | "older" | "estimate" | "forecast" | "stepped" | null;
   /** Age of the codes in words (also in `message`) */
   codes_label?: string | null;
-  /** Open-Meteo model used for any value (null = station data only) */
+  /** Model weather used for any value: "eccc_gem_geomet" (ECCC GEM via GeoMet; "gem_seamless" = Open-Meteo before 2026-10-30), null = station data only */
   weather_model?: string | null;
   /** Tier that answered: "pyra" | "cwfis" | "cwfis_archive" | "gem_estimate" (null = unavailable) */
   source_tier?: "pyra" | "cwfis" | "cwfis_archive" | "gem_estimate" | null;

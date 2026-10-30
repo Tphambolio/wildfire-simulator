@@ -9,7 +9,7 @@
  */
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { mockApi } from "./mockApi";
+import { hourlyWeatherBody, mockApi } from "./mockApi";
 import { openApp, runButton } from "./app";
 
 const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00[-+]\d{2}:\d{2}$/;
@@ -153,9 +153,9 @@ test.describe("ignition and start time", () => {
 
   test("hourly forecast is taken from the scenario start, not from now", async ({ page }) => {
     const api = await mockApi(page);
-    // Open-Meteo: 3 days of hours around the start, temperature = UTC hour of day
+    // Model weather (/api/v1/weather/hourly): 3 days of hours around the start, temperature = UTC hour of day
     const forecastUrls: string[] = [];
-    await page.route(/api\.open-meteo\.com/, (route) => {
+    await page.route(/\/api\/v1\/weather\/hourly/, (route) => {
       forecastUrls.push(route.request().url());
       const t0 = Date.UTC(2026, 6, 14, 0);
       const time: string[] = [];
@@ -168,16 +168,14 @@ test.describe("ignition and start time", () => {
       const n = time.length;
       return route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({
-          hourly: {
+        body: hourlyWeatherBody({
             time,
             temperature_2m: temp,
             relative_humidity_2m: Array(n).fill(30),
             wind_speed_10m: Array(n).fill(20),
             wind_direction_10m: Array(n).fill(270),
             precipitation: Array(n).fill(0),
-          },
-        }),
+          }),
       });
     });
     await openApp(page);

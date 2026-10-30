@@ -78,12 +78,12 @@ export const TIPS = {
     "Start at the current time. Follows the clock until you set a date or time. The timeline and " +
     "Situation times count from the start (America/Edmonton).",
   hindcast:
-    "The start is in the past, so the hourly forecast is used as a hindcast (Open-Meteo keeps one " +
-    "past day).",
+    "The start is in the past, so the hourly model weather is a hindcast: short-lead forecasts " +
+    "of earlier ECCC GEM runs. GeoMet keeps about 1.5-2 days of runs; older hours are not available.",
 
   // ── Setup: 2 Weather & FWI ──
   hourlyForecast:
-    "Wind, temperature, RH and rain change hour by hour (Open-Meteo forecast for the ignition " +
+    "Wind, temperature, RH and rain change hour by hour (ECCC GEM forecast for the ignition " +
     "point); FFMC follows the hourly FFMC model from the FFMC above.",
   weatherSchedule:
     "Optional step changes during this run, e.g. 47 km/h from the start, then 20 km/h from " +

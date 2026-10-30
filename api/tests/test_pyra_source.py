@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 
 from firesim_api.main import create_app
 from firesim_api.routers import weather as weather_router
+from firesim_api.services import geomet
 from firesim_api.services import pyra as pyra_source
 from firesim_api.services.pyra_stations import ALBERTA_STATIONS, PYRA_COMMIT
 
@@ -107,14 +108,28 @@ def _prev_payload(case: dict) -> dict | None:
     return prev
 
 
-def _gem_handler(case: dict):
-    def handler(request: httpx.Request) -> httpx.Response:
-        p = request.url.params
-        if p.get("past_days") != "1" or p.get("forecast_days") != "2":
-            return httpx.Response(404)
-        payload = FX["gem_sets"].get(case["gem"], {}).get(f"{p.get('latitude')},{p.get('longitude')}")
-        return httpx.Response(200, json=payload) if payload else httpx.Response(404)
-    return handler
+def _gem_file(case: dict) -> dict | None:
+    """Pyra's ``data/gem/ab.json`` (schema 1) holding the fixture's GEM payloads.
+
+    The fixture recorded the 72 h Open-Meteo payloads (00 UTC yesterday, ``past_days=1``,
+    ``forecast_days=2``) Pyra requested per station before Pyra v150; Pyra now reads the same
+    window from its GEM file, so the file built here gives FireSim exactly the inputs Pyra's
+    engine got in ``run_pyra_parity.mjs``."""
+    sets = FX["gem_sets"].get(case["gem"], {})
+    if not sets:
+        return None
+    stations, start, n = {}, None, None
+    for key, payload in sets.items():
+        lat, lng = (float(x) for x in key.split(","))
+        h = payload["hourly"]
+        start = start or h["time"][0] + ":00Z"
+        n = n or len(h["time"])
+        assert h["time"][0] + ":00Z" == start and len(h["time"]) == n
+        stations[key] = {"lat": lat, "lon": lng, "temp": h["temperature_2m"],
+                         "rh": h["relative_humidity_2m"], "wind": h["wind_speed_10m"],
+                         "wdir": h["wind_direction_10m"], "rain": h["precipitation"]}
+    return {"schema": 1, "province": "ab", "generated": case["now"], "start": start, "step_h": 1,
+            "n": n, "stations": stations}
 
 
 def _mock_inputs(case: dict) -> None:
@@ -123,7 +138,12 @@ def _mock_inputs(case: dict) -> None:
         return_value=httpx.Response(200, json=prev) if prev else httpx.Response(500))
     respx.get(pyra_source.PREV_URLS[1]).mock(return_value=httpx.Response(404))
     respx.get(url__startswith=pyra_source.CWFIS_URL).mock(side_effect=_cwfis_handler(case))
-    respx.get(url__startswith=pyra_source.OPEN_METEO_URL).mock(side_effect=_gem_handler(case))
+    gem = _gem_file(case)
+    respx.get(pyra_source.GEM_FILE_URLS[0]).mock(
+        return_value=httpx.Response(200, json=gem) if gem else httpx.Response(404))
+    respx.get(pyra_source.GEM_FILE_URLS[1]).mock(return_value=httpx.Response(404))
+    # FireSim's own GeoMet fallback: down in these tests unless a test mocks it
+    respx.get(url__startswith=geomet.GEOMET_URL).mock(return_value=httpx.Response(503))
 
 
 # ── Parity with Pyra's engine ──────────────────────────────────────────────────
@@ -208,7 +228,7 @@ def test_labels_before_noon_as_pyra_does(client, monkeypatch):
     assert d["codes_date"] == "2026-10-10"
     assert "Noon LST Forecast · today (pre-noon)" in d["codes_label"]
     assert "from the Oct 9 chain" in d["codes_label"]
-    assert d["weather_model"] == "gem_seamless"
+    assert d["weather_model"] == "eccc_gem_geomet"
     assert d["pyra"]["step"] == "gem_noon_forecast"
     assert d["pyra"]["page_url"].endswith("station_detail/code.html?stn=Edmonton%20Blatchford")
     assert d["pyra"]["pyra_commit"] == PYRA_COMMIT
@@ -237,7 +257,7 @@ def test_everything_down_falls_back(client, monkeypatch):
 @respx.mock
 def test_gem_down_falls_back(client, monkeypatch):
     _fix_clock(monkeypatch, BASE["now"])
-    _mock_inputs({**BASE, "gem": "none"})          # Open-Meteo answers 404
+    _mock_inputs({**BASE, "gem": "none"})          # no GEM file, GeoMet down
     d = client.get(f"/api/v1/weather/current?lat={BASE['lat']}&lng={BASE['lng']}").json()
     assert d["source_tier"] != "pyra"
     assert "GEM forecast unavailable" in d["message"]
@@ -311,12 +331,38 @@ def test_dc_floor_spring_only():
     assert pyra_source.apply_dc_floor(120.0, 53.567, -113.517, may) == (120.0, False)
 
 
-def test_gem_url_is_pyras():
-    assert pyra_source.gem_url(53.567, -113.517) == (
-        "https://api.open-meteo.com/v1/forecast?latitude=53.567&longitude=-113.517"
-        "&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,"
-        "thunderstorm_probability&past_days=1&forecast_days=2&timezone=UTC&models=gem_seamless")
-    assert pyra_source.gem_url(56.65, -111.0) == (
-        "https://api.open-meteo.com/v1/forecast?latitude=56.65&longitude=-111"
-        "&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,"
-        "thunderstorm_probability&past_days=1&forecast_days=2&timezone=UTC&models=gem_seamless")
+def test_gem_file_window_is_pyras():
+    """72 h from 00 UTC yesterday at the stored point within 1 km (Pyra core/gem.js windowOf)."""
+    start = "2026-10-09T00:00:00Z"
+    f = {"generated": "2026-10-10T12:00:00Z", "start": start, "step_h": 1, "n": 96,
+         "stations": {"A": {"lat": 53.567, "lon": -113.517, "temp": list(range(96)), "rh": [50] * 96,
+                            "wind": [10] * 96, "wdir": [270] * 96, "rain": [0.1] * 96},
+                      "B": {"alias": "A"}}}
+    now = datetime.fromisoformat("2026-10-10T15:00:00+00:00")
+    h = pyra_source.gem_from_file(f, 53.567, -113.517, now)
+    assert h["time"][0] == "2026-10-09T00:00" and len(h["time"]) == 72
+    assert h["temperature_2m"][0] == 0 and h["temperature_2m"][71] == 71
+    assert h["_source"] == "pyra_gem_file"
+    assert pyra_source.gem_from_file(f, 53.6, -113.517, now) is None          # 3.7 km away
+    late = datetime.fromisoformat("2026-10-12T05:00:00+00:00")                 # file 41 h old
+    h2 = pyra_source.gem_from_file(f, 53.567, -113.517, late)
+    assert h2["_source"] == "pyra_gem_file_stale"
+    assert h2["temperature_2m"][-1] is None                                   # beyond the file
+
+
+@respx.mock
+def test_geomet_used_when_station_missing_from_file(client, monkeypatch):
+    """No GEM file: the station's weather comes from FireSim's GeoMet point sample, noted."""
+    _fix_clock(monkeypatch, BASE["now"])
+    _mock_inputs({**BASE, "gem": "none"})
+    payload = next(iter(FX["gem_sets"][BASE["gem"]].values()))
+
+    async def fake_hourly(lat, lng, start, end, client=None):
+        h = {k: list(v) for k, v in payload["hourly"].items()}
+        h.update(src="H" * len(h["time"]), model_runs={}, requests=0, failed=0)
+        return h
+
+    monkeypatch.setattr(geomet, "hourly", fake_hourly)
+    d = client.get(f"/api/v1/weather/current?lat={BASE['lat']}&lng={BASE['lng']}").json()
+    assert d["source_tier"] == "pyra"
+    assert any("GeoMet point sample" in n for n in d["pyra"]["notes"])

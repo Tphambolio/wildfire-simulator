@@ -21,6 +21,7 @@ export default function ExerciseBanner({ state, onTogglePlay, onSetRate, onNextP
   if (!state.enabled || state.exerciseMs === null || state.startMs === null || state.endMs === null) return null;
   const t = new Date(state.exerciseMs);
   const elapsedH = (state.exerciseMs - state.startMs) / 3_600_000;
+  const spanH = (state.endMs - state.startMs) / 3_600_000;
   const atEnd = state.exerciseMs >= state.endMs;
   const playing = state.mode === "playing";
   const nextLabel = state.periodBoundariesMs.some((b) => b > (state.exerciseMs as number)) ? "Next period" : "End";
@@ -35,6 +36,9 @@ export default function ExerciseBanner({ state, onTogglePlay, onSetRate, onNextP
         </span>
         <span className="exercise-time-date">{formatDate(t)}</span>
         <span className="exercise-time-elapsed">{formatElapsed(elapsedH)}</span>
+        <span className="exercise-time-span" data-testid="exercise-span" title="Length of the exercise (the clock's span)">
+          of {formatSpan(spanH)}
+        </span>
         <span className={`exercise-state${playing ? " playing" : ""}`}>{playing ? `Running ${state.rate}×` : atEnd ? "At end" : "Paused"}</span>
       </span>
       <span className="exercise-controls" role="group" aria-label="Exercise clock controls">
@@ -64,4 +68,12 @@ export default function ExerciseBanner({ state, onTogglePlay, onSetRate, onNextP
       </span>
     </div>
   );
+}
+
+/** The clock's span: "24 h", "36 h", "4 h 30 min" */
+export function formatSpan(hours: number): string {
+  const m = Math.round(hours * 60);
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h} h ${r} min` : `${h} h`;
 }

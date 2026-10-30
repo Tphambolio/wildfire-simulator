@@ -4,7 +4,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent,
 import { createPortal } from "react-dom";
 import type { SimulationCreate, MultiDaySimulationCreate, MultiDayWeatherParams, WeatherParams, FWIOverrides, BurnProbabilityRequest, ScenarioConfig, FuelModifiers, WeatherChange } from "../types/simulation";
 import { FUEL_TYPES } from "../types/simulation";
-import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast, FORECAST_MODEL_LABEL } from "../services/api";
+import { fetchCurrentWeather, calculateFWI, fetchHourlyForecast, FORECAST_MODEL_LABEL, forecastSourceNote, type ForecastSourceInfo } from "../services/api";
 import { isPyraSource } from "../utils/weatherSource";
 import MultiDayPanel from "./MultiDayPanel";
 import SetupSection from "./SetupSection";
@@ -831,13 +831,18 @@ function WeatherPanel({
       try {
         // Forecast hours aligned to the scenario start, not to now (design spec §2.3); with
         // the spin-up, also the hours from 17:00 before the start
+        let srcInfo: ForecastSourceInfo | null = null;
         hourly = await fetchHourlyForecast(
           ignitionPoint.lat, ignitionPoint.lng, durationHours, atMs,
           spinWanted ? spinupFromMs(atMs) : undefined,
+          (info) => { srcInfo = info; },
         );
         const at = new Date(atMs);
         const nRun = hourly.filter((r) => r.hours_from_start > -1).length;
-        setWeatherMessage(`Hourly forecast: ${nRun} h from ${FORECAST_MODEL_LABEL}, from ${formatClock(at)} ${zoneAbbrev(at)}`);
+        setWeatherMessage(
+          `Hourly forecast: ${nRun} h from ${FORECAST_MODEL_LABEL}, from ${formatClock(at)} ${zoneAbbrev(at)}` +
+          forecastSourceNote(srcInfo),
+        );
       } catch (err) {
         setWeatherMessage(`Hourly forecast unavailable (${(err as Error).message}); using constant weather`);
       }

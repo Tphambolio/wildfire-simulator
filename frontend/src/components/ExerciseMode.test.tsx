@@ -8,6 +8,7 @@ import TopBar from "./TopBar";
 import TimeSlider from "./TimeSlider";
 import ExerciseBanner from "./ExerciseBanner";
 import InjectLogPanel from "./InjectLogPanel";
+import ExercisePackPanel from "./ExercisePackPanel";
 import { EXERCISE_CLOCK_OFF, exerciseClockReducer } from "../exercise/clock";
 import { EMPTY_INJECT_LOG, addInject } from "../exercise/injects";
 
@@ -92,6 +93,36 @@ describe("ExerciseBanner", () => {
     expect(onNextPeriod).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Play exercise clock" }));
     expect(onTogglePlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the clock's span (a loaded pack's duration)", () => {
+    const at = (h: number) => exerciseClockReducer(EXERCISE_CLOCK_OFF, { type: "enable", startMs: START, endMs: START + h * H });
+    const { rerender } = render(<ExerciseBanner state={at(24)} onTogglePlay={() => {}} onSetRate={() => {}} onNextPeriod={() => {}} onExit={() => {}} />);
+    expect(screen.getByTestId("exercise-span")).toHaveTextContent("of 24 h");
+    rerender(<ExerciseBanner state={at(4.5)} onTogglePlay={() => {}} onSetRate={() => {}} onNextPeriod={() => {}} onExit={() => {}} />);
+    expect(screen.getByTestId("exercise-span")).toHaveTextContent("of 4 h 30 min");
+  });
+});
+
+describe("ExercisePackPanel", () => {
+  it("lists the example packs, loads one, and marks everything EXERCISE", async () => {
+    const pack = { schema: "firesim.exercise.pack/1", id: "example-x", marking: "EXERCISE", title: "EXERCISE: Test pack",
+      sources: ["Open data (OGL)"], startIso: "2026-07-15T14:00:00-06:00", durationHours: 24,
+      ignitions: [{ lat: 53.46, lng: -113.66, hoursFromStart: 0 }],
+      weatherScript: [{ hoursFromStart: 0, windSpeedKmh: 20, windDirectionDeg: 225, temperatureC: 25, relativeHumidityPct: 30, precipitation24hMm: 0 }],
+      startingCodes: { ffmc: 92, dmc: 40, dc: 300 }, fuel: { source: "city_lidar" },
+      periods: [{ number: 1, startIso: "2026-07-15T14:00:00-06:00", endIso: "2026-07-16T02:00:00-06:00" }], scheduledInjects: [] };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ packs: [pack] }), { status: 200 }));
+    const onLoad = vi.fn();
+    try {
+      render(<ExercisePackPanel loaded={null} notes={[]} onLoad={onLoad} onUnload={() => {}} />);
+      expect(screen.getByText("EXERCISE")).toBeInTheDocument();
+      fireEvent.click(await screen.findByRole("button", { name: "Load pack EXERCISE: Test pack" }));
+      expect(onLoad).toHaveBeenCalledWith(pack);
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/exercise/examples");
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 });
 
