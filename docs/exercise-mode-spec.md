@@ -191,18 +191,22 @@ confirmed by the owner before they ship, and neither claims to be a prediction):
 
 Both packs are open data by default (§13 Q3). Neither includes any SFOC number or condition.
 
-**As built (PR2, 2026-10-30).** The packs carry the values the owner fixed on 2026-10-30
-(Terwillegar: ignition 53.4606 N 113.6596 W, the E2E fixture point, not the 53.468 N 113.617 W
-above; 15 July 14:00 MDT; 24 h in 2 × 12 h periods from the start; Ridgewater: 5 May 13:00 MDT;
-36 h in 3 × 12 h periods; ignition chosen by rule from the Alberta grid, see the PR2 record).
-PR2 checked the weather and codes against observed CWFIS and ECCC station history and flagged
-the values outside the observed record for the owner instead of changing them
-([`PROJECT_RECORD.md`](PROJECT_RECORD.md) §6). Perimeter injects in the packs use the truth run's
-own perimeter at the inject time (`perimeterSource: "truth_run"`, delivered from PR3) rather than
-a hand-drawn polygon. A pack longer than 24 h runs as a multi-day run, which holds one weather
-per day: the Ridgewater T+20 h shift reaches the model at T+24 h unless a restart carries it
-earlier (stated on the pack and the panel). The pack format is documented in
-[`api-reference.md`](api-reference.md) ("Exercise packs").
+**As built (PR2, 2026-10-30).** The packs carry the owner's 2026-10-30 values as revised the
+same day after a climatology check against observed CWFIS and ECCC station history
+([`PROJECT_RECORD.md`](PROJECT_RECORD.md) §3, §6). Terwillegar: ignition 53.4606 N 113.6596 W (the
+E2E fixture point, not the 53.468 N 113.617 W above); **15 May** 14:00 MDT (moved from July: 80 %
+grass curing is observed in mid-May, not mid-July); 24 h in three periods on 08:00/20:00
+boundaries (14:00-20:00, 20:00-08:00, 08:00-14:00); FFMC/DMC/DC 92/40/300; SW 20 km/h rising to
+35 km/h at T+3 h with 25 °C and 30 % RH. Ridgewater: 5 May 13:00 MDT; 36 h in 3 × 12 h periods;
+the hidden wind shift to NW 30 km/h and 20 % RH at **T+24 h (13:00 on day 2)**, spot fire T+26 h,
+perimeter inject T+30 h (moved from T+20/22/26 h: dry strong NW wind is observed in the afternoon,
+not at 09:00); ignition chosen by rule from the Alberta grid (PR2 record). Perimeter injects use
+the truth run's own perimeter at the inject time (`perimeterSource: "truth_run"`, delivered from
+PR3; owner accepted 2026-10-30). A pack longer than 24 h runs as a multi-day run, which holds one
+weather per day; Ridgewater's shift now falls on the day boundary, so the model takes it at its
+scripted time. The facilitator passphrase `FIRESIM_EXERCISE_PASSPHRASE` is set on Fly by the
+owner after merge (until then the stored-pack endpoints answer 403). The pack format is
+documented in [`api-reference.md`](api-reference.md) ("Exercise packs").
 
 ---
 
@@ -472,7 +476,8 @@ by the decision. Questions 11-13 were owner calls in the body of the spec (§4, 
     **Decided:** timeline only (PR4).
 11. **Separate facilitator passphrase** (§11.4). **Decided:** a separate secret
     `FIRESIM_EXERCISE_PASSPHRASE`; unset = 403; same compare and backoff as the saved-runs one
-    (built in PR2). The owner sets it on Fly after merge.
+    (built in PR2). Travis sets `FIRESIM_EXERCISE_PASSPHRASE` on Fly (`flyctl secrets set`) after
+    merge; the value is not stored anywhere else.
 12. **Pack defaults** (§5, §7). **Decided:** as specified: forecast horizon 36 h (pack-settable),
     `autoRun` false, duration ≤ 72 h, packs ≤ 2 MB (built in PR2).
 13. **Leaving the flag** (§12 PR7). **Decided:** the flag stays until the first pilot exercise

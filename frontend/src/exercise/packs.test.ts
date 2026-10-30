@@ -23,7 +23,7 @@ describe("pack → Setup mapping", () => {
     const c = plan.config;
     expect(plan.ignition).toEqual({ lat: 53.4606, lng: -113.6596 });
     expect(c.ignitionPoint).toEqual(plan.ignition);
-    expect(c.startIso).toBe("2026-07-15T14:00:00-06:00");
+    expect(c.startIso).toBe("2026-05-15T14:00:00-06:00");
     expect(c.fwi).toEqual({ ffmc: 92, dmc: 40, dc: 300 });
     expect(c.grassCure).toBe(80);
     expect(c.weather).toEqual({ wind_speed: 20, wind_direction: 225, temperature: 25, relative_humidity: 30, precipitation_24h: 0 });
@@ -47,7 +47,7 @@ describe("pack → Setup mapping", () => {
     expect(plan.notes).toEqual([]);
   });
 
-  it("Ridgewater: 36 h runs as 2 days, day 2 takes the post-shift weather, and says so", () => {
+  it("Ridgewater: 36 h runs as 2 days; the T+24 h shift falls on the day boundary, so day 2 has it at its time", () => {
     const plan = packLoadPlan(ridgewater(), 2, NOW);
     const c = plan.config;
     expect(plan.ignition).toEqual({ lat: 55.2368, lng: -112.5389 });
@@ -61,7 +61,11 @@ describe("pack → Setup mapping", () => {
       { wind_speed: 30, wind_direction: 315, temperature: 22, relative_humidity: 20, precipitation_24h: 0 },
     ]);
     expect(plan.notes.join(" ")).toMatch(/2-day run/);
-    expect(plan.notes.join(" ")).toMatch(/T\+20:00 reaches the model at T\+24:00/);
+    expect(plan.notes.join(" ")).not.toMatch(/reaches the model/);
+    // a step inside a later day would be reported
+    const off = ridgewater();
+    off.weatherScript[1].hoursFromStart = 20;
+    expect(packLoadPlan(off).notes.join(" ")).toMatch(/T\+20:00 reaches the model at T\+24:00/);
   });
 
   it("uniform fuel turns the grid off and sets the fuel type", () => {
@@ -74,8 +78,8 @@ describe("pack → Setup mapping", () => {
 
   it("step lookup and rain over a span", () => {
     const s = ridgewater().weatherScript;
-    expect(stepAt(s, 19.99).windDirectionDeg).toBe(135);
-    expect(stepAt(s, 20).windDirectionDeg).toBe(315);
+    expect(stepAt(s, 23.99).windDirectionDeg).toBe(135);
+    expect(stepAt(s, 24).windDirectionDeg).toBe(315);
     const wet = [
       { ...s[0], precipitationMmH: 9 },
       { ...s[1], hoursFromStart: 10, precipitationMmH: 2 },
@@ -85,11 +89,11 @@ describe("pack → Setup mapping", () => {
 });
 
 describe("period boundaries and the clock span", () => {
-  it("Terwillegar: span 24 h, boundary at the period change", () => {
+  it("Terwillegar: span 24 h, boundaries at 20:00 and 08:00 (T+6 h, T+18 h)", () => {
     const c = packClock(terwillegar());
-    expect(c.startMs).toBe(Date.parse("2026-07-15T20:00:00Z"));
+    expect(c.startMs).toBe(Date.parse("2026-05-15T20:00:00Z"));
     expect(c.endMs - c.startMs).toBe(24 * H);
-    expect(c.boundaries).toEqual([Date.parse("2026-07-16T08:00:00Z")]);
+    expect(c.boundaries.map((b) => (b - c.startMs) / H)).toEqual([6, 18]);
   });
 
   it("Ridgewater: span 36 h, two inner boundaries every 12 h", () => {
@@ -100,8 +104,9 @@ describe("period boundaries and the clock span", () => {
 
   it("incident periods in Edmonton wall time (an end before the start is the next day)", () => {
     expect(packIncidentPeriods(terwillegar())).toEqual([
-      { day: 1, date: "2026-07-15", opPeriodStart: "14:00", opPeriodEnd: "02:00" },
-      { day: 2, date: "2026-07-16", opPeriodStart: "02:00", opPeriodEnd: "14:00" },
+      { day: 1, date: "2026-05-15", opPeriodStart: "14:00", opPeriodEnd: "20:00" },
+      { day: 2, date: "2026-05-15", opPeriodStart: "20:00", opPeriodEnd: "08:00" },
+      { day: 3, date: "2026-05-16", opPeriodStart: "08:00", opPeriodEnd: "14:00" },
     ]);
     expect(packIncidentPeriods(ridgewater()).map((p) => `${p.date} ${p.opPeriodStart}-${p.opPeriodEnd}`)).toEqual([
       "2026-05-05 13:00-01:00", "2026-05-06 01:00-13:00", "2026-05-06 13:00-01:00",
@@ -127,10 +132,10 @@ describe("scheduled injects", () => {
     const log = packInjectLog(ridgewater(), NOW);
     const start = Date.parse("2026-05-05T13:00:00-06:00");
     expect(log.injects.map((i) => [i.kind, (i.exerciseTimeMs - start) / H, i.status])).toEqual([
-      ["wind_shift", 20, "scheduled"], ["spot_fire", 22, "scheduled"], ["perimeter", 26, "scheduled"],
+      ["wind_shift", 24, "scheduled"], ["spot_fire", 26, "scheduled"], ["perimeter", 30, "scheduled"],
     ]);
     const per = log.injects[2].payload;
-    expect(per.kind === "perimeter" && per.observedAtIso).toBe("2026-05-06T15:00:00-06:00");
+    expect(per.kind === "perimeter" && per.observedAtIso).toBe("2026-05-06T19:00:00-06:00");
     expect(log.injects.every((i) => i.createdAtIso === NOW && i.deliveredAtMs === null)).toBe(true);
   });
 

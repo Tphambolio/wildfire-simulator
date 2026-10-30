@@ -14,9 +14,9 @@
  * period end falls inside it. The exercise clock measures the wall time that really passed
  * between ticks (spec §4), so `clock.fastForward` stands in for a minute of real playback.
  *
- * PR2 (scenario packs): loading the Terwillegar example pack sets Setup (start 15 Jul 14:00 MDT,
- * codes 92/40/300, the T+3 h wind rise as a weather change), opens an incident with its two
- * periods, sets the clock to the pack's 24 h span at its start and schedules its two injects;
+ * PR2 (scenario packs): loading the Terwillegar example pack sets Setup (start 15 May 14:00 MDT,
+ * codes 92/40/300, the T+3 h wind rise as a weather change), opens an incident with its three
+ * periods (08:00/20:00 boundaries), sets the clock to the pack's 24 h span at its start and schedules its two injects;
  * after Run (the mock replays the 4 h fixture) the banner's span is still the pack's 24 h.
  * Facilitator flow: the passphrase unlocks stored packs; save, list, open by ID, delete.
  */
@@ -156,7 +156,7 @@ test("PR2: load the Terwillegar pack, Run: Setup from the pack, banner span = pa
 
   // Loaded: the clock at the pack start, paused, over the pack's 24 h; injects scheduled
   await expect(page.getByTestId("exercise-pack-loaded")).toContainText(TERWILLEGAR);
-  await expect(page.getByTestId("exercise-pack-loaded")).toContainText("2 periods");
+  await expect(page.getByTestId("exercise-pack-loaded")).toContainText("3 periods");
   await expect(exerciseTime(page)).toContainText("14:00");
   await expect(page.getByTestId("exercise-span")).toHaveText("of 24 h");
   await expect(banner(page)).toContainText("Paused");
@@ -166,7 +166,7 @@ test("PR2: load the Terwillegar pack, Run: Setup from the pack, banner span = pa
   // Run: the request carries the pack's Setup
   await runToCompletion(page);
   const body = api.posts[api.posts.length - 1] as Record<string, unknown>;
-  expect(body.start_time).toBe("2026-07-15T14:00:00-06:00");
+  expect(body.start_time).toBe("2026-05-15T14:00:00-06:00");
   expect(body.ignition_lat).toBeCloseTo(53.4606, 4);
   expect(body.ignition_lng).toBeCloseTo(-113.6596, 4);
   expect(body.duration_hours).toBe(24);
@@ -180,10 +180,13 @@ test("PR2: load the Terwillegar pack, Run: Setup from the pack, banner span = pa
   // After the run (the mocked 4 h fixture) the span is still the pack's, not the run's
   await expect(page.getByTestId("exercise-span")).toHaveText("of 24 h");
   await expect(exerciseTime(page)).toContainText("14:00");
-  // Next period jumps to the pack's period change (02:00, T+12) and pauses
+  // Next period jumps to the pack's period changes (20:00, T+6; then 08:00, T+18) and pauses
   await banner(page).getByRole("button", { name: /Next period/ }).click();
-  await expect(exerciseTime(page)).toContainText("02:00");
-  await expect(banner(page)).toContainText("T+12:00");
+  await expect(exerciseTime(page)).toContainText("20:00");
+  await expect(banner(page)).toContainText("T+6:00");
+  await banner(page).getByRole("button", { name: /Next period/ }).click();
+  await expect(exerciseTime(page)).toContainText("08:00");
+  await expect(banner(page)).toContainText("T+18:00");
   await expect(page.getByTestId("exercise-span")).toHaveText("of 24 h");
 });
 

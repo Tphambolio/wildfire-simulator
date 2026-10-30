@@ -139,7 +139,7 @@ async def test_round_trip_list_get_delete(client, archive):
     rows = r.json()["packs"]
     assert r.json()["total"] == 1 and rows[0]["id"] == pid
     assert rows[0]["title"] == pack["title"] and rows[0]["durationHours"] == 24
-    assert rows[0]["startIso"] == "2026-07-15T14:00:00-06:00" and rows[0]["sources"] == pack["sources"]
+    assert rows[0]["startIso"] == "2026-05-15T14:00:00-06:00" and rows[0]["sources"] == pack["sources"]
     assert "weatherScript" not in rows[0]
     # a stored pack posted again is a new copy with another ID
     r2 = await client.post(URL, json=got, headers=H)
@@ -209,7 +209,7 @@ async def test_oversize_without_content_length_413(client, archive):
     lambda p: p["scheduledInjects"][0].update(kind="note"),     # payload kind mismatch
     lambda p: p["weatherScript"][0].update(hoursFromStart=1),   # must start at 0
     lambda p: p["weatherScript"][1].update(hoursFromStart=30),  # after the end
-    lambda p: p["periods"][1].update(startIso="2026-07-16T01:00:00-06:00"),  # overlap
+    lambda p: p["periods"][1].update(startIso="2026-05-15T19:00:00-06:00"),  # overlap
     lambda p: p["periods"][1].update(number=3),
     lambda p: p["ignitions"][0].update(hoursFromStart=2),       # no ignition at 0
     lambda p: p.update(fuel={"source": "uniform"}),             # uniform needs a type
@@ -247,12 +247,15 @@ async def test_examples_public_and_valid(client):
     assert set(packs) == {"example-edmonton-terwillegar", "example-ab-ridgewater"}
     t, w = packs["example-edmonton-terwillegar"], packs["example-ab-ridgewater"]
     # owner's values (decisions 2026-10-30)
-    assert t["durationHours"] == 24 and len(t["periods"]) == 2
+    assert t["durationHours"] == 24 and len(t["periods"]) == 3
+    assert t["startIso"] == "2026-05-15T14:00:00-06:00"
+    assert [p["startIso"][11:16] for p in t["periods"]] == ["14:00", "20:00", "08:00"]
     assert t["ignitions"][0] == {"lat": 53.4606, "lng": -113.6596, "hoursFromStart": 0.0}
     assert t["startingCodes"] == {"ffmc": 92.0, "dmc": 40.0, "dc": 300.0} and t["grassCuringPct"] == 80
     assert w["durationHours"] == 36 and len(w["periods"]) == 3
     assert w["startingCodes"] == {"ffmc": 90.0, "dmc": 25.0, "dc": 150.0}
-    assert [j["hoursFromStart"] for j in w["scheduledInjects"]] == [20, 22, 26]
+    assert [j["hoursFromStart"] for j in w["scheduledInjects"]] == [24, 26, 30]
+    assert w["weatherScript"][1]["hoursFromStart"] == 24
     for p in (t, w):
         assert p["marking"] == "EXERCISE" and p["title"].startswith("EXERCISE")
         assert p["autoRun"] is False and p["forecastHorizonHours"] == 36
@@ -341,5 +344,5 @@ def test_schema_defaults_owner_q12():
     assert m.forecastHorizonHours == 36 and m.autoRun is False
     big = copy.deepcopy(_pack())
     big["durationHours"] = 72
-    big["periods"][-1]["endIso"] = "2026-07-18T14:00:00-06:00"
+    big["periods"][-1]["endIso"] = "2026-05-18T14:00:00-06:00"
     assert ScenarioPack.model_validate(big).durationHours == 72
