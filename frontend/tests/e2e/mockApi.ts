@@ -8,7 +8,9 @@
  *   exactly as the API's WebSocket endpoint sends them. No server process is needed.
  * - Polling fallback: GET /api/v1/simulations/{id} returns the fixture (status "completed"), so
  *   `mode: "poll"` (WebSocket closed at once) exercises useSimulation's polling path.
- * - Everything outside localhost (map tiles, fonts, Open-Meteo, Nominatim, Overpass) is
+ * - GET /api/v1/weather/hourly (ECCC GEM via GeoMet) answers "no model weather" unless a spec
+ *   routes it itself (a later page.route wins), as skill-options.spec and ignition.spec do.
+ * - Everything outside localhost (map tiles, fonts, Nominatim, Overpass) is
  *   blocked; raster tiles get a transparent PNG so the map settles quickly and deterministically.
  */
 import { readFileSync } from "node:fs";
@@ -266,6 +268,11 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     const path = url.pathname;
     if (path === "/api/v1/simulations/fuel-grid-image") return json(route, fuelGridImage);
     if (path === "/api/v1/weather/current") return json(route, CURRENT_WEATHER);
+    if (path === "/api/v1/weather/hourly") {
+      return json(route, { lat: 0, lng: 0, available: false, message: "mocked: no model weather", hourly: null,
+        src: null, model_runs: null, weather_model: "eccc_gem_geomet", source: "ECCC GEM (mock)",
+        attribution: "Data Source: Environment and Climate Change Canada" });
+    }
     if (path === "/api/v1/simulations" && req.method() === "POST") {
       const body = req.postDataJSON() as Record<string, unknown>;
       state.posts.push(body);
@@ -431,3 +438,12 @@ export const DRAW_COUNTER_INIT = `
   if (window.WebGLRenderingContext) wrap(WebGLRenderingContext.prototype);
 })();
 `;
+
+/** Body of GET /api/v1/weather/hourly for an hourly block (specs that stub the model weather). */
+export function hourlyWeatherBody(hourly: Record<string, unknown>): string {
+  return JSON.stringify({
+    lat: 0, lng: 0, available: true, message: "mocked", hourly, src: null, model_runs: null,
+    weather_model: "eccc_gem_geomet", source: "ECCC GEM (mock)",
+    attribution: "Data Source: Environment and Climate Change Canada",
+  });
+}

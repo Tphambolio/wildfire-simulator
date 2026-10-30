@@ -678,8 +678,11 @@ with its own FWI calculator (same equations, FFMC coefficient 147.2):
   10 km); the newer one, CWFIS first on a tie; at most 2 days old. Spring (March-June) DC ≤ 60 is
   raised to Pyra's regional floor.
 - **Before noon LST (Alberta fire-weather LST, 19 UTC; 13:00 MT from 2026-11-01):** the carry-over is stepped one day with the GEM noon-LST
-  forecast for today (Open-Meteo `models=gem_seamless`, the URL Pyra requests: noon temperature,
-  RH, 10 m wind, 24 h rain to noon). `codes_status` = `forecast`.
+  forecast for today (noon temperature, RH, 10 m wind, 24 h rain to noon) from Pyra's own GEM
+  series `data/gem/ab.json` (ECCC GEM via MSC GeoMet, the file Pyra's page reads since Pyra v150;
+  station within 1 km), else FireSim's GeoMet sample at the station (`pyra.notes` says so).
+  Before 2026-10-30 this was the Open-Meteo `gem_seamless` URL Pyra then requested.
+  `codes_status` = `forecast`.
 - **After noon LST:** a CWFIS station with codes → its codes as published (`today`, or
   `yesterday` until CWFIS publishes today's, as Pyra shows them); CWFIS with weather-only
   stations → carry-over stepped with that station's observation; CWFIS empty → carry-over
@@ -721,9 +724,13 @@ is the distance of the station actually used.
 - If the current layer is empty (it is refreshed around 19 UTC), the newest day of the archive
   layer `public:firewx_stns` at most two days old is used (`source` ends in `[archive layer]`).
 - If no station has codes (off-season) or CWFIS has nothing, the codes are a **cold-start
-  estimate**: one day from 85 / 6 / 15 with the Open-Meteo GEM forecast (`models=gem_seamless`)
-  at the latest noon LST and the noon-to-noon 24 h rain. Station weather is kept when present.
-  If GEM has no value for a needed variable, the message says which.
+  estimate**: one day from 85 / 6 / 15 with the ECCC GEM weather (MSC GeoMet, at the point; see
+  `docs/weather-geomet.md`) at the latest noon LST and the noon-to-noon 24 h rain. Station
+  weather is kept when present. If GeoMet no longer holds the oldest hours of the rain window
+  (about 16-19 UTC in Alberta), the nearest station's series in Pyra's `data/gem/ab.json`
+  within 50 km is used and named in `codes_label`; else no codes, with the reason. If GEM has
+  no value for a needed variable, the message says which. (Open-Meteo `gem_seamless` before
+  2026-10-30.)
 - `temperature` may be negative (before 2026-10-10 sub-zero values were dropped).
 
 Fields added 2026-10-10 (all optional, `null` when not applicable):
@@ -733,7 +740,7 @@ Fields added 2026-10-10 (all optional, `null` when not applicable):
 | `codes_date` | Date (YYYY-MM-DD) whose noon-LST codes are returned (CWFIS `rep_date`, or the estimate's noon) |
 | `codes_status` | `today`, `yesterday`, `older` (station codes), `estimate` (cold-start estimate); Pyra tier also `forecast` (before noon LST, stepped with the noon forecast) and `stepped` (after noon LST, carried and stepped) |
 | `codes_label` | The same in words, e.g. "Yesterday's codes (as of noon LST 2026-10-09; today's are computed after noon LST)"; also appended to `message` |
-| `weather_model` | Open-Meteo model used for any value (`gem_seamless`), `null` for station data only |
+| `weather_model` | Model weather used for any value: `eccc_gem_geomet` (ECCC GEM via MSC GeoMet; `gem_seamless` = Open-Meteo before 2026-10-30), `null` for station data only |
 | `source_tier` | `pyra`, `cwfis`, `cwfis_archive` or `gem_estimate` (`null` when unavailable); added with the Pyra tier |
 | `pyra` | Pyra tier details (above) |
 
@@ -746,6 +753,38 @@ Quebec, Newfoundland and Labrador, Nunavut) the nearest CWFIS station's value
 2026-11-01, and the daily observation stays at 19 UTC (13:00 MT) unless
 `FIRESIM_AB_FWI_LST_OFFSET_H=6` (18 UTC) is set; before 2026-11-01 it is always 19 UTC
 (`services/alberta_time.py`; report "Alberta permanent UTC-6 switch 2026-10-18").
+
+### GET /api/v1/weather/hourly?lat=&lng=&start=&end=
+
+Hourly ECCC GEM model weather at a point, read from MSC GeoMet (HRDPS 2.5 km → RDPS 10 km →
+GDPS 15 km; past hours from earlier runs' short leads; `api/.../services/geomet.py`,
+`docs/weather-geomet.md`). Added 2026-10-30; the frontend's hourly forecast / hindcast stream
+(it called Open-Meteo directly before).
+
+- `start`, `end`: ISO 8601 times **with an offset** (e.g. `2026-10-30T14:00:00Z`), floored to the
+  UTC hour; `end` inclusive; at most 300 hours. 422 otherwise.
+- Coverage: about 1.5-2 days before now (the runs GeoMet keeps) to +240 h; other hours are
+  `null`.
+
+```json
+{"lat": 53.55, "lng": -113.5, "available": true,
+ "message": "25 of 25 h from ECCC GEM (MSC GeoMet: HRDPS 2.5 km → RDPS 10 km → GDPS 15 km) (h8H17)",
+ "hourly": {"time": ["2026-10-29T23:00", "..."], "temperature_2m": [-1.8], "relative_humidity_2m": [77.0],
+            "wind_speed_10m": [5.0], "wind_direction_10m": [170.0], "precipitation": [0.0]},
+ "src": "hhhhhhhhHHHH…", "src_legend": {"H": "HRDPS 2.5 km, newest run", "...": "..."},
+ "model_runs": {"hrdps": "2026-10-30T06:00:00Z", "rdps": "2026-10-30T06:00:00Z", "gdps": "2026-10-30T00:00:00Z"},
+ "weather_model": "eccc_gem_geomet", "source": "ECCC GEM (MSC GeoMet: …)",
+ "attribution": "Data Source: Environment and Climate Change Canada",
+ "licence_url": "https://eccc-msc.github.io/open-data/licence/readme_en/"}
+```
+
+| Field | Meaning |
+|---|---|
+| `hourly` | One entry per UTC hour stamp `YYYY-MM-DDTHH:00`: °C, %, km/h (10 m), degrees (from) at the stamp; `precipitation` = mm in the hour ending at the stamp |
+| `src` | One character per hour, the model run that supplied it: `H` HRDPS newest run, `h` HRDPS earlier run (lead 1-6 h), `r` RDPS earlier run, `b` GDPS earlier run (lead 1-12 h), `R` RDPS newest, `G` GDPS hourly, `g` GDPS 3-hourly interpolated, `-` none |
+| `model_runs` | Newest run of each model GeoMet listed |
+| `available` | `false` when GeoMet is unreachable or no hour is covered (`hourly` may then be `null`) |
+| `message` | Hours covered, run-length `src` summary, and how many hours no run covers |
 
 ### GET /api/v1/version
 

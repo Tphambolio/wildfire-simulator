@@ -107,7 +107,9 @@ No backend is needed. `tests/e2e/mockApi.ts` mocks the API inside the browser:
   frames as `simulation.frame` events, then `simulation.completed`, as the API does.
   `mockApi(page, { mode: "poll" })` closes the socket instead, to test the polling fallback;
   `{ phases: true }` sends `simulation.status` progress messages before the frames.
-- All external requests (map tiles, fonts, Open-Meteo, Nominatim, Overpass) are blocked; tiles
+- `GET /api/v1/weather/hourly` (ECCC GEM via the API) answers "no model weather" unless a spec
+  routes it itself (`hourlyWeatherBody` in `mockApi.ts`).
+- All external requests (map tiles, fonts, Nominatim, Overpass) are blocked; tiles
   get a transparent PNG. Chromium runs WebGL on SwiftShader (no GPU needed).
 
 The suite:

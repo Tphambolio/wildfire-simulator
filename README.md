@@ -31,8 +31,8 @@ preparedness and training in the wildland-urban interface.
   slope through net effective wind, point-ignition acceleration, foliar moisture from date.
 - **Fire growth** on spatial fuel grids with a deterministic Eulerian level-set model (the
   framework of ELMFIRE, Lautenberger 2013, driven by the Huygens velocity of the FBP ellipse; wraps around water, roads and buildings), or Huygens
-  wavelets on uniform fuel. Hourly weather streams with hourly FFMC; Open-Meteo forecast
-  aligned to a scenario start time.
+  wavelets on uniform fuel. Hourly weather streams with hourly FFMC; ECCC GEM forecast
+  (MSC GeoMet, via the API) aligned to a scenario start time.
 - **Deployment data**: per-cell front speed and head / flank / back, the head's speed,
   direction, intensity and Albini maximum spotting distance per frame, and an arrival-time
   grid (`GET /simulations/{id}/arrival`).
