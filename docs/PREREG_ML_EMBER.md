@@ -1,8 +1,7 @@
 # Pre-registration, stage 2: ML ember-cast confirmation on the v8 decision fires
 
-**Status:** **draft for the owner's approval, 2026-10-30 (about 06:30 MDT).** Nothing in this file is frozen until
-Travis Kennedy approves it; it is committed and pushed as a draft so that its hash and date predate any decision-fire
-score. **No decision fire has been scored by any model of this project.** The confirmation (§4) runs once, after the
+**Status:** **approved by the owner and frozen, 2026-10-30 06:24 MDT** (drafted 2026-10-30 about 06:30 MDT and pushed as a draft
+at `e3d3872` before the approval; see §11). **No decision fire has been scored by any model of this project.** The confirmation (§4) runs once, after the
 approval is recorded in §11 and this file is pushed again; the registered text is never edited afterwards, and §12
 (Result) is appended only.
 **Constrained by:** `docs/PREREG_ML_EMBER_DEV.md` (stage 1, frozen `07fbf59` 2026-10-25, addenda A1–A4), whose unit,
@@ -270,8 +269,10 @@ Seeds: `S_TEST 2026101803`, `S_BOOT 2026101804` (v8's scorer, reused); `S_POWER 
   development difference.)
 - **D7 — the ERA5 arm is reported in [R68] as a disclosed sensitivity** (development only). *Recommend: yes.*
 
-**Approval:** _(to be added verbatim, with date and time, when given; the commit that carries it is the confirmation
-commit)_.
+**Approval:** Travis Kennedy, 2026-10-30 06:24 MDT, in the professor session, in reply to the brief listing D5–D7 with the
+recommendations above: **"Approve, yes and yes."** (D5 approved; D6 yes: the clean arm decides, the full arm is not
+scored; D7 yes: the ERA5 arm is reported as a sensitivity). The commit that carries this line is the confirmation
+commit; the registered text above is frozen from this commit on.
 
 ## 12. Result (appended after the one-shot run; registered text above never edited)
 
