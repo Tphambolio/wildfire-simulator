@@ -230,6 +230,8 @@ and limits in the "About & sources" tab (`AboutPanel.tsx`). Main-run progress `R
 VITE_API_URL=             Base URL (default "" = relative paths)
 VITE_MAPBOX_TOKEN=        Satellite tiles (optional, defaults to OSM)
 VITE_FIRESIM_EXERCISE=    "1" turns exercise mode on (also `?exercise=1`); default off, nothing rendered (docs/exercise-mode-spec.md)
+VITE_FIRESIM_TELEMETRY=   usage counting: none (default) | cloudflare (+ VITE_FIRESIM_TELEMETRY_TOKEN) | post (+ VITE_FIRESIM_TELEMETRY_ENDPOINT, https); docs/privacy.md
+VITE_FIRESIM_FEEDBACK_EMAIL=  shows "Email" in the top-bar Feedback dialog (GitHub issue link always shown)
 ```
 
 ---
