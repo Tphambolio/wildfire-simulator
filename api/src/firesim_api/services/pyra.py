@@ -436,6 +436,43 @@ def gem_from_file(f: dict, lat: float, lng: float, now: datetime) -> dict | None
     return out
 
 
+def gem_file_window(
+    f: dict, lat: float, lng: float, start: datetime, end: datetime, max_km: float,
+) -> tuple[dict, str, float] | None:
+    """Hourly series of the stored station nearest (lat, lng) within ``max_km`` for the UTC hours
+    ``start``..``end`` (inclusive): (Open-Meteo-shaped hourly with ISO hour stamps, station name,
+    distance km), or None. Hours outside the file are None. Pyra's file keeps 48 h of history,
+    longer than GeoMet's model runs, so it can cover a noon-to-noon rain window GeoMet no longer
+    holds (``routers/weather.py`` cold-start fallback)."""
+    best, best_d = None, max_km
+    for name, st in (f.get("stations") or {}).items():
+        if not st or st.get("alias") or st.get("lat") is None:
+            continue
+        d = haversine_km(lat, lng, float(st["lat"]), float(st["lon"]))
+        if d <= best_d:
+            best, best_d = (name, st), d
+    if best is None:
+        return None
+    name, st = best
+    try:
+        f_start = datetime.fromisoformat(str(f["start"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError):
+        return None
+    n = int(f.get("n") or 0)
+    cols = (("temperature_2m", "temp"), ("relative_humidity_2m", "rh"), ("wind_speed_10m", "wind"),
+            ("wind_direction_10m", "wdir"), ("precipitation", "rain"))
+    out: dict = {"time": [], **{k: [] for k, _ in cols}}
+    t = start
+    while t <= end:
+        j = round((t - f_start).total_seconds() / 3600)
+        out["time"].append(t.strftime("%Y-%m-%dT%H:00"))
+        for key, src in cols:
+            arr = st.get(src) or []
+            out[key].append(arr[j] if 0 <= j < n and j < len(arr) else None)
+        t += timedelta(hours=1)
+    return out, name, best_d
+
+
 async def fetch_gem(lat: float, lng: float, now: datetime | None = None) -> dict | None:
     """Hourly GEM weather for a Pyra station, Open-Meteo shaped (``{"hourly": {...}}``).
 

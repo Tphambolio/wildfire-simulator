@@ -77,6 +77,9 @@ _TIMEOUT_S = 10.0
 FORECAST_MODEL = geomet.MODEL_ID
 FORECAST_MODEL_LABEL = "ECCC GEM (GeoMet)"
 _START_UP = (85.0, 6.0, 15.0)
+# Cold-start fallback when GeoMet no longer holds the 24 h to noon LST: the GEM series of the
+# nearest station in Pyra's data/gem/ab.json within this distance (Pyra keeps 48 h of history)
+_PYRA_GEM_MAX_KM = 50.0
 
 # Standard (non-daylight) UTC offset in hours used for "noon LST", by province/territory code as
 # CWFIS reports it. Alberta stations report at noon fire-weather LST = 19 UTC (CWFIS tz_correct -7,
@@ -384,7 +387,9 @@ async def _cwfis_chain(lat: float, lng: float, now: datetime) -> CurrentWeather:
     why = "no station with FWI codes within range (off-season)" if station else cwfis_problem
     label = (
         f"Cold-start estimate: one day from start-up codes 85/6/15 with {FORECAST_MODEL_LABEL} "
-        f"noon LST weather of {noon['date']} ({noon['rain_24h']:.1f} mm in 24 h); DMC, DC and BUI "
+        f"noon LST weather of {noon['date']} ({noon['rain_24h']:.1f} mm in 24 h"
+        + (f"; from {noon['via']}, GeoMet no longer holds these hours at the point" if noon.get("via") else "")
+        + "); DMC, DC and BUI "
         "are far too low except just after snowmelt — enter station codes if known"
     )
     source = (
@@ -546,13 +551,49 @@ def _noon_utc(now: datetime, prov: str | None, lng: float, lat: float | None) ->
     return noon_date, noon_utc
 
 
-async def _fetch_gem_hourly(lat: float, lng: float, now: datetime, prov: str | None) -> dict | None:
-    """GEM hourly weather (GeoMet) for the 24 h to the latest noon LST, in the unixtime shape
-    ``_noon_weather`` reads. None when GeoMet cannot be reached."""
+def _noon_hour(now: datetime, prov: str | None, lng: float, lat: float | None) -> datetime:
+    """The UTC hour stamp of the latest noon LST (the hour after it at a half-hour offset)."""
     _, noon_utc = _noon_utc(now, prov, lng, lat)
     noon_hour = noon_utc.replace(minute=0, second=0, microsecond=0)
     if noon_hour < noon_utc:      # noon LST at a half-hour offset (NL): the hour after
         noon_hour += timedelta(hours=1)
+    return noon_hour
+
+
+def _unix_shape(h: dict) -> dict:
+    times = [int(datetime.fromisoformat(t + ":00+00:00").timestamp()) for t in h["time"]]
+    return {"timezone": None, "hourly": {**h, "time": times}}
+
+
+async def _pyra_gem_noon(
+    lat: float, lng: float, now: datetime, prov: str | None,
+) -> tuple[dict, str] | None:
+    """Noon-LST weather and 24 h rain from the nearest station of Pyra's GEM file (Alberta box,
+    within ``_PYRA_GEM_MAX_KM``): (noon dict, "Pyra GEM series <station> (<d> km)") or None."""
+    if not pyra_source.in_alberta_box(lat, lng):
+        return None
+    try:
+        f = await pyra_source.load_gem_file()
+    except Exception as exc:
+        logger.warning("Pyra GEM file failed: %s", exc)
+        return None
+    if f is None:
+        return None
+    noon_hour = _noon_hour(now, prov, lng, lat)
+    got = pyra_source.gem_file_window(f, lat, lng, noon_hour - timedelta(hours=23), noon_hour, _PYRA_GEM_MAX_KM)
+    if got is None:
+        return None
+    h, name, dist = got
+    noon = _noon_weather(_unix_shape(h), now, prov, lng, lat)
+    if isinstance(noon, str):
+        return None
+    return noon, f"Pyra's GEM series for {name} ({dist:.0f} km; generated {f.get('generated')})"
+
+
+async def _fetch_gem_hourly(lat: float, lng: float, now: datetime, prov: str | None) -> dict | None:
+    """GEM hourly weather (GeoMet) for the 24 h to the latest noon LST, in the unixtime shape
+    ``_noon_weather`` reads. None when GeoMet cannot be reached."""
+    noon_hour = _noon_hour(now, prov, lng, lat)
     try:
         h = await geomet.hourly(lat, lng, noon_hour - timedelta(hours=23), noon_hour)
     except Exception as exc:
@@ -560,8 +601,7 @@ async def _fetch_gem_hourly(lat: float, lng: float, now: datetime, prov: str | N
         return None
     if h is None:
         return None
-    times = [int(datetime.fromisoformat(t + ":00+00:00").timestamp()) for t in h["time"]]
-    return {"timezone": None, "src": h["src"], "hourly": {**h, "time": times}}
+    return {**_unix_shape(h), "src": h["src"]}
 
 
 def _noon_weather(
@@ -614,14 +654,26 @@ async def _estimate_fwi_from_gem(
     Returns (FWIResult, noon weather dict), a reason string when GEM lacks a value, or None when
     GeoMet cannot be reached. Start-up codes 85 / 6 / 15 (Van Wagner 1987; Van Wagner &
     Pickett 1985); one day only.
+
+    Weather source order: GEM at the point from GeoMet; if GeoMet no longer holds part of the
+    24 h to noon LST (about 16-19 UTC in Alberta, before noon LST, the window reaches back ~47 h
+    and GeoMet keeps ~1.5-2 days of runs) or is unreachable, the nearest station's GEM series in
+    Pyra's ``data/gem/ab.json`` (48 h of history, Alberta, ≤ 50 km; ``noon["via"]`` names it);
+    else a plain reason (the endpoint then shows station weather without codes, or nothing).
     """
     data = await _fetch_gem_hourly(lat, lng, now, prov)
-    if not data:
-        return None
-    noon = _noon_weather(data, now, prov, lng, lat)
-    if isinstance(noon, str):
-        logger.warning("GEM estimate not possible: %s", noon)
-        return noon
+    noon = _noon_weather(data, now, prov, lng, lat) if data else None
+    if not isinstance(noon, dict):
+        alt = await _pyra_gem_noon(lat, lng, now, prov)
+        if alt is not None:
+            noon, via = alt
+            noon["via"] = via
+        elif noon is None:
+            return None
+        else:
+            logger.warning("GEM estimate not possible: %s", noon)
+            return (f"{noon}; no Pyra GEM series within {_PYRA_GEM_MAX_KM:.0f} km covers it either — "
+                    "FWI codes are unavailable until noon LST has passed (or enter station codes)")
     try:
         calc = FWICalculator(*_START_UP)
         result = calc.calculate_daily(

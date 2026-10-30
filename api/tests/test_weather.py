@@ -457,6 +457,56 @@ class TestWeatherPath:
         data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
         assert data["available"] is False
         assert "has no precipitation for 4 of the 24 h to noon LST 2026-07-15" in data["message"]
+        assert "FWI codes are unavailable until noon LST has passed" in data["message"]
+
+    @staticmethod
+    def _pyra_gem_file(lat: float, lng: float, start: str, n: int, rain: float = 0.5) -> dict:
+        """Pyra data/gem/ab.json with one station: T 3, RH 60, wind 10 from 250, ``rain`` mm/h."""
+        st = {"lat": lat, "lon": lng, "temp": [3.0] * n, "rh": [60.0] * n, "wind": [10.0] * n,
+              "wdir": [250.0] * n, "rain": [rain] * n}
+        return {"schema": 1, "province": "ab", "generated": start, "start": start, "step_h": 1, "n": n,
+                "stations": {"Test Station AGCM": st}}
+
+    @respx.mock
+    def test_gap_window_uses_pyra_gem_file(self, client, monkeypatch):
+        """10:30 LST (17:30 UTC), the daily ~16-19 UTC gap: GeoMet lacks the oldest rain hours, so the
+        cold start uses the nearest station of Pyra's GEM file (48 h of history), labelled."""
+        from firesim_api.services import pyra as pyra_source
+        _fix_clock(monkeypatch, "2026-07-16T17:30:00Z")
+        respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
+        _gem(monkeypatch, "2026-07-15T19:00:00Z", uncovered_before="2026-07-15T00:00:00Z")
+        respx.get(pyra_source.GEM_FILE_URLS[0]).mock(return_value=httpx.Response(
+            200, json=self._pyra_gem_file(53.60, -113.50, "2026-07-14T17:00:00Z", 289)))
+        data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
+        expected = FWICalculator(85.0, 6.0, 15.0).calculate_daily(temp=3.0, rh=60.0, wind=10.0, rain=12.0, month=7)
+        assert data["available"] is True and data["codes_status"] == "estimate"
+        assert data["codes_date"] == "2026-07-15"
+        assert data["ffmc"] == pytest.approx(expected.ffmc)
+        assert "Pyra's GEM series for Test Station AGCM (11 km" in data["codes_label"]
+        assert "GeoMet no longer holds these hours at the point" in data["codes_label"]
+
+    @respx.mock
+    def test_gap_window_without_pyra_station_is_plainly_unavailable(self, client, monkeypatch):
+        """Same window, Pyra's nearest station is > 50 km away: no codes, a plain reason."""
+        from firesim_api.services import pyra as pyra_source
+        _fix_clock(monkeypatch, "2026-07-16T17:30:00Z")
+        respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
+        _gem(monkeypatch, "2026-07-15T19:00:00Z", uncovered_before="2026-07-15T00:00:00Z")
+        respx.get(pyra_source.GEM_FILE_URLS[0]).mock(return_value=httpx.Response(
+            200, json=self._pyra_gem_file(55.0, -113.50, "2026-07-14T17:00:00Z", 289)))
+        data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
+        assert data["available"] is False
+        assert "no Pyra GEM series within 50 km covers it either" in data["message"]
+
+    @respx.mock
+    def test_after_noon_lst_geomet_covers_the_window(self, client, monkeypatch):
+        """At 19:30 UTC today's noon window is recent: GeoMet alone, no Pyra file needed."""
+        _fix_clock(monkeypatch, "2026-07-16T19:30:00Z")
+        respx.get(_WFS_URL).mock(side_effect=_by_layer([], []))
+        _gem(monkeypatch, "2026-07-16T19:00:00Z", uncovered_before="2026-07-15T00:00:00Z")
+        data = client.get("/api/v1/weather/current?lat=53.5&lng=-113.5").json()
+        assert data["available"] is True and data["codes_date"] == "2026-07-16"
+        assert "Pyra" not in data["codes_label"]
 
 
 class TestHourlyRoute:
