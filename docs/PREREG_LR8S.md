@@ -142,3 +142,27 @@ informative (the simulated edge loses M8's advantage).
   into a dated addendum here **before** any pool fire is simulated. No addendum after any score of this test is seen.
 - **Gate:** the main session gives the go before `unseal` and before any LR8S score is computed.
 - ELMFIRE and W.I.S.E. are not used.
+
+---
+
+## 8. Addendum A1 (2026-10-29): implementation, before any pool fire is simulated
+
+**Dated:** 2026-10-29. Sections 1-7 above are the text frozen at `e9c6e51` and were not edited. Nothing of pool A or
+pool E had been simulated, catalogued or scored when this was committed. Development used v8 **training** fires only.
+
+1. **Code.** The simulated-edge runner is `scripts/validation/v8/simedge.py` (sha256 `c356a927ee7e1966acac7ffcaf05a59967d1604d9739866cb7d418b4c04f43f3`). The shared draw is
+   `scripts/validation/v8/heldout.py` (sha256 `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`): inputs, detections, the sealed jump table with counts, and
+   the registered intervals.
+2. **Equivalence.** In observed mode (`--obs`), the runner uses the same M8/B1 code path with the observed perimeter,
+   active edge and spread rate. Its interval files are **bit-identical** to the registered `intervals/` files on
+   4 training fires: NBAC:2018_2184, NBAC:2021_1740 (multi-zone), MTBS:UT3942511234720200626 (multi-zone, US) and
+   MTBS:CO3905510606920180628. That is 22 intervals, every array equal. Candidate cells are identical in sim mode too.
+3. **Deviation from §3.2 (O-1 curing).** The harness takes one grass curing value per run, not one per cell. Each run
+   therefore uses the **median v8 NDVI curing over the fire's grass cells** (codes 31/32; 60 % if none).
+4. **§3.3 start.** The surrogate DOB is: every cell of `P_obs(D)` = 1, and cells holding a detection in the 48 h before
+   06:00 D = D−1. With `RunOptions(ignition="active", active_days=2)`, those cells are exactly the registered active
+   edges; the harness adds its one-cell buffer. The FireSim domain is cropped by `harness.crop_for_day` (20 km margin).
+5. **§4 failures.** The 2 h cap is a per-fire-day SIGALRM. A day with no detection before 06:00 D is recorded as
+   `no_start`; its intervals are dropped for the sim models and counted.
+6. **Timing (training).** 5-12 s per fire-day on small Canadian domains. US fires add a one-off LANDFIRE elevation
+   export of about 5-13 min per fire, cached.
