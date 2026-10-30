@@ -127,7 +127,8 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | POST | `/api/v1/simulations/burn-probability` | Monte Carlo burn grid (2D float [0,1]) |
 | POST | `/api/v1/fwi/calculate` | Single observation → FWI codes + danger rating |
 | POST | `/api/v1/fwi/multi-day` | Chain FWI across daily observations |
-| GET | `/api/v1/weather/current?lat=&lng=` | Live CWFIS WFS → `CurrentWeather` |
+| GET | `/api/v1/weather/current?lat=&lng=` | Starting codes: Pyra tier → CWFIS WFS → GEM cold start → `CurrentWeather` |
+| GET | `/api/v1/weather/hourly?lat=&lng=&start=&end=` | Hourly ECCC GEM at a point from MSC GeoMet (HRDPS → RDPS → GDPS, `services/geomet.py`; per-hour `src`); the frontend's forecast/hindcast stream. Open-Meteo is not used anywhere in the product (guard `api/tests/test_no_open_meteo.py`; `docs/weather-geomet.md`) |
 | GET | `/api/v1/layers/assets?south=&west=&north=&east=` / `/layers/roads?...` | Alberta critical assets / major roads in a box (≤ 1° × 2°), GeoJSON; `available: false` without the files |
 | GET | `/api/v1/scorecard` | Latest dated validation scorecard `docs/scorecard/<date>.json` (+ `file`, `available_dates`; 404 when none), read once at startup from `FIRESIM_SCORECARD_DIR`; `scripts/make_scorecard.py`, `docs/validation-scorecard.md` |
 | GET | `/api/v1/exercise/examples` | Exercise mode: the repository's public example scenario packs (`data/exercise-packs/`) |
