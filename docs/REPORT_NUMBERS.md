@@ -10,7 +10,7 @@ step with `docs/PROJECT_RECORD.md` §4.2, which holds the full entry (path, cont
 Parallel sessions gave [R39] to three reports on 2026-10-12 (see the [R39] lines). This file exists
 so that does not happen again.
 
-- **Next free number: [R75].** ([R59] is held for the clock follow-up; [R60], [R62] and [R63] were claimed on
+- **Next free number: [R76].** ([R59] is held for the clock follow-up; [R60], [R62] and [R63] were claimed on
   #96, #100 and #101, which were closed unmerged on 2026-10-29 with their branches kept: never reuse them. [R68] is claimed on
   `research/ml-ember-cast` (ML ember-cast). [R71]-[R74] were pre-assigned on 2026-10-29: [R71] US transfer over-prediction
   diagnosis, [R72] community-arrival under-spread diagnosis, [R73] PREREG_LR8S (M8 on the simulated edge), [R74] PREREG_LR8G
@@ -89,6 +89,7 @@ so that does not happen again.
 | R67 | Sealed 2026 confirmation of H1 (1-burn-day active rule) and H2 (B2 P2) on the US `confirm` subset (PREREG_SEALED_CONFIRM_H1H2; H1 FAIL, H2 FAIL) | `feat/sealed-confirm-h1h2`, #113 | 2026-10-25 | master |
 | R69 | Validation scorecard v1 (dated, per-release artifact; `scripts/make_scorecard.py`) | `feat/validation-scorecard`, #111 | 2026-10-25 | master |
 | R70 | Long-range embers v8 result (PREREG_LR8 + addenda A1-A4; target L, PASS) | `feat/long-range-embers-v8`, #114 | 2026-10-29 | master (renumbered from R69 on 2026-10-29) |
+| R75 | Head-ROS calibration on major-run days by fire type and fuel (pool plan; PREREG to follow) | `analysis/head-ros-r75` | 2026-10-29 | claimed |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.
