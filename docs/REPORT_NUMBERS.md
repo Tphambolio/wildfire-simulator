@@ -87,6 +87,7 @@ so that does not happen again.
 | R65 | Ensemble re-calibration with a bias term (B2, PREREG_ENSEMBLE_B2) | `feat/b2-ensemble-calibration`, #106 | 2026-10-24 | master |
 | R66 | W.I.S.E. black-box comparator on held-out Alberta fire-days (C1, PREREG_COMPARATOR_C1) | `feat/c1-comparator`, #109 | 2026-10-24 | master |
 | R67 | Sealed 2026 confirmation of H1 (1-burn-day active rule) and H2 (B2 P2) on the US `confirm` subset (PREREG_SEALED_CONFIRM_H1H2; H1 FAIL, H2 FAIL) | `feat/sealed-confirm-h1h2`, #113 | 2026-10-25 | master |
+| R68 | ML ember-cast: confirmation result on the v8 decision fires (RQ1a PASS +0.238 over M8; RQ1b FAIL vs distance decay; RQ3 FAIL hybrid) — with the professor review, PREREG_ML_EMBER_DEV + PREREG_ML_EMBER, development memo and physics translation memo | `research/ml-ember-cast` (reports in `~/dev/wildfire/reports/`: *ML ember-cast confirmation result 2026-10-30*) | 2026-10-30 (claimed 2026-10-25) | reported (draft PR #123) |
 | R69 | Validation scorecard v1 (dated, per-release artifact; `scripts/make_scorecard.py`) | `feat/validation-scorecard`, #111 | 2026-10-25 | master |
 | R70 | Long-range embers v8 result (PREREG_LR8 + addenda A1-A4; target L, PASS) | `feat/long-range-embers-v8`, #114 | 2026-10-29 | master (renumbered from R69 on 2026-10-29) |
 | R72 | Community-arrival under-spread diagnosis (C1b fire-days; exploratory; PREREG_ARRIVAL1 not pursued) | `analysis/arrival-underspread-r72` | 2026-10-29 | master |
