@@ -1,4 +1,4 @@
-# Pre-registration (draft): M8-C1, a short-range landing decay from the active edge for FireSim's ember model
+# Pre-registration (draft): M8-C1, a short-range landing decay from the active edge for FireSim's ember model [R76]
 
 **Status:** **draft for the owner's approval, 2026-10-30 (about 08:30 MDT).** Written by the professor session after the
 stage-2 result [R68] (PREREG_ML_EMBER §12) and the *physics translation memo 2026-10-30* (change C1). Nothing is
@@ -7,8 +7,9 @@ opened by this draft; the decay shape (§3) comes from the training split only.
 **Owner of the code:** the v8 runner and the M8 engine port (#118) are the FireSim main session's; this test is to be
 implemented there or on a branch agreed with it. The held-out block (§5) must be agreed with that session, which draws
 from the same sealed pools (one claims registry).
-**Constrained by:** PREREG_LR8 (target, candidate cells, jump rule, metric, test, draw order, stop rule) and
-`docs/SEALED_2026.md`. **Record:** `docs/ML_EMBER_RECORD.md`. **Report number:** to be claimed at freeze.
+**Constrained by:** PREREG_LR8 (target, candidate cells, jump rule, metric, test, draw order, stop rule), **PREREG_LR8S [R73] /
+LR8C / LR8L on `feat/lr8-next`** (the sealed pools A and E and their one-shot unseal, which this test shares, §5) and
+`docs/SEALED_2026.md`. **Record:** `docs/ML_EMBER_RECORD.md`. **Report number:** [R76], claimed 2026-10-30.
 
 ---
 
@@ -72,21 +73,31 @@ changes.
   from the stage-2 feature table (bit-for-bit candidate sets).
 - Code and data sha256s added to §8 at the freeze; the implementing commit named.
 
-## 5. Held-out block and power
+## 5. Held-out data and power (revised 2026-10-30 09:30 after the FireSim main session's reply; owner decision D9)
 
-- **Source:** the undrawn remainder of the sealed v8 pools (PREREG_LR8 §3; 477 Canadian / 303 US decision fires, of
-  which 200 per region were drawn through v8's 8th block pair), continued in the frozen sealed order, in blocks of 25
-  drawn fires per region, eligibility as PREREG_LR8 A2.1. **Agreed with the FireSim main session before any draw**
-  (its LR8C/L/S draws use the same pools; the claims registry records which blocks belong to which test).
-- **Stop rule:** K ≥ 150 counted jumps with ≥ 60 per region, as PREREG_LR8 §8. The US pool holds only about 103
-  undrawn fires (about 73 eligible, about 40 jumps at v8's rate), so the ≥ 60 US floor may be unreachable. **If so, the
-  registered alternative is K ≥ 100 with ≥ 30 per region**, declared here; power is recomputed from the observed
-  counts (count-only files) with the stage-2 power script before any score is read, and the test is reported as
-  descriptive if power at Δ = +0.08 falls below 0.80.
-- **Sizing:** Δ = +0.08, as every ember test so far. The development expectation (DIST − M8 +0.23 on the decision
-  fires) is far above it; the margin is kept small so that a weaker-than-expected transfer still decides.
+- **There is no undrawn remainder.** The v8 decision fires not drawn in v8 (ranks 201–477 CAN and 201–303 US of the
+  sealed `decision_order.csv`) are **pool A** of PREREG_LR8S/LR8C/LR8L (frozen 2026-10-29, `feat/lr8-next`), and the
+  eastern-Canada extension is **pool E**; their draw is running and their per-fire counts are sealed to this project.
+- **Registered plan (recommended; the main session's proposal):** M8-C1 is **an additional, separately registered
+  comparison on the same LR8 pool-A (+E) sealed jumps**, scored by LR8's one-shot unseal with the registered jump
+  rule, candidate cells and interval products (`d_act` and `m_ff` are both in them). This file and PREREG_LR8S
+  cross-reference each other as sharing data. Conditions, fixed now: (a) this file is **frozen and pushed before
+  LR8's unseal is given the go**; if it is not, M8-C1 is not scored on pool A and waits for the next pool; (b) no
+  pool-A or pool-E count or content reaches this project before the freeze (the main session keeps it so);
+  (c) the deciding test of §6 is evaluated once, on the same ranks, by the same scorer run.
+- **Stop rule and fallback, aligned with PREREG_LR8S §5:** K ≥ 150 counted jumps with ≥ 60 per region; if, after
+  every fire is drawn, a region holds < 60, the test is still decided if **K ≥ 100 in total and ≥ 25 fires hold
+  ranked jumps**; a region with < 30 ranked jumps is reported with its bootstrap interval and does not decide alone
+  ("CAN-led decision", stated in the result); K < 100 or < 25 fires → not decidable. Identical to LR8S so that the two
+  results sit on one footing.
+- **Power:** sized at Δ = +0.08; recomputed from the unsealed counts with the stage-2 power machinery before any
+  score is read (counts are unsealed by LR8's own procedure, not by this project), and reported as descriptive if
+  power at +0.08 is below 0.80. The development expectation (DIST − M8 +0.23 on the v8 decision fires) is far above
+  the margin.
 - **Spent fires:** the v8 decision fires are spent (v8 and [R68]) and never decide here; they may be reported as a
   descriptive stratum, labelled.
+- **Alternative (not recommended):** wait for a new pool (LR8G's BC/SK/MB/NT/YT 2014–24 pool after LR8C passes, or a
+  2026-season pool next year); more data later, nothing this season.
 
 ## 6. Pass rule and what is reported
 
@@ -122,10 +133,11 @@ changes.
 
 - **D8** approve M8-C1 as the next ember test, with the two-factor model of §2 and the frozen shape of §3.
   *Recommend: approve.*
-- **D9** approve the held-out source and the registered fallback stop rule of §5 (K ≥ 100, ≥ 30 per region if the US
-  pool cannot reach 60). *Recommend: approve; the block to be agreed with the main session.*
-- **D10** who implements §4: the main session on the v8 runner (recommended, it owns that code) or this session on a
-  branch it reviews.
+- **D9** approve §5: M8-C1 co-registered on the LR8 pool-A (+E) sealed jumps, frozen before LR8's unseal, with the LR8S
+  fallback rule. *Recommend: approve* (the main session proposes the same; no new data, most power this season).
+- **D10** who implements §4: the main session on the v8 runner (`kernel="c1"` next to `m8_score`, M8's path
+  byte-identical, this file's §4 unit tests), reviewed by this session. *Recommend: the main session* (it prefers this;
+  one owner for the scoring code both studies use at unseal).
 
 **Approval:** _(verbatim, with date and time, at the freeze)_.
 

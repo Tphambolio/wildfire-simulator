@@ -10,7 +10,7 @@ step with `docs/PROJECT_RECORD.md` §4.2, which holds the full entry (path, cont
 Parallel sessions gave [R39] to three reports on 2026-10-12 (see the [R39] lines). This file exists
 so that does not happen again.
 
-- **Next free number: [R75].** ([R59] is held for the clock follow-up; [R60], [R62] and [R63] were claimed on
+- **Next free number: [R77].** ([R73]–[R75] are claimed on `feat/lr8-next`; [R76] on `research/ml-ember-cast`.) ([R59] is held for the clock follow-up; [R60], [R62] and [R63] were claimed on
   #96, #100 and #101, which were closed unmerged on 2026-10-29 with their branches kept: never reuse them. [R68] is claimed on
   `research/ml-ember-cast` (ML ember-cast). [R71]-[R74] were pre-assigned on 2026-10-29: [R71] US transfer over-prediction
   diagnosis, [R72] community-arrival under-spread diagnosis, [R73] PREREG_LR8S (M8 on the simulated edge), [R74] PREREG_LR8G
@@ -91,6 +91,7 @@ so that does not happen again.
 | R69 | Validation scorecard v1 (dated, per-release artifact; `scripts/make_scorecard.py`) | `feat/validation-scorecard`, #111 | 2026-10-25 | master |
 | R70 | Long-range embers v8 result (PREREG_LR8 + addenda A1-A4; target L, PASS) | `feat/long-range-embers-v8`, #114 | 2026-10-29 | master (renumbered from R69 on 2026-10-29) |
 | R72 | Community-arrival under-spread diagnosis (C1b fire-days; exploratory; PREREG_ARRIVAL1 not pursued) | `analysis/arrival-underspread-r72` | 2026-10-29 | master |
+| R76 | M8-C1: short-range landing decay from the active edge (PREREG_M8_C1; co-registered on the LR8 pool-A/E sealed jumps) | `research/ml-ember-cast` (draft; freeze before LR8's unseal) | 2026-10-30 | claimed |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.

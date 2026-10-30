@@ -12,17 +12,20 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
+
+for _m in ("pandas", "scipy", "sklearn"):
+    pytest.importorskip(_m)  # CI's engine env has no pandas: skip there, as the v8 tests do
+import pandas as pd  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 for p in (ROOT, ROOT / "engine" / "src"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from scripts.ml_ember import confirm as CF  # noqa: E402
-from scripts.ml_ember import ladder as L  # noqa: E402
-from scripts.validation import v8_score as V  # noqa: E402
+CF = pytest.importorskip("scripts.ml_ember.confirm")
+L = pytest.importorskip("scripts.ml_ember.ladder")
+V = pytest.importorskip("scripts.validation.v8_score")
 
 
 def test_registered_constants():

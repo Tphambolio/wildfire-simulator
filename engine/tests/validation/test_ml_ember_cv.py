@@ -5,8 +5,11 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
+
+for _m in ("pandas", "scipy"):
+    pytest.importorskip(_m)  # CI's engine env has no pandas: skip there, as the v8 tests do
+import pandas as pd  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 for _p in (ROOT, ROOT / "engine" / "src"):
