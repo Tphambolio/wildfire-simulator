@@ -155,7 +155,7 @@ export default function AboutPanel({ section = null, onExportIncident, onBrowser
               own pre-registered test. Without an earlier observed perimeter the spread rate at the
               active edge is v8's own first-interval floor (0.5 m/min), not FireSim's simulated rate.
               Display rule (not part of the tested model): a cell no ember can reach is always
-              "lower"; the v8 ranks are unchanged. A post-hoc check that restricted Canadian fuel to hazard class left M8's margin intact (R70 addendum, branch feat/lr8-next).
+              "lower"; the v8 ranks are unchanged. A post-hoc check that restricted Canadian fuel to hazard class left M8's margin intact (R70 addendum, branch feat/lr8-next). On 73 of the same held-out fires (159 jumps, report R68), a simple distance-from-active-edge falloff ranked landing cells better than M8 (ranking skill 0.90 vs 0.67; 0.94 vs 0.71 at 1-3 km), so most of M8's short-range shortfall is its distance decay; only beyond 7 km did M8 rank better (8 jumps, not decisive). A corrected short-range decay goes to its own pre-registered test before any change here.
             </li>
             <li><strong>Range of outcomes (ensemble).</strong> {TIPS.rangeTooNarrow}</li>
             <li><strong>P10, P50, P90.</strong> {TIPS.p10} {TIPS.p50} {TIPS.p90}</li>

@@ -1018,6 +1018,7 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into â€
 | Date | Commit | Summary |
 |---|---|---|
 | 2026-10-30 | (this PR) | feat(api+frontend)+docs: model weather from ECCC MSC GeoMet (`services/geomet.py`, `GET /api/v1/weather/hourly`); Pyra tier reads Pyra's GEM file; cold-start gap fallback; Open-Meteo removed from `frontend/src` and `api/src` (guard test); `docs/weather-geomet.md` with the GeoMet vs Open-Meteo Î” table. Product-only: validation reports (ERA5 via `scripts/`) unaffected, none re-run |
+| 2026-10-30 | (this PR) | docs+frontend: M8 About text, tip and model card cite [R68] (a distance-from-edge falloff ranks short-range landing cells better than M8; long mode kept; corrected decay waits for its own pre-registered test); merged by owner decision 2026-10-30 after R68 |
 | 2026-10-29 | (this PR) | feat(engine+api+frontend): M8 spot-fire likelihood (frozen v8 ember model) as an opt-in, relative-only layer on restarts with an observed active edge; parity test against the v8 code on two decision fires; docs (validation, model card, API reference, About) |
 | 2026-10-29 | #113 | docs: PREREG_SEALED_CONFIRM_H1H2 result: H1 FAIL, H2 FAIL on the sealed 2026 confirm subset; ENOSPC interruption and resume disclosed; disk guard script [R67] |
 | 2026-10-25 | `5dfa0a3` | docs+feat(validation): PREREG_SEALED_CONFIRM_H1H2 - H1 (1-burn-day active rule) and H2 (B2 P2) on the sealed 2026 confirm subset, registered before the list is opened; claim [R67] |
