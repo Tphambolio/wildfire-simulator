@@ -1008,6 +1008,7 @@ No bot commits in this range. Branch-sync merges ("Merge branch 'master' into â€
 
 | Date | Commit | Summary |
 |---|---|---|
+| 2026-10-30 | (this branch, `feat/m8-c1-kernel`) | feat(validation): M8-C1 kernel `scripts/validation/v8/score_c1.py` (score_C1 = exp(f(d_act)) x p_e(m_ff), `kernel="c1"` selector), owner decision D10 2026-10-30, PREREG_M8_C1 [R76]; decay shape `stage2/m8c1_decay_shape.json` pinned at sha256 `79aa8e18â€¦`; tests `engine/tests/validation/test_m8_c1_kernel.py` (section-4 a-c on training fires only); M8 path unchanged (intervals.py, common.py, v8_score.py sha256 as registered); no fire scored |
 | 2026-10-29 | #113 | docs: PREREG_SEALED_CONFIRM_H1H2 result: H1 FAIL, H2 FAIL on the sealed 2026 confirm subset; ENOSPC interruption and resume disclosed; disk guard script [R67] |
 | 2026-10-25 | `5dfa0a3` | docs+feat(validation): PREREG_SEALED_CONFIRM_H1H2 - H1 (1-burn-day active rule) and H2 (B2 P2) on the sealed 2026 confirm subset, registered before the list is opened; claim [R67] |
 | 2026-10-25 | (this PR) | docs+feat(frontend): exercise mode spec `docs/exercise-mode-spec.md` (E6) and PR0 behind `VITE_FIRESIM_EXERCISE=1` / `?exercise=1`: exercise clock reducer + hook, top-bar toggle, EXERCISE banner, "Exercise time" timeline readout, inject-log types and empty panel, pack/session TS types; 27 Vitest tests; no engine or API change |
