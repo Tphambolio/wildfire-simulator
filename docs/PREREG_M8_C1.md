@@ -26,7 +26,8 @@ Deciding question: **S3(M8-C1 − M8) > 0** on the held-out block of §5, one-si
 ## 2. The model M8-C1
 
 For a candidate cell c in an interval, with d = distance (km) from c to the nearest active-segment cell at t_start
-(v8's `d_act`) and m_ff the interval's fine-fuel moisture at the cell's zone:
+(v8's stored `d_act`, which `intervals.py` fills with the distance to the start perimeter when an interval has no
+active segment; used as stored, disclosed) and m_ff the interval's fine-fuel moisture at the cell's zone:
 
     score_C1(c) = exp( f(d) ) · p_e(m_ff)
 
@@ -73,12 +74,16 @@ changes.
 
 ## 4. Implementation (before the freeze)
 
-- `score_C1` as a function of the frozen v8 interval product (`d_act` array, `m_ff` per zone) in the v8 runner
-  (`scripts/validation/v8/intervals.py` or a sibling), selected by a `kernel="c1"` argument; M8's own path untouched.
+- **Implemented** (D10; the FireSim main session, 2026-10-30): `scripts/validation/v8/score_c1.py`, commit `50c0047` on
+  `feat/m8-c1-kernel` (off `feat/lr8-next` `39059b1`): `score(npz, kernel="m8"|"c1")`, `"m8"` = `intervals.m8_score`
+  unchanged; `"c1"` = exp(f(d_act/1000)) × exp(B_M (m_ff − 21)) with `fit.B_M`, m_ff per zone; the shape file is read
+  by path and refused on a wrong sha256, non-monotone nodes, or a floor/first-node value that disagrees with the nodes.
+  **Reviewed by the professor session 2026-10-30 (about 12:40 MDT):** module read against §2–§3; the eight tests of
+  `engine/tests/validation/test_m8_c1_kernel.py` run in a separate worktree, 8 passed; hashes verified independently.
 - Unit tests: (a) `score_C1` reproduces the table of §3 at the bin midpoints and is non-increasing in d for fixed m_ff;
   (b) p_e equals M8's own factor; (c) on five training fires the C1 ranks of the training jumps equal those computed
   from the stage-2 feature table (bit-for-bit candidate sets).
-- Code and data sha256s added to §8 at the freeze; the implementing commit named.
+- Code and data sha256s in §8; the implementing commit named above.
 
 ## 5. Held-out data and power (revised 2026-10-30 09:30 after the FireSim main session's reply; owner decision D9)
 
@@ -133,8 +138,13 @@ changes.
 | File | sha256 |
 |---|---|
 | `reports/data/ml-ember-cast-2026-10-29/stage2/m8c1_decay_shape.json` | `79aa8e1861a99f46f7e4dc86242f8cd7ecfc8811b54caaedf4ec6299971251d1` |
-| implementation commit, `score_C1` module, unit tests | at freeze |
-| the block's `draw/counts.csv` at the stop | at scoring |
+| `scripts/validation/v8/score_c1.py` (commit `50c0047`, `feat/m8-c1-kernel`) | `b7acae0f06ee01cc1a8d017c9fa3ce6d947e398ed9825b091a5f6d26ea744f68` |
+| `engine/tests/validation/test_m8_c1_kernel.py` | `318a5a257bf14654ec73244642a739ac625bddf045c5c0b6aecc999715a6e5c8` |
+| `scripts/validation/v8/intervals.py` (registered, unchanged) | `4303e544736968f29f28dd827f662b0f6dfed9178109154ed309d7a5b4724dbe` |
+| `scripts/validation/v8/common.py` (registered, unchanged) | `8eef29c54a294136fda7aec231e4c3dd32a7082ce86f4361087c805c33608d92` |
+| `scripts/validation/v8/fit.py` (B_M) | `d58105af3a845d5b1f55b10247b44835b03eda1080b1cd097b6d622d8d54e562` |
+| `scripts/validation/v8_score.py` (the scorer, unchanged) | `623233f687eb97d83a5cd3d81806accb28f78a6ef699f941249247c38ebad880` |
+| LR8 pool A/E `draw/counts.csv` at the stop (unsealed by LR8's procedure) | at scoring |
 
 ## 9. Owner decisions requested
 
