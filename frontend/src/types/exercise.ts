@@ -1,6 +1,7 @@
 /**
- * Exercise mode data model (docs/exercise-mode-spec.md §9). PR0 ships the types and the
- * client-side clock and inject log only; nothing here is sent to the API yet.
+ * Exercise mode data model (docs/exercise-mode-spec.md §11). PR0 shipped the clock and inject
+ * log types; PR2 the scenario pack format, which the API stores (/api/v1/exercise/packs,
+ * api/src/firesim_api/schemas/exercise.py).
  *
  * Framing rules (owner's hard rules, spec §8): an exercise never suggests an evacuation tier,
  * never shows per-building results or addresses, and every export carries an EXERCISE mark.
