@@ -22,14 +22,9 @@ and source labels. See docs/run-archive.md (phase 2).
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
-import os
 import re
-import threading
-import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -39,6 +34,7 @@ from pydantic import BaseModel, Field
 
 from firesim_api.routers import simulations as sims
 from firesim_api.services import archive as run_archive
+from firesim_api.services.passphrase import FREE_FAILURES, MAX_LOCK_S, PassphraseGate
 
 logger = logging.getLogger(__name__)
 
@@ -50,66 +46,27 @@ LABEL_MAX = 80
 KINDS = ("single", "multiday", "perimeter_override")
 
 # ---------------------------------------------------------------------------
-# Passphrase gate and failed-attempt backoff
+# Passphrase gate and failed-attempt backoff (services/passphrase.py; the exercise
+# facilitator passphrase uses the same gate with its own secret and its own count)
 # ---------------------------------------------------------------------------
 
-_FREE_FAILURES = 5      # failures allowed before the backoff starts
-_MAX_LOCK_S = 300.0     # longest lock-out (s)
-_MAX_TRACKED = 10_000   # IPs remembered (oldest dropped beyond it)
+_FREE_FAILURES = FREE_FAILURES  # failures allowed before the backoff starts
+_MAX_LOCK_S = MAX_LOCK_S        # longest lock-out (s)
 
-_fail_lock = threading.Lock()
-_failures: dict[str, tuple[int, float]] = {}  # ip -> (failed attempts, locked until epoch s)
+_gate = PassphraseGate(
+    PASSPHRASE_ENV, PASSPHRASE_HEADER,
+    disabled_detail=f"The saved-runs list is disabled on this server ({PASSPHRASE_ENV} is not set).",
+    log_name="Saved runs")
 
 
 def reset_rate_limit() -> None:
     """Forget all failed attempts (tests)."""
-    with _fail_lock:
-        _failures.clear()
-
-
-def _client_ip(request: Request) -> str:
-    # Fly's proxy sets Fly-Client-IP to the connecting address (overwriting any client value);
-    # elsewhere the socket peer. X-Forwarded-For is not used: a client can set it freely.
-    return request.headers.get("fly-client-ip") or (request.client.host if request.client else "?")
-
-
-def _expected_digest() -> bytes | None:
-    secret = os.environ.get(PASSPHRASE_ENV) or ""
-    return hashlib.sha256(secret.encode("utf-8")).digest() if secret else None
+    _gate.reset()
 
 
 def require_passphrase(request: Request) -> None:
     """Raise 403 (list disabled), 429 (locked out), 401 (missing or wrong passphrase)."""
-    expected = _expected_digest()
-    if expected is None:
-        raise HTTPException(
-            status_code=403,
-            detail=f"The saved-runs list is disabled on this server ({PASSPHRASE_ENV} is not set).")
-    ip = _client_ip(request)
-    now = time.time()
-    with _fail_lock:
-        _count, until = _failures.get(ip, (0, 0.0))
-    if until > now:
-        wait = int(until - now) + 1
-        raise HTTPException(status_code=429, headers={"Retry-After": str(wait)},
-                            detail=f"Too many wrong passphrases; try again in {wait} s.")
-    given = request.headers.get(PASSPHRASE_HEADER)
-    if given and hmac.compare_digest(hashlib.sha256(given.encode("utf-8")).digest(), expected):
-        with _fail_lock:
-            _failures.pop(ip, None)
-        return
-    with _fail_lock:
-        count = _failures.get(ip, (0, 0.0))[0] + 1
-        extra = count - _FREE_FAILURES
-        lock = min(2.0 ** extra, _MAX_LOCK_S) if extra > 0 else 0.0
-        _failures.pop(ip, None)  # re-insert: dict order = least recently failed first
-        _failures[ip] = (count, now + lock)
-        while len(_failures) > _MAX_TRACKED:
-            _failures.pop(next(iter(_failures)))
-    logger.info("Saved runs: %s passphrase from %s (attempt %d)",
-                "missing" if not given else "wrong", ip, count)
-    raise HTTPException(status_code=401, detail="Passphrase required" if not given
-                        else "Wrong passphrase")
+    _gate.require(request)
 
 
 # ---------------------------------------------------------------------------

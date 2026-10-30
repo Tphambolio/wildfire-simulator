@@ -98,12 +98,13 @@ class StoredObject:
 
 
 class LocalBackend:
-    """Payloads as files under ``root`` (``<root>/runs/<id>/<name>``)."""
+    """Payloads as files under ``root`` (``<root>/runs/<id>/<name>``; exercise packs use
+    ``sub="exercise/packs"``: ``<root>/exercise/packs/<id>.json``)."""
 
     name = "local"
 
-    def __init__(self, root: str | os.PathLike) -> None:
-        self.root = Path(root) / "runs"
+    def __init__(self, root: str | os.PathLike, sub: str = "runs") -> None:
+        self.root = Path(root) / sub
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str) -> Path:
@@ -228,7 +229,21 @@ CREATE TABLE IF NOT EXISTS run_labels (
     label TEXT,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS exercise_packs (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    start_iso TEXT,
+    duration_hours REAL,
+    sources_json TEXT,
+    created_at REAL NOT NULL,
+    bytes INTEGER NOT NULL DEFAULT 0
+);
 """
+# Exercise mode PR2 (docs/exercise-mode-spec.md §11.3): ``exercise_packs`` indexes the scenario
+# packs stored under ``exercise/packs/<id>.json`` (services/exercise_packs.py). Added as a
+# CREATE TABLE IF NOT EXISTS, so an existing index gains it on open. Packs are never pruned by
+# ``run_retention`` (owner decision 2026-10-30, Q9): retention reads only the ``runs`` table and
+# the run payload store, and the orphan sweep skips ``exercise/`` keys.
 # Phase 2 (saved-runs list): ``run_labels`` holds the labels set or renamed after the run
 # started (PATCH); it is its own table, so the migration is a CREATE TABLE IF NOT EXISTS (an
 # existing index gains it on open, no column change) and re-archiving a run (INSERT OR REPLACE
@@ -393,6 +408,8 @@ class RunArchive:
         self.index = index
         self.backend = backend
         self.config = config
+        #: Object store for exercise scenario packs (``<id>.json``); set by ``build_archive``
+        self.pack_backend: Any | None = None
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="run-archive")
         self._pending: set[Future] = set()
         self._plock = threading.Lock()
@@ -537,6 +554,8 @@ class RunArchive:
         cap = self.config.max_bytes if max_bytes is None else max_bytes
         cutoff = now - age * 86400.0
         n_age = n_bytes = n_orphans = 0
+        # Only runs are pruned: exercise packs (``exercise_packs`` table, ``exercise/`` objects)
+        # are exempt from age and byte pruning (owner decision 2026-10-30, Q9)
         for r in self.index.older_than(cutoff):
             self._remove(r["id"], json.loads(r["objects"] or "[]"))
             n_age += 1
@@ -552,6 +571,8 @@ class RunArchive:
             known = self.index.ids()
             for o in list(self.backend.list()):
                 run_id = o.key.split("/", 1)[0]
+                if run_id == "exercise":  # a bucket prefix of "" lists the packs too: keep them
+                    continue
                 if run_id not in known and o.mtime < cutoff:
                     self.backend.delete(o.key)
                     n_orphans += 1
@@ -623,7 +644,27 @@ def build_archive(cfg: ArchiveConfig | None = None, s3_client: Any = None) -> Ru
     for w in cfg.warnings:
         logger.warning("Run archive: %s", w)
     logger.info("Run archive: on (%s backend, index %s)", backend.name, cfg.db_path)
-    return RunArchive(index, backend, cfg)
+    archive = RunArchive(index, backend, cfg)
+    archive.pack_backend = _pack_backend(cfg, backend)
+    return archive
+
+
+#: Object-store prefix of exercise scenario packs, beside the runs (spec §11.3)
+PACK_PREFIX = "exercise/packs/"
+
+
+def _pack_backend(cfg: ArchiveConfig, runs_backend: Any) -> Any | None:
+    """The packs' store beside the runs' one: ``<root>/exercise/packs/`` (local) or the same
+    bucket with ``exercise/packs/`` in place of the runs prefix's ``runs/`` (s3)."""
+    try:
+        if getattr(runs_backend, "name", None) == "s3":
+            base = runs_backend.prefix
+            base = base[: -len("runs/")] if base.endswith("runs/") else base
+            return S3Backend(runs_backend.bucket, base + PACK_PREFIX, client=runs_backend.client)
+        return LocalBackend(cfg.root, sub=PACK_PREFIX.rstrip("/"))
+    except Exception as exc:  # noqa: BLE001 - packs off, runs unaffected
+        logger.warning("Run archive: exercise pack store unavailable (%s)", exc)
+        return None
 
 
 _archive: RunArchive | None = None
