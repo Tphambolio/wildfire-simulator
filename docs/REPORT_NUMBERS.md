@@ -84,7 +84,7 @@ so that does not happen again.
 | R64 | E10 live multi-day run time: throttled shared CPU, a 3-4x faster grid step, honest time left | `perf/e10-live-runtime` | 2026-10-24 | open PR |
 | R65 | Ensemble re-calibration with a bias term (B2, PREREG_ENSEMBLE_B2) | `feat/b2-ensemble-calibration`, #106 | 2026-10-24 | master |
 | R66 | W.I.S.E. black-box comparator on held-out Alberta fire-days (C1, PREREG_COMPARATOR_C1) | `feat/c1-comparator`, #109 | 2026-10-24 | master |
-| R68 | ML ember-cast: learning spot-fire locations beyond M8 (professor review, PREREG_ML_EMBER_DEV stage 1, development and confirmation report) | `research/ml-ember-cast` (reports in `~/dev/wildfire/reports/`) | 2026-10-25 | claimed |
+| R68 | ML ember-cast: confirmation result on the v8 decision fires (RQ1a PASS +0.238 over M8; RQ1b FAIL vs distance decay; RQ3 FAIL hybrid) — with the professor review, PREREG_ML_EMBER_DEV + PREREG_ML_EMBER, development memo and physics translation memo | `research/ml-ember-cast` (reports in `~/dev/wildfire/reports/`: *ML ember-cast confirmation result 2026-10-30*) | 2026-10-30 | reported (draft PR) |
 | R69 | Long-range embers v8 result (PREREG_LR8 + addenda A1-A4; target L, PASS) | `feat/long-range-embers-v8` (draft PR) | 2026-10-29 | open PR (claimed on that branch; R63 and R67-R68 are claimed on other branches) |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
