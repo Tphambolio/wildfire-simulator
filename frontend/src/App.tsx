@@ -56,6 +56,9 @@ import MapErrorBoundary from "./components/MapErrorBoundary";
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import TopBar, { type AppTab } from "./components/TopBar";
 import ValidationScorecardDialog from "./components/ValidationScorecard";
+// Usage counting (off unless the build turns it on) and the feedback dialog (docs/privacy.md)
+import FeedbackDialog from "./components/FeedbackDialog";
+import { startTelemetry, telemetryConfig } from "./telemetry/telemetry";
 // Exercise mode (docs/exercise-mode-spec.md, PR0): behind a feature flag, off by default
 import { isExerciseFlagOn } from "./exercise/flag";
 import { useExerciseClock } from "./exercise/useExerciseClock";
@@ -322,12 +325,18 @@ export default function App() {
   const [exerciseFlag] = useState(() => isExerciseFlagOn());
   const exercise = useExerciseClock(exerciseFlag);
   const exerciseOn = exercise.state.enabled;
+  const [telemetryCfg] = useState(telemetryConfig);
+  // One usage record per page load (nothing is sent unless the build sets a provider)
+  useEffect(() => {
+    startTelemetry(telemetryCfg, { page: "simulation", exercise: false });
+  }, [telemetryCfg]);
   // Inject log: in memory for PR0 (no way to add one from the UI yet; spec PR3)
   const [injectLog] = useState<InjectLog>(EMPTY_INJECT_LOG);
   // Section of the About & sources tab to show when it opens (the low-skill badge opens Limits)
   const [aboutSection, setAboutSection] = useState<AboutSectionId | null>(null);
   // Validation scorecard dialog (top bar "Validation"; docs/validation-scorecard.md)
   const [validationOpen, setValidationOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const openLimits = useCallback(() => {
     setAboutSection("about-limits");
     setActiveTab("about");
@@ -1278,6 +1287,7 @@ export default function App() {
         }}
         onOpenLimits={openLimits}
         onOpenValidation={() => setValidationOpen(true)}
+        onOpenFeedback={() => setFeedbackOpen(true)}
         status={status}
         exercise={exerciseFlag ? { on: exerciseOn, onToggle: toggleExercise } : undefined}
         actions={<>
@@ -1568,6 +1578,9 @@ export default function App() {
 
       {/* ── About & sources tab: intended use, limits, methods and references, data, help ── */}
       {validationOpen && <ValidationScorecardDialog onClose={() => setValidationOpen(false)} />}
+      {feedbackOpen && (
+        <FeedbackDialog cfg={telemetryCfg} ctx={{ page: activeTab, exercise: exerciseOn }} onClose={() => setFeedbackOpen(false)} />
+      )}
 
       {activeTab === "about" && (
         <Suspense fallback={<div className="hint eoc-loading">Loading…</div>}>

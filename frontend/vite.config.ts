@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  // Build id for feedback links and usage records (src/telemetry/telemetry.ts): the commit
+  // Vercel or CI builds, "" locally
+  define: {
+    __FIRESIM_BUILD__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA ?? ''),
+  },
   server: {
     port: 3000,
     proxy: {

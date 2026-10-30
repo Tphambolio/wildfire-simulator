@@ -58,7 +58,7 @@
   font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  opacity: 0.9;
+  /* full strength: at 0.9 opacity the 12 px label was 4.2:1 on the band (AA needs 4.5) */
 }
 
 .exercise-time-clock {
@@ -105,7 +105,8 @@
 }
 
 .exercise-btn:hover:not(:disabled) {
-  background: rgba(255, 247, 237, 0.16);
+  /* darken, not lighten: a light wash put the text at 3.6:1; 20 % black keeps it 6.7:1 */
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .exercise-btn:disabled {
