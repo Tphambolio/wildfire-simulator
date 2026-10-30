@@ -13,6 +13,7 @@ import tempfile
 import pytest
 
 from firesim_api.middleware import run_probe_limit
+from firesim_api.services import geomet
 from firesim_api.services import pyra as pyra_source
 
 
@@ -28,8 +29,10 @@ def _pyra_tier(request, monkeypatch):
     enabled = request.node.get_closest_marker("pyra") is not None
     monkeypatch.setenv("FIRESIM_PYRA_SOURCE", "1" if enabled else "0")
     pyra_source.reset_cache()
+    geomet.reset_cache()
     yield
     pyra_source.reset_cache()
+    geomet.reset_cache()
 
 
 @pytest.fixture(autouse=True)

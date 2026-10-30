@@ -7,7 +7,8 @@ Source tiers, in order (``source_tier`` in the response):
    with the GEM noon-LST weather, exactly as Pyra's station page does (``services/pyra.py``).
    Alberta only; off with ``FIRESIM_PYRA_SOURCE=0``.
 2. ``cwfis`` / ``cwfis_archive`` — the nearest CWFIS station with FWI codes, as published.
-3. ``gem_estimate`` — a one-day cold-start estimate from the GEM noon-LST forecast.
+3. ``gem_estimate`` — a one-day cold-start estimate from the GEM noon-LST forecast (ECCC GEM read
+   from MSC GeoMet, ``services/geomet.py``; docs/weather-geomet.md).
 
 The CWFIS tiers fetch fire weather observations and FWI codes from the CWFIS (Canadian Wildland
 Fire Information System) public GeoServer WFS and select the nearest station that has FWI codes.
@@ -27,8 +28,10 @@ not exist yet, so the newest codes are yesterday's.
 FWI codes are only computed during the active fire season (approximately April-October). When no
 station within range has codes (off-season), or CWFIS has nothing, the codes are a **cold-start
 estimate**: one day stepped from the start-up values 85 / 6 / 15 (Van Wagner 1987, printed p. 14
-of FTR-35; Van Wagner & Pickett 1985) with the Open-Meteo GEM forecast (``models=gem_seamless``)
-at the latest noon LST and the 24 h rain to that noon. DMC, DC and BUI from a cold start are far
+of FTR-35; Van Wagner & Pickett 1985) with the ECCC GEM weather (MSC GeoMet, HRDPS → RDPS → GDPS)
+at the latest noon LST and the 24 h rain to that noon. Until 2026-10-30 the GEM values came from
+the Open-Meteo forecast API (``models=gem_seamless``), whose free tier is non-commercial.
+DMC, DC and BUI from a cold start are far
 too low except just after snowmelt; the response labels them as an estimate.
 """
 
@@ -41,13 +44,13 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from firesim.fwi.calculator import FWICalculator
 from firesim.fwi.classes import fwi_class
 
-from ..services import alberta_time, cwfis_tz
+from ..services import alberta_time, cwfis_tz, geomet
 from ..services import pyra as pyra_source
 from ..settings import settings
 
@@ -67,13 +70,12 @@ _BBOX_DEG = 2.0
 _MAX_FEATURES = 50
 _TIMEOUT_S = 10.0
 
-_OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-# Forecast model pinned to GEM (ECCC), the model the ensemble's input-error climatology was
-# measured on (scripts/validation/input_errors.py, Open-Meteo previous-runs API). Name checked
-# live against the Open-Meteo forecast API on 2026-10-10. The frontend's hourly forecast uses
-# the same model (frontend/src/services/api.ts FORECAST_MODEL).
-FORECAST_MODEL = "gem_seamless"
-FORECAST_MODEL_LABEL = "Open-Meteo GEM (gem_seamless)"
+# Forecast model: ECCC GEM read from MSC GeoMet (services/geomet.py), the model family the
+# ensemble's input-error climatology was measured on (scripts/validation/input_errors.py, via
+# Open-Meteo's gem_seamless previous-runs archive). The frontend's hourly forecast comes from the
+# same service (GET /api/v1/weather/hourly).
+FORECAST_MODEL = geomet.MODEL_ID
+FORECAST_MODEL_LABEL = "ECCC GEM (GeoMet)"
 _START_UP = (85.0, 6.0, 15.0)
 
 # Standard (non-daylight) UTC offset in hours used for "noon LST", by province/territory code as
@@ -156,7 +158,8 @@ class CurrentWeather(BaseModel):
     codes_status: str | None = None
     # Human-readable age of the codes, e.g. "Yesterday's codes (as of noon LST 2026-10-09)"
     codes_label: str | None = None
-    # Open-Meteo model used for any value in this response (None = station data only)
+    # Model weather used for any value in this response: "eccc_gem_geomet" (ECCC GEM via MSC
+    # GeoMet; "gem_seamless" = Open-Meteo before 2026-10-30) or None (station data only)
     weather_model: str | None = None
     # Which tier answered: "pyra" | "cwfis" | "cwfis_archive" | "gem_estimate" (None = unavailable)
     source_tier: str | None = None
@@ -183,13 +186,13 @@ async def get_current_weather(
 
     Returns FFMC, DMC, DC (for use as FWI overrides) plus wind/temp/RH, and how old the codes
     are. If no station has codes (off-season), or CWFIS is unreachable, the codes are a
-    cold-start estimate from the Open-Meteo GEM noon-LST forecast, labelled as such.
+    cold-start estimate from the ECCC GEM (GeoMet) noon-LST weather, labelled as such.
 
     Before all of that, in Alberta, the "pyra" tier returns the codes Pyra's station page shows
     today for the nearest Pyra station (see ``services/pyra.py``); if it has no value the reason is
     appended to the message of the tier that answers.
 
-    Returns available=false only when neither CWFIS nor Open-Meteo gives anything usable.
+    Returns available=false only when neither CWFIS nor GeoMet gives anything usable.
     """
     now = _now()
     pyra_note: str | None = None
@@ -206,6 +209,83 @@ async def get_current_weather(
     if pyra_note:
         resp.message = f"{resp.message} · {pyra_note}"
     return resp
+
+
+class HourlyBlock(BaseModel):
+    """Hourly model weather, one entry per UTC hour (``null`` = no model run covers the hour)."""
+
+    time: list[str]
+    temperature_2m: list[float | None]
+    relative_humidity_2m: list[float | None]
+    wind_speed_10m: list[float | None]
+    wind_direction_10m: list[float | None]
+    precipitation: list[float | None]
+
+
+class HourlyWeather(BaseModel):
+    lat: float
+    lng: float
+    available: bool
+    message: str
+    # Hours are UTC hour stamps "YYYY-MM-DDTHH:00"; values are instantaneous at the stamp,
+    # precipitation is the total of the hour ending at it (mm). Units: °C, %, km/h (10 m), deg.
+    hourly: HourlyBlock | None = None
+    # One character per hour: which model run supplied it (services/geomet.py SRC_LEGEND)
+    src: str | None = None
+    src_legend: dict[str, str] | None = None
+    model_runs: dict[str, str | None] | None = None
+    weather_model: str = geomet.MODEL_ID
+    source: str = geomet.SOURCE_LABEL
+    attribution: str = geomet.ATTRIBUTION
+    licence_url: str = geomet.LICENCE_URL
+
+
+def _parse_utc(value: str, name: str) -> datetime:
+    try:
+        t = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{name}: not an ISO 8601 time") from exc
+    if t.tzinfo is None:
+        raise HTTPException(status_code=422, detail=f"{name}: give a UTC offset (e.g. Z)")
+    return t.astimezone(timezone.utc)
+
+
+@router.get("/hourly", response_model=HourlyWeather)
+async def get_hourly_weather(
+    lat: Annotated[float, Query(ge=-90, le=90, description="Latitude")],
+    lng: Annotated[float, Query(ge=-180, le=180, description="Longitude")],
+    start: Annotated[str, Query(description="First hour, ISO 8601 with offset (floored to the UTC hour)")],
+    end: Annotated[str, Query(description="Last hour, ISO 8601 with offset (inclusive, floored)")],
+) -> HourlyWeather:
+    """Hourly ECCC GEM weather at a point from MSC GeoMet (HRDPS → RDPS → GDPS; past hours from
+    earlier runs' short leads). The frontend's hourly forecast / hindcast stream.
+
+    Covers roughly 1.5-2 days before now (the model runs GeoMet keeps) to +240 h; other hours
+    are null and the message says how many. At most ``geomet.MAX_HOURS`` hours per request.
+    """
+    t0, t1 = _parse_utc(start, "start"), _parse_utc(end, "end")
+    if t1 < t0:
+        raise HTTPException(status_code=422, detail="end is before start")
+    if (t1 - t0) > timedelta(hours=geomet.MAX_HOURS - 1):
+        raise HTTPException(status_code=422, detail=f"window longer than {geomet.MAX_HOURS} h")
+    try:
+        h = await geomet.hourly(lat, lng, t0, t1)
+    except Exception as exc:
+        logger.warning("GeoMet hourly failed: %s", exc)
+        h = None
+    if h is None:
+        return HourlyWeather(lat=lat, lng=lng, available=False,
+                             message="ECCC GeoMet unreachable: no model weather")
+    n = len(h["time"])
+    missing = sum(v is None for v in h["temperature_2m"])
+    msg = f"{n - missing} of {n} h from {geomet.SOURCE_LABEL} ({geomet.src_summary(h['src'])})"
+    if missing:
+        msg += f"; {missing} h not covered by any model run GeoMet keeps"
+    return HourlyWeather(
+        lat=lat, lng=lng, available=missing < n, message=msg,
+        hourly=HourlyBlock(**{k: h[k] for k in HourlyBlock.model_fields}),
+        src=h["src"], src_legend=geomet.SRC_LEGEND, model_runs=h["model_runs"],
+    )
 
 
 def _from_pyra(lat: float, lng: float, r: "pyra_source.PyraResult") -> CurrentWeather:
@@ -268,7 +348,7 @@ async def _cwfis_chain(lat: float, lng: float, now: datetime) -> CurrentWeather:
     station, dist_km = _nearest(lat, lng, features) if features else (None, None)
     props = station["properties"] if station else {}
     prov = str(props.get("prov", "")).strip() or None
-    estimated = await _estimate_fwi_from_open_meteo(lat, lng, now, prov)
+    estimated = await _estimate_fwi_from_gem(lat, lng, now, prov)
 
     temperature = _float(props.get("temp"), allow_negative=True)
     rh = _float(props.get("rh"))
@@ -278,7 +358,7 @@ async def _cwfis_chain(lat: float, lng: float, now: datetime) -> CurrentWeather:
     cwfis_tag = _cwfis_tag(station_name, prov, archive) if station else None
 
     if estimated is None or isinstance(estimated, str):
-        reason = estimated if isinstance(estimated, str) else "Open-Meteo GEM forecast unavailable"
+        reason = estimated if isinstance(estimated, str) else "GEM (GeoMet) unavailable"
         if station is None or (temperature is None and rh is None and wind_speed is None):
             return _unavailable(lat, lng, f"{cwfis_problem or 'No station data'}; {reason}")
         return CurrentWeather(
@@ -454,27 +534,34 @@ def _timestamp(props: dict, now: datetime) -> str:
     return str(rep_date) if rep_date else now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-async def _fetch_open_meteo_hourly(lat: float, lng: float) -> dict | None:
-    """Hourly GEM forecast (past 2 days + today) from Open-Meteo (no key required)."""
-    params = {
-        "latitude": lat,
-        "longitude": lng,
-        "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation",
-        "models": FORECAST_MODEL,
-        "past_days": 2,
-        "forecast_days": 1,
-        "timezone": "auto",
-        "timeformat": "unixtime",
-        "wind_speed_unit": "kmh",
-    }
+def _noon_utc(now: datetime, prov: str | None, lng: float, lat: float | None) -> tuple[date, datetime]:
+    """The latest noon LST at or before ``now``: (its date, its UTC time)."""
+    if prov is None and lat is not None and pyra_source.in_alberta_box(lat, lng):
+        # No CWFIS station to name the province: Alberta's box (Pyra's) gets Alberta's rule
+        prov = "AB"
+    off = _std_offset_hours(prov, lng, None, at=now, lat=lat)
+    local = now + timedelta(hours=off)
+    noon_date = local.date() if local.hour >= 12 else local.date() - timedelta(days=1)
+    noon_utc = datetime(noon_date.year, noon_date.month, noon_date.day, 12, tzinfo=timezone.utc) - timedelta(hours=off)
+    return noon_date, noon_utc
+
+
+async def _fetch_gem_hourly(lat: float, lng: float, now: datetime, prov: str | None) -> dict | None:
+    """GEM hourly weather (GeoMet) for the 24 h to the latest noon LST, in the unixtime shape
+    ``_noon_weather`` reads. None when GeoMet cannot be reached."""
+    _, noon_utc = _noon_utc(now, prov, lng, lat)
+    noon_hour = noon_utc.replace(minute=0, second=0, microsecond=0)
+    if noon_hour < noon_utc:      # noon LST at a half-hour offset (NL): the hour after
+        noon_hour += timedelta(hours=1)
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            r = await client.get(_OPEN_METEO_URL, params=params)
-            r.raise_for_status()
-            return r.json()
+        h = await geomet.hourly(lat, lng, noon_hour - timedelta(hours=23), noon_hour)
     except Exception as exc:
-        logger.warning("Open-Meteo fetch failed: %s", exc)
+        logger.warning("GeoMet fetch failed: %s", exc)
         return None
+    if h is None:
+        return None
+    times = [int(datetime.fromisoformat(t + ":00+00:00").timestamp()) for t in h["time"]]
+    return {"timezone": None, "src": h["src"], "hourly": {**h, "time": times}}
 
 
 def _noon_weather(
@@ -482,7 +569,7 @@ def _noon_weather(
 ) -> dict | str:
     """Weather at the latest noon LST at or before ``now`` and the 24 h rain to it.
 
-    Open-Meteo hourly precipitation is the total over the preceding hour, so the 24 h rain is the
+    Hourly precipitation is the total over the preceding hour, so the 24 h rain is the
     sum of the 24 records stamped noon - 23 h to noon, i.e. (noon - 24 h, noon] (noon to noon, the
     FWI System's rain period).
     Returns a reason string if GEM has no value for a needed variable.
@@ -491,10 +578,7 @@ def _noon_weather(
     times = h.get("time") or []
     if not times:
         return f"{FORECAST_MODEL_LABEL} returned no hours"
-    off = _std_offset_hours(prov, lng, data.get("timezone"), at=now, lat=lat)
-    local = now + timedelta(hours=off)
-    noon_date = local.date() if local.hour >= 12 else local.date() - timedelta(days=1)
-    noon_utc = datetime(noon_date.year, noon_date.month, noon_date.day, 12, tzinfo=timezone.utc) - timedelta(hours=off)
+    noon_date, noon_utc = _noon_utc(now, prov, lng, lat)
     t_noon = int(noon_utc.timestamp())
     # Hours are on the hour in UTC; noon LST at a half-hour offset (NL) uses the hour after
     idx = next((i for i, t in enumerate(times) if int(t) >= t_noon), None)
@@ -512,7 +596,9 @@ def _noon_weather(
         out[key] = float(val)
     rain = (h.get("precipitation") or [None] * len(times))[idx - 23: idx + 1]
     if any(v is None for v in rain):
-        return f"{FORECAST_MODEL_LABEL} has no precipitation for the 24 h to noon LST {noon_date.isoformat()}"
+        n_missing = sum(v is None for v in rain)
+        return (f"{FORECAST_MODEL_LABEL} has no precipitation for {n_missing} of the 24 h to noon LST "
+                f"{noon_date.isoformat()} (GeoMet keeps about 1.5-2 days of model runs)")
     out["rain_24h"] = float(sum(rain))
     out["date"] = noon_date.isoformat()
     out["month"] = noon_date.month
@@ -520,21 +606,21 @@ def _noon_weather(
     return out
 
 
-async def _estimate_fwi_from_open_meteo(
+async def _estimate_fwi_from_gem(
     lat: float, lng: float, now: datetime, prov: str | None,
 ) -> tuple | str | None:
     """Cold-start FWI estimate from the GEM noon-LST weather and 24 h rain.
 
     Returns (FWIResult, noon weather dict), a reason string when GEM lacks a value, or None when
-    Open-Meteo cannot be reached. Start-up codes 85 / 6 / 15 (Van Wagner 1987; Van Wagner &
+    GeoMet cannot be reached. Start-up codes 85 / 6 / 15 (Van Wagner 1987; Van Wagner &
     Pickett 1985); one day only.
     """
-    data = await _fetch_open_meteo_hourly(lat, lng)
+    data = await _fetch_gem_hourly(lat, lng, now, prov)
     if not data:
         return None
     noon = _noon_weather(data, now, prov, lng, lat)
     if isinstance(noon, str):
-        logger.warning("Open-Meteo estimate not possible: %s", noon)
+        logger.warning("GEM estimate not possible: %s", noon)
         return noon
     try:
         calc = FWICalculator(*_START_UP)

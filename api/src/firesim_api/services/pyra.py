@@ -28,8 +28,12 @@ What Pyra shows for a station today (Alberta, default single-station mode, not t
 3. Before noon LST (Alberta fire-weather LST, 19 UTC; ``services/alberta_time.py``): the CWFIS codes (normally yesterday's) become the carry-over
    (Pyra's browser "holding cache"); the carry-over is the newer of that and the station's entry in
    ``cwfis_prev.json`` (by name, else the nearest entry within 10 km), at most 2 days old. It is
-   stepped one day with the GEM noon-LST forecast for today (Open-Meteo ``models=gem_seamless``,
-   noon LST temperature, RH, 10 m wind and the 24 h rain to noon) — Van Wagner (1987), PDF p. 13.
+   stepped one day with the GEM noon-LST forecast for today (noon LST temperature, RH, 10 m wind
+   and the 24 h rain to noon) — Van Wagner (1987), PDF p. 13. The GEM series is Pyra's own
+   ``data/gem/ab.json`` (ECCC GEM from MSC GeoMet, HRDPS → RDPS → GDPS, written every 6 h by Pyra's
+   ``gem-points.yml`` Action; Pyra ``core/gem.js``), read by station; if that file is unavailable
+   or lacks the station, FireSim samples GeoMet at the station itself (``services/geomet.py``).
+   Pyra used Open-Meteo ``gem_seamless`` until its v150/v151 (2026-10-29).
 4. After noon LST: if CWFIS returns a station with codes, they are shown as published (whatever
    their date); if it returns only weather-only stations, the carry-over is stepped with that
    station's observation; if it returns nothing, Pyra tries MSC SWOB and then the GEM noon-LST
@@ -55,7 +59,7 @@ import httpx
 
 from firesim.fwi.calculator import FWICalculator
 
-from . import alberta_time
+from . import alberta_time, geomet
 from .pyra_stations import ALBERTA_STATIONS, PYRA_COMMIT
 
 logger = logging.getLogger(__name__)
@@ -91,9 +95,17 @@ PREV_NEAR_KM = 10         # cwfis_prev coordinate fallback radius
 CARRY_MAX_DAYS = 2
 DC_COLDSTART_CEILING = 60
 
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-GEM_MODEL = "gem_seamless"
-GEM_TIMEOUT_S = 12.0
+# Pyra's GEM point series (core/gem.js reads the same file; same-origin first there, raw second)
+GEM_FILE_URLS = (
+    "https://raw.githubusercontent.com/Tphambolio/FWI/main/data/gem/ab.json",
+    "https://tphambolio.github.io/FWI/data/gem/ab.json",
+)
+GEM_MODEL = geomet.MODEL_ID
+GEM_TIMEOUT_S = 20.0
+GEM_FILE_TTL_S = 15 * 60
+GEM_FILE_RETRY_S = 60
+GEM_MAX_AGE_H = 9          # Pyra config/weather.js max_age_h: older files are "stale" (still used, labelled)
+GEM_MAX_POINT_KM = 1.0     # Pyra max_point_km
 
 
 # ── Cache of the carry-over file ───────────────────────────────────────────────
@@ -107,12 +119,14 @@ class _PrevCache:
 
 
 _cache = _PrevCache()
+_gem_cache = _PrevCache()
 
 
 def reset_cache() -> None:
-    """Forget the cached carry-over file (tests)."""
-    global _cache
+    """Forget the cached carry-over and GEM files (tests)."""
+    global _cache, _gem_cache
     _cache = _PrevCache()
+    _gem_cache = _PrevCache()
 
 
 def _generated_age_h(data: dict, now: datetime) -> float | None:
@@ -349,30 +363,101 @@ def is_pre_noon(now: datetime) -> bool:
     return now < alberta_time.fwi_noon_utc(lst_date(now))
 
 
-def _js_num(x: float) -> str:
-    """A coordinate as JavaScript prints it in a template string (Pyra builds its URL that way)."""
-    s = repr(float(x))
-    return s[:-2] if s.endswith(".0") else s
+async def load_gem_file() -> dict | None:
+    """Pyra's ``data/gem/ab.json`` (cached ``GEM_FILE_TTL_S``; the last good copy is kept on failure)."""
+    c = _gem_cache
+    async with c.lock:
+        mono = time.monotonic()
+        fresh = c.data is not None and mono - c.fetched_mono < GEM_FILE_TTL_S
+        backoff = c.failed_mono is not None and mono - c.failed_mono < GEM_FILE_RETRY_S
+        if not fresh and not backoff:
+            got = None
+            for url in GEM_FILE_URLS:
+                try:
+                    async with httpx.AsyncClient(timeout=GEM_TIMEOUT_S) as client:
+                        r = await client.get(url)
+                        r.raise_for_status()
+                        d = r.json()
+                    if not isinstance(d, dict) or not d.get("stations") or d.get("step_h") != 1 or not d.get("n"):
+                        raise ValueError("unexpected shape")
+                    got = (d, url)
+                    break
+                except Exception as exc:
+                    logger.warning("Pyra GEM file %s failed: %s", url, exc)
+            if got:
+                c.data, c.url = got
+                c.fetched_mono, c.failed_mono = mono, None
+            else:
+                c.failed_mono = mono
+        return c.data
 
 
-def gem_url(lat: float, lng: float) -> str:
-    """The exact Open-Meteo URL Pyra's ``fetchWeather`` requests for a station."""
-    return (
-        f"{OPEN_METEO_URL}?latitude={_js_num(lat)}&longitude={_js_num(lng)}"
-        "&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,"
-        "thunderstorm_probability&past_days=1&forecast_days=2&timezone=UTC&models=" + GEM_MODEL
-    )
-
-
-async def fetch_gem(lat: float, lng: float) -> dict | None:
-    try:
-        async with httpx.AsyncClient(timeout=GEM_TIMEOUT_S) as client:
-            r = await client.get(gem_url(lat, lng))
-            r.raise_for_status()
-            return r.json()
-    except Exception as exc:
-        logger.warning("Pyra tier: Open-Meteo GEM fetch failed: %s", exc)
+def gem_from_file(f: dict, lat: float, lng: float, now: datetime) -> dict | None:
+    """Pyra ``PyraGEM.hourly(lat, lng, {pastDays: 1, forecastDays: 2})``: the stored point within
+    ``GEM_MAX_POINT_KM``, hours from 00:00 UTC yesterday for 72 h, Open-Meteo shaped (UTC
+    ``YYYY-MM-DDTHH:00``). None when no point is near or no hour is covered."""
+    best, best_d = None, GEM_MAX_POINT_KM
+    for name, st in (f.get("stations") or {}).items():
+        if not st or st.get("alias") or st.get("lat") is None:
+            continue
+        d = haversine_km(lat, lng, float(st["lat"]), float(st["lon"]))
+        if d <= best_d:
+            best, best_d = (name, st), d
+    if best is None:
         return None
+    name, st = best
+    try:
+        start = datetime.fromisoformat(str(f["start"]).replace("Z", "+00:00"))
+        gen = datetime.fromisoformat(str(f["generated"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError):
+        return None
+    n = int(f["n"])
+    d0 = datetime(now.year, now.month, now.day, tzinfo=timezone.utc) - timedelta(days=1)
+    out: dict = {k: [] for k in ("time", "temperature_2m", "relative_humidity_2m", "wind_speed_10m",
+                                 "wind_direction_10m", "precipitation")}
+    cols = (("temperature_2m", "temp"), ("relative_humidity_2m", "rh"), ("wind_speed_10m", "wind"),
+            ("wind_direction_10m", "wdir"), ("precipitation", "rain"))
+    covered = 0
+    for i in range(72):
+        t = d0 + timedelta(hours=i)
+        j = round((t - start).total_seconds() / 3600)
+        inside = 0 <= j < n
+        out["time"].append(t.strftime("%Y-%m-%dT%H:00"))
+        for key, src in cols:
+            arr = st.get(src) or []
+            out[key].append(arr[j] if inside and j < len(arr) else None)
+        if inside and out["temperature_2m"][-1] is not None:
+            covered += 1
+    if not covered:
+        return None
+    age_h = (now - gen).total_seconds() / 3600
+    out["_source"] = "pyra_gem_file" if age_h <= GEM_MAX_AGE_H else "pyra_gem_file_stale"
+    out["_detail"] = f"Pyra GEM file ({name}, generated {f['generated']}, {age_h:.1f} h old)"
+    return out
+
+
+async def fetch_gem(lat: float, lng: float, now: datetime | None = None) -> dict | None:
+    """Hourly GEM weather for a Pyra station, Open-Meteo shaped (``{"hourly": {...}}``).
+
+    Pyra's own GEM file first (what Pyra's page uses), else FireSim's GeoMet point sample at the
+    station for the same 72 h window."""
+    now = now or datetime.now(timezone.utc)
+    f = await load_gem_file()
+    if f is not None:
+        h = gem_from_file(f, lat, lng, now)
+        if h is not None:
+            return {"hourly": h}
+    try:
+        d0 = datetime(now.year, now.month, now.day, tzinfo=timezone.utc) - timedelta(days=1)
+        h = await geomet.hourly(lat, lng, d0, d0 + timedelta(hours=71))
+    except Exception as exc:
+        logger.warning("Pyra tier: GeoMet GEM fetch failed: %s", exc)
+        return None
+    if h is None or not any(v is not None for v in h["temperature_2m"]):
+        return None
+    h["_source"] = "geomet_point"
+    h["_detail"] = f"GeoMet point sample ({geomet.src_summary(h['src'])})"
+    return {"hourly": h}
 
 
 def gem_noon(data: dict, now: datetime) -> dict | str:
@@ -558,13 +643,15 @@ async def pyra_today(lat: float, lng: float, now: datetime) -> PyraResult | str:
               "time_utc": pick.rep_date, "date": today.isoformat(), "peak": None}
         step, model = "cwfis_obs", None
     else:
-        gem = await fetch_gem(s_lat, s_lng)
+        gem = await fetch_gem(s_lat, s_lng, now)
         if gem is None:
-            return "Open-Meteo GEM forecast unavailable"
+            return "GEM forecast unavailable (Pyra GEM file and MSC GeoMet)"
         got = gem_noon(gem, now)
         if isinstance(got, str):
             return got
         wx = got
+        if gem["hourly"].get("_source") != "pyra_gem_file":
+            notes.append(f"GEM weather from {gem['hourly'].get('_detail')}")
         if not pre_noon:
             notes.append("after noon with CWFIS empty Pyra tries MSC SWOB before GEM; FireSim uses GEM")
 
