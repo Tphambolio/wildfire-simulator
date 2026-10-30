@@ -215,16 +215,36 @@ export async function fetchFuelGridImage(fuelGridPath: string): Promise<{ image:
 }
 
 /**
- * Forecast model, pinned (Open-Meteo would otherwise pick its own "best_match" blend): GEM, the
- * model the ensemble's input-error climatology was measured on (docs/validation.md). The API's
- * cold-start estimate uses the same model (api/.../routers/weather.py FORECAST_MODEL).
+ * Model weather: ECCC GEM (HRDPS 2.5 km → RDPS 10 km → GDPS 15 km) read from MSC GeoMet by the
+ * FireSim API (GET /api/v1/weather/hourly, api/.../services/geomet.py; docs/weather-geomet.md),
+ * the model family the ensemble's input-error climatology was measured on (docs/validation.md).
+ * The API's cold-start estimate uses the same service. Until 2026-10-30 the browser called the
+ * Open-Meteo forecast API (gem_seamless) directly; its free tier is non-commercial.
  */
-export const FORECAST_MODEL = "gem_seamless";
-export const FORECAST_MODEL_LABEL = "Open-Meteo GEM (gem_seamless)";
+export const FORECAST_MODEL = "eccc_gem_geomet";
+export const FORECAST_MODEL_LABEL = "ECCC GEM (GeoMet)";
+
+export interface HourlyWeatherResponse {
+  available: boolean;
+  message: string;
+  hourly: {
+    time: string[]; temperature_2m: Array<number | null>; relative_humidity_2m: Array<number | null>;
+    wind_speed_10m: Array<number | null>; wind_direction_10m: Array<number | null>; precipitation: Array<number | null>;
+  } | null;
+  src: string | null;
+  model_runs: Record<string, string | null> | null;
+  weather_model: string;
+  source: string;
+  attribution: string;
+}
 
 /**
- * Hourly forecast at a point (Open-Meteo GEM, no key) as an hourly weather stream for a scenario
- * that starts at ``startMs`` (default now) and runs ``hours`` hours. See forecastStream.
+ * Hourly model weather at a point (ECCC GEM via the FireSim API) as an hourly weather stream for
+ * a scenario that starts at ``startMs`` (default now) and runs ``hours`` hours. See forecastStream.
+ *
+ * Hours GeoMet no longer holds (older than about 1.5-2 days) come back null. Leading null hours
+ * before the start (an FFMC spin-up reaching too far back) are dropped, so the spin-up check
+ * reports it as skipped; a null hour at or after the start fails the request with its reason.
  */
 export async function fetchHourlyForecast(
   lat: number,
@@ -233,18 +253,33 @@ export async function fetchHourlyForecast(
   startMs: number = Date.now(),
   fromMs?: number,
 ): Promise<HourlyWeatherParams[]> {
-  const url =
-    `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
-    "&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation" +
-    `&models=${FORECAST_MODEL}&wind_speed_unit=kmh&timezone=UTC&past_days=1&forecast_days=3`;
-  const resp = await fetch(url);
+  const first = Math.min(startMs, fromMs ?? startMs);
+  const last = startMs + hours * 3600_000;
+  const params = new URLSearchParams({
+    lat: lat.toFixed(4),
+    lng: lng.toFixed(4),
+    start: new Date(first).toISOString(),
+    end: new Date(last).toISOString(),
+  });
+  const resp = await fetch(`${API_BASE}/api/v1/weather/hourly?${params}`);
   if (!resp.ok) throw new Error(`Forecast request failed: ${resp.status}`);
-  const data = await resp.json();
-  return forecastStream(data.hourly, startMs, hours, fromMs);
+  const data: HourlyWeatherResponse = await resp.json();
+  if (!data.available || !data.hourly) throw new Error(data.message || "No model weather");
+  const h = data.hourly;
+  const startHour = Math.floor(startMs / 3600_000) * 3600_000;
+  let k = 0;
+  while (
+    k < h.time.length && h.temperature_2m[k] === null &&
+    Date.parse(h.time[k].endsWith("Z") ? h.time[k] : h.time[k] + "Z") < startHour
+  ) k++;
+  const trimmed = Object.fromEntries(
+    Object.entries(h).map(([key, arr]) => [key, (arr as unknown[]).slice(k)]),
+  ) as typeof h;
+  return forecastStream(trimmed as Parameters<typeof forecastStream>[0], startMs, hours, fromMs);
 }
 
 /**
- * Slice Open-Meteo hourly data (UTC hour starts) into records for a scenario starting at
+ * Slice hourly model data (UTC hour stamps, Open-Meteo layout) into records for a scenario starting at
  * ``startMs``: the hour containing the start applies from 0, and each later hour from its
  * own start (fractional hours after the scenario start), up to the end of the run.
  *
@@ -254,8 +289,8 @@ export async function fetchHourlyForecast(
  */
 export function forecastStream(
   h: {
-    time: string[]; temperature_2m: number[]; relative_humidity_2m: number[];
-    wind_speed_10m: number[]; wind_direction_10m: number[]; precipitation: Array<number | null>;
+    time: string[]; temperature_2m: Array<number | null>; relative_humidity_2m: Array<number | null>;
+    wind_speed_10m: Array<number | null>; wind_direction_10m: Array<number | null>; precipitation: Array<number | null>;
   },
   startMs: number,
   hours: number,
@@ -278,10 +313,10 @@ export function forecastStream(
     }
     out.push({
       hours_from_start: spin ? (Math.max(t0[i], from) - startMs) / 3600_000 : Math.max(0, (t0[i] - startMs) / 3600_000),
-      temperature: h.temperature_2m[i],
-      relative_humidity: h.relative_humidity_2m[i],
-      wind_speed: h.wind_speed_10m[i],
-      wind_direction: h.wind_direction_10m[i] % 360,
+      temperature: h.temperature_2m[i] as number,
+      relative_humidity: h.relative_humidity_2m[i] as number,
+      wind_speed: h.wind_speed_10m[i] as number,
+      wind_direction: (h.wind_direction_10m[i] as number) % 360,
       precipitation: h.precipitation[i] ?? 0,
     });
   }

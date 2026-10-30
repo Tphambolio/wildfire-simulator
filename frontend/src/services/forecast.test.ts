@@ -42,15 +42,41 @@ describe("forecastStream", () => {
 describe("fetchHourlyForecast", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("pins the forecast model to GEM", async () => {
+  const respond = (h: unknown, extra: Record<string, unknown> = {}) =>
+    new Response(JSON.stringify({ available: true, message: "ok", hourly: h, src: "H", model_runs: {},
+      weather_model: "eccc_gem_geomet", source: "ECCC GEM", attribution: "ECCC", ...extra }), { status: 200 });
+
+  it("asks the FireSim API (ECCC GEM via GeoMet) for the scenario window, not a third party", async () => {
     const urls: string[] = [];
     vi.stubGlobal("fetch", async (url: string) => {
       urls.push(url);
-      return new Response(JSON.stringify({ hourly }), { status: 200 });
+      return respond(hourly);
     });
-    const s = await fetchHourlyForecast(53.5, -113.5, 2, base);
+    const s = await fetchHourlyForecast(53.5, -113.5, 2, base, base - 3 * 3600_000);
     expect(s.length).toBeGreaterThan(0);
-    expect(FORECAST_MODEL).toBe("gem_seamless");
-    expect(new URL(urls[0]).searchParams.get("models")).toBe("gem_seamless");
+    expect(FORECAST_MODEL).toBe("eccc_gem_geomet");
+    const u = new URL(urls[0], "http://x");
+    expect(u.pathname).toBe("/api/v1/weather/hourly");
+    expect(u.searchParams.get("start")).toBe("2026-04-28T15:00:00.000Z");
+    expect(u.searchParams.get("end")).toBe("2026-04-28T20:00:00.000Z");
+    expect(urls.every((x) => !x.includes("open-meteo"))).toBe(true);
+  });
+
+  it("drops spin-up hours GeoMet no longer holds, so the spin-up shows as skipped", async () => {
+    const gap = { ...hourly, temperature_2m: hourly.temperature_2m.map((v, i) => (i < 2 ? null : v)) };
+    vi.stubGlobal("fetch", async () => respond(gap));
+    const s = await fetchHourlyForecast(53.5, -113.5, 2, base + 3 * 3600_000, base);
+    expect(s[0].hours_from_start).toBe(-1); // 20:00Z, the first covered hour
+  });
+
+  it("fails with the API's reason when there is no model weather", async () => {
+    vi.stubGlobal("fetch", async () => respond(null, { available: false, message: "ECCC GeoMet unreachable" }));
+    await expect(fetchHourlyForecast(53.5, -113.5, 2, base)).rejects.toThrow(/GeoMet unreachable/);
+  });
+
+  it("a gap at the start itself is an error, not a silent shift", async () => {
+    const gap = { ...hourly, temperature_2m: hourly.temperature_2m.map((v, i) => (i === 0 ? null : v)) };
+    vi.stubGlobal("fetch", async () => respond(gap));
+    await expect(fetchHourlyForecast(53.5, -113.5, 2, base)).rejects.toThrow(/no temperature_2m/);
   });
 });
