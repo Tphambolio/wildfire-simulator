@@ -11,7 +11,7 @@ import type {
   EvacDecisionRecord,
   FrameSummary,
 } from "../types/incident";
-import { makeIncident, makeOperationalPeriod } from "../types/incident";
+import { makeIncident, makeOperationalPeriod, type PeriodClock } from "../types/incident";
 import { upsertTier, type EvacTier } from "../utils/evacZones";
 import { loadIncidents, normaliseIncident, normaliseIncidentName, writeStored } from "../utils/storage";
 
@@ -105,8 +105,8 @@ export function useIncident() {
   // ── CRUD ──────────────────────────────────────────────────────────────────
 
   const createIncident = useCallback(
-    (name: string): IncidentSession => {
-      const incident = makeIncident(name);
+    (name: string, periods?: PeriodClock[]): IncidentSession => {
+      const incident = makeIncident(name, periods);
       setIncidents((prev) => {
         const next = [incident, ...prev].slice(0, MAX_INCIDENTS);
         saveToStorage(next);

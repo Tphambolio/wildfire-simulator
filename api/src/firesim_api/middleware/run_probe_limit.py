@@ -16,6 +16,10 @@ Normal use is not affected: the app polls runs it has just made (found), and rel
 incident whose runs were lost in a restart gives one miss per operational period. The counts
 are in memory and reset on restart. ``/api/v1/simulations`` itself (the passphrase-gated
 saved-runs list) has its own backoff in ``routers/runs.py``.
+
+Exercise mode PR2: ``GET /api/v1/exercise/packs/{id}`` also needs no passphrase (players open a
+pack by its 32-hex ID), so "Pack not found" answers under ``/api/v1/exercise/packs/`` count
+toward the same per-IP total.
 """
 
 from __future__ import annotations
@@ -31,6 +35,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 logger = logging.getLogger(__name__)
 
 PREFIX = "/api/v1/simulations/"
+#: Exercise packs by ID (GET with no passphrase; exercise mode PR2) count in the same way
+PACK_PREFIX = "/api/v1/exercise/packs/"
+PREFIXES = (PREFIX, PACK_PREFIX)
 
 FREE_MISSES = 20      # not-found answers allowed before the backoff starts
 MAX_LOCK_S = 300.0    # longest lock-out (s)
@@ -90,7 +97,7 @@ def _is_run_miss(status: int, body: bytes) -> bool:
     if not isinstance(detail, str):
         return False
     text = detail.lower()
-    return text.startswith("simulation") and "not found" in text
+    return (text.startswith("simulation") or text.startswith("pack")) and "not found" in text
 
 
 class RunProbeLimitMiddleware:
@@ -100,7 +107,7 @@ class RunProbeLimitMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] not in ("http", "websocket") or not scope.get("path", "").startswith(PREFIX):
+        if scope["type"] not in ("http", "websocket") or not scope.get("path", "").startswith(PREFIXES):
             await self.app(scope, receive, send)
             return
         ip = client_ip(scope)
