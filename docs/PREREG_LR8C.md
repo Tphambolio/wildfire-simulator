@@ -152,3 +152,5 @@ opened, no count has been seen and no score computed. Only blind inputs, detecti
 - **Effect on the frozen numbers.** §2's recalibration (a_r, b_r, c_r) and climatology rates are unchanged, and so
   are the §3 not-decidable thresholds and the §4 criteria. More eligible Canadian fires raise power; the US is not
   affected (ECCC is Canadian only).
+
+- **Implementation (2026-10-29, before any ECCC held-out fire is built).** Code: `scripts/validation/v8/eccc.py` (sha256 `dfcb1f4e4ddfa8be2f5e3406476aa491161d3829735ed1c1df670f7f4fadc8fe`). It runs `inputs.build` unchanged with the ECCC station list and the `climate-hourly` fetch substituted, in its own namespace (`fires_eccc/`, `heldout/sealed_eccc/`, separate manifest). ECCC coordinates are decoded from DDMMSSsss. Development used v8 training fires only: on NBAC:2024_391 one ECCC station 31 km away had 100 % coverage and plausible values; NBAC:2021_42 and 2021_44 had no qualifying station, because the ECCC stations nearby are IEM sites (rule 3) or lack hourly data in the window. Of the 529 ECCC hourly stations in the six jurisdictions, 188 remain after rule 3.
