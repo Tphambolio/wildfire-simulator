@@ -96,3 +96,21 @@ against observed counts.
 Seeds: bootstrap `2026102911`. Files: `calibration_planning.json` (sha256 in the data-folder README), the v8
 `decision_order.csv` above, and `scripts/validation/v8_score.py` `623233f6…d880` (ranks unchanged; not used for the
 decision here).
+
+---
+
+## Addendum A1 (2026-10-29): draw implementation, before any held-out fire is opened
+
+Nothing above was edited. This addendum changes no criterion, model or value.
+
+- **Shared draw.** LR8C, LR8L and LR8S (PREREG_LR8S §2, frozen `e9c6e51`) share one draw of pools A and E:
+  `scripts/validation/v8/heldout.py` (sha256 `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`).
+- **Per fire, in sealed order, with no stop:** blind inputs, then VIIRS detections, then the A1 jump catalogue,
+  then the registered `intervals.py` (`4303e544…4dbe`).
+- **Counts are sealed too.** Each fire's whole jump table, its counts included, goes to a sealed file listed in a
+  sha256 manifest. No count or location is written elsewhere or printed before `unseal`; LR8C scores counts, so
+  this is stricter than v8, which showed per-block counts.
+- **Eastern stations.** IEM ASOS networks CA_QC, CA_NF (Newfoundland and Labrador), CA_NS, CA_NB and CA_PE were
+  added to the station lists on 2026-10-29. These are station metadata only; CA_ON was already present. No western
+  fire has a station of these networks within 50 km.
+- **Gate.** `unseal` and every score wait for the main session's go.
