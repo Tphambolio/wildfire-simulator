@@ -43,7 +43,7 @@ For a candidate cell c in an interval, with d = distance (km) from c to the near
 e-folding 7.6 km); and score_C1 without p_e (pure decay = DIST). These show whether the shape and the moisture term
 matter beyond the one-coefficient decay.
 
-## 3. The frozen decay shape f(d) (training split only; `stage2/m8c1_decay_shape.json`, sha256 `fec2d886…`)
+## 3. The frozen decay shape f(d) (training split only; `stage2/m8c1_decay_shape.json`, sha256 `79aa8e18…`)
 
 Derived 2026-10-30 from the stage-1 evaluation table (4,194,927 candidate cells in the 161 training jump intervals,
 234 positives; the same table the ML ladder used, never a decision fire): the log of (share of positives in a distance
@@ -54,9 +54,16 @@ bin) / (share of candidates in the bin), both regions pooled (the two regions ag
 | positives | 78 | 27 | 17 | 15 | 11 | 19 | 55 |
 | log ratio | +2.46 | +1.22 | +0.63 | +0.43 | +0.06 | −0.17 | −1.03 |
 
-f(d) = the log ratio at the bin midpoints (1.5, 2.5, 3.5, 4.5, 5.5, 7.0 km), linearly interpolated between them,
-constant at +2.46 below 1.5 km and at **−1.03** from 8 km outward (the jump-weighted mean of the four bins beyond
-8 km: −1.00, −0.79, −1.12, −1.12). Monotone non-increasing by construction. Positives' distance quantiles: 10 % 1.3,
+f(d) is piecewise linear through the **seven nodes** (d km, f): (1.5, +2.46), (2.5, +1.22), (3.5, +0.63),
+(4.5, +0.43), (5.5, +0.06), (7.0, −0.17), **(8.0, −1.03)**; constant at +2.46 below 1.5 km; constant at the floor
+**−1.03** at and beyond 8.0 km. The six interior nodes are the bin midpoints; **8.0 km is a node** (revision
+2026-10-30 11:45 MDT, after the main session's implementer found the 7–8 km gap: f falls linearly from −0.17 at
+7.0 km to −1.03 at 8.0 km, so f(7.5) = −0.60; the alternative, holding −0.17 to 8 km and stepping, is rejected).
+The floor is the jump-weighted mean of the four bins beyond 8 km (−1.00 × 9, −0.79 × 12, −1.12 × 14, −1.12 × 20
+positives) = −1.0284, **registered as −1.03**, two decimals like every node. Check points: f(2.0) = +1.84,
+f(3.0) = +0.925, f(5.0) = +0.245, f(7.5) = −0.60, f(12) = −1.03. Monotone non-increasing by construction. The shape
+file carries the nodes, the floor and these check points (`f_of_d`), with the empty 0–1 km bin as `null`
+(strict JSON; the empirical table is unchanged). Positives' distance quantiles: 10 % 1.3,
 50 % 3.7, 90 % 17.1 km; candidates' 4.6, 14.2, 58.1 km (the candidate band is 1–15 km from the *perimeter*; from the
 *active* edge it reaches much further, which is where the floor applies).
 
@@ -125,7 +132,7 @@ changes.
 
 | File | sha256 |
 |---|---|
-| `reports/data/ml-ember-cast-2026-10-29/stage2/m8c1_decay_shape.json` | `fec2d886…` (full hash at freeze) |
+| `reports/data/ml-ember-cast-2026-10-29/stage2/m8c1_decay_shape.json` | `79aa8e1861a99f46f7e4dc86242f8cd7ecfc8811b54caaedf4ec6299971251d1` |
 | implementation commit, `score_C1` module, unit tests | at freeze |
 | the block's `draw/counts.csv` at the stop | at scoring |
 
