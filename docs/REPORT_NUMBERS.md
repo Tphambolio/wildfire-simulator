@@ -89,6 +89,7 @@ so that does not happen again.
 | R67 | Sealed 2026 confirmation of H1 (1-burn-day active rule) and H2 (B2 P2) on the US `confirm` subset (PREREG_SEALED_CONFIRM_H1H2; H1 FAIL, H2 FAIL) | `feat/sealed-confirm-h1h2`, #113 | 2026-10-25 | master |
 | R69 | Validation scorecard v1 (dated, per-release artifact; `scripts/make_scorecard.py`) | `feat/validation-scorecard`, #111 | 2026-10-25 | master |
 | R70 | Long-range embers v8 result (PREREG_LR8 + addenda A1-A4; target L, PASS) | `feat/long-range-embers-v8`, #114 | 2026-10-29 | master (renumbered from R69 on 2026-10-29) |
+| R72 | Community-arrival under-spread diagnosis (C1b fire-days; exploratory; PREREG_ARRIVAL1 not pursued) | `analysis/arrival-underspread-r72` | 2026-10-29 | master |
 
 **Not yet numbered.** *Long-range embers v5: two-mode kernel* (2026-10-12, `feat/long-range-embers-v5`,
 PR #81, open) calls itself [R-v5], "number assigned at merge"; claim a number here when #81 merges.
