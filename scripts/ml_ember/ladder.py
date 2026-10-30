@@ -194,6 +194,7 @@ def spline_design(X: pd.DataFrame, fitted=None, linear_cols=()):
 
 
 CHUNK = 200_000
+ROUND_GRID = (25, 50, 100, 200, 400)
 
 
 def chunked(fn, df, offset=None):
@@ -265,6 +266,9 @@ def fit_rung3(tr, cand, features=R3_FEATURES, rounds=None, inner=None, offset=No
     tr = tr.sort_values(["fire_key", "epoch"], kind="stable") if rank else tr
     ds = lgb.Dataset(tr[features], tr.y.to_numpy(), weight=None if rank else tr.w_sample.to_numpy(), init_score=offset,
                      group=_groups(tr) if rank else None, free_raw_data=False)
+    if inner is not None and rank:  # NDCG early stopping is uninformative here (one positive per interval): fixed 400 rounds,
+        m = lgb.train(params, ds, num_boost_round=400)  # the caller picks the round count on its inner AUC over ROUND_GRID
+        return dict(model=m, features=features, best_iter=400, objective=objective)
     if inner is not None:  # (validation df, validation offset) -> early stopping
         va, va_off = inner
         va = va.sort_values(["fire_key", "epoch"], kind="stable") if rank else va
@@ -359,8 +363,19 @@ def main(argv=None) -> int:
                     if iva.y.sum() == 0:
                         continue
                     m = fit_rung3(itr, mdl, r3f, inner=(iva, None), seed=k, objective=obj)
-                    its.append(m["best_iter"]); ranks.append(cv.interval_ranks(iva, score_rung3(m, iva)))
-                pick[f"{obj}/{mdl}"] = dict(objective=obj, min_data_in_leaf=mdl, rounds=int(np.median(its)), inner_auc=cv.auc_from_ranks(pd.concat(ranks), region)["AUC"])
+                    if obj == "lambdarank":
+                        per_n = {}
+                        for n_ in ROUND_GRID:
+                            m["best_iter"] = n_; per_n[n_] = cv.interval_ranks(iva, score_rung3(m, iva))
+                        its.append(per_n); 
+                    else:
+                        its.append(m["best_iter"]); ranks.append(cv.interval_ranks(iva, score_rung3(m, iva)))
+                if obj == "lambdarank":
+                    by_n = {n_: cv.auc_from_ranks(pd.concat([d[n_] for d in its]), region)["AUC"] for n_ in ROUND_GRID}
+                    n_best = max(by_n, key=by_n.get)
+                    pick[f"{obj}/{mdl}"] = dict(objective=obj, min_data_in_leaf=mdl, rounds=int(n_best), inner_auc=by_n[n_best], inner_auc_by_rounds=by_n)
+                else:
+                    pick[f"{obj}/{mdl}"] = dict(objective=obj, min_data_in_leaf=mdl, rounds=int(np.median(its)), inner_auc=cv.auc_from_ranks(pd.concat(ranks), region)["AUC"])
         best3 = max(pick, key=lambda m_: pick[m_]["inner_auc"]); obj3, mdl3, rounds3 = pick[best3]["objective"], pick[best3]["min_data_in_leaf"], pick[best3]["rounds"]
         f3 = fit_rung3(tr, mdl3, r3f, rounds=rounds3, seed=k, objective=obj3); oof.loc[tem, "rung3"] = score_rung3(f3, te)
         # both objectives also scored out of fold for the record (descriptive)
