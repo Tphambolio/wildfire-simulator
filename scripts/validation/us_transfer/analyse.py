@@ -43,6 +43,7 @@ LABELS = {
     "xw_nb1_nf": "(a) urban -> non-fuel", "feds": "(e) DOB from FEDS (R67 source)",
     "rm050": "(c) ROS x 0.5 (damping dose)", "rm030": "(c) ROS x 0.3 (damping dose)",
     "rm020": "(c) ROS x 0.2 (damping dose)", "rm010": "(c) ROS x 0.1 (damping dose)",
+    "fix1": "FIX1 candidate (shrub -> D-1/D-2 + held-fire ROS x 0.2)",
 }
 SHARE_BINS = ((0.0, 0.02), (0.02, 0.10), (0.10, 0.30), (0.30, 1.01))
 STAGE_BINS = ((0, .25, "stage<0.25"), (.25, .6, "0.25-0.6"), (.6, 1.01, "stage>=0.6"))

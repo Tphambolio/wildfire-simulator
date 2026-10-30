@@ -2,8 +2,8 @@
 
 Purpose: five figures, captions in the report: (1) baseline log-area bias, US vs Canada development fires
 through the same pipeline, with the spent R67 sealed fires described; (2) paired one-factor effects with
-fire-bootstrap CIs; (3) where the US modelled growth lands, by LANDFIRE FBFM40 group; (4) suppression /
-fire-stage stratification; (5) scoring-geometry checks.
+fire-bootstrap CIs; (3) suppression /
+fire-stage stratification; (4) where the US modelled growth lands, by LANDFIRE FBFM40 group; (5) scoring-geometry checks.
 
 Usage: ``python3 -m scripts.validation.us_transfer.figures <out_dir>``
 """
@@ -81,7 +81,7 @@ def main():
             ax.text(i, max(fg["obs_ha"].get(g, 0), fg["pred_ha"].get(g, 0)) * 1.15, f"x{r:.1f}", ha="center", fontsize=8)
     ax.set_yscale("log"); ax.set_xticks(x, gs); ax.set_ylabel("area summed over US fire-days (ha)")
     ax.legend(fontsize=8)
-    fig.tight_layout(); fig.savefig(out / "fig3_fuel_groups.png", dpi=150); plt.close(fig)
+    fig.tight_layout(); fig.savefig(out / "fig4_fuel_groups.png", dpi=150); plt.close(fig)
     # fig 4
     sup = res["suppression"]
     keys = ["stage<0.25", "0.25-0.6", "stage>=0.6", "before_containment", "on_or_after_containment"]
@@ -96,7 +96,7 @@ def main():
     ax.set_xticks(range(len(keys)), ["< 25 % burned\nbefore day", "25-60 %", ">= 60 %", "before WFIGS\ncontainment",
                                      "on/after\ncontainment"], fontsize=8)
     ax.axhline(0, color="k", lw=0.8); ax.set_ylabel("mean L (17 h)"); ax.legend(fontsize=8)
-    fig.tight_layout(); fig.savefig(out / "fig4_suppression_stage.png", dpi=150); plt.close(fig)
+    fig.tight_layout(); fig.savefig(out / "fig3_suppression_stage.png", dpi=150); plt.close(fig)
     # fig 5
     geo = res["geometry"]
     gk = [("L_base", "base (NN fill in final perimeter)"), ("L_pred_clipped_to_final_footprint", "model clipped to final footprint"),

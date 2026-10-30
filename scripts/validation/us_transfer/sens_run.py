@@ -19,6 +19,11 @@ Variants (``VARIANTS``):
               wind speed x 0.75 (elasticity, not a correction).
   (c) damping ``rm050`` / ``rm030`` / ``rm020``: every cell's ROS x 0.5 / 0.3 / 0.2 (the harness's ensemble
               ``ros_multiplier`` hook), the dose-response used to size a suppression-persistence damping rule.
+              ``shd1_rmNNN``: shrub -> D-1/D-2 crosswalk together with ROS x NNN/100 (combined candidate fix);
+              ``rm015``: ROS x 0.15.
+  fix         ``fix1``: the PREREG_US_TRANSFER1 candidate (shrub -> D-1/D-2, and ROS x 0.20 on held-fire days =
+              mature start with < 5 % of the start area burned the day before; US only); ``ens_base`` / ``ens_fix1``: 20-member A15 ensembles (B2/R67 perturbations) of base / fix1,
+              recording each member's 17 h growth area (coverage check).
   (d) start   ``act1``: last 1 burn day active; ``perim``: whole start perimeter active (no edge rule).
   (e) scoring ``feds``: DOB from the NASA FEDS archive (the R67 day-of-burning source; US 2018-2021).
 The base record also carries scoring-geometry extras: growth inside the eventual final footprint, growth on
@@ -51,7 +56,32 @@ WINDOWS = (8.0, 17.0, 24.0)
 XW = [k for k in C.CROSSWALKS if k != "base"]
 VARIANTS = (["base"] + [f"xw_{k}" for k in XW] +
             ["cure95", "cure_ndvi", "stn", "stn_wind", "stn_trh", "stn_fwi", "nospin", "wind075",
-             "act1", "perim", "feds", "rm050", "rm030", "rm020", "rm010"])
+             "act1", "perim", "feds", "rm050", "rm030", "rm020", "rm010",
+             "shd1_rm100", "shd1_rm050", "shd1_rm030", "shd1_rm020", "shd1_rm015", "rm015",
+             "fix1", "ens_base", "ens_fix1"])
+
+# PREREG_US_TRANSFER1 candidate fix (frozen there): US (LANDFIRE) fire-days only
+FIX1_SHRUB_CODE = C.D1          # FBFM40 SH 141-149 -> D-1 (D-2 green between day 150 and 258)
+FIX1_K_HELD = 0.20              # ROS multiplier on held-fire days (below)
+FIX1_HELD_SHARE = 0.05          # held fire: mature start (age >= 2 days, [R58]) and < 5 % of the start area
+                                # burned on the previous day (start_prev_day_share; known at forecast time)
+A15 = {"wind_dir_sd_deg": 24, "wind_speed_log_sd": 0.405, "ffmc_sd": 7.2, "dmc_dc_log_sd": 0.6,
+       "curing_sd": 20.25, "fmc_sd": 15, "ros_log_sd": 0.825}
+
+
+def fix1(dom, side, day):
+    """(domain, ros multiplier) under FIX1; non-US domains (no FBFM40 sidecar) are returned unchanged."""
+    from dataclasses import replace as dreplace
+    from firesim.validation.start_strata import start_type
+
+    if "fbfm" not in side:
+        return dom, 1.0
+    fuel = dom.fuel.copy()
+    fuel[np.isin(side["fbfm"], C.GROUPS["SH"])] = FIX1_SHRUB_CODE
+    st = start_type(dom.dob, day, dom.cell_area_m2)
+    held = st["start_type"] == "mature" and (st.get("start_prev_day_share") or 0.0) < FIX1_HELD_SHARE
+    k = FIX1_K_HELD if held else 1.0
+    return dreplace(dom, fuel=fuel), k
 
 
 @lru_cache(maxsize=2)
@@ -162,9 +192,19 @@ def run_task(task: dict) -> dict:
             if day not in {p.day for p in fire_day_pairs(dom)}:
                 out["error"] = "fire-day not eligible under FEDS DOB"
                 return out
-        elif v in ("rm050", "rm030", "rm020", "rm010"):
-            opts["_rm"] = {"rm050": 0.5, "rm030": 0.3, "rm020": 0.2, "rm010": 0.1}[v]
-        elif v != "base":
+        elif v.startswith("rm") or v.startswith("shd1_rm"):
+            opts["_rm"] = int(v[-3:]) / 100.0
+            if v.startswith("shd1_"):  # combined: shrub -> D-1/D-2 crosswalk plus the ROS factor
+                if "fbfm" not in side:
+                    same = True
+                else:
+                    fuel = dom.fuel.copy()
+                    fuel[np.isin(side["fbfm"], C.GROUPS["SH"])] = C.D1
+                    dom = dreplace(dom, fuel=fuel)
+        elif v in ("fix1", "ens_fix1"):
+            dom, k = fix1(dom, side, day)
+            opts["_rm"] = k
+        elif v not in ("base", "ens_base"):
             raise ValueError(v)
         if same:
             out["same_as_base"] = True
@@ -173,6 +213,8 @@ def run_task(task: dict) -> dict:
         case = build_case(dom, day, grp, records, start_hour=6, hours=24, margin_m=20000.0)
         rm = opts.pop("_rm", 1.0)
         ro = RunOptions(**opts)
+        if v.startswith("ens_"):
+            return ens_task(out, case, ro, rm, fid, day, t)
         if rm != 1.0:
             from firesim.validation.harness import _run, _setup
             st_ = _setup(case, ro, member)
@@ -228,6 +270,36 @@ def run_task(task: dict) -> dict:
     except Exception as exc:  # recorded, not fatal
         out["error"] = repr(exc)[:400]
     out["wall_s"] = time.time() - t
+    return out
+
+
+def ens_task(out, case, ro, rm, fid, day, t):
+    """20-member A15 ensemble (same draws as the harness for seed 1), every member's ROS also x ``rm``."""
+    import random
+    from firesim.spread.ensemble import EnsembleConfig, perturb_config
+    from firesim.spread.simulator import Simulator
+    from firesim.validation.harness import Member, _run, _setup
+
+    ens = EnsembleConfig(n_members=20, seed=1, **A15)
+    st_ = _setup(case, ro, Member())
+    det, run_s, _ = _run(st_, st_["config"], ro, ros_multiplier=rm, seed=f"{fid}:{day}:det")
+    base_fmc = Simulator(st_["config"], fuel_grid=st_["fuel_grid"])._foliar_moisture()
+    rng = random.Random(ens.seed)
+    cd = case.domain
+    cell = cd.cell_area_m2
+    excluded = (det <= 0.0) | ((cd.dob > 0) & (cd.dob < day))
+    obs = (cd.dob == day) & ~excluded
+    areas = []
+    for i in range(ens.n_members):
+        cfg, k_ros, _ = perturb_config(st_["config"], ens, rng, base_fmc)
+        arr, s_, _ = _run(st_, cfg, ro, k_ros * rm, seed=f"{fid}:{day}:ens{ens.seed}:{i}")
+        run_s += s_
+        areas.append(float(((arr <= 17 * 60.0) & ~excluded & (arr > 0)).sum()) * cell / 1e4)
+    out.update({"obs_ha": float(obs.sum()) * cell / 1e4,
+                "det_ha": float(((det <= 17 * 60.0) & ~excluded).sum()) * cell / 1e4,
+                "member_ha": areas, "rm": rm, "run_s": run_s, "wall_s": time.time() - t})
+    from firesim.validation.start_strata import start_type
+    out.update(start_type(cd.dob, day, cell))
     return out
 
 
