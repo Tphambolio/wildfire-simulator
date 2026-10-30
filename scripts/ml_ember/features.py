@@ -197,13 +197,19 @@ def load_beta(guard: Guard) -> dict:
     return guard.read_json(p)["beta"]
 
 
-def load_fire(fire_key: str, guard: Guard, beta: dict | None = None, with_texture: bool = True) -> FireContext | None:
-    """Everything ``run_fire`` derives before its interval loop, for a training fire. None when ineligible."""
+def load_fire(fire_key: str, guard: Guard, beta: dict | None = None, with_texture: bool = True,
+              assignment: str = "training") -> FireContext | None:
+    """Everything ``run_fire`` derives before its interval loop, for a training fire. None when ineligible.
+    ``assignment`` "decision" (stage-2 confirmation only, PREREG_ML_EMBER section 4) reads the fire's sealed
+    ``viirs_decision`` detections through the guard, which refuses them without the registered confirmation commit."""
     import geopandas as gpd
     import shapely
     from pyproj import Transformer
     from scripts.validation.v8 import inputs as I
-    guard.assert_training(fire_key)
+    if assignment == "training":
+        guard.assert_training(fire_key)
+    elif assignment != "decision":
+        raise ValueError(f"assignment must be 'training' or 'decision', not {assignment!r}")
     fd = P.POOL / "fires" / fire_key.replace(":", "_")
     meta = guard.read_json(fd / "meta.json")
     if not meta.get("eligible_station"):
@@ -214,8 +220,11 @@ def load_fire(fire_key: str, guard: Guard, beta: dict | None = None, with_textur
     guard.check(P.POOL / "raw")  # fire_record reads the MTBS shapefile / WFIGS cache below v8-pool/raw
     rec = I.fire_record(fire_key)
     per = gpd.GeoSeries([rec["geometry"]], crs=4326).to_crs(g["crs"]).iloc[0]
-    guard.check(P.POOL / "viirs_training" / f"viirs_training_{rec['year']}.pkl.gz")
-    det = Iv.detections(fire_key, rec["year"], "training")
+    if assignment == "training":
+        guard.check(P.POOL / "viirs_training" / f"viirs_training_{rec['year']}.pkl.gz")
+    else:
+        guard.check(P.POOL / "viirs_decision" / f"{fire_key.replace(':', '_')}.pkl.gz")
+    det = Iv.detections(fire_key, rec["year"], assignment)
     d = Iv.epochs(rec, det, g["crs"], per)
     if not len(d):
         return None

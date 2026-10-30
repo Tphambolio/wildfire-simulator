@@ -221,13 +221,17 @@ def score_rung1(fm, df, offset=None):
     return chunked(lambda d, o: _score_rung1(fm, d, o), df, offset)
 
 
-def fit_rung2(tr, C, med=None, linear_cols=(), offset=None):
-    X, med = design(tr, R1_FEATURES, med)
+def fit_rung2(tr, C, med=None, linear_cols=(), offset=None, features=R1_FEATURES):
+    """Additive rung. ``features`` defaults to the full 14-feature list; the arm's list must be passed explicitly
+    (before 2026-10-30 this function ignored the arm, so the clean-arm rung 2 and rung 4 of the first two ladder runs
+    carried ``hazshare``; corrected and re-run, PREREG_ML_EMBER section 9 / development memo addendum)."""
+    X, med = design(tr, features, med)
     if offset is not None:  # pre-declared interaction for the additive hybrid base
         X["dact_x_fuel1"] = X["d_act_km"] * X["fuel_g1"]; X["dact_x_fuel2"] = X["d_act_km"] * X["fuel_g2"]
     S, fitted = spline_design(X, None, linear_cols)
     m = Logistic(C).fit(S, tr.y, tr.w_sample, offset, groups=tr.fire_key.astype(str) + "/" + tr.epoch.astype(str))
-    return dict(model=m, med=med, spl=fitted, cols=list(S.columns), linear=tuple(linear_cols), hybrid=offset is not None)
+    return dict(model=m, med=med, spl=fitted, cols=list(S.columns), linear=tuple(linear_cols), hybrid=offset is not None,
+                features=list(features))
 
 
 def score_rung2(fm, df, offset=None):
@@ -235,7 +239,7 @@ def score_rung2(fm, df, offset=None):
 
 
 def _score_rung2(fm, df, offset=None):
-    X, _ = design(df, R1_FEATURES, fm["med"])
+    X, _ = design(df, fm.get("features", R1_FEATURES), fm["med"])
     if fm.get("hybrid"):
         X["dact_x_fuel1"] = X["d_act_km"] * X["fuel_g1"]; X["dact_x_fuel2"] = X["d_act_km"] * X["fuel_g2"]
     S, _ = spline_design(X, fm["spl"], fm["linear"])
@@ -340,16 +344,16 @@ def main(argv=None) -> int:
         X1, _ = design(tr, r1f, f1["med"])
         res["ale"].setdefault("rung1", {})[k] = {c: float(f1["model"].coef_[i]) for i, c in enumerate(f1["cols"])}  # standardised conditional-logit coefficients
         # rung 2 (+ monotone rule)
-        C2, tab = inner_pick(tr, fires, k, C_GRID, lambda d, c: fit_rung2(d, c), lambda m, d: score_rung2(m, d))
-        f2 = fit_rung2(tr, C2); lin = []
-        X2, _ = design(tr, R1_FEATURES, f2["med"])
+        C2, tab = inner_pick(tr, fires, k, C_GRID, lambda d, c: fit_rung2(d, c, features=r1f), lambda m, d: score_rung2(m, d))
+        f2 = fit_rung2(tr, C2, features=r1f); lin = []
+        X2, _ = design(tr, r1f, f2["med"])
         for col, sgn in MONOTONE.items():
             if col in X2 and X2[col].nunique() > 6:
                 sp = ale(lambda X: score_rung2(f2, X.assign(fuel_group=0)) if False else f2["model"].margin(spline_design(X, f2["spl"], f2["linear"])[0][f2["cols"]]), X2, col)["spearman"]
                 if np.isfinite(sp) and np.sign(sp) != sgn:
                     lin.append(col)
         if lin:
-            f2 = fit_rung2(tr, C2, linear_cols=tuple(lin))
+            f2 = fit_rung2(tr, C2, linear_cols=tuple(lin), features=r1f)
         rung2_rule[k] = lin
         oof.loc[tem, "rung2"] = score_rung2(f2, te); res["choices"][f"rung2_C_fold{k}"] = dict(chosen=C2, inner_auc=tab, linearised=lin)
         res["ale"].setdefault("rung2", {})[k] = {c: ale(lambda X: f2["model"].margin(spline_design(X, f2["spl"], f2["linear"])[0][f2["cols"]]), X2, c)["spearman"] for c in ["d_act_km", "bear_off_deg", "u10_ms", "m_ff_pct", "curing_pct", "hazshare", "I_head_kwm", "slope_pct"] if c in X2}
@@ -436,7 +440,7 @@ def main(argv=None) -> int:
             oof.loc[tem, "rung4"] = score_rung3(f4, te, offset=off_te)
             res["ale"].setdefault("rung4", {})[k] = {c: ale(lambda X: f4["model"].predict(X, raw_score=True, num_threads=4), tr[r3f], c)["spearman"] for c in ["d_act_km", "bear_off_deg", "u10_ms", "curing_pct", "hazshare", "I_head_kwm", "slope_pct"] if c in r3f}
         else:
-            f4 = fit_rung2(tr, res["fold_models"][k]["C2"], linear_cols=tuple(rung2_rule.get(k, [])), offset=off_tr)
+            f4 = fit_rung2(tr, res["fold_models"][k]["C2"], linear_cols=tuple(rung2_rule.get(k, [])), offset=off_tr, features=r1f)
             oof.loc[tem, "rung4"] = score_rung2(f4, te, offset=off_te)
         # descriptive, added after stage 1 (never deciding): the base rung-2 features plus m8_log as an ordinary feature
         fs = fit_rung1(tr.assign(m8_log=np.clip(off_tr, -40, 0)), res["fold_models"][k]["C1"], features=r1f + ["m8_log"])
@@ -456,7 +460,7 @@ def main(argv=None) -> int:
         if carried == "rung1":
             return ("r1", fit_rung1(tr, 1.0, features=r1f))
         if carried == "rung2":
-            return ("r2", fit_rung2(tr, 1.0))
+            return ("r2", fit_rung2(tr, 1.0, features=r1f))
         return ("r3", fit_rung3(tr, 200, r3f, rounds=int(np.median([res["fold_models"][k]["f3_rounds"] for k in res["fold_models"]])), seed=seed))
     def score_carried(fm, te):
         kind, m = fm
