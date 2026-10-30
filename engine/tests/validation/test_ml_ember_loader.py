@@ -152,3 +152,12 @@ def test_sealed_list_matches_prereg_section_2_and_a1():
                                              "results/score_out.json", "results/secondary.json", "results/sensitivities.json",
                                              "results/unseal_exclusions.json"}
     assert set(P.ALLOWED_COUNT_FILES) == {"draw/counts.csv", "draw/state.json", "draw/draw_log.txt"}
+
+
+def test_repo_parity_fixture_is_sealed(tmp_path):
+    """Addendum A4: the CI parity fixture (derived inputs of two decision fires) is refused even inside the repo."""
+    from scripts.ml_ember import loader as L
+    g = L.Guard(pool=tmp_path / "pool", validation_data=tmp_path, v8_result_folder=tmp_path / "v8", assignment={}, refusals_log=tmp_path / "r.log")
+    p = L.ROOT / "engine" / "tests" / "spread" / "data" / "m8_parity" / "fire1_interval1.npz"
+    assert g.sealed_reason(p) is not None
+    assert g.sealed_reason(L.ROOT / "engine" / "tests" / "spread" / "data" / "other.npz") is None

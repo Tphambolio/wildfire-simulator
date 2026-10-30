@@ -133,6 +133,11 @@ class Guard:
         rel = _rel(p, self.v8_result_folder)
         if rel is not None and rel in P.SEALED_V8_RESULT_FILES:
             return f"sealed v8 per-jump result file {rel}"
+        rel = _rel(p, ROOT)
+        if rel is not None:
+            for sub in P.SEALED_REPO_SUBTREES:
+                if rel == sub.rstrip("/") or rel.startswith(sub):
+                    return f"sealed repository subtree {sub} (derived from decision fires)"
         return None
 
     def _override(self) -> bool:

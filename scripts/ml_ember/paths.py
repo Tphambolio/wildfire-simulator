@@ -37,6 +37,8 @@ SEALED_VALIDATION_EXCEPTIONS = ("sealed2026/README.md", "sealed2026/_about.json"
 SEALED_V8_RESULT_FILES = ("results/jumps.csv", "results/ranks_per_jump.csv", "results/sealed_manifest.csv",
                           "results/score_out.json", "results/secondary.json", "results/sensitivities.json",
                           "results/unseal_exclusions.json")
+# repository paths sealed for development (addendum A4): CI parity fixture derived from two decision fires
+SEALED_REPO_SUBTREES = ("engine/tests/spread/data/m8_parity/",)
 ALLOWED_COUNT_FILES = ("draw/counts.csv", "draw/state.json", "draw/draw_log.txt")
 
 # section 3: negative subsampling

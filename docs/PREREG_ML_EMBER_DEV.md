@@ -434,3 +434,26 @@ with the rung-3 constraints, 300 rounds, no tuning; five outer folds of §6. No 
   14 features, rung 3 has 24 (clean arm: 21).
 - **Inner-fold seed** (not fixed in §6): `S_FOLD + 1000 × (outer + 1)` per outer fold, disclosed.
 - **LightGBM 4.6.0** pinned in the dedicated environment (§5 named 4.6); scikit-learn 1.9.1.
+
+### A4 (2026-10-29, 22:40 MDT): report-number correction; one more sealed path; ladder implementation notes
+
+- **Renumbering (registry on master `cbaeafc`, PR #114 merged 2026-10-29):** the v8 long-range-embers result is
+  **[R70]**, not [R69] as A1 and the record said when written ([R69] went to the validation scorecard, #111). A1's text
+  is left as registered; every later reference uses [R70]. This project's report stays [R68]; the registry's next free
+  number is [R75].
+- **Sealed path added (loader + test):** `engine/tests/spread/data/m8_parity/` on branch `feat/embers-m8-engine`, a CI
+  parity fixture holding derived inputs of two **decision** fires (NBAC:2018_780, MTBS:AZ3368910927620210616; no
+  jumps, ranks or scores). The guard refuses it even inside the repository. Noted to this session by the FireSim main
+  session, which also reports having run a post-hoc fuel-seam sensitivity on the decision fires and sent **no number
+  from it here**; the confirmation set remains unread by this project.
+- **Rung 3 objective.** §5 names LambdaRank grouped by interval as rung 3's alternative objective. The first ladder run
+  used the pooled binary objective only and rung 3 fell below rung 2 (the same between-interval dilution that the
+  pooled GLM showed in A3); the objective is now chosen on the inner folds from {binary, lambdarank} with the other
+  §5 hyperparameters, and both are scored out of fold for the record. LambdaRank's early stopping judges the whole
+  sampled interval (NDCG@200), since each interval holds about one positive among 200 sampled cells.
+- **Hybrid.** Rung 4 is the pre-registered offset form and is reported as such. A descriptive variant with `m8_log`
+  (clipped at −40) as an ordinary feature of the rung-1 design ("hybrid_scaled") is **added after stage 1**, never
+  deciding, to show what a fitted scale on M8's log-score does; it is labelled as such wherever it appears.
+- **Carried rung under the §7 rule.** The rule says "carry forward the simplest rung within +0.01 of the best"; the
+  first run gave rung 2 − rung 1 = +0.017, so rung 2 is carried even though the climb test (+0.02) failed. The rule is
+  applied as written; the reading is in the development memo.

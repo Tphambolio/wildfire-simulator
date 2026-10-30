@@ -241,21 +241,39 @@ def _score_rung2(fm, df, offset=None):
     return fm["model"].margin(S[fm["cols"]], offset)
 
 
-def fit_rung3(tr, cand, features=R3_FEATURES, rounds=None, inner=None, offset=None, interactions=None, seed=0):
+def _groups(df):
+    """Interval group sizes in row order (rows of one interval must be contiguous; the fit table is built that way)."""
+    key = (df.fire_key.astype(str) + "/" + df.epoch.astype(str)).to_numpy()
+    change = np.r_[True, key[1:] != key[:-1]]
+    if len(np.unique(key)) != change.sum():
+        raise ValueError("interval rows are not contiguous")
+    idx = np.flatnonzero(change); return np.diff(np.r_[idx, len(key)])
+
+
+def fit_rung3(tr, cand, features=R3_FEATURES, rounds=None, inner=None, offset=None, interactions=None, seed=0, objective="binary"):
+    """objective 'binary' (pooled, weighted) or 'lambdarank' (grouped by interval; the section-5 alternative objective).
+    LambdaRank ranks cells within their interval, which is what section 3 scores; weights are not used there."""
     import lightgbm as lgb
     mdl, _ = cand if isinstance(cand, tuple) else (cand, None)
     params = dict(LGB_BASE, min_data_in_leaf=int(mdl), seed=cv.S_MODEL + seed,
                   monotone_constraints=[MONOTONE.get(f, 0) for f in features])
+    if objective == "lambdarank":
+        params.update(objective="lambdarank", metric="ndcg", eval_at=[200], lambdarank_truncation_level=200)  # one positive among ~200 sampled cells: judge the whole interval
     if interactions is not None:
         params["interaction_constraints"] = interactions
-    ds = lgb.Dataset(tr[features], tr.y.to_numpy(), weight=tr.w_sample.to_numpy(), init_score=offset, free_raw_data=False)
+    rank = objective == "lambdarank"
+    tr = tr.sort_values(["fire_key", "epoch"], kind="stable") if rank else tr
+    ds = lgb.Dataset(tr[features], tr.y.to_numpy(), weight=None if rank else tr.w_sample.to_numpy(), init_score=offset,
+                     group=_groups(tr) if rank else None, free_raw_data=False)
     if inner is not None:  # (validation df, validation offset) -> early stopping
         va, va_off = inner
-        dv = lgb.Dataset(va[features], va.y.to_numpy(), weight=va.w_sample.to_numpy(), init_score=va_off, reference=ds, free_raw_data=False)
+        va = va.sort_values(["fire_key", "epoch"], kind="stable") if rank else va
+        dv = lgb.Dataset(va[features], va.y.to_numpy(), weight=None if rank else va.w_sample.to_numpy(), init_score=va_off,
+                         group=_groups(va) if rank else None, reference=ds, free_raw_data=False)
         m = lgb.train(params, ds, num_boost_round=2000, valid_sets=[dv], callbacks=[lgb.early_stopping(50, verbose=False)])
-        return dict(model=m, features=features, best_iter=int(m.best_iteration or m.current_iteration()))
+        return dict(model=m, features=features, best_iter=int(m.best_iteration or m.current_iteration()), objective=objective)
     m = lgb.train(params, ds, num_boost_round=int(rounds))
-    return dict(model=m, features=features, best_iter=int(rounds))
+    return dict(model=m, features=features, best_iter=int(rounds), objective=objective)
 
 
 def score_rung3(fm, df, offset=None):
@@ -298,7 +316,7 @@ def main(argv=None) -> int:
                folds={k: int(v) for k, v in folds.items()}, lightgbm=__import__("lightgbm").__version__, choices={}, betas={}, ale={}, importance={})
     MODELS = ["b1", "m8", "dist", "dist_sec", "rung1", "rung2", "rung3"]
     oof = ev[["row_id", "fire_key", "epoch", "y", "region", "year", "gap_h"]].copy()
-    for m in MODELS + ["rung4"]:
+    for m in MODELS + ["rung4", "rung3_binary", "rung3_lambdarank", "hybrid_scaled"]:
         oof[m] = np.nan
     rung2_rule = {}
     for k in range(cv.N_OUTER):
@@ -333,18 +351,24 @@ def main(argv=None) -> int:
         res["ale"].setdefault("rung2", {})[k] = {c: ale(lambda X: f2["model"].margin(spline_design(X, f2["spl"], f2["linear"])[0][f2["cols"]]), X2, c)["spearman"] for c in ["d_act_km", "bear_off_deg", "u10_ms", "m_ff_pct", "curing_pct", "hazshare", "I_head_kwm", "slope_pct"] if c in X2}
         # rung 3: inner early stopping + min_data_in_leaf
         inner = cv.inner_folds(fires, tr.fire_key.unique(), k); pick = {}
-        for mdl in (200, 500):
-            its, ranks = [], []
-            for j in range(cv.N_INNER):
-                itr = tr[tr.fire_key.map(inner) != j]; iva = tr[tr.fire_key.map(inner) == j]
-                if iva.y.sum() == 0:
-                    continue
-                m = fit_rung3(itr, mdl, r3f, inner=(iva, None), seed=k)
-                its.append(m["best_iter"]); ranks.append(cv.interval_ranks(iva, score_rung3(m, iva)))
-            pick[mdl] = dict(rounds=int(np.median(its)), inner_auc=cv.auc_from_ranks(pd.concat(ranks), region)["AUC"])
-        mdl3 = max(pick, key=lambda m_: pick[m_]["inner_auc"]); rounds3 = pick[mdl3]["rounds"]
-        f3 = fit_rung3(tr, mdl3, r3f, rounds=rounds3, seed=k); oof.loc[tem, "rung3"] = score_rung3(f3, te)
-        res["choices"][f"rung3_fold{k}"] = dict(min_data_in_leaf=mdl3, rounds=rounds3, inner=pick)
+        for obj in ("binary", "lambdarank"):
+            for mdl in (200, 500):
+                its, ranks = [], []
+                for j in range(cv.N_INNER):
+                    itr = tr[tr.fire_key.map(inner) != j]; iva = tr[tr.fire_key.map(inner) == j]
+                    if iva.y.sum() == 0:
+                        continue
+                    m = fit_rung3(itr, mdl, r3f, inner=(iva, None), seed=k, objective=obj)
+                    its.append(m["best_iter"]); ranks.append(cv.interval_ranks(iva, score_rung3(m, iva)))
+                pick[f"{obj}/{mdl}"] = dict(objective=obj, min_data_in_leaf=mdl, rounds=int(np.median(its)), inner_auc=cv.auc_from_ranks(pd.concat(ranks), region)["AUC"])
+        best3 = max(pick, key=lambda m_: pick[m_]["inner_auc"]); obj3, mdl3, rounds3 = pick[best3]["objective"], pick[best3]["min_data_in_leaf"], pick[best3]["rounds"]
+        f3 = fit_rung3(tr, mdl3, r3f, rounds=rounds3, seed=k, objective=obj3); oof.loc[tem, "rung3"] = score_rung3(f3, te)
+        # both objectives also scored out of fold for the record (descriptive)
+        for obj in ("binary", "lambdarank"):
+            b_ = max((q for q in pick.values() if q["objective"] == obj), key=lambda q: q["inner_auc"])
+            fo = f3 if obj == obj3 else fit_rung3(tr, b_["min_data_in_leaf"], r3f, rounds=b_["rounds"], seed=k, objective=obj)
+            oof.loc[tem, f"rung3_{obj}"] = score_rung3(fo, te)
+        res["choices"][f"rung3_fold{k}"] = dict(objective=obj3, min_data_in_leaf=mdl3, rounds=rounds3, inner=pick)
         res["ale"].setdefault("rung3", {})[k] = {c: ale(lambda X: f3["model"].predict(X, raw_score=True, num_threads=4), tr[r3f], c)["spearman"] for c in ["d_act_km", "bear_off_deg", "u10_ms", "m_ff_pct", "curing_pct", "hazshare", "I_head_kwm", "frp_prev_mw", "slope_pct", "elev_m"] if c in r3f}
         groups = dict(geometry=cv.GEOMETRY, weather=cv.WEATHER, fire_behaviour=cv.FIRE_BEHAVIOUR, receptor=cv.RECEPTOR, terrain=cv.TERRAIN)
         X3 = te[r3f].copy()
@@ -399,9 +423,16 @@ def main(argv=None) -> int:
         else:
             f4 = fit_rung2(tr, res["fold_models"][k]["C2"], linear_cols=tuple(rung2_rule.get(k, [])), offset=off_tr)
             oof.loc[tem, "rung4"] = score_rung2(f4, te, offset=off_te)
+        # descriptive, added after stage 1 (never deciding): the base rung-2 features plus m8_log as an ordinary feature
+        fs = fit_rung1(tr.assign(m8_log=np.clip(off_tr, -40, 0)), res["fold_models"][k]["C1"], features=r1f + ["m8_log"])
+        oof.loc[tem, "hybrid_scaled"] = score_rung1(fs, te.assign(m8_log=np.clip(off_te, -40, 0)))
+        res["ale"].setdefault("hybrid_scaled", {})[k] = {c: float(fs["model"].coef_[i]) for i, c in enumerate(fs["cols"])}
         log(f"fold {k} rung 4 ({base} + m8 offset) done")
     ranks["rung4"] = cv.interval_ranks(oof[valid], oof.loc[valid, "rung4"].to_numpy())
     res["auc"]["rung4"] = cv.auc_from_ranks(ranks["rung4"], region)
+    for m in ("rung3_binary", "rung3_lambdarank", "hybrid_scaled"):
+        ranks[m] = cv.interval_ranks(oof[valid], oof.loc[valid, m].to_numpy()); res["auc"][m] = cv.auc_from_ranks(ranks[m], region)
+    res["s3"]["rung3_lambdarank-rung3_binary"] = diff("rung3_lambdarank", "rung3_binary"); res["s3"]["hybrid_scaled-m8"] = diff("hybrid_scaled", "m8"); res["s3"][f"hybrid_scaled-{carried}"] = diff("hybrid_scaled", carried)
     res["s3"]["rung4-m8"] = diff("rung4", "m8"); res["s3"][f"rung4-{carried}"] = diff("rung4", carried); res["s3"][f"{carried}-m8"] = diff(carried, "m8")
     res["hybrid_base"] = base
     # ── transfer folds (RQ4, descriptive): M8 and the carried rung ───────────────────────────
