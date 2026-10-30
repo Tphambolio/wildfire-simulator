@@ -110,7 +110,9 @@ or tuning: coefficients b0 −22.670412340012348, b_w 0, b_L −4.67467954790124
 kernels and WAF fuel groups (0.4 grass, 0.2 D/M, 0.15 C/S). **Parity:** on two intervals each of two v8 decision
 fires (NBAC:2018_780, MTBS:AZ3368910927620210616) the engine reproduces the v8 landing statistics A exactly
 (max relative difference 0) and the v8 `m8_score` to within 2.3 × 10⁻¹⁰ absolute (4.5 × 10⁻⁸ relative, from
-the v8 file's float32 zone weather); tiers identical (`engine/tests/spread/test_embers_m8_parity.py`, fixture
+the v8 file's float32 zone weather) under v8's own SciPy 1.17.1. Under SciPy 1.18 (CI) the float32 FFT round-off of
+the landing convolution changes near-zero cells: largest score difference 3.1 × 10⁻⁹ absolute, inside the round-off
+bound the test propagates (10⁻⁶ of the interval's largest A); tiers agree on every cell above the round-off level (`engine/tests/spread/test_embers_m8_parity.py`, fixture
 README `engine/tests/spread/data/m8_parity/`).
 
 Engine-side choices (not part of the tested model): offered only on runs with an observed active edge (RPAS

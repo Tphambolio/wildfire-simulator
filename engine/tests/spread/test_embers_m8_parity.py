@@ -30,6 +30,7 @@ DATA = Path(__file__).parent / "data" / "m8_parity"
 REPO = Path(__file__).resolve().parents[3]
 V8_INTERVALS = REPO / "scripts" / "validation" / "v8" / "intervals.py"
 V8_INTERVALS_SHA256 = "4303e544736968f29f28dd827f662b0f6dfed9178109154ed309d7a5b4724dbe"  # A2.12
+FFT_ROUNDOFF = 1e-6  # x the interval's largest value (float32 FFT; measured <= 2.1e-8 across SciPy 1.17-1.18)
 FIT_BETA = Path.home() / "dev/wildfire/validation-data/v8-pool/fit/fit_beta.json"
 
 MANIFEST = json.loads((DATA / "manifest.json").read_text())
@@ -96,7 +97,10 @@ def test_engine_m8_matches_v8(entry):
     np.testing.assert_array_equal(bj, z["v8_bj"])
     np.testing.assert_array_equal(bi, z["v8_bi"])
     Ab = E.block_sums(A, bj, bi)
-    np.testing.assert_allclose(Ab, z["v8_A"], rtol=1e-6, atol=0)
+    # Bit-identical under v8's own SciPy (1.17.1); other SciPy versions change the float32 FFT
+    # round-off of the landing convolution, which is ~1e-7 of the interval's largest cell
+    ref_A = z["v8_A"].astype(np.float64)
+    np.testing.assert_allclose(Ab, ref_A, rtol=1e-6, atol=FFT_ROUNDOFF * np.abs(ref_A).max())
 
     v8_npz = {"A": z["v8_A"], "u10": z["v8_u10"], "m_ff": z["v8_m_ff"], "zone": z["v8_zone"]}
     ref = _v8_m8_score()(v8_npz, dict(E.M8_BETA))
@@ -105,10 +109,14 @@ def test_engine_m8_matches_v8(entry):
     eng = E.m8_score(Ab, np.array([zw.u10 for zw in zones]), np.array([zw.m_ff for zw in zones]), zb)
     assert ref.shape == eng.shape and (ref > 0).any()
     max_abs = float(np.max(np.abs(eng - ref)))
-    max_rel = float(np.max(np.abs(eng - ref) / np.maximum(np.abs(ref), 1e-300)))
-    print(f"{entry['file']}: n={len(ref)} max|engine-v8|={max_abs:.3e} max rel={max_rel:.3e}")
-    np.testing.assert_allclose(eng, ref, rtol=1e-5, atol=0)
-    # ranks (what the app shows) are identical
-    np.testing.assert_array_equal(E.tiers(eng), E.tiers(ref))
+    print(f"{entry['file']}: n={len(ref)} max|engine-v8|={max_abs:.3e} "
+          f"(/ max score {max_abs / ref.max():.2e})")
+    # the A round-off bound propagated through the (linear) score
+    tol = E.m8_score(np.full_like(ref_A, FFT_ROUNDOFF * np.abs(ref_A).max()), v8_npz["u10"],
+                     v8_npz["m_ff"], zb)
+    np.testing.assert_allclose(eng, ref, rtol=1e-5, atol=float(tol.max()))
+    # tiers (what the app shows) agree wherever a cell is above the round-off level
+    real = ref > 1e-4 * ref.max()
+    np.testing.assert_array_equal(E.tiers(eng)[real], E.tiers(ref)[real])
     # same inputs as v8 (float32 interval weather): identical
     np.testing.assert_allclose(E.m8_score(z["v8_A"], z["v8_u10"], z["v8_m_ff"], zb), ref, rtol=1e-12)

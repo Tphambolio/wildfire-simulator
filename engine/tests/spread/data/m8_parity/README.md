@@ -42,7 +42,7 @@ Arrays per file (only what the test reads):
 in Canada, LANDFIRE FBFM40 in the US; MODIS MOD13Q1 NDVI curing), `wx_<station>.csv` (IEM ASOS + ERA5
 precipitation, A2.1), and the per-fire VIIRS 375 m detections (NASA FIRMS, S-NPP + NOAA-20), using the v8
 code's own functions. The builder fed the re-derived inputs through the engine port and compared with the
-stored v8 interval file: A identical (max relative difference 0) on all four intervals. Data are open:
+stored v8 interval file: A identical (max relative difference 0) on all four intervals, under SciPy 1.17.1 (the v8 run's). Other SciPy versions change the float32 FFT round-off of near-zero cells (SciPy 1.18: score within 3.1e-9); the test allows 1e-6 of the interval's largest A, propagated through the score. Data are open:
 NASA FIRMS (VIIRS), NBAC (OGL-Canada), MTBS (public domain), CFS/SCANFI (OGL-Canada), LANDFIRE (public domain),
 MODIS (NASA open), IEM ASOS, ERA5 via Open-Meteo.
 
