@@ -168,3 +168,27 @@ pool E had been simulated, catalogued or scored when this was committed. Develop
    export of about 5-13 min per fire, cached.
 
 - **Hash update (2026-10-29, later the same evening).** `heldout.py` now runs fires in batches of 25 (one FIRMS pass per batch), as v8's `draw.py` did; the per-fire steps are unchanged. New sha256 `111bc43c3a52e0b45b46ec96d06100b3c34fc469b2109da68b70ec054bf7ca5f`, replacing `9cb4677df56ef73cbc2363b3190ea85ef5ed7a6c4f5a21a8c1886d97de79d40f`. The first 3 pool A fires (CAN ranks 201-203; one eligible) were processed by the earlier version. No sealed file was opened and nothing was scored.
+
+
+- **Draw errors and retries (2026-10-30; shared draw, same text as PREREG_LR8C A3, before any sealed file is opened).** The first draw pass logged 9 pool A
+  Canadian fires as ERROR. All 9 failed in the blind inputs step, after their weather was fetched and at least one
+  IEM station had passed the ≥ 50 % coverage test. Each failed during the NRCan SCANFI v2 server reads, so none was
+  sealed. The causes come from the per-fire error records (`heldout/state.json`, `runs.csv`). No outcome data was read
+  to find them.
+  - CAN 218, 226: `ModuleNotFoundError` in the first launch, because the repo was not on PYTHONPATH. They were retried
+    and are done.
+  - CAN 262, 265, 274: `RasterioIOError` ("Read failed") after 67-80 min. The SCANFI server timed out after the
+    registered 12 back-off retries; 218 failed the same way once before it succeeded.
+  - CAN 296, 299, 303, 327: `CRSError('CRS is invalid: None')` after 4-14 min. Under load the SCANFI server returned
+    a dataset with no georeferencing (rasterio `NotGeoreferencedWarning` in the run log). The back-off loop retries
+    only `RasterioIOError`, so the error was not retried inside the build.
+  - **Rule (no change to the code or the per-fire steps).** A fire that errors is not done, and every draw pass
+    retries every fire that is not done, in sealed order, with the same code. Each errored fire's blind inputs were
+    rebuilt with the unchanged `inputs.build(blind=True)`, and a second draw pass then seals it and runs the
+    registered intervals. A fire that still fails for data-access reasons after that is listed here, with its cause,
+    as a **draw failure** before `unseal`. It is reported as such and is not counted as ineligible. Eligibility is
+    decided only by the station rule.
+  - **Retry results:** CAN 296, 299, 303 and 327 rebuilt cleanly on the first retry (all eligible by IEM; the SCANFI layers that were missing were fetched from the server). CAN 262 was being rebuilt at the time of writing. CAN 265 and 274 are paused: their own `wx_*.csv` files were made read-only, so that no existing file is overwritten while another session reads `v8-pool/` (constraint from the main session, 2026-10-30). The second draw pass that seals and runs intervals for all seven waits for that constraint to be lifted. The final status of each fire is added here before `unseal`.
+  - **Slip disclosed.** The first diagnostic retry (CAN 296) was run by mistake in training mode (`v8.inputs` CLI,
+    `blind=False`). It read only the training and decision FIRMS caches, found no rows for this fire (`None` window),
+    and wrote an ineligible `meta.json`, which was deleted before the blind rebuild. No held-out data was read.

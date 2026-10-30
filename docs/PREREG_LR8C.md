@@ -154,3 +154,32 @@ opened, no count has been seen and no score computed. Only blind inputs, detecti
   affected (ECCC is Canadian only).
 
 - **Implementation (2026-10-29, before any ECCC held-out fire is built).** Code: `scripts/validation/v8/eccc.py` (sha256 `dfcb1f4e4ddfa8be2f5e3406476aa491161d3829735ed1c1df670f7f4fadc8fe`). It runs `inputs.build` unchanged with the ECCC station list and the `climate-hourly` fetch substituted, in its own namespace (`fires_eccc/`, `heldout/sealed_eccc/`, separate manifest). ECCC coordinates are decoded from DDMMSSsss. Development used v8 training fires only: on NBAC:2024_391 one ECCC station 31 km away had 100 % coverage and plausible values; NBAC:2021_42 and 2021_44 had no qualifying station, because the ECCC stations nearby are IEM sites (rule 3) or lack hourly data in the window. Of the 529 ECCC hourly stations in the six jurisdictions, 188 remain after rule 3.
+
+---
+
+## Addendum A3 (2026-10-30): draw errors and retries, before any held-out fire is opened
+
+Nothing above was edited. This addendum changes no criterion, model, value or code. It applies to the shared draw (A1), so the same note is added to PREREG_LR8L and PREREG_LR8S.
+
+- **Draw errors and retries (2026-10-30, before any sealed file is opened).** The first draw pass logged 9 pool A
+  Canadian fires as ERROR. All 9 failed in the blind inputs step, after their weather was fetched and at least one
+  IEM station had passed the ≥ 50 % coverage test. Each failed during the NRCan SCANFI v2 server reads, so none was
+  sealed. The causes come from the per-fire error records (`heldout/state.json`, `runs.csv`). No outcome data was read
+  to find them.
+  - CAN 218, 226: `ModuleNotFoundError` in the first launch, because the repo was not on PYTHONPATH. They were retried
+    and are done.
+  - CAN 262, 265, 274: `RasterioIOError` ("Read failed") after 67-80 min. The SCANFI server timed out after the
+    registered 12 back-off retries; 218 failed the same way once before it succeeded.
+  - CAN 296, 299, 303, 327: `CRSError('CRS is invalid: None')` after 4-14 min. Under load the SCANFI server returned
+    a dataset with no georeferencing (rasterio `NotGeoreferencedWarning` in the run log). The back-off loop retries
+    only `RasterioIOError`, so the error was not retried inside the build.
+  - **Rule (no change to the code or the per-fire steps).** A fire that errors is not done, and every draw pass
+    retries every fire that is not done, in sealed order, with the same code. Each errored fire's blind inputs were
+    rebuilt with the unchanged `inputs.build(blind=True)`, and a second draw pass then seals it and runs the
+    registered intervals. A fire that still fails for data-access reasons after that is listed here, with its cause,
+    as a **draw failure** before `unseal`. It is reported as such and is not counted as ineligible. Eligibility is
+    decided only by the station rule.
+  - **Retry results:** CAN 296, 299, 303 and 327 rebuilt cleanly on the first retry (all eligible by IEM; the SCANFI layers that were missing were fetched from the server). CAN 262 was being rebuilt at the time of writing. CAN 265 and 274 are paused: their own `wx_*.csv` files were made read-only, so that no existing file is overwritten while another session reads `v8-pool/` (constraint from the main session, 2026-10-30). The second draw pass that seals and runs intervals for all seven waits for that constraint to be lifted. The final status of each fire is added here before `unseal`.
+  - **Slip disclosed.** The first diagnostic retry (CAN 296) was run by mistake in training mode (`v8.inputs` CLI,
+    `blind=False`). It read only the training and decision FIRMS caches, found no rows for this fire (`None` window),
+    and wrote an ineligible `meta.json`, which was deleted before the blind rebuild. No held-out data was read.
