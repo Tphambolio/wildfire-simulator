@@ -4,7 +4,9 @@
 product name for it: a trademark search (owner, 2026-10-29) found that "FireSim" itself collides
 with existing products, so any product or tier name is an owner decision taken outside this spec.
 
-**Status:** design spec plus PR0 (feature-flagged skeleton). Backlog item E6 ("design spec first")
+**Status:** design spec; PR0 (feature-flagged skeleton) and PR1 (E2E) merged; PR2 (scenario
+packs, 2026-10-30) in review. The owner answered the §13 questions on 2026-10-30; where an
+answer differs from the text below, the answer governs (noted in place). Backlog item E6 ("design spec first")
 and strategy-brief item 8 ("an exercise/replay mode before the 2027 season"). Nothing in this
 document changes the engine or any model behaviour; exercise mode is a way of *driving* the
 existing app against a controlled clock, with the owner's framing rules enforced by the product.
@@ -20,7 +22,7 @@ paid exercise-mode tier and facilitated exercises for municipal EOCs, First Nati
 regional districts. (The owner should confirm the regulation's current section numbers and
 wording before any of this appears in sales material; this spec does not quote it.)
 
-**Open questions for the owner are in §13. This spec lists them and does not decide them.**
+**Owner questions are in §13, with the owner's 2026-10-30 answers.**
 
 ---
 
@@ -175,8 +177,10 @@ confirmed by the owner before they ship, and neither claims to be a prediction):
    delayed). Sources: City of Edmonton LiDAR fuel grid and neighbourhoods (OGL – Edmonton),
    OSM assets and roads (ODbL), NRCan terrain (OGL – Canada). Note for the author: the City
    grid has no accuracy assessment ([`OVERVIEW.md`](OVERVIEW.md) §3), say so on the pack.
-2. **Alberta hamlet: Wandering River, Athabasca County** (`data/exercise-packs/ab-wandering-river.json`,
-   PR2). A boreal hamlet on Highway 63 (coordinates from `frontend/public/alberta/places.geojson`,
+2. **Alberta hamlet: Wandering River, Athabasca County** (shipped as `data/exercise-packs/ab-ridgewater.json`:
+   per the owner's 2026-10-30 decision the public pack uses the fictional name "Hamlet of
+   Ridgewater" on Wandering River's real geography, and `placeAliases` renames the hamlet in the
+   app while the pack is loaded; PR2). A boreal hamlet on Highway 63 (coordinates from `frontend/public/alberta/places.geojson`,
    OGL – Alberta / OGL – Canada), spring (leaf-off, D-1 / M-1), Alberta Wildfire 2025 fuel grid
    (OGL – Alberta), MRDEM-30 terrain, Microsoft footprints (ODbL; uneven coverage, newer houses
    missing, stated on the pack), 3 periods over 36 h, a wind shift inject from SE to NW at
@@ -186,6 +190,19 @@ confirmed by the owner before they ship, and neither claims to be a prediction):
    addresses; the hamlet polygon and its name only.
 
 Both packs are open data by default (§13 Q3). Neither includes any SFOC number or condition.
+
+**As built (PR2, 2026-10-30).** The packs carry the values the owner fixed on 2026-10-30
+(Terwillegar: ignition 53.4606 N 113.6596 W, the E2E fixture point, not the 53.468 N 113.617 W
+above; 15 July 14:00 MDT; 24 h in 2 × 12 h periods from the start; Ridgewater: 5 May 13:00 MDT;
+36 h in 3 × 12 h periods; ignition chosen by rule from the Alberta grid, see the PR2 record).
+PR2 checked the weather and codes against observed CWFIS and ECCC station history and flagged
+the values outside the observed record for the owner instead of changing them
+([`PROJECT_RECORD.md`](PROJECT_RECORD.md) §6). Perimeter injects in the packs use the truth run's
+own perimeter at the inject time (`perimeterSource: "truth_run"`, delivered from PR3) rather than
+a hand-drawn polygon. A pack longer than 24 h runs as a multi-day run, which holds one weather
+per day: the Ridgewater T+20 h shift reaches the model at T+24 h unless a restart carries it
+earlier (stated on the pack and the panel). The pack format is documented in
+[`api-reference.md`](api-reference.md) ("Exercise packs").
 
 ---
 
@@ -364,8 +381,9 @@ The runs an exercise starts use the **existing** `POST /simulations`, `/multiday
 Same volume, same `archive.py` object store and SQLite index, two new prefixes:
 `exercise/packs/<id>.json` and `exercise/sessions/<id>/events.jsonl` (append-only) plus
 `state.json` (rebuilt). Two new index tables (`exercise_packs`, `exercise_sessions`), created
-with `CREATE TABLE IF NOT EXISTS` as `run_labels` was. Retention follows the archive's
-(`FIRESIM_ARCHIVE_MAX_AGE_DAYS`, 365 by default); sessions reference runs by ID and survive a
+with `CREATE TABLE IF NOT EXISTS` as `run_labels` was (PR2 adds `exercise_packs`). **Packs are
+exempt from age and byte pruning** (owner, 2026-10-30, Q9); sessions follow the archive's
+retention (`FIRESIM_ARCHIVE_MAX_AGE_DAYS`, 365 by default); sessions reference runs by ID and survive a
 run's deletion with "run no longer on the server", as the EOC console does today. Byte cap:
 sessions count toward `FIRESIM_ARCHIVE_MAX_BYTES`. The volume is 1 GB with an 800 MB cap, so a
 pack with a large perimeter polygon should be simplified client-side (≤ 2 MB rule above).
@@ -379,7 +397,12 @@ pack with a large perimeter polygon should be simplified client-side (≤ 2 MB r
   be given the run-list passphrase and the saved-runs passphrase does not open exercises.
 - Unset → every passphrase-gated exercise endpoint answers 403 (disabled), as the run list does.
 - Players need no passphrase: they open a session by ID (PR5) or share the facilitator's browser.
-- Per-customer accounts are a product question (§13 Q4), not part of this build plan.
+- Per-customer accounts are a product question (§13 Q4), not part of this build plan. Decided
+  2026-10-30: one passphrase per server for 2027; pilots run their own drills from files.
+- As built (PR2): the gate is `services/passphrase.py`, shared code with the saved-runs gate
+  but its own failure count; the unauthenticated `GET /exercise/packs/{id}` accepts only 32-hex
+  IDs and its misses count in `middleware/run_probe_limit.py`; `GET /exercise/examples` serves
+  the repository's public example packs.
 
 ---
 
@@ -400,38 +423,60 @@ decides when to turn it on by default.
 | **PR6** | Facilitator pack editor (form over the JSON, perimeter drawing for injects, weather script table), pack validation messages, "run ahead and load from archive" option for slow 72 h packs. | Vitest for validation; E2E save → reload → identical pack. |
 | **PR7** | Flag removal / default on (owner decision), About & sources section "Exercise mode", `OVERVIEW.md` §2 line, pricing-relevant limits if any (§13 Q2). | Docs reviewed; E2E without the flag. |
 
-Rough sizes: PR0 done; PR1 done (2026-10-29); PR2 M; PR3 M; PR4 L; PR5 L; PR6 M; PR7 S. PR2 to PR4 are the
+Rough sizes: PR0 done; PR1 done (2026-10-29); PR2 M (built 2026-10-30, draft PR awaiting the owner); PR3 M; PR4 L; PR5 L; PR6 M; PR7 S. PR2 to PR4 are the
 minimum for a facilitated tabletop in one browser; PR5 is the functional-exercise case.
 
 ---
 
-## 13. Open questions for the owner (listed, not decided)
+## 13. Owner questions (decided 2026-10-30)
+
+The owner accepted every recommendation of the 2026-10-30 decision sheet
+(`~/dev/business/pyra-firesim/exercise-mode-decisions-2026-10-30.md`, internal; recorded in
+[`PROJECT_RECORD.md`](PROJECT_RECORD.md) §3). Each question keeps its original wording, followed
+by the decision. Questions 11-13 were owner calls in the body of the spec (§4, §7, §11.4, §12).
 
 1. **Multi-player sync.** Same browser projected in the EOC (PR0 to PR4 suffice) or a shared
    server-side session with pushed clock and injects (PR5, roles, WebSocket)? The regulation's
    functional-exercise case suggests the latter eventually; the first paid tabletop may not need it.
+   **Decided:** one projected browser now; the shared session (PR5) after the first paid tabletop.
 2. **Pricing-relevant limits.** Should the free/open tier cap anything (packs stored, sessions
    per month, exercise duration, export) or is the paid tier facilitation and support only? The
    business plan says open-core; the spec has no limits built in.
+   **Decided:** no caps (PR2 adds no counters).
 3. **Packs open by default?** Example packs are open data and could ship in the repo. Should
    customer-made packs be private to their passphrase, shareable by link, or publishable to a
    community library? Pack metadata may name a community; is that sensitive for a First Nation
    or a small hamlet?
+   **Decided:** example packs public in the repo; customer packs private behind the facilitator passphrase; players open a pack by its 32-hex link; no listing without the passphrase; no public library. A small community is not named in a public pack (Pack 2 uses a fictional name).
 4. **Accounts.** One facilitator passphrase per server (as the run list) is enough for the City
    and a handful of pilots. Per-customer tenancy (separate archives, passphrases, retention) is a
    later product decision.
+   **Decided:** one facilitator passphrase per server for 2027, revisited before paid tiers; pilots run their own drills from files until then.
 5. **Spot-fire inject design.** Second run shown as a second layer, or a union-perimeter restart
    (§6)? The honest option depends on whether merging fronts is wanted in the engine at all.
+   **Decided:** union-perimeter restart (PR3).
 6. **Rates.** 1× / 4× / 12× as specified, or also 2× and 24×? Should the controller be able to
    step backwards (replay a decision point) and, if so, does that re-open delivered injects?
+   **Decided:** add 2× and 24×; the controller can seek back; delivered injects stay delivered (PR3).
 7. **Reveal policy.** Reveal only at the hot-wash, or allow a mid-exercise "pause and show truth"
    teaching moment (logged)?
+   **Decided:** a logged mid-exercise reveal is allowed (PR4).
 8. **Regulation text.** Confirm the AR 203/2018 exercise requirement wording and section before
    it appears in any FireSim material; this spec deliberately does not quote it.
+   **Decided:** the owner confirms the official wording once; nothing cites it until then.
 9. **Retention.** Exercise sessions under the 365-day archive rule, or longer (an after-action
    record is a municipal record)? Export covers the record; the server copy is a convenience.
+   **Decided:** sessions follow the 365-day rule; packs never age out (built in PR2).
 10. **Evaluator role content.** Should the evaluator view offer AEMA / ICS Canada evaluation
     checklists (text only, no scoring), or stay a timeline?
+    **Decided:** timeline only (PR4).
+11. **Separate facilitator passphrase** (§11.4). **Decided:** a separate secret
+    `FIRESIM_EXERCISE_PASSPHRASE`; unset = 403; same compare and backoff as the saved-runs one
+    (built in PR2). The owner sets it on Fly after merge.
+12. **Pack defaults** (§5, §7). **Decided:** as specified: forecast horizon 36 h (pack-settable),
+    `autoRun` false, duration ≤ 72 h, packs ≤ 2 MB (built in PR2).
+13. **Leaving the flag** (§12 PR7). **Decided:** the flag stays until the first pilot exercise
+    has been run.
 
 ---
 

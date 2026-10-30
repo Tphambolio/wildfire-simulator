@@ -36,6 +36,16 @@ export const structureFixture: Fixture = JSON.parse(readFileSync(FIXTURES + "str
  */
 export const multidayFixture: Fixture = JSON.parse(readFileSync(FIXTURES + "terwillegar_multiday_3d.json", "utf8"));
 const fuelGridImage = readFileSync(FIXTURES + "fuel_grid_image.json", "utf8");
+/**
+ * Exercise mode PR2: the repository's example packs (data/exercise-packs/), served by the mocked
+ * GET /api/v1/exercise/examples as the API serves them
+ */
+const PACKS_DIR = fileURLToPath(new URL("../../../data/exercise-packs/", import.meta.url));
+export const examplePacks: Array<Record<string, unknown>> = ["edmonton-terwillegar.json", "ab-ridgewater.json"].map(
+  (f) => JSON.parse(readFileSync(PACKS_DIR + f, "utf8")) as Record<string, unknown>,
+);
+/** The facilitator passphrase the mocked /api/v1/exercise/packs accepts (a test value) */
+export const E2E_EXERCISE_PASSPHRASE = "e2e-exercise-passphrase";
 const arrival = readFileSync(FIXTURES + "arrival.json", "utf8");
 /** The completed 30-member ensemble of the same run (GET /simulations/{id}/ensemble) */
 export const ensembleFixture = JSON.parse(gunzipSync(readFileSync(FIXTURES + "ensemble.json.gz")).toString("utf8")) as {
@@ -216,6 +226,8 @@ export interface MockState {
   archived: Set<string>;
   /** Simulation ID of every GET /simulations/{id} */
   getIds: string[];
+  /** Exercise packs stored on the mocked server (POST /exercise/packs), by 32-hex ID */
+  packs: Map<string, Record<string, unknown>>;
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -227,7 +239,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
   const frameDelayMs = opts.frameDelayMs ?? 40;
   const state: MockState = {
     posts: [], overridePosts: [], observedPosts: [], classifyPosts: [], wsConnections: 0, polls: 0, ensemblePolls: 0, multidayPosts: [], ensemblePollIds: [],
-    ensembleCancels: [], gone: new Set(), archived: new Set(), getIds: [],
+    ensembleCancels: [], gone: new Set(), archived: new Set(), getIds: [], packs: new Map(),
   };
   const shift = (frames: Fixture["frames"]) => (opts.translate ? translateFrames(frames, opts.translate) : frames);
   const mdFrames = (n: number) => shift(
@@ -370,6 +382,37 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === `/api/v1/simulations/${fx.simulation_id}` && req.method() === "GET") {
       state.polls++;
       return json(route, opts.translate || opts.singleRunningPolls ? singleBody(fx.simulation_id) : fx);
+    }
+    // Exercise packs (PR2; api/src/firesim_api/routers/exercise.py): examples public, the list,
+    // store and delete behind the facilitator passphrase, a pack by 32-hex ID open
+    if (path === "/api/v1/exercise/examples") return json(route, { packs: examplePacks });
+    if (path.startsWith("/api/v1/exercise/packs")) {
+      const gated = !(req.method() === "GET" && path !== "/api/v1/exercise/packs");
+      if (gated) {
+        const given = req.headers()["x-firesim-exercise-passphrase"];
+        if (!given) return json(route, { detail: "Passphrase required" }, 401);
+        if (given !== E2E_EXERCISE_PASSPHRASE) return json(route, { detail: "Wrong passphrase" }, 401);
+      }
+      if (path === "/api/v1/exercise/packs" && req.method() === "GET") {
+        const packs = [...state.packs.values()].map((p) => ({
+          id: p.id, title: p.title, startIso: p.startIso, durationHours: p.durationHours, sources: p.sources, createdAt: "2026-10-30T12:00:00Z",
+        }));
+        return json(route, { packs, total: packs.length });
+      }
+      if (path === "/api/v1/exercise/packs" && req.method() === "POST") {
+        const id = (state.packs.size + 1).toString(16).padStart(32, "0");
+        const pack = { ...(req.postDataJSON() as Record<string, unknown>), id };
+        state.packs.set(id, pack);
+        return json(route, { id, createdAt: "2026-10-30T12:00:00Z", pack }, 201);
+      }
+      const id = path.split("/").pop() ?? "";
+      const pack = /^[0-9a-f]{32}$/.test(id) ? state.packs.get(id) : undefined;
+      if (!pack) return json(route, { detail: "Pack not found" }, 404);
+      if (req.method() === "DELETE") {
+        state.packs.delete(id);
+        return json(route, { id, deleted: true });
+      }
+      return json(route, pack);
     }
     if (path === "/api/v1/health") return json(route, { status: "ok" });
     if (path === "/api/v1/version") return json(route, { version: "3.0.0", git_sha: "e2e0sha" });

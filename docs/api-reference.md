@@ -766,6 +766,69 @@ no scorecard. Nothing is computed: the response is the committed JSON (`schema_v
 `label`, `status`, `value`, `display`, `unit`, `ci95`, `ci95_derived`, `delta`, `comparators`,
 `reference`, `gloss`, `source{report, kind, file, path, sha256}`, `versions` for the ember tests).
 
+### Exercise packs: /api/v1/exercise (exercise mode PR2)
+
+Added 2026-10-30 (`docs/exercise-mode-spec.md` §5, §11; `routers/exercise.py`,
+`schemas/exercise.py`; owner decisions 2026-10-30). A **scenario pack** is one JSON file
+(schema `firesim.exercise.pack/1`) that describes a repeatable exercise. Example packs are public
+and ship in the repository (`data/exercise-packs/`); packs a facilitator stores are private to
+the server's facilitator passphrase and can be opened by their ID. There is no public pack
+library and no listing without the passphrase.
+
+**Facilitator passphrase:** header `X-FireSim-Exercise-Passphrase`, compared with the server's
+`FIRESIM_EXERCISE_PASSPHRASE` exactly as the saved-runs passphrase (SHA-256 digests,
+`hmac.compare_digest`, never logged; per-IP backoff, 5 free failures then 2, 4, 8 ... s, at most
+300 s, answered **429** with `Retry-After`). It is a separate secret with its own failure count:
+the saved-runs passphrase does not open exercise packs and the reverse. One passphrase per
+server. Unset → **403** on every gated endpoint; missing or wrong → **401**.
+
+| Method | Path | Passphrase | Answer |
+|---|---|---|---|
+| GET | `/api/v1/exercise/examples` | no | `{"packs": [<pack>, ...]}`: the repository's example packs, in full |
+| GET | `/api/v1/exercise/packs` | yes | `{"packs": [{"id", "title", "startIso", "durationHours", "sources", "createdAt"}], "total"}`, newest first |
+| POST | `/api/v1/exercise/packs` | yes | Body: the pack file (≤ 2 MB). **201** `{"id", "createdAt", "pack"}`; the server gives every stored pack a new 32-hex ID (an `id` in the body is replaced, so posting a stored pack again makes a copy). **413** over 2 MB; **422** not a valid pack (Pydantic error list) |
+| GET | `/api/v1/exercise/packs/{id}` | no | The stored pack. **404** `"Pack not found"` for an unknown or malformed ID (only 32 lowercase hex characters are IDs). Unknown IDs count toward the per-IP probe backoff of `/simulations/{id}` (20 free, then **429**) |
+| DELETE | `/api/v1/exercise/packs/{id}` | yes | `{"id", "deleted": true}`; 404 unknown |
+
+**409** on the stored-pack endpoints when the run archive is off (packs are stored in it).
+
+**Storage and retention.** The pack JSON is stored in the run archive's object store at
+`exercise/packs/<id>.json` (local backend: `<FIRESIM_ARCHIVE_DIR>/exercise/packs/`; s3: the same
+bucket, `exercise/packs/` beside the `runs/` prefix), with a row in the archive index's table
+`exercise_packs`. Packs are exempt from age and byte pruning (owner decision 2026-10-30): they
+are removed only by `DELETE`.
+
+**Pack fields** (camelCase; unknown fields are rejected everywhere, so a pack cannot carry an
+evacuation tier, an address or any other field the format does not define):
+
+| Field | Type, rule |
+|---|---|
+| `schema` | `"firesim.exercise.pack/1"` |
+| `id` | `[A-Za-z0-9_-]{1,64}` in a file (examples: `example-…`); a 32-hex ID once stored |
+| `marking` | always `"EXERCISE"` |
+| `title`, `summary` | ≤ 80 / ≤ 500 characters, plain text |
+| `sources[]`, `caveats[]` | 1-30 / 0-20 strings ≤ 300: open-data sources with licences; stated limits |
+| `startIso` | ISO 8601 with a UTC offset (required offset) |
+| `durationHours` | > 0, ≤ 72 |
+| `forecastHorizonHours` | default 36, ≤ 72 (players' forecast cut-off, PR4) |
+| `autoRun` | default `false` (the facilitator presses Run after the pre-brief; the app does not act on `true` yet) |
+| `ignitions[]` | `{lat, lng, hoursFromStart}`; at least one at 0; later ones are scheduled as spot-fire injects |
+| `weatherScript[]` | truth steps `{hoursFromStart, windSpeedKmh (0-100), windDirectionDeg (from, 0-<360), temperatureC (-40-50), relativeHumidityPct (1-100), precipitation24hMm, precipitationMmH}`; first at 0, strictly increasing, before the end. `precipitation24hMm` is read on the first step (24 h rain before the start), `precipitationMmH` on later steps |
+| `playerForecast[]` | optional, same rules (the players' forecast; omitted = the script) |
+| `startingCodes` | `{ffmc (0-101), dmc, dc}`, each nullable |
+| `grassCuringPct` | optional 0-100; null = the app's date-aware default |
+| `fuel` | `{source: "city_lidar" \| "ab_wildfire" \| "uniform", uniformFuelType}` (one of the 18 FBP types, only for `uniform`) |
+| `periods[]` | `{number, startIso, endIso}`, numbered 1, 2, 3 ..., ascending, not overlapping, inside the exercise |
+| `scheduledInjects[]` | ≤ 200 `{id, kind, hoursFromStart, title, payload}`; `kind` ∈ `perimeter`, `spot_fire`, `wind_shift`, `resource`, `note` and equal to `payload.kind`. Payloads: perimeter `{perimeterSource: "truth_run" \| "drawn", perimeterGeojson (Polygon/MultiPolygon, required when drawn), activeEdges}`; spot_fire `{lat, lng}`; wind_shift `{windSpeedKmh, windDirectionDeg, hiddenFromForecast}`; resource / note `{text ≤ 500}` |
+| `placeAliases[]` | `{place, shownAs}`: a community shown under another name in this exercise (e.g. a fictional name on real geography) |
+| `prePlacedAssets` | optional GeoJSON FeatureCollection, ≤ 500 features |
+| `notesForFacilitator` | ≤ 5000 characters |
+
+The app (exercise mode, Setup → Scenario pack) maps a pack to Setup: a pack of ≤ 24 h runs as a
+single run with the later script steps as `weather_schedule`; a longer one as a multi-day run
+whose days take the step in force at each day's start (stated on the panel). No live forecast
+weather is used in an exercise.
+
 ## Perimeter format
 
 Perimeters are arrays of `[latitude, longitude]` pairs forming a closed polygon. The first and last points are the same.

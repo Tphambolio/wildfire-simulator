@@ -130,6 +130,9 @@ The FBP layer is verified against cffdrs (Python) to floating-point precision:
 | GET | `/api/v1/weather/current?lat=&lng=` | Live CWFIS WFS → `CurrentWeather` |
 | GET | `/api/v1/layers/assets?south=&west=&north=&east=` / `/layers/roads?...` | Alberta critical assets / major roads in a box (≤ 1° × 2°), GeoJSON; `available: false` without the files |
 | GET | `/api/v1/scorecard` | Latest dated validation scorecard `docs/scorecard/<date>.json` (+ `file`, `available_dates`; 404 when none), read once at startup from `FIRESIM_SCORECARD_DIR`; `scripts/make_scorecard.py`, `docs/validation-scorecard.md` |
+| GET | `/api/v1/exercise/examples` | Exercise mode: the repository's public example scenario packs (`data/exercise-packs/`) |
+| GET / POST | `/api/v1/exercise/packs` | List / store scenario packs (facilitator passphrase header; ≤ 2 MB, validated `ScenarioPack`, new 32-hex ID; `routers/exercise.py`, `schemas/exercise.py`) |
+| GET / DELETE | `/api/v1/exercise/packs/{id}` | One pack by 32-hex ID (no passphrase; probe backoff) / delete (passphrase) |
 
 ### Frames
 WebSocket events are `{"type": "simulation.frame", "simulation_id": ..., "frame": {...}}`, then
@@ -166,6 +169,8 @@ FIRESIM_SMALL_FOOTPRINTS     count_separately (default) | exclude (drop outbuild
 FIRESIM_MAX_STORED_RUNS   runs kept in memory (40)
 FIRESIM_ARCHIVE(_DIR/_DB/_BACKEND/_S3_*/_MAX_AGE_DAYS/_MAX_BYTES/_RETENTION_HOURS)  run archive (docs/run-archive.md)
 FIRESIM_RUNS_PASSPHRASE   shared passphrase for the saved-runs list / rename / delete (header X-FireSim-Passphrase; unset = list disabled, 403; Fly secret, set by the owner only)
+FIRESIM_EXERCISE_PASSPHRASE  exercise facilitator passphrase for stored scenario packs (header X-FireSim-Exercise-Passphrase; separate from the runs one, same compare/backoff, own count; unset = 403; one per server; Fly secret, set by the owner only)
+FIRESIM_EXERCISE_EXAMPLES_DIR  example scenario packs (default /app/data/exercise-packs, else the repo's data/exercise-packs)
 FIRESIM_AB_TERRAIN_PATH   Alberta MRDEM-30 elevation COG (set by api/Dockerfile); windows outside Edmonton when the request names FIRESIM_CITY_DEM_PATH (default /app/data/edmonton_dem.tif)
 FIRESIM_AB_FWI_LST_OFFSET_H  Alberta fire-weather "noon LST" offset for CFFDRS days from 2026-11-01: 7 (default, 19 UTC = 13:00 MT, CWFIS tz_correct) or 6 (18 UTC = 12:00 MT); before 2026-11-01 always 7 (services/alberta_time.py)
 FIRESIM_AB_ASSETS_PATH / FIRESIM_AB_ROADS_PATH  Alberta assets / roads FlatGeobuf (set by api/Dockerfile); FIRESIM_LAYERS_MAX_BOX_DEG (1.0)
@@ -185,6 +190,11 @@ Run IDs (owner decision 2026-10-13): new IDs are 32 hex characters, 128 bits fro
 only by `services/run_ids.py`; pre-2026-10-13 8-hex IDs stay valid everywhere (treat IDs as
 opaque strings). Unknown IDs back off per IP (`middleware/run_probe_limit.py`: 20 free, then
 429; `docs/run-archive.md` "Run IDs").
+Exercise packs (exercise mode PR2, owner decisions 2026-10-30): stored in the run archive at
+`exercise/packs/<id>.json` + index table `exercise_packs`, exempt from age/byte pruning; IDs from
+`run_ids.py`; facilitator gate `services/passphrase.py` (shared with the saved-runs gate);
+unknown pack IDs count in the same probe backoff. App: Setup → Scenario pack
+(`ExercisePackPanel.tsx`, `exercise/packs.ts`; exercise mode only).
 
 ---
 
