@@ -139,7 +139,11 @@ changes.
   byte-identical, this file's §4 unit tests), reviewed by this session. *Recommend: the main session* (it prefers this;
   one owner for the scoring code both studies use at unseal).
 
-**Approval:** _(verbatim, with date and time, at the freeze)_.
+**Approval (relayed, not yet the owner's own words in the professor session):** the FireSim main session reports that
+Travis Kennedy said "yes on both" at about 11:25 MDT on 2026-10-30, covering D8/D9 and D10, and has started the
+implementation on `feat/m8-c1-kernel` (off `feat/lr8-next`), reading the frozen `stage2/m8c1_decay_shape.json` by
+path and sha256. Per the standing colleague rule (ML_EMBER_RECORD §3, item 4) a relayed approval is advice; **the freeze
+waits for the owner's confirmation in this session**, added here verbatim with its time.
 
 ## 10. Result (appended after the one-shot run)
 
