@@ -224,3 +224,32 @@ until the main session authorises it**. `heldout_inputs.py` refuses to run witho
 ## 11. Draw result (appended after the run; nothing above was edited)
 
 (to be appended)
+
+**Run and pool:**
+- **Registration commit:** `b6852e9e7880a88772a5847cb52b2172248fc6e9` (this file at that commit, sha256
+  `8536e137d98a098abc02e97f2e96d510401da92cd9e81063496d708cd725ac00`), pushed before the draw.
+- **Draw script:** `draw_heldout.py`, sha256 `9ba9f330…05dd7`, matching §0's table. Run once under `capjob`
+  (3 GB) on 2026-10-30T03:21:07Z (2026-10-29 21:21 MDT), with no error.
+- **MTBS shapefile:** sha256 `020d9ce5…f5750a`.
+- **Pool after rules 1-3:** 453 records.
+- **Removed:**
+  - under 5,000 ha: 335;
+  - name found in the record (rule 7; 12,165 text files scanned): 10;
+  - complex, v8 or sealed key, ID in the record, overlapping duplicate: 0.
+
+**Result:** **108 eligible; `test` = orders 1-40** (40 fires); `reserve` = 68.
+
+| File (`~/dev/wildfire/validation-data/us-transfer-heldout/`) | sha256 |
+|---|---|
+| **`heldout_us_2017.csv` (the seal)** | **`1db46314cb54b511d439f3939bfd2c1cea6238f76ffec5175f7806236324466e`** |
+| `heldout_us_2017_perimeters.geojson` | `109f5639712fa95852578942b33fd7918d1e0c81348789b6f9b353373de6aa00` |
+| `eligibility_log.csv` | `16a68057fc4f2ddf7c63cdffce30509bb3321e278f868a53318c74edf842bd77` |
+
+**Nothing has been opened.** No hotspot, weather, growth or model output of any 2017 fire has been looked at.
+`heldout_inputs.py` has not been run.
+
+**Under-prediction guard (U) dry run on development fires** (the frozen scorer on the 83 US development
+fire-days; not a test):
+- top-tercile / ≥ 2,000 ha set: 28 days;
+- share with L < −0.5: base 0.14, FIX1 0.18 (U1 margin +0.05);
+- mean L on the set: FIX1 +0.10 (U2 floor −0.25).
