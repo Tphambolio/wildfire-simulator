@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "../services/api";
-import { BADGES, TIPS, doc, REPO_URL } from "../content/explanations";
+import { BADGES, EMBER_M8_SENTENCE, TIPS, doc, REPO_URL } from "../content/explanations";
 import { HFI_CLASS_CAVEAT, HFI_CLASS_SOURCE } from "../utils/fireClasses";
 import { RPAS_NOTE } from "../utils/suppressionAdvisory";
 import BrowserDataReset from "./BrowserDataReset";
@@ -57,6 +57,7 @@ const REFERENCES: Array<[string, string]> = [
   ["FBP layer verification", "Matches the cffdrs reference implementation (Wang et al. 2017) to floating-point precision."],
   ["Grid spread model", "Level-set front with the FBP ellipse (Richards 1990; Lautenberger 2013); Huygens wavelets on uniform fuel (Tymstra et al. 2010, Prometheus)."],
   ["Ember spotting (illustrative)", "Maximum distance: Albini (1979, 1981, 1983), Chase (1981, 1984). Emission, probability and landing are heuristic."],
+  ["Spot-fire likelihood (M8)", "Frozen v8 ember model (PREREG_LR8, 2026; report R70): Sardoy et al. (2008) short-range landing, lognormal long mode, establishment slope after Beverly & Wotton (2007); scored on NASA FIRMS VIIRS 375 m detections (Schroeder et al. 2014). Relative ranking only."],
   ["D-2 aspen", "No spread below BUI 80: Alexander (2010), as cited by cffdrs (full citation unverified)."],
   ["Hourly FFMC and spin-up", "Van Wagner (1977) PS-X-69; diurnal FFMC, Lawson, Armitage & Hoskins (1996), FRDA Report 245."],
   ["Head fire intensity classes", `${HFI_CLASS_SOURCE}; equipment after Alexander (2001).`],
@@ -139,11 +140,28 @@ export default function AboutPanel({ section = null, onExportIncident, onBrowser
           <ul>
             <li><strong>Burning period and spin-up.</strong> {TIPS.burningPeriod} {TIPS.spinUp}</li>
             <li><strong>RPAS active edges.</strong> {TIPS.activeEdges}</li>
+            <li data-testid="about-ember-m8">
+              <strong>Spot-fire likelihood (M8, opt-in).</strong> M8 {EMBER_M8_SENTENCE}: on 203
+              decision fires (Canada and the western US, 2018-2025) FireSim never used, the
+              pre-registered test passed (rank gain over the baseline +0.147, 95 % +0.098 to +0.194;
+              ranking skill 0.71 in Canada, 0.64 in the US; report R70). Limits: it is shown as relative
+              tiers only, because its spot counts were wrong in opposite directions (about ×0.4 in Canada,
+              ×6 in the US) and its chance of any spot was worse than climatology; its skill falls with
+              distance (0.72 at 1-2 km, 0.59 at 3-15 km) and its long-distance mode was nearly switched
+              off by the fit; it is no better than the untuned ELMFIRE comparator; the fitted bed-wind
+              coefficient is zero, so it does not respond to wind speed beyond the landing direction
+              and reach; the baseline it beat was close to chance. It is offered only from an observed
+              active edge (RPAS restart or observed perimeter); use from a simulated edge waits for its
+              own pre-registered test. Without an earlier observed perimeter the spread rate at the
+              active edge is v8's own first-interval floor (0.5 m/min), not FireSim's simulated rate.
+              Display rule (not part of the tested model): a cell no ember can reach is always
+              "lower"; the v8 ranks are unchanged. A post-hoc check that restricted Canadian fuel to hazard class left M8's margin intact (R70 addendum, branch feat/lr8-next). On 73 of the same held-out fires (159 jumps, report R68), a simple distance-from-active-edge falloff ranked landing cells better than M8 (ranking skill 0.90 vs 0.67; 0.94 vs 0.71 at 1-3 km), so most of M8's short-range shortfall is its distance decay; only beyond 7 km did M8 rank better (8 jumps, not decisive). A corrected short-range decay goes to its own pre-registered test before any change here.
+            </li>
             <li><strong>Range of outcomes (ensemble).</strong> {TIPS.rangeTooNarrow}</li>
             <li><strong>P10, P50, P90.</strong> {TIPS.p10} {TIPS.p50} {TIPS.p90}</li>
             <li><strong>Single run.</strong> {TIPS.singleRun}</li>
           </ul>
-          <Docs links={[["Validation (docs/validation.md)", doc("validation.md")], ["Ensemble calibration", doc("validation.md", "ensemble-calibration-third-round-2026-10-08")], ["What this means for EOC use", doc("validation.md", "what-this-means-for-eoc-use")], ["Model card: evidence and limits", doc("model-card.md", "known-limitations-and-biases")]]} />
+          <Docs links={[["Validation (docs/validation.md)", doc("validation.md")], ["Long-range embers v8 (M8)", doc("validation.md", "long-range-embers-v8-m8-2026-10-29")], ["Ensemble calibration", doc("validation.md", "ensemble-calibration-third-round-2026-10-08")], ["What this means for EOC use", doc("validation.md", "what-this-means-for-eoc-use")], ["Model card: evidence and limits", doc("model-card.md", "known-limitations-and-biases")]]} />
         </Section>
 
         <Section id="about-methods" title="3. Methods and references">

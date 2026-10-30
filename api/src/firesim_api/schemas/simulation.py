@@ -369,6 +369,13 @@ class SimulationCreate(BaseModel):
             ">1 = increased ember density). Only used when enable_spotting is True."
         ),
     )
+    ember_m8: bool = Field(
+        default=False,
+        description=(
+            "M8 spot-fire likelihood (v8 ember model, [R70]): offered only on runs with an "
+            "observed active edge (perimeter-override, observed-perimeter). A plain ignition "
+            "run with ember_m8 true is rejected (422: needs an observed active edge)."),
+    )
     seed: int | None = Field(
         default=None,
         description=(
@@ -441,6 +448,12 @@ class SimulationCreate(BaseModel):
             "gain `roof_scenario` with its label; detail flags `combustible_roof_scenario`."
         ),
     )
+
+    @model_validator(mode="after")
+    def _ember_m8_needs_observed_edge(self):
+        if self.ember_m8 and type(self) is SimulationCreate:
+            raise ValueError(EMBER_M8_NEEDS_EDGE)
+        return self
 
     @model_validator(mode="after")
     def _embers_need_structure_spread(self):
@@ -696,6 +709,11 @@ class SimulationResponse(BaseModel):
     #: active / inactive, the segments as GeoJSON, and after the run the modelled static share
     #: of the start perimeter and growth (docs/active-segments.md); None for other runs
     active_segments: dict | None = None
+    #: Opt-in M8 spot-fire likelihood (``ember_m8`` on a restart; [R70]): relative tiers of 375 m
+    #: cells 1-15 km beyond the observed perimeter (GeoJSON of the higher and middle tiers),
+    #: counts of cells per tier, caveats; never counts of spots or probabilities. ``error`` when
+    #: it could not be computed (the restart still runs). None when not requested
+    ember_m8: dict | None = None
 
 
 class DayWeatherParams(BaseModel):
@@ -788,7 +806,52 @@ def _check_geometry(v: dict | None) -> dict | None:
     return v
 
 
-class ActiveSegmentFields(BaseModel):
+EMBER_M8_NEEDS_EDGE = (
+    "ember_m8 needs an observed active edge: use it on an RPAS restart (perimeter-override) or an "
+    "observed-perimeter run with active edges, RPAS hotspots or a FIRMS VIIRS CSV")
+
+
+class EmberM8Fields(BaseModel):
+    """Opt-in M8 spot-fire likelihood layer (the frozen v8 ember model; [R70], PREREG_LR8).
+
+    Relative likelihood only (three tiers by rank among 375 m cells 1-15 km beyond the observed
+    perimeter); never counts or probabilities (v8 found them mis-calibrated). Needs an observed
+    active edge: ``active_edges``, ``hotspots_geojson`` or ``firms_csv``.
+    """
+
+    ember_m8: bool = Field(
+        default=False,
+        description=(
+            "Compute the M8 spot-fire likelihood layer (opt-in): ranks likely spot-fire locations "
+            "near the active edge better than a fuel-and-distance baseline ([R70]). Relative tiers "
+            "only; not calibrated; weaker at longer distances; no better than ELMFIRE; does not "
+            "respond to wind speed (beta_w = 0). Needs an observed active edge."),
+    )
+    ember_m8_previous_perimeter_geojson: dict | None = Field(
+        default=None,
+        description=(
+            "Optional earlier observed perimeter (GeoJSON Polygon / MultiPolygon geometry) for the "
+            "M8 spread rate at each active-edge cell (distance / time, floor 0.5 m/min, as v8). "
+            "Omitted: the v8 floor 0.5 m/min (v8's rule for a fire's first interval)."),
+    )
+    ember_m8_previous_time: datetime | None = Field(
+        default=None, description="Time of ember_m8_previous_perimeter_geojson (UTC offset).")
+
+    @model_validator(mode="after")
+    def _ember_m8_previous_pair(self):
+        a = self.ember_m8_previous_perimeter_geojson is not None
+        b = self.ember_m8_previous_time is not None
+        if a != b:
+            raise ValueError("ember_m8_previous_perimeter_geojson and ember_m8_previous_time go "
+                             "together")
+        if b and self.ember_m8_previous_time.tzinfo is None:
+            raise ValueError("ember_m8_previous_time needs a UTC offset")
+        if a and not self.ember_m8:
+            raise ValueError("ember_m8_previous_perimeter_geojson needs ember_m8: true")
+        return self
+
+
+class ActiveSegmentFields(EmberM8Fields):
     """Active-edge classification of an observed perimeter (A1; all optional, additive).
 
     Source priority: ``active_edges`` (manual) if given, else ``hotspots_geojson`` (RPAS
@@ -996,7 +1059,7 @@ class ObservedPerimeterRequest(ActiveSegmentFields, SimulationCreate):
         """The run request (SimulationCreate) without the perimeter fields."""
         extra = set(ObservedPerimeterRequest.model_fields) - set(SimulationCreate.model_fields)
         return SimulationCreate.model_validate(
-            self.model_dump(exclude=extra | {"active_edges", "active_edge_buffer_m"}))
+            self.model_dump(exclude=extra | {"active_edges", "active_edge_buffer_m", "ember_m8"}))
 
 
 class ClassifyPerimeterRequest(BaseModel):

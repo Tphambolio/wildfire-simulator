@@ -22,7 +22,7 @@
  */
 
 import { memo, useCallback, useId, useRef, useState } from "react";
-import type { ActiveSegmentsInfo, BurningPeriod, PerimeterOverrideRequest } from "../types/simulation";
+import type { ActiveSegmentsInfo, BurningPeriod, EmberM8Info, PerimeterOverrideRequest } from "../types/simulation";
 import type { Recon } from "../hooks/useRecon";
 import {
   SIDES,
@@ -32,6 +32,8 @@ import {
   perimeterFromGeoJSON,
   segmentReadout,
   NO_ACTIVE_SEGMENT,
+  EMBER_M8_NEEDS_EDGE,
+  emberM8Available,
   type OverrideInputs,
 } from "../utils/activeEdges";
 import { classifyPerimeter } from "../services/api";
@@ -41,7 +43,7 @@ import { scheduleForRestart } from "../utils/weatherSchedule";
 import type { SetupWeather } from "./WeatherPanel";
 import InfoTip from "./InfoTip";
 import Badge from "./Badge";
-import { TIPS } from "../content/explanations";
+import { BADGES, EMBER_M8_SENTENCE, TIPS } from "../content/explanations";
 
 interface PerimeterOverridePanelProps {
   /** ID of the currently active simulation (source config). Null = disabled. */
@@ -67,6 +69,8 @@ interface PerimeterOverridePanelProps {
   onObservedStart?: (inputs: Omit<OverrideInputs, "simulationId">, observationIso: string) => void;
   /** The shown run's active-segment readout (API `active_segments`), if it was a restart */
   runActiveSegments?: ActiveSegmentsInfo | null;
+  /** The shown run's M8 layer status (API `ember_m8`): shown on the map; an error here */
+  runEmberM8?: EmberM8Info | null;
 }
 
 function PerimeterOverridePanel({
@@ -81,6 +85,7 @@ function PerimeterOverridePanel({
   setupWeather = null,
   onObservedStart,
   runActiveSegments = null,
+  runEmberM8 = null,
 }: PerimeterOverridePanelProps) {
   const id = useId();
   const [parseError, setParseError] = useState<string | null>(null);
@@ -91,6 +96,7 @@ function PerimeterOverridePanel({
   const hotspotRef = useRef<HTMLInputElement>(null);
   const firmsRef = useRef<HTMLInputElement>(null);
   const [classifying, setClassifying] = useState(false);
+  const [emberM8, setEmberM8] = useState(false);
   const { state } = recon;
 
   const processFile = useCallback(
@@ -122,6 +128,7 @@ function PerimeterOverridePanel({
   const atInputs = toDateTimeInputs(at.getTime());
   const marked = state.mode === "marked";
   const classified = state.mode === "classified";
+  const m8Available = emberM8Available(state.mode, recon.lines.length);
 
   const classifyFile = (file: File, kind: "hotspots" | "firms") => {
     if (!state.perimeter) return;
@@ -175,6 +182,7 @@ function PerimeterOverridePanel({
       weather: restartWeather?.weather ?? null,
       fwi: setupWeather?.fwi ?? null,
       schedule: restartWeather?.schedule ?? null,
+      emberM8: emberM8 && m8Available,
     };
     try {
       if (simulationId) onOverrideStart(buildOverrideRequest({ ...inputs, simulationId }));
@@ -463,6 +471,32 @@ function PerimeterOverridePanel({
             </fieldset>
           )}
 
+          {state.perimeter && (
+            <fieldset className="field-group recon-ember-m8" data-testid="recon-ember-m8">
+              <legend>3 · Spot-fire likelihood (opt-in)</legend>
+              <div className="with-tip">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={emberM8 && m8Available}
+                    disabled={disabled || !m8Available}
+                    onChange={(e) => setEmberM8(e.target.checked)}
+                    aria-describedby={`${id}-m8-hint`}
+                    data-testid="recon-ember-m8-toggle"
+                  />
+                  Spot-fire likelihood (M8)
+                </label>
+                <Badge tone="warn">{BADGES.relativeOnly}</Badge>
+                <InfoTip label="About the spot-fire likelihood layer" text={TIPS.emberM8} />
+              </div>
+              <p className="hint-sm" id={`${id}-m8-hint`}>
+                {m8Available
+                  ? `M8 ${EMBER_M8_SENTENCE}. Relative tiers only · not calibrated.`
+                  : `Disabled: ${EMBER_M8_NEEDS_EDGE} (mark or classify active edges).`}
+              </p>
+            </fieldset>
+          )}
+
           <div className="recon-controls">
             <label className="recon-label">
               Predict
@@ -526,6 +560,11 @@ function PerimeterOverridePanel({
               <Badge tone="neutral" testId="recon-run-readout">{`This run: ${runReadout}`}</Badge>
               <InfoTip label="About the static share" text={TIPS.staticShare} />
             </div>
+          )}
+          {runEmberM8?.error && (
+            <p className="recon-error" role="status" data-testid="recon-ember-m8-error">
+              Spot-fire likelihood {runEmberM8.error}
+            </p>
           )}
           {parseError && <div className="recon-error" role="alert">{parseError}</div>}
         </>

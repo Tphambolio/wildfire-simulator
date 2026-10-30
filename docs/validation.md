@@ -59,6 +59,75 @@ registered result unchanged. Community arrival on 14 pre-registered fire-days wi
 reached communities unreached within 24 h: they are level with each other but neither times
 community arrival well on these days.
 
+
+**Long-range embers v8: M8 (2026-10-29, [R70]).** Pre-registered (`docs/PREREG_LR8.md`): the v8 ember model
+M8 ranks where new VIIRS spot fires start 1-15 km beyond the observed perimeter better than a
+fuel-and-distance baseline on 203 decision fires FireSim never used (S3 +0.147, 95 % +0.098 to +0.194,
+p = 5 × 10⁻⁵; AUC 0.71 Canada, 0.64 US). Ported unchanged into the engine as an opt-in, relative-only layer
+on runs with an observed active edge. Not calibrated, weaker with distance, no better than ELMFIRE. See
+"Long-range embers v8 (M8, 2026-10-29)".
+
+## Long-range embers v8 (M8, 2026-10-29)
+
+**Source.** [R70] *Long-range embers v8 result 2026-10-29*; `docs/PREREG_LR8.md` frozen at `6452c1d` with addenda
+A1 `e0df434`, A2 `9fe3a0f`, A3 `1c67168`, A4 `1b55caf`. Owner approval to port into the engine: Travis Kennedy,
+2026-10-29.
+
+**The test (target L).** Given the observed perimeter at the start of each VIIRS interval (≤ 12 h), its active
+segments (edge cells with a nominal/high VIIRS detection within 1 km in the 12 h before) and station weather, rank
+every burnable 375 m cell 1-15 km out by M8 and by the baseline B1 (Beverly et al. 2021 hazard share within
+500 m × exp(−(d − 1 km)/1.24 km) × the ±45° downwind sector); score the percentile rank of each new VIIRS-detected
+spot fire (a cluster ≥ 1 km beyond the perimeter that later burned). Sequential draw of decision fires in a
+sealed order until 150 jumps (≥ 60 per region).
+
+**Result: PASS on all four registered criteria.** K = 176 jumps (CAN 96, US 80); transfer gate failed on 3 of
+203 fires; S3(M8 − B1) +0.147 (95 % +0.098 to +0.194), one-sided sign-flip p = 5.0 × 10⁻⁵, 159 ranked jumps in
+73 fires; region AUC(M8) 0.710 (Canada), 0.642 (US). Holds by region and in the sensitivities (no
+"never-detected" gap +0.105; jumps ≥ 2 km +0.135).
+
+**Caveats (these govern how FireSim shows M8).**
+
+- **Not calibrated.** Predicted spots were ×0.4 of observed in Canada and ×6 in the US; the Brier score of
+  P(any jump per interval) (0.0303) was worse than climatology (0.0256). FireSim therefore shows **relative
+  likelihood only** (tiers by rank), never spot counts, probabilities or percentages.
+- **Weaker at longer distances.** AUC 0.72 at 1-2 km, 0.66 at 2-3 km, 0.59 at 3-15 km; the predicted tail
+  P(> 3 km)/P(> 1 km) is 0.05 against 0.19 observed. The fit set β_L = −4.67: the long mode carries about 1 %
+  of the short mode.
+- **No better than ELMFIRE.** On the 52 subset fires with ranked jumps, M8 − ELMFIRE −0.014 (95 % −0.074 to
+  +0.040); ELMFIRE (untuned, black box) is a never-deciding comparator.
+- **Does not respond to wind speed.** The fitted bed-wind coefficient β_w = 0 (at its bound): wind sets only the
+  landing direction and the short-mode distance, not establishment.
+- **The baseline was weak.** B1 AUC 0.571 (Canada), 0.489 (US) against the planned 0.65; the margin is large
+  partly because the baseline is near chance.
+- **Canadian sample narrow.** Station eligibility (≥ 50 % hourly coverage within 50 km) left 63 of 200 Canadian
+  fires, mostly near airports; no cloud mask (A2.7).
+- **Fuel seam.** A post-hoc check that restricted Canadian fuel to hazard class left M8's margin intact ([R70] addendum, branch feat/lr8-next).
+
+**In the engine (opt-in; `firesim.spread.embers_m8`, API `ember_m8`).** The frozen model is ported without refit
+or tuning: coefficients b0 −22.670412340012348, b_w 0, b_L −4.67467954790124, b_m −0.24413606414846878
+(`validation-data/v8-pool/fit/fit_beta.json`, sha256 `fda5706c…c425`, fit commit `9fe3a0f`), the same 125 m grid,
+375 m candidate cells 1-15 km out, active-edge sources, FBP intensity at the spread rate, Sardoy/lognormal
+kernels and WAF fuel groups (0.4 grass, 0.2 D/M, 0.15 C/S). **Parity:** on two intervals each of two v8 decision
+fires (NBAC:2018_780, MTBS:AZ3368910927620210616) the engine reproduces the v8 landing statistics A exactly
+(max relative difference 0) and the v8 `m8_score` to within 2.3 × 10⁻¹⁰ absolute (4.5 × 10⁻⁸ relative, from
+the v8 file's float32 zone weather) under v8's own SciPy 1.17.1. Under SciPy 1.18 (CI) the float32 FFT round-off of
+the landing convolution changes near-zero cells: largest score difference 3.1 × 10⁻⁹ absolute, inside the round-off
+bound the test propagates (10⁻⁶ of the interval's largest A); tiers agree on every cell above the round-off level (`engine/tests/spread/test_embers_m8_parity.py`, fixture
+README `engine/tests/spread/data/m8_parity/`).
+
+Engine-side choices (not part of the tested model): offered only on runs with an observed active edge (RPAS
+restart, observed-perimeter run with marked or classified edges); a plain-ignition run shows the option
+disabled ("needs an observed active edge"); use from a simulated edge waits for PREREG_LR8S [R73]. One weather
+zone: the run's weather over the first min(duration, 12) h, hourly values averaged as v8 did. Spread rate at
+the source: from an earlier observed perimeter when the request gives one, else the v8 floor 0.5 m/min (v8's
+rule for a fire's first interval; the app does not send one yet). Fuel types are sampled from the run's fuel
+grid at the 125 m cell centres (off the grid: non-fuel, no candidate) and grass curing is the run's, not v8's
+MODIS NDVI curing. Tiers: higher = top 10 % of candidate cells by rank, middle = next 20 %, lower = rest; a cell
+outside every landing kernel's reach is lower (the float32 landing field holds FFT round-off up to about 10⁻⁴
+of the highest cell there); this reach rule is display-only and leaves the v8 ranks unchanged. FireSim's
+simulated spread rate is never substituted for the observed one (that is PREREG_LR8S territory). The existing
+Albini ember option is unchanged.
+
 ## Rescored on the pre-fire fuel grid (2026-10-15)
 
 **In short:** scored on the fuel FireSim actually uses for a dated historical run in Alberta
