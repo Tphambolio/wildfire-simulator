@@ -85,6 +85,8 @@ def main() -> int:
         sid = meta["zone_station"][0]; st = next(s for s in meta["stations"] if s["sid"] == sid)
         st_lon, st_lat = tr.transform(st["x"], st["y"])  # meta.stations holds grid-CRS x, y
         ivf = iv[iv.fire_key == k]
+        if ivf.empty or pd.isna(ivf.t_start.min()):
+            log(k, "no valid intervals: skipped"); continue
         start = pd.Timestamp(ivf.t_start.min()).normalize() - pd.Timedelta(days=1); end = pd.Timestamp(ivf.t_end.max()).normalize() + pd.Timedelta(days=1)
         w_st = fetch(st_lat, st_lon, start, end, f"{k.replace(':', '_')}_station"); w_bx = fetch(lat_c, lon_c, start, end, f"{k.replace(':', '_')}_box")
         for r in ivf.itertuples():
