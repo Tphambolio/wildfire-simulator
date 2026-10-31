@@ -192,3 +192,30 @@ pool E had been simulated, catalogued or scored when this was committed. Develop
   - **Slip disclosed.** The first diagnostic retry (CAN 296) was run by mistake in training mode (`v8.inputs` CLI,
     `blind=False`). It read only the training and decision FIRMS caches, found no rows for this fire (`None` window),
     and wrote an ineligible `meta.json`. That file was deleted with `rm` (a permanent delete, against the owner rule to move files to the trash with `gio trash`) before the blind rebuild. No held-out data was read.
+
+
+- **Local SCANFI copy and the draw's SCANFI reads (2026-10-31; shared draw, same text as PREREG_LR8C A4; record only, decision pending).**
+  - **Copy.** The 26 national files the runner reads (SCANFI v2 release 20260119, 13 layers × epochs 2015 and 2020,
+    44.85 GB) were downloaded unchanged from the registered URLs on 2026-10-30 as a contingency (owner approval
+    10:20 MDT) to `validation-data/v8-pool/raw/scanfi_v2_national/`. URLs, byte counts and sha256 are in its
+    `README.md` and `_about.json`. Code: `scanfi_national.py` on branch `park/scanfi-local-reader` (34bb1e4).
+  - **Where it was used.** The main draw pass read only the NRCan server. It finished all 542 fires on 2026-10-30
+    (pool A CAN 277, US 103; pool E CAN 162). Draw pass 2 (23:11-23:35 UTC) and the ECCC pass (to 23:48 UTC) ran
+    with a working-tree `inputs.py` (sha256 `9cca7875…56f6`, now committed on the side branch, not in the draw path)
+    that reads a clip from the local copy when that file's download is complete. Every file was complete by then.
+    So **24 pool fires** (the fires that had errored on the server; all eligible) and the **19 ECCC-eligible fires**
+    took some or all SCANFI clips from the local copy. Their meta.json `scanfi_cache` says `local_national_clip`.
+    The intended order was equivalence first, then use. The use came first because the chain started pass 2 by
+    itself when the main pass ended.
+  - **Equivalence (12 server-built Canadian fires, 2018-2025, both epochs, 2 multi-zone; blind inputs only).** On
+    11 fires, all 13 clips and the whole fuel array are identical. On NBAC:2025_179 the server clip of
+    `spsCC_otherConiferous` is all nodata (255). The local copy has values there, and 441 of 123,264 fuel cells
+    differ.
+  - **Audit of all 2,275 cached server clips** against the same windows of the local copy (`logs/
+    scanfi_clip_audit_2026-10-31.json`): 2,272 are identical. 3 are all-nodata server artefacts, each in an
+    eligible, sealed pool A fire: NBAC:2019_382 (`att_nfiLandcover` 2015; 170,040 of 887,040 fuel cells differ),
+    NBAC:2021_1177 (`att_nfiLandcover` 2020; 18,067 of 227,088), and NBAC:2025_179 (`spsCC_otherConiferous` 2020;
+    441 of 123,264). The server sometimes returned nodata blocks without an error (see A3).
+  - **Not decided here:** whether these 3 fires' blind inputs, intervals and sim edges are rebuilt from correct
+    SCANFI values before `unseal`, or whether they are kept as drawn. Either choice is made and recorded before any
+    sealed file is opened.
