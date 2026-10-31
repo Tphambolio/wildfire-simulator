@@ -229,6 +229,7 @@ def canada_fuel(rec: dict, g: dict, meta: dict) -> np.ndarray:
 
 SCANFI_MIRROR = W / "prefire-data/raw/scanfi"       # sparse Alberta mirror of the same release (backcast.py)
 SCANFI_CACHE = C.DATA / "raw" / "scanfi_v8"          # per-fire clips of the national files
+NATIONAL = C.DATA / "raw" / "scanfi_v2_national"     # local copy of the national files (A4, scanfi_national.py)
 SCANFI_MARGIN_PX = 8                                 # SCANFI pixels (30 m) beyond the run-grid window
 
 
@@ -283,25 +284,32 @@ def scanfi_local(layer: str, epoch: int, gw: dict, fire_key: str, meta: dict, ne
     out.parent.mkdir(parents=True, exist_ok=True)
     from scripts.fuelgrid.backcast import SCANFI
     url = "/vsicurl/" + SCANFI.format(layer=layer, epoch=epoch)
+    # local copy of the same national file (A4): read from it when its download is complete (sha256 sidecar)
+    nat = NATIONAL / Path(url).name
+    use_local = nat.exists() and nat.with_suffix(".tif.json").exists()
+    src = str(nat) if use_local else url
     for k in range(12):
         try:
             with rasterio.Env(**GDAL_REMOTE):
-                with rasterio.open(url) as ds:
+                with rasterio.open(src) as ds:
+                    if ds.crs is None:  # a degraded server response (A3): retry like a read failure
+                        raise rasterio.errors.RasterioIOError("dataset without CRS")
                     win = _scanfi_window(ds, gw)
                     data = ds.read(1, window=win, boundless=True, fill_value=ds.nodata if ds.nodata is not None else 0)
                     tr, crs, nod = wtr(win, ds.transform), ds.crs, ds.nodata
             break
         except rasterio.errors.RasterioIOError:
-            if k == 11:
+            if k == 11 or use_local:
                 raise
             time.sleep(min(600, 60 * (k + 1)))
     tmp = out.with_suffix(".part.tif")
     with rasterio.open(tmp, "w", driver="GTiff", width=data.shape[1], height=data.shape[0], count=1, dtype=data.dtype,
                        crs=crs, transform=tr, nodata=nod, tiled=True, compress="deflate") as d:
         d.write(data, 1)
-        d.update_tags(source="NRCan " + url[9:], release="SCANFI v2 20260119", layer=layer, epoch=str(epoch))
+        d.update_tags(source="NRCan " + url[9:], release="SCANFI v2 20260119", layer=layer, epoch=str(epoch),
+                      via="local copy (A4)" if use_local else "NRCan server")
     tmp.rename(out)
-    src_log[layer] = "nrcan_server_clip"
+    src_log[layer] = "local_national_clip" if use_local else "nrcan_server_clip"
     return str(out)
 
 
